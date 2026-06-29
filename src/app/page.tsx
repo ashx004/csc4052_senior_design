@@ -1,6 +1,4 @@
-import React from 'react';
-
-export default function App() {
+export default function Home() {
   const greeting: string = "s t u d o r a .";
 
   return (
