@@ -1,7 +1,7 @@
 import "@/src/styles/ClassCard.css";
 
-// to hold props
-interface ClassCardProps {
+// to hold props for class information for later user input
+export interface ClassCardProps {
   courseName?: string;
   courseCode?: string;
   term?: string;
@@ -10,17 +10,19 @@ interface ClassCardProps {
 }
 
 export default function ClassCard({
-  courseName = "Introduction to Psychology",
-  courseCode = "PSYC 101",
-  term = "Spring 2026",
+  courseName,
+  courseCode,
+  term,
   color = "#0a2a3c",
   href = "#",
 }: ClassCardProps) {
+
 
   return (
     <div className="class-card">
       {/* Banner */}
       <div className="class-card-banner" style={{ background: color }} />
+      
 
       {/* Body */}
       <div className="class-card-body">
@@ -39,6 +41,7 @@ export default function ClassCard({
           </a>
         ))}
       </div>
+
     </div>
   );
 }
