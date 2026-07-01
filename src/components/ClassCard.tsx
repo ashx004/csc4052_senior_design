@@ -32,14 +32,14 @@ export default function ClassCard({
         <p className="class-card-term">{term}</p>
       </div>
 
-      {/* Nav row */}
+      {/* Nav row
       <div className="class-card-nav">
         {["Home", "Announcements", "Assignments", "Grades"].map((label) => (
           <a key={label} href="#">
             {label}
           </a>
         ))}
-      </div>
+      </div> */}
     </div>
   );
 }
