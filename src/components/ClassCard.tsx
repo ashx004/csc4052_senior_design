@@ -1,4 +1,4 @@
-import "./ClassCard.module.css";
+import "./ClassCard.css";
 
 // to hold props for class information for later user input
 export interface ClassCardProps {
@@ -22,7 +22,6 @@ export default function ClassCard({
     <div className="class-card">
       {/* Banner */}
       <div className="class-card-banner" style={{ background: color }} />
-      
 
       {/* Body */}
       <div className="class-card-body">
@@ -41,7 +40,6 @@ export default function ClassCard({
           </a>
         ))}
       </div>
-
     </div>
   );
 }
