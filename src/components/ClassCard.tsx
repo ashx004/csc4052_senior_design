@@ -1,4 +1,4 @@
-import "@/src/styles/ClassCard.css";
+import "./ClassCard.module.css";
 
 // to hold props for class information for later user input
 export interface ClassCardProps {
