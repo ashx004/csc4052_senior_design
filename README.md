@@ -4,7 +4,7 @@
 
 1.) Clone the repository: 
 * ssh: `git clone git@github.com:ashx004/csc4052_senior_design.git`
-* https: `git clone https://github.com/ashx004/csc4052_senior_design.git`
+* https: `git clone https://github.com/ashx004/csc4052_senior_design`
 
 2.) Navigate to the directory
 
