@@ -19,18 +19,18 @@ export default function Home() {
                         <b>Course Name:</b><br/>
                         CSC 4052
                     </div>
-                    <div className="">
+                    <div className="w-[75%] mt-2">
                         <b>Course Desc:</b><br/>
                         Senior Capstone I is the first of two courses that 
                         compose the Computer Science Senior Design series. 
                         Upon completion of this course, students and their 
                         teams will continue development on their current projects 
-                        into Senior Capston II. <br/>
+                        into Senior Capston II.
                         
                     </div>
-                    <div>
+                    <div className="mt-2">
                         <b>Course Schedule:</b><br/>
-                        MWF 10 am - 11:15 am <br/>
+                        MWF 10 am - 11:15 am
                     </div>
                 </div>
 
@@ -40,15 +40,15 @@ export default function Home() {
                         <b>Instructor:</b><br/>
                         Kyle Prather
                     </div>
-                    <div className="">
+                    <div className="mt-2">
                         <b>Office hours:</b><br/>
                         MWF 9 am - 4 pm
                     </div>
-                    <div className="">
+                    <div className="mt-2">
                         <b>Insructor Email:</b><br/>
                         kprather@latech.edu
                     </div>
-                    <div className="">
+                    <div className="mt-2">
                         <b>Instructor Phone Number:</b><br/>
                         (225) 998-2077
                     </div>
@@ -60,22 +60,17 @@ export default function Home() {
                 <b className="text-xl">Course Resources:</b>
                 {/* Resources displayed */}
                 <div className="flex justify-center p-2">
-                    <div className="px-4">
-                        Syllabus, 
+                    <div className="mx-4 w-[33%] shadow-2xl hover:scale-105">
+                        <img src="/example-document.png" alt="Document 1"/>
                     </div>
-                    <div className="px-4">
-                        Assignment 1, 
+                    <div className="mx-4 w-[33%] shadow-2xl hover:scale-105">
+                        <img src="/example-document.png" alt="Document 2"/>
                     </div>
-                    <div className="px-4">
-                        Assignment 2,
+                    <div className="mx-4 w-[33%] shadow-2xl hover:scale-105">
+                        <img src="/example-document.png" alt="Document 3"/>
                     </div>
                 </div>
             </div>
-
-            {/* Footer */}
-            <p className="text-black font-mono font-thin text-sm mt-20">
-            S t u d o r a | More than just notes !
-            </p>
         </div>
     </body>
   );
