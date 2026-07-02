@@ -12,9 +12,8 @@ export default function Home() {
             </h1>
 
             {/* General Information */}
-            <div className="flex rounded-2xl m-auto justify-center w-[50%] bg-gray-200 p-5">
-                {/* Left Info */}
-                {/* Description and schedule */}
+            <div className="flex rounded-2xl m-auto justify-center bg-gray-200 p-5 mt-3 mx-[15%]">
+                {/* Left Info: Course Description and schedule */}
                 <div className="grid text-left px-2 w-[50%]">
                     <div className="text-2xl">
                         <b>Course Name:</b><br/>
@@ -22,8 +21,10 @@ export default function Home() {
                     </div>
                     <div className="">
                         <b>Course Desc:</b><br/>
-                        Senior Capstone I is the first of two courses that compose the Computer Science Senior Design series. Upon completion of 
-                        this course, students and their teams will continue development on their current projects 
+                        Senior Capstone I is the first of two courses that 
+                        compose the Computer Science Senior Design series. 
+                        Upon completion of this course, students and their 
+                        teams will continue development on their current projects 
                         into Senior Capston II. <br/>
                         
                     </div>
@@ -33,7 +34,7 @@ export default function Home() {
                     </div>
                 </div>
 
-                {/* Right, Stacked Info */}
+                {/* Right, Stacked Instructor Info*/}
                 <div className="grid text-left px-2 w-[50%]">
                     <div className=" text-2xl">
                         <b>Instructor:</b><br/>
@@ -55,24 +56,25 @@ export default function Home() {
             </div>
 
             {/* Uesr-Course Resources */}
-            <div className="bg-grey-200">
+            <div className="rounded-2xl m-auto justify-center bg-gray-200 p-2 mt-2.5 mx-[20%]">
                 <b className="text-xl">Course Resources:</b>
+                {/* Resources displayed */}
                 <div className="flex justify-center p-2">
-                    <div>
+                    <div className="px-4">
                         Syllabus, 
                     </div>
-                    <div>
+                    <div className="px-4">
                         Assignment 1, 
                     </div>
-                    <div>
+                    <div className="px-4">
                         Assignment 2,
                     </div>
                 </div>
             </div>
 
             {/* Footer */}
-            <p className="text-black font-mono font-thin text-sm mt-6">
-            More than just notes !
+            <p className="text-black font-mono font-thin text-sm mt-20">
+            S t u d o r a | More than just notes !
             </p>
         </div>
     </body>
