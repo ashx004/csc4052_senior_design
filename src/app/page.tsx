@@ -1,10 +1,20 @@
+// import { db, auth } from "@/lib/firebase";
+import Link from "next/link";
+
 export default function Home() {
   const greeting: string = "s t u d o r a .";
 
   return (
-    <div className="flex min-h-screen justify-center bg-orange-50 pt-40">
+    <div className="flex min-h-screen justify-center bg-orange-50">
       <div className="text-center">
-        <h1 className="text-4xl font-bold text-black font-sans mb-2">
+
+        <img
+          src="/app-logo.png"
+          alt="studora logo"
+          className="w-85 h-85"
+        />
+
+        <h1 className="text-4xl font-bold text-black font-sans">
           {greeting}
         </h1>
 
@@ -12,21 +22,23 @@ export default function Home() {
           More than just notes !
         </p>
 
-        <div className="mt-40 flex flex-col items-center">
-          <button className="bg-transparent font-thin text-sm underline
-          text-black font-mono cursor-pointer px-4 py-1 rounded 
-          hover:bg-gray-100 active:bg-gray-200">
-            Log-In
-          </button>
+        <div className="mt-20 flex flex-col items-center">
+          <Link href="/login">
+            <button className="bg-transparent font-thin text-sm underline
+            text-black font-sans cursor-pointer px-4 py-1 rounded 
+            hover:bg-gray-100 active:bg-gray-200">
+              Log-In
+            </button>
+          </Link>
 
           <button className="mt-2 bg-transparent font-thin text-sm underline
-          text-black font-mono cursor-pointer px-3 py-1 rounded 
+          text-black font-sans cursor-pointer px-3 py-1 rounded 
           hover:bg-gray-100 active:bg-gray-200">
             Create a new account
           </button>
 
-          <button className="mt-20 bg-white font-thin text-sm
-          text-black font-mono cursor-pointer px-10 py-2 rounded 
+          <button className="mt-24 bg-white font-thin text-sm
+          text-black font-sans cursor-pointer px-10 py-2 rounded 
           hover:bg-gray-100 active:bg-gray-200 flex items-center 
           gap-2">
             <span> Sign in with Google </span>
