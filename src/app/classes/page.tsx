@@ -2,7 +2,8 @@ import ClassCard, { ClassCardProps } from '@/src/components/ClassCard';
 import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
 
-// database fields
+// database fields that a class should have
+// note that only className, classCode, and term are required, the rest are optional
 export interface ClassProps {
     className: string;
     classCode: string;
@@ -61,7 +62,7 @@ async function getAllEnrollments(userId: string): Promise<ClassCardProps[]> {
 }
 
 export default async function Classes() {
-
+    // TODO: when auth is implemented, replace "12345678" with the current user's ID
     const enrollments: ClassCardProps[] = await getAllEnrollments("12345678").then((enrollments) => {
         return enrollments;
     }).catch((error) => {
