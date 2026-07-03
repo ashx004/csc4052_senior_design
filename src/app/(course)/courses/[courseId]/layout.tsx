@@ -1,12 +1,19 @@
-export default function CourseLayout({
+import CourseSidebar from "@/src/components/CourseSidebar";
+ 
+export default async function CourseLayout({
   children,
-}: Readonly<{ children: React.ReactNode }>) {
+  params,
+}: {
+  children: React.ReactNode;
+  params: Promise<{ courseId: string }>;
+}) {
+  const { courseId } = await params;
+ 
   return (
-    <div className="flex min-h-screen">
-      <aside className="w-56 shrink-0 border-r border-gray-200">
-        {/* TODO: course navigation (notes, learning, summaries, assignments, due dates) */}
-      </aside>
-      <main className="flex-1">{children}</main>
+    <div className="flex h-screen">
+      <CourseSidebar courseId={courseId} />
+      <main className="flex-1 overflow-y-auto">{children}</main>
     </div>
   );
 }
+ 
