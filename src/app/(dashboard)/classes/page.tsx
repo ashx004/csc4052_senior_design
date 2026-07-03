@@ -16,6 +16,8 @@ export interface ClassProps {
     classSchedule?: string;
 }
 
+// TODO: test with auth when implemented
+// the hope is that the auth system will store UID once logged in so we can route grab classes for the current user
 async function getEnrollment(
     userId: string,
     enrollmentId: string
@@ -43,6 +45,7 @@ async function getEnrollment(
     }
 }
 
+// TODO: test with auth when implemented
 async function getAllEnrollments(userId: string): Promise<ClassCardProps[]> {
     const enrollmentRef = collection(db, "users", userId, "enrollment");
     const querySnapshot = await getDocs(enrollmentRef);
