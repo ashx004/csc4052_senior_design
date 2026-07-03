@@ -1,4 +1,4 @@
-import GeneralSidebar from "@/src/components/GeneralSidebar";
+import GeneralSidebar from "@/src/components/Sidebar/GeneralSidebar";
  
 export default function DashboardLayout({
   children,
