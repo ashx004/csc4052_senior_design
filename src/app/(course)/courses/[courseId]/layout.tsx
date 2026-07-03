@@ -1,4 +1,4 @@
-import CourseSidebar from "@/src/components/CourseSidebar";
+import CourseSidebar from "@/src/components/Sidebar/CourseSidebar";
  
 export default async function CourseLayout({
   children,
