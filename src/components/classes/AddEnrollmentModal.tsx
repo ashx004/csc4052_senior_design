@@ -2,8 +2,10 @@
 
 import { useState, ChangeEvent, FormEvent } from 'react';
 import { EnrollmentFields } from '@/src/app/(dashboard)/classes/page'; // Adjust this import path to where your interface lives
+import { addDoc, collection } from 'firebase/firestore';
+import { db } from '@/src/library/firebase';
 
-export default function AddClassModal() {
+export default function AddEnrollmentModal({ userId }: { userId: string }) {
   const [isOpen, setIsOpen] = useState(false);
   
   // Initialize state with empty strings for all fields
@@ -44,7 +46,7 @@ export default function AddClassModal() {
     });
   };
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
 
     // The required fields validation matching your database requirements
@@ -53,12 +55,16 @@ export default function AddClassModal() {
       return;
     }
 
-    // This object contains all values structured exactly like EnrollmentFields
-    const savedEnrollmentData: EnrollmentFields = { ...formData };
-    
-    console.log("Saved Enrollment Object ready for Firestore:", savedEnrollmentData);
-    
-    // TODO: Wire up your Firestore addDoc() function here using savedEnrollmentData
+    const savedEnrollmentData: EnrollmentFields = { ...formData };    
+
+    try {
+      const enrollmentRef = collection(db, "users", userId, "enrollment");
+      await addDoc(enrollmentRef, savedEnrollmentData);
+    } catch (error) {
+      console.error("Error adding enrollment: ", error);
+      alert("Failed to add class. Please try again.");
+      return;
+    }
 
     handleClose();
   };
