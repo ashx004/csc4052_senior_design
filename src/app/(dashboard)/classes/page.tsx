@@ -78,11 +78,13 @@ export default async function Classes() {
         console.log(enrollment);
     });
 
+    // TODO: REPLACE HARDCODED USERID FIELDS WITH CURRENT USER'S ID WHEN AUTH IS IMPLEMENTED
+
     // empty classes screen case
     if (enrollments.length === 0) {
         return (
             <div className="relative flex min-h-screen items-center justify-center bg-orange-50">
-                <AddEnrollmentModal />
+                <AddEnrollmentModal userId="12345678" />
                 <div className="flex flex-col items-center justify-center min-h-screen py-2">
                     <h1 className="text-4xl font-bold mb-8">Classes</h1>
                     <p className="text-lg text-gray-700">No classes found. Please add a new class.</p>
@@ -93,7 +95,7 @@ export default async function Classes() {
 
     return (
         <div className="relative flex min-h-screen items-center justify-center bg-orange-50">
-            <AddEnrollmentModal />
+            <AddEnrollmentModal userId="12345678" />
             <div className="flex flex-col items-center justify-center min-h-screen py-2">
                 <h1 className="text-4xl font-bold mb-8">Classes</h1>
                 <div className="flex flex-wrap justify-center gap-8">
