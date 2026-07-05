@@ -1,20 +1,21 @@
 import "./ClassCard.css";
+import Link from 'next/link';
 
 // to hold props for class information for later user input
 export interface ClassCardProps {
-  courseName?: string;
-  courseCode?: string;
+  classId?: string;
+  className?: string;
+  classCode?: string;
   term?: string;
   color?: string;
-  href?: string;
 }
 
 export default function ClassCard({
-  courseName,
-  courseCode,
+  classId: classId,
+  className: className,
+  classCode: classCode,
   term,
   color = "#0a2a3c",
-  href = "#",
 }: ClassCardProps) {
 
 
@@ -25,10 +26,10 @@ export default function ClassCard({
 
       {/* Body */}
       <div className="class-card-body">
-        <a href={href} className="class-card-title" style={{ color }}>
-          {courseName}
-        </a>
-        <p className="class-card-code">{courseCode}</p>
+        <Link href={`/courses/${classId}`} className="class-card-title" style={{ color }}>
+          {className}
+        </Link>
+        <p className="class-card-code">{classCode}</p>
         <p className="class-card-term">{term}</p>
       </div>
 
