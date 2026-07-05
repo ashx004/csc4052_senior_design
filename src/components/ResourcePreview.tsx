@@ -10,6 +10,7 @@ import {
     GalleryHorizontal,
     Upload,
     CheckSquare,
+    Square,
     Trash2,
     Search,
     Filter,
@@ -24,6 +25,11 @@ import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 // @ts-ignore — docx-preview does not ship official TypeScript types
 import { renderAsync } from "docx-preview";
 import CircleIconButton from "./CircleIconButton";
+
+// 1. Define the props to accept the array from your page file
+interface ResourcePreviewProps {
+    resources: any[]; // The list of files pulled from your course page template
+}
 
 export type Category = "classDoc" | "notes" | "assignments";
 
@@ -140,8 +146,20 @@ const VIEW_META: Record<ViewMode, { icon: JSX.Element; label: string }> = {
     closeup: { icon: <GalleryHorizontal size={15} />, label: "Close-up view" },
 };
 
-function formatRelativeDate(date: Date): string {
-    const diffDays = Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24));
+function formatRelativeDate(date: any): string {
+    if (!date) return "Just now";
+    
+    // 1. Clean the input variable and normalize it to a native JS Date object
+    const jsDate = typeof date.toDate === 'function' ? date.toDate() : new Date(date);
+    
+    // 2. Double check that it parsed into a valid timestamp integer
+    if (isNaN(jsDate.getTime())) {
+        return "Just now";
+    }
+    
+    // 3. 🚨 FIX: Use jsDate here instead of the raw parameter variable!
+    const diffDays = Math.floor((Date.now() - jsDate.getTime()) / (1000 * 60 * 60 * 24));
+    
     if (diffDays <= 0) return "Today";
     if (diffDays === 1) return "Yesterday";
     if (diffDays < 7) return `${diffDays} days ago`;
@@ -175,11 +193,18 @@ function FileThumbnail({ fileType }: { fileType: FileType }) {
     );
 }
 
-export default function ResourcePreview() {
-    const [resources, setResources] = useState<Resource[]>(REAL_RESOURCES);
+export default function ResourcePreview({ resources: initialResources }: ResourcePreviewProps) {
+    // 3. Initialize your local state using the incoming Firebase array!
+    const [resources, setResources] = useState<any[]>(initialResources);
+    
+    // Sync local state if the incoming database array changes
+    useEffect(() => {
+        setResources(initialResources);
+    }, [initialResources]);
+
     const [viewMode, setViewMode] = useState<ViewMode>("tile");
     const [activeIndex, setActiveIndex] = useState(0);
-    const [previewResource, setPreviewResource] = useState<Resource | null>(null);
+    const [previewResource, setPreviewResource] = useState<any | null>(null);
 
     const [selectMode, setSelectMode] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -285,8 +310,6 @@ export default function ResourcePreview() {
 
         const type = previewResource.fileType;
 
-        // pdf renders via iframe directly, zip shows a static download prompt —
-        // neither needs a fetch
         if (type === "pdf" || type === "zip") {
             setPreviewLoading(false);
             setPreviewError(null);
@@ -300,19 +323,38 @@ export default function ResourcePreview() {
 
         async function load() {
             try {
+                const res = await fetch(previewResource!.url);
+                if (!res.ok) throw new Error("File not found");
+
                 if (type === "docx") {
-                    const res = await fetch(previewResource!.url);
-                    if (!res.ok) throw new Error("File not found");
                     const arrayBuffer = await res.arrayBuffer();
-                    if (cancelled || !docxContainerRef.current) return;
-                    docxContainerRef.current.innerHTML = "";
-                    await renderAsync(arrayBuffer, docxContainerRef.current);
+                    if (cancelled) return;
+
+                    // Gives React time to paint the preview container to the DOM layout
+                    setTimeout(async () => {
+                        if (cancelled) return;
+                        if (!docxContainerRef.current) {
+                            setPreviewError("Preview window container initialization failed.");
+                            setPreviewLoading(false);
+                            return;
+                        }
+                        try {
+                            docxContainerRef.current.innerHTML = "";
+                            await renderAsync(arrayBuffer, docxContainerRef.current);
+                        } catch (renderErr) {
+                            console.error("docx render parser crash:", renderErr);
+                            setPreviewError("The structural formatting of this word document is not supported for web rendering.");
+                        } finally {
+                            setPreviewLoading(false);
+                        }
+                    }, 50);
+
                 } else {
-                    // any CODE_TYPES key, including txt
-                    const res = await fetch(previewResource!.url);
-                    if (!res.ok) throw new Error("File not found");
                     const text = await res.text();
-                    if (!cancelled) setPreviewText(text);
+                    if (!cancelled) {
+                        setPreviewText(text);
+                        setPreviewLoading(false);
+                    }
                 }
             } catch (err) {
                 console.error("Error loading preview:", err);
@@ -320,9 +362,8 @@ export default function ResourcePreview() {
                     setPreviewError(
                         "Couldn't load this file. Make sure it's been placed in your project's public/resources folder."
                     );
+                    setPreviewLoading(false);
                 }
-            } finally {
-                if (!cancelled) setPreviewLoading(false);
             }
         }
 
@@ -582,17 +623,13 @@ export default function ResourcePreview() {
                                 </div>
                             </button>
                             {selectMode && (
-                                <CircleIconButton
-                                    icon={<CheckSquare size={15} />}
-                                    ariaLabel="Select files"
-                                    size="sm"
-                                    variant={selectMode ? "accent" : "default"}
-                                    onClick={() => {
-                                        setSelectMode((s) => !s);
-                                        setSelectedIds(new Set());
-                                    }}
-                                    disabled={resources.length === 0}
-                                />
+                                <div className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center">
+                                    {selectedIds.has(resource.id) ? (
+                                        <CheckSquare size={16} className="text-[#B08957]" />
+                                    ) : (
+                                        <Square size={16} className="text-[#C7BBA0]" />
+                                    )}
+                                </div>
                             )}
                         </div>
                     ))}
@@ -672,6 +709,7 @@ export default function ResourcePreview() {
                             {formatRelativeDate(activeResource.lastViewedAt)}
                         </p>
                     )}
+
                     <div className="mt-1 flex items-center justify-center gap-2">
                         <p className="text-center text-xs text-[#8A8477]">
                             {activeIndex + 1} of {sortedResources.length}
@@ -689,6 +727,7 @@ export default function ResourcePreview() {
                                 disabled={resources.length === 0}
                             />
                         )}
+                        
                     </div>
                 </div>
             )}
@@ -720,6 +759,24 @@ export default function ResourcePreview() {
                                         Download
                                     </a>
                                 </div>
+                            ) : previewResource.fileType === "docx" ? (
+                                <>
+                                    <div
+                                        ref={docxContainerRef}
+                                        className="docx-render-container mx-auto max-w-3xl bg-white p-6 shadow-sm min-h-[400px]"
+                                    />
+                                    {previewLoading && (
+                                        <div className="absolute inset-0 flex items-center justify-center gap-2 bg-[#F5F3EE]/80 text-sm text-[#8A8477]">
+                                            <Loader2 size={16} className="animate-spin" />
+                                            Loading preview...
+                                        </div>
+                                    )}
+                                    {previewError && (
+                                        <div className="absolute inset-0 flex items-center justify-center bg-[#F5F3EE] p-6 text-center text-sm text-[#C2685A]">
+                                            {previewError}
+                                        </div>
+                                    )}
+                                </>
                             ) : previewLoading ? (
                                 <div className="flex h-full items-center justify-center gap-2 text-sm text-[#8A8477]">
                                     <Loader2 size={16} className="animate-spin" />
@@ -729,8 +786,6 @@ export default function ResourcePreview() {
                                 <div className="flex h-full items-center justify-center p-6 text-center text-sm text-[#C2685A]">
                                     {previewError}
                                 </div>
-                            ) : previewResource.fileType === "docx" ? (
-                                <div ref={docxContainerRef} className="docx-render-container mx-auto max-w-3xl bg-white p-6 shadow-sm" />
                             ) : previewText !== null ? (
                                 <SyntaxHighlighter
                                     language={CODE_TYPES[previewResource.fileType as CodeType].prismLanguage}

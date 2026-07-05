@@ -1,3 +1,18 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+
+/* Override docx-preview default page styling for a seamless web look */
+.docx-render-container .docx-wrapper {
+    background: transparent !important; /* Removes the dark grey desktop background */
+    padding: 0 !important;              /* Removes the forced outer wrapper padding */
+}
+
+.docx-render-container .docx {
+    box-shadow: none !important;        /* Removes the harsh black/grey drop shadow around the page */
+    border: none !important;            /* Removes the artificial page border border */
+    margin-bottom: 0 !important;        /* Prevents weird bottom spacing issues */
+    padding: 1rem !important;           /* Normalizes the inner padding to fit your Tailwind modal */
+    width: 100% !important;             /* Ensures it takes up the full width of your max-w-3xl container */
+}
