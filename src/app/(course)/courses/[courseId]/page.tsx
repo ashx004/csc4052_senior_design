@@ -1,6 +1,9 @@
+import { Pencil } from 'lucide-react';
+import CircleIconButton from '@/src/components/CircleIconButton';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
 import { EnrollmentFields } from '@/src/app/(dashboard)/classes/page';
+import ResourcePreview from '@/src/components/ResourcePreview';
 
 // TODO: test with auth when implemented
 async function getEnrollment(
@@ -86,30 +89,61 @@ export default async function CourseOverview({
                 </div>
 
                 {/* Info cards */}
-
-                {/* CLASS DETAILS */}
                 <div className="grid gap-4 sm:grid-cols-2">
                     <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-[#EDE6D8]">
-                        <h2 className="text-sm font-semibold text-[#3D3A34]">Class Details</h2>
+
+                      {/* CLASS DETAILS */}
+                        <div className="flex items-center justify-between">
+                          <h2 className="text-sm font-semibold text-[#3D3A34]">Class Details</h2>
+                          <CircleIconButton
+                              icon={<Pencil size={14} />}
+                              ariaLabel="Edit class details"
+                              size="sm"
+                            />
+                        </div>
                         <dl className="mt-4 space-y-3">
-                            <div>
-                                <dt className="text-xs text-[#8A8477]">Schedule</dt>
-                                <dd className="mt-0.5 text-sm text-[#3D3A34]">
-                                    {enrollment.classSchedule || "Not provided"}
-                                </dd>
+
+                            <div className="flex mt-4 space-x-[20%]">
+                                <div>
+                                    <dt className="text-xs text-[#8A8477]">Schedule</dt>
+                                    <dd className="mt-0.5 text-sm text-[#3D3A34]">
+                                        {enrollment.classSchedule || "Not provided"}
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt className="text-xs text-[#8A8477]">Time</dt>
+                                    <dd className="mt-0.5 text-sm text-[#3D3A34]">
+                                        {enrollment.time || "Not provided"}
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt className="text-xs text-[#8A8477]">Classroom</dt>
+                                    <dd className="mt-0.5 text-sm text-[#3D3A34]">
+                                        {enrollment.classRoom || "Not provided"}
+                                    </dd>
+                                </div>
                             </div>
-                            <div>
-                                <dt className="text-xs text-[#8A8477]">Time</dt>
-                                <dd className="mt-0.5 text-sm text-[#3D3A34]">
-                                    {enrollment.time || "Not provided"}
-                                </dd>
-                            </div>
+                         <div>
+                              <dt className="text-xs text-[#8A8477]">Description</dt>
+                              <dd className="mt-0.5 text-sm text-[#3D3A34]">
+                                  {enrollment.classDescription || "Not provided"}
+                              </dd>
+                          </div>
+
+
                         </dl>
                     </div>
 
                     {/* INSTRUCTOR */}
                     <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-[#EDE6D8]">
+                      <div className="flex items-center justify-between">
                         <h2 className="text-sm font-semibold text-[#3D3A34]">Instructor</h2>
+                          <CircleIconButton
+                            icon={<Pencil size={14} />}
+                            ariaLabel="Edit instructor info"
+                            size="sm"
+                          />
+                      </div>
                         <dl className="mt-4 space-y-3">
                             <div>
                                 <dt className="text-xs text-[#8A8477]">Name</dt>
@@ -148,22 +182,12 @@ export default async function CourseOverview({
                     </div>
                 </div>
 
+
                 {/* Resources */}
                 <div className="mt-6 rounded-xl bg-white p-6 shadow-sm ring-1 ring-[#EDE6D8]">
                     <h2 className="text-sm font-semibold text-[#3D3A34]">Course Resources</h2>
-                    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                        {[1, 2, 3].map((n) => (
-                            <div
-                                key={n}
-                                className="overflow-hidden rounded-lg ring-1 ring-[#EDE6D8] transition-shadow hover:shadow-md"
-                            >
-                                <img
-                                    src="/example-document.png"
-                                    alt={`Document ${n}`}
-                                    className="h-full w-full object-cover"
-                                />
-                            </div>
-                        ))}
+                    <div className="mt-4">
+                        <ResourcePreview />
                     </div>
                 </div>
             </div>
