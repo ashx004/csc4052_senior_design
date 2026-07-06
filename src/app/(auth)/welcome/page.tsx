@@ -30,11 +30,13 @@ export default function Home() {
             </button>
           </Link>
 
-          <button className="mt-2 bg-transparent font-thin text-sm underline
-          text-black font-sans cursor-pointer px-4 py-2 rounded 
-          hover:bg-gray-100 active:bg-gray-200">
-            Create a new account
-          </button>
+          <Link href="/signup">
+            <button className="mt-2 bg-transparent font-thin text-sm underline
+            text-black font-sans cursor-pointer px-4 py-2 rounded 
+            hover:bg-gray-100 active:bg-gray-200">
+              Create a new account
+            </button>
+          </Link>
 
           <button className="mt-24 bg-white font-thin text-sm
           text-black font-sans cursor-pointer px-10 py-2 rounded 
