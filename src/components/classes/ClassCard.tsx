@@ -1,4 +1,4 @@
-import "./ClassCard.css";
+import "@/src/components/classes/ClassCard.css";
 import Link from 'next/link';
 
 // to hold props for class information for later user input
