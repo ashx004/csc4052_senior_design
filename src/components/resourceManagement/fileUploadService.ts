@@ -1,7 +1,6 @@
-// components/fileUploadService.ts
 import { collection, addDoc, getDocs, query, orderBy, serverTimestamp } from "firebase/firestore";
-import { db } from "../library/firebase"; 
-import { doc, deleteDoc } from "firebase/firestore"; // add to your existing firebase/firestore import
+import { db } from "../../library/firebase"; 
+import { doc, deleteDoc } from "firebase/firestore";
 
 const BUCKET_NAME = "studora"; 
 
@@ -12,7 +11,7 @@ interface UploadFileProps {
   category: string;
 }
 
-// ─── FUNCTION 1: UPLOAD A FILE TO NEXT.JS PROXY ───
+// ─── FUNCTION 1: UPLOAD A FILE ───
 export const uploadUserResource = async ({ userId, classDocId, file, category }: UploadFileProps) => {
   const fileExtension = file.name.split('.').pop()?.toLowerCase() || "";
   const uniqueFileName = `${Date.now()}_${file.name}`;
@@ -21,11 +20,9 @@ export const uploadUserResource = async ({ userId, classDocId, file, category }:
   try {
     const fileBuffer = await file.arrayBuffer();
 
-    // Line 34 should be hitting your LOCAL Next.js server, NOT an external https endpoint!
     const response = await fetch('/api/upload', {
         method: 'POST',
         headers: {
-            // 👇 If file.type is empty, force it to application/octet-stream
             'Content-Type': file.type || 'application/octet-stream',
             'x-storage-path': storagePath,
         },
@@ -38,8 +35,6 @@ export const uploadUserResource = async ({ userId, classDocId, file, category }:
     }
 
     const directFileUrl = `/api/download?key=${encodeURIComponent(storagePath)}`;
-
-    // 4. Save file pointer metadata record to free Firestore database layout
     const resourcesCollectionRef = collection(db, "users", userId, "enrollment", classDocId, "resources");
     
     const newDoc = await addDoc(resourcesCollectionRef, {
