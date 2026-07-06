@@ -53,3 +53,9 @@
   margin: 2px 0 0;
   text-align: center;
 }
+
+.dashboard-card-icon-img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
