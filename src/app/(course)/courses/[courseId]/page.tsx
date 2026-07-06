@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useState, use } from 'react';
-import { Pencil, Loader2, UploadCloud } from 'lucide-react';
-import CircleIconButton from '@/src/components/CircleIconButton';
-import { doc, getDoc } from 'firebase/firestore';
+import { Pencil, Loader2, X } from 'lucide-react';
+import CircleIconButton from '@/src/components/resourceManagement/CircleIconButton';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
 import { EnrollmentFields } from '@/src/app/(dashboard)/classes/page';
-import ResourcePreview from '@/src/components/ResourcePreview';
+import ResourcePreview from '@/src/components/resourceManagement/ResourcePreview';
 
 async function getEnrollment(
     userId: string,
@@ -33,7 +33,7 @@ async function getEnrollment(
         facultyName: data.facultyName,
         classSchedule: data.classSchedule,
         classRoom: data.classRoom,
-        classDescription: data.classDescription
+        classDescription: data.classDescription,
     };
 }
 
@@ -44,29 +44,46 @@ function formatPhoneNumber(phone?: string): string {
     return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
 }
 
+type EditSection = "details" | "instructor" | null;
+
+const DETAIL_FIELDS: { key: keyof EnrollmentFields; label: string; multiline?: boolean }[] = [
+    { key: "classSchedule", label: "Schedule" },
+    { key: "time", label: "Time" },
+    { key: "classRoom", label: "Classroom" },
+    { key: "classDescription", label: "Description", multiline: true },
+];
+
+const INSTRUCTOR_FIELDS: { key: keyof EnrollmentFields; label: string }[] = [
+    { key: "facultyName", label: "Name" },
+    { key: "facultyOfficeNumber", label: "Office" },
+    { key: "facultyEmail", label: "Email" },
+    { key: "facultyPhoneNumber", label: "Phone" },
+];
+
 export default function CourseOverview({
     params,
 }: {
     params: Promise<{ courseId: string }>;
 }) {
-    // Unwraps the params promise cleanly in client environment
     const { courseId } = use(params);
 
     // TODO: replace with your global auth context uid when ready
-    const currentUserId = "12345678"; 
+    const currentUserId = "12345678";
 
-    // UI States
     const [enrollment, setEnrollment] = useState<EnrollmentFields | null>(null);
     const [pageLoading, setPageLoading] = useState(true);
 
-    // Pull course details AND uploaded document records on mount
+    const [editingSection, setEditingSection] = useState<EditSection>(null);
+    const [editValues, setEditValues] = useState<Record<string, string>>({});
+    const [savingEdit, setSavingEdit] = useState(false);
+
     useEffect(() => {
         async function fetchCourseData() {
             try {
                 const courseData = await getEnrollment(currentUserId, courseId);
                 setEnrollment(courseData);
             } catch (err) {
-                console.error("Error synchronizing backend data:", err);
+                console.error("Error fetching enrollment:", err);
             } finally {
                 setPageLoading(false);
             }
@@ -74,7 +91,32 @@ export default function CourseOverview({
         fetchCourseData();
     }, [courseId]);
 
- 
+    function openEdit(section: "details" | "instructor") {
+        if (!enrollment) return;
+        const fields = section === "details" ? DETAIL_FIELDS : INSTRUCTOR_FIELDS;
+        const initial: Record<string, string> = {};
+        fields.forEach(({ key }) => {
+            initial[key] = (enrollment[key] as string) || "";
+        });
+        setEditValues(initial);
+        setEditingSection(section);
+    }
+
+    async function handleSaveEdit() {
+        if (!editingSection) return;
+        setSavingEdit(true);
+        try {
+            const docRef = doc(db, "users", currentUserId, "enrollment", courseId);
+            await updateDoc(docRef, editValues);
+            setEnrollment((prev) => (prev ? ({ ...prev, ...editValues } as EnrollmentFields) : prev));
+            setEditingSection(null);
+        } catch (err) {
+            console.error("Error saving edit:", err);
+            alert("Couldn't save changes. Please try again.");
+        } finally {
+            setSavingEdit(false);
+        }
+    }
 
     if (pageLoading) {
         return (
@@ -118,7 +160,12 @@ export default function CourseOverview({
                     <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-[#EDE6D8]">
                         <div className="flex items-center justify-between">
                             <h2 className="text-sm font-semibold text-[#3D3A34]">Class Details</h2>
-                            <CircleIconButton icon={<Pencil size={14} />} ariaLabel="Edit class details" size="sm" />
+                            <CircleIconButton
+                                icon={<Pencil size={14} />}
+                                ariaLabel="Edit class details"
+                                size="sm"
+                                onClick={() => openEdit("details")}
+                            />
                         </div>
                         <dl className="mt-4 space-y-3">
                             <div className="flex mt-4 space-x-[20%]">
@@ -146,7 +193,12 @@ export default function CourseOverview({
                     <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-[#EDE6D8]">
                         <div className="flex items-center justify-between">
                             <h2 className="text-sm font-semibold text-[#3D3A34]">Instructor</h2>
-                            <CircleIconButton icon={<Pencil size={14} />} ariaLabel="Edit instructor info" size="sm" />
+                            <CircleIconButton
+                                icon={<Pencil size={14} />}
+                                ariaLabel="Edit instructor info"
+                                size="sm"
+                                onClick={() => openEdit("instructor")}
+                            />
                         </div>
                         <dl className="mt-4 space-y-3">
                             <div>
@@ -177,12 +229,79 @@ export default function CourseOverview({
                     </div>
                 </div>
 
-                {/* Course Resources List Container in page.tsx */}
+                {/* Course Resources */}
                 <div className="mt-6 rounded-xl bg-white p-6 shadow-sm ring-1 ring-[#EDE6D8]">
                     <h2 className="text-sm font-semibold text-[#3D3A34] mb-4">Course Resources</h2>
                     <ResourcePreview userId={currentUserId} courseId={courseId} />
                 </div>
             </div>
+
+            {/* Edit modal — shared between Class Details and Instructor */}
+            {editingSection && (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+                    onClick={() => !savingEdit && setEditingSection(null)}
+                >
+                    <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+                        <div className="mb-4 flex items-center justify-between">
+                            <h3 className="text-sm font-semibold text-[#3D3A34]">
+                                Edit {editingSection === "details" ? "class details" : "instructor info"}
+                            </h3>
+                            <CircleIconButton
+                                icon={<X size={16} />}
+                                ariaLabel="Close"
+                                size="sm"
+                                onClick={() => setEditingSection(null)}
+                                disabled={savingEdit}
+                            />
+                        </div>
+
+                        <div className="space-y-3">
+                            {(editingSection === "details" ? DETAIL_FIELDS : INSTRUCTOR_FIELDS).map(
+                                ({ key, label, multiline }) => (
+                                    <div key={key}>
+                                        <label className="mb-1 block text-xs font-medium text-[#8A8477]">{label}</label>
+                                        {multiline ? (
+                                            <textarea
+                                                value={editValues[key] || ""}
+                                                onChange={(e) =>
+                                                    setEditValues((prev) => ({ ...prev, [key]: e.target.value }))
+                                                }
+                                                rows={3}
+                                                disabled={savingEdit}
+                                                className="w-full rounded-md border border-[#EDE6D8] px-3 py-2 text-sm text-[#3D3A34] outline-none focus:border-[#B08957]"
+                                            />
+                                        ) : (
+                                            <input
+                                                value={editValues[key] || ""}
+                                                onChange={(e) =>
+                                                    setEditValues((prev) => ({ ...prev, [key]: e.target.value }))
+                                                }
+                                                disabled={savingEdit}
+                                                className="w-full rounded-md border border-[#EDE6D8] px-3 py-2 text-sm text-[#3D3A34] outline-none focus:border-[#B08957]"
+                                            />
+                                        )}
+                                    </div>
+                                )
+                            )}
+                        </div>
+
+                        <button
+                            onClick={handleSaveEdit}
+                            disabled={savingEdit}
+                            className="mt-6 flex w-full items-center justify-center gap-2 rounded-md bg-[#B08957] py-2 text-sm font-medium text-white transition-colors hover:bg-[#9C7849] disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                            {savingEdit ? (
+                                <>
+                                    <Loader2 size={14} className="animate-spin" /> Saving...
+                                </>
+                            ) : (
+                                "Save changes"
+                            )}
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

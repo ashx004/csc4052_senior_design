@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import {
+import { // import symbols
     X,
     ChevronLeft,
     ChevronRight,
@@ -9,6 +9,7 @@ import {
     LayoutGrid,
     GalleryHorizontal,
     Upload,
+    UploadCloud,
     CheckSquare,
     Square,
     Download,
@@ -19,17 +20,18 @@ import {
     FileCode,
     FileArchive,
     Loader2,
+    Minus,
+    Plus,
 } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
-// @ts-ignore — docx-preview does not ship official TypeScript types
 import { renderAsync } from "docx-preview";
 import CircleIconButton from "./CircleIconButton";
 import { uploadUserResource, getCourseResources, deleteUserResource } from "./fileUploadService";
 
 export type Category = "classDoc" | "notes" | "assignments";
 
-// code/text file types — each maps to a Prism language for syntax highlighting
+// Code language syntax highlighting support
 const CODE_TYPES = {
     txt: { label: "TXT", prismLanguage: "text", color: "#8A8477", bg: "#F0EFEA" },
     py: { label: "PY", prismLanguage: "python", color: "#4C9A6A", bg: "#EAF4EC" },
@@ -53,10 +55,10 @@ const CODE_TYPES = {
     sh: { label: "SHELL", prismLanguage: "bash", color: "#4EAA25", bg: "#EAF6E4" },
     asm: { label: "ASM", prismLanguage: "nasm", color: "#6E6E6E", bg: "#EFEFEF" },
 } as const;
-
 type CodeType = keyof typeof CODE_TYPES;
-export type FileType = CodeType | "pdf" | "docx" | "zip";
 
+// other supported file types
+export type FileType = CodeType | "pdf" | "docx" | "zip";
 const NON_CODE_META: Record<"pdf" | "docx" | "zip", { label: string; color: string; bg: string }> = {
     pdf: { label: "PDF", color: "#C2685A", bg: "#FBEAE7" },
     docx: { label: "DOCX", color: "#4A6FA5", bg: "#E8EEF9" },
@@ -78,6 +80,7 @@ const VALID_FILE_TYPES: FileType[] = [
 ];
 
 const ACCEPT_ATTR = VALID_FILE_TYPES.map((t) => `.${t}`).join(",");
+const PAGE_SIZE = 9;
 
 export interface Resource {
     id: string;
@@ -103,10 +106,55 @@ function getFileType(fileName: string): FileType | null {
     return null;
 }
 
-// Firestore Timestamp -> Date, tolerating missing/pending values
 function toDateSafe(value: any): Date {
     if (value && typeof value.toDate === "function") return value.toDate();
     return new Date();
+}
+
+type ThumbnailData = { kind: "image" | "text"; content: string };
+
+async function generateThumbnail(resource: Resource): Promise<ThumbnailData | null> {
+    try {
+        if (resource.fileType === "pdf") {
+            const pdfjsLib = await import("pdfjs-dist");
+            pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+
+            const res = await fetch(resource.url);
+            if (!res.ok) return null;
+            const arrayBuffer = await res.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            const page = await pdf.getPage(1);
+            const viewport = page.getViewport({ scale: 0.6 });
+
+            const canvas = document.createElement("canvas");
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            const context = canvas.getContext("2d");
+            if (!context) return null;
+
+            await page.render({ canvasContext: context, viewport }).promise;
+            return { kind: "image", content: canvas.toDataURL("image/png") };
+        }
+
+        if (resource.fileType === "docx") {
+            const mammoth = (await import("mammoth")).default;
+            const res = await fetch(resource.url);
+            if (!res.ok) return null;
+            const arrayBuffer = await res.arrayBuffer();
+            const result = await mammoth.extractRawText({ arrayBuffer });
+            return { kind: "text", content: result.value.slice(0, 240) };
+        }
+
+        if (resource.fileType === "zip") return null;
+
+        const res = await fetch(resource.url);
+        if (!res.ok) return null;
+        const text = await res.text();
+        return { kind: "text", content: text.slice(0, 240) };
+    } catch (err) {
+        console.error(`Thumbnail generation failed for ${resource.name}:`, err);
+        return null;
+    }
 }
 
 type ViewMode = "tile" | "row" | "closeup";
@@ -131,7 +179,32 @@ function formatRelativeDate(date: Date): string {
     return `${months} month${months > 1 ? "s" : ""} ago`;
 }
 
-function FileThumbnail({ fileType }: { fileType: FileType }) {
+function FileThumbnail({
+    fileType,
+    preview,
+    fontSizePx = 6,
+}: {
+    fileType: FileType;
+    preview?: ThumbnailData;
+    fontSizePx?: number;
+}) {
+    if (preview?.kind === "image") {
+        return <img src={preview.content} alt="" className="h-full w-full object-cover" />;
+    }
+
+    if (preview?.kind === "text") {
+        return (
+            <div className="h-full w-full overflow-hidden bg-white p-2 text-left">
+                <pre
+                    className="whitespace-pre-wrap break-words text-left leading-tight text-[#5C5648]"
+                    style={{ fontSize: `${fontSizePx}px` }}
+                >
+                    {preview.content}
+                </pre>
+            </div>
+        );
+    }
+
     const meta = TYPE_META[fileType];
     const icon =
         fileType === "zip" ? (
@@ -159,6 +232,8 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
     const [loadError, setLoadError] = useState<string | null>(null);
 
     const [viewMode, setViewMode] = useState<ViewMode>("tile");
+    const [tileZoom, setTileZoom] = useState(1);
+    const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
     const [activeIndex, setActiveIndex] = useState(0);
     const [previewResource, setPreviewResource] = useState<Resource | null>(null);
 
@@ -168,6 +243,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
 
     const [showAddModal, setShowAddModal] = useState(false);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [isDragging, setIsDragging] = useState(false);
     const [newCategory, setNewCategory] = useState<Category>("classDoc");
     const [isUploading, setIsUploading] = useState(false);
     const [uploadError, setUploadError] = useState<string | null>(null);
@@ -183,6 +259,9 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
     const [previewLoading, setPreviewLoading] = useState(false);
     const [previewError, setPreviewError] = useState<string | null>(null);
     const docxContainerRef = useRef<HTMLDivElement | null>(null);
+
+    const [thumbnails, setThumbnails] = useState<Record<string, ThumbnailData>>({});
+    const thumbnailInFlight = useRef<Set<string>>(new Set());
 
     async function loadResources() {
         setIsLoadingResources(true);
@@ -233,6 +312,42 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
         return b.lastViewedAt.getTime() - a.lastViewedAt.getTime();
     });
 
+    const visibleResources = sortedResources.slice(0, visibleCount);
+
+    // generate thumbnails lazily. Only for what's actually visible right now,
+    // not the full list, to avoid fetching files nobody's scrolled to
+    const closeupWindowResources =
+        viewMode === "closeup"
+            ? sortedResources.filter((_, idx) => Math.abs(idx - activeIndex) <= 2)
+            : [];
+    const toGenerateKey =
+        viewMode === "tile"
+            ? visibleResources.map((r) => r.id).join(",")
+            : closeupWindowResources.map((r) => r.id).join(",");
+
+    useEffect(() => {
+        if (viewMode === "row") return;
+
+        const toGenerate = viewMode === "tile" ? visibleResources : closeupWindowResources;
+
+        toGenerate.forEach((resource) => {
+            if (thumbnails[resource.id] || thumbnailInFlight.current.has(resource.id)) return;
+            if (resource.fileType === "zip") return;
+
+            thumbnailInFlight.current.add(resource.id);
+            generateThumbnail(resource)
+                .then((result) => {
+                    if (result) {
+                        setThumbnails((prev) => ({ ...prev, [resource.id]: result }));
+                    }
+                })
+                .finally(() => {
+                    thumbnailInFlight.current.delete(resource.id);
+                });
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [viewMode, toGenerateKey]);
+
     useEffect(() => {
         if (!previewResource && !showAddModal) return;
         const onKeyDown = (e: KeyboardEvent) => {
@@ -247,6 +362,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
 
     useEffect(() => {
         setActiveIndex(0);
+        setVisibleCount(PAGE_SIZE);
     }, [searchQuery, categoryFilter, fileTypeFilters, sortBy, viewMode]);
 
     useEffect(() => {
@@ -266,7 +382,6 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
         return () => window.removeEventListener("mousedown", onClick);
     }, [showFilterPopup]);
 
-    // load real preview content whenever a file is opened
     useEffect(() => {
         if (!previewResource) {
             setPreviewText(null);
@@ -295,7 +410,15 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                     const arrayBuffer = await res.arrayBuffer();
                     if (cancelled || !docxContainerRef.current) return;
                     docxContainerRef.current.innerHTML = "";
-                    await renderAsync(arrayBuffer, docxContainerRef.current);
+                    await renderAsync(arrayBuffer, docxContainerRef.current, undefined, {
+                        className: "docx-render",
+                        inWrapper: true,
+                        ignoreWidth: false,
+                        ignoreHeight: false,
+                        ignoreFonts: false,
+                        trimXmlDeclaration: true,
+                        useBase64URL: true,
+                    });
                 } else {
                     const res = await fetch(previewResource!.url);
                     if (!res.ok) throw new Error("File not found");
@@ -304,9 +427,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                 }
             } catch (err) {
                 console.error("Error loading preview:", err);
-                if (!cancelled) {
-                    setPreviewError("Couldn't load this file's content.");
-                }
+                if (!cancelled) setPreviewError("Couldn't load this file's content.");
             } finally {
                 if (!cancelled) setPreviewLoading(false);
             }
@@ -413,9 +534,23 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
         }
     }
 
+    function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+        e.preventDefault();
+        setIsDragging(false);
+        const file = e.dataTransfer.files?.[0];
+        if (file) {
+            setSelectedFile(file);
+            setUploadError(null);
+        }
+    }
+
     const activeResource = sortedResources[activeIndex];
     const isFilterActive = fileTypeFilters.size < VALID_FILE_TYPES.length || sortBy !== "name";
-    const ITEM_SPACING = 155;
+    const ITEM_SPACING = 190;
+    const tileMinWidth = Math.round(150 * tileZoom);
+    const tileImgHeight = Math.round(160 * tileZoom);
+    const tileSnippetFontSize = Math.max(4, Math.round(6 * tileZoom));
+    const closeupSnippetFontSize = 10;
 
     if (isLoadingResources) {
         return (
@@ -473,10 +608,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                 <p className="mb-2 text-xs font-semibold text-[#8A8477]">File type</p>
                                 <div className="max-h-40 space-y-1.5 overflow-y-auto pr-1">
                                     {presentFileTypes.map((type) => (
-                                        <label
-                                            key={type}
-                                            className="flex items-center gap-2 text-sm text-[#3D3A34]"
-                                        >
+                                        <label key={type} className="flex items-center gap-2 text-sm text-[#3D3A34]">
                                             <input
                                                 type="checkbox"
                                                 checked={fileTypeFilters.has(type)}
@@ -560,170 +692,238 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                 </div>
             )}
 
+            {viewMode === "tile" && sortedResources.length > 0 && (
+                <div className="mb-3 flex items-center justify-end gap-2">
+                    <button
+                        onClick={() => setTileZoom((z) => Math.max(0.7, +(z - 0.15).toFixed(2)))}
+                        aria-label="Zoom out thumbnails"
+                        className="text-[#8A8477] hover:text-[#3D3A34]"
+                    >
+                        <Minus size={14} />
+                    </button>
+                    <input
+                        type="range"
+                        min={0.7}
+                        max={1.8}
+                        step={0.05}
+                        value={tileZoom}
+                        onChange={(e) => setTileZoom(parseFloat(e.target.value))}
+                        aria-label="Thumbnail zoom"
+                        className="h-1 w-28 cursor-pointer appearance-none rounded-full bg-[#EDE6D8] accent-[#B08957]"
+                    />
+                    <button
+                        onClick={() => setTileZoom((z) => Math.min(1.8, +(z + 0.15).toFixed(2)))}
+                        aria-label="Zoom in thumbnails"
+                        className="text-[#8A8477] hover:text-[#3D3A34]"
+                    >
+                        <Plus size={14} />
+                    </button>
+                </div>
+            )}
+
             {sortedResources.length === 0 ? (
                 <p className="py-8 text-center text-sm text-[#8A8477]">
                     {resources.length === 0
                         ? "No resources yet. Use the upload button to add one."
                         : "No files match your search or filters."}
                 </p>
-            ) : viewMode === "tile" ? (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                    {sortedResources.map((resource) => (
-                        <div key={resource.id} className="group relative">
-                            <button
-                                onClick={() =>
-                                    selectMode ? toggleSelected(resource.id) : setPreviewResource(resource)
-                                }
-                                className="w-full overflow-hidden rounded-lg text-left ring-1 ring-[#EDE6D8] transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[#B08957]"
-                            >
-                                <div className="h-44 w-full">
-                                    <FileThumbnail fileType={resource.fileType} />
-                                </div>
-                                <div className="px-3 py-2">
-                                    <p className="truncate text-xs font-medium text-[#3D3A34] group-hover:text-[#B08957]">
-                                        {resource.name}
-                                    </p>
-                                    <div className="mt-1">
-                                        <span className="inline-block rounded-full bg-[#FAF3E8] px-2 py-0.5 text-[10px] font-medium text-[#B08957]">
-                                            {CATEGORY_LABELS[resource.category]}
-                                        </span>
-                                    </div>
-                                    <p className="mt-1 text-[10px] text-[#8A8477]">
-                                        Uploaded {formatRelativeDate(resource.uploadedAt)} &middot; Viewed{" "}
-                                        {formatRelativeDate(resource.lastViewedAt)}
-                                    </p>
-                                </div>
-                            </button>
-                            {selectMode && (
-                                <div
-                                    className={`absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full border-2 ${
-                                        selectedIds.has(resource.id)
-                                            ? "border-[#B08957] bg-[#B08957]"
-                                            : "border-white bg-white/70"
-                                    }`}
+            ) : viewMode === "tile" ? ( // Tile View
+                <>
+                    <div
+                        className="grid gap-3"
+                        style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${tileMinWidth}px, 1fr))` }}
+                    >
+                        {visibleResources.map((resource) => (
+                            <div key={resource.id} className="group relative">
+                                <button
+                                    onClick={() =>
+                                        selectMode ? toggleSelected(resource.id) : setPreviewResource(resource)
+                                    }
+                                    className="w-full overflow-hidden rounded-lg text-left ring-1 ring-[#EDE6D8] transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[#B08957]"
                                 >
-                                    {selectedIds.has(resource.id) && <CheckSquare size={12} className="text-white" />}
-                                </div>
-                            )}
-                        </div>
-                    ))}
-                </div>
-            ) : viewMode === "row" ? (
-                <div className="divide-y divide-[#EDE6D8] rounded-lg ring-1 ring-[#EDE6D8]">
-                    {sortedResources.map((resource) => (
-                        <div
-                            key={resource.id}
-                            className="group flex items-center gap-4 px-3 py-2.5 transition-colors hover:bg-[#FAF7F0]"
-                        >
-                            <button
-                                onClick={() =>
-                                    selectMode ? toggleSelected(resource.id) : setPreviewResource(resource)
-                                }
-                                className="flex flex-1 items-center gap-4 text-left focus:outline-none"
-                            >
+                                    <div className="w-full" style={{ height: `${tileImgHeight}px` }}>
+                                        <FileThumbnail
+                                            fileType={resource.fileType}
+                                            preview={thumbnails[resource.id]}
+                                            fontSizePx={tileSnippetFontSize}
+                                        />
+                                    </div>
+                                    <div className="px-3 py-2">
+                                        <p className="truncate text-xs font-medium text-[#3D3A34] group-hover:text-[#B08957]">
+                                            {resource.name}
+                                        </p>
+                                        <div className="mt-1">
+                                            <span className="inline-block rounded-full bg-[#FAF3E8] px-2 py-0.5 text-[10px] font-medium text-[#B08957]">
+                                                {CATEGORY_LABELS[resource.category]}
+                                            </span>
+                                        </div>
+                                        <p className="mt-1 text-[10px] text-[#8A8477]">
+                                            Uploaded {formatRelativeDate(resource.uploadedAt)} &middot; Viewed{" "}
+                                            {formatRelativeDate(resource.lastViewedAt)}
+                                        </p>
+                                    </div>
+                                </button>
                                 {selectMode && (
-                                    <div className="flex h-5 w-5 shrink-0 items-center justify-center">
-                                        {selectedIds.has(resource.id) ? (
-                                            <CheckSquare size={16} className="text-[#B08957]" />
-                                        ) : (
-                                            <Square size={16} className="text-[#C7BBA0]" />
-                                        )}
+                                    <div
+                                        className={`absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full border-2 shadow-sm ${
+                                            selectedIds.has(resource.id)
+                                                ? "border-[#B08957] bg-[#B08957]"
+                                                : "border-[#B0A48C] bg-white"
+                                        }`}
+                                    >
+                                        {selectedIds.has(resource.id) && <CheckSquare size={12} className="text-white" />}
                                     </div>
                                 )}
-                                <div className="h-12 w-10 shrink-0 overflow-hidden rounded-md ring-1 ring-[#EDE6D8]">
-                                    <FileThumbnail fileType={resource.fileType} />
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                    <p className="truncate text-sm font-medium text-[#3D3A34] group-hover:text-[#B08957]">
-                                        {resource.name}
-                                    </p>
-                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
-                                        <p className="text-xs text-[#8A8477]">
-                                            Uploaded {formatRelativeDate(resource.uploadedAt)}
-                                        </p>
-                                        <p className="text-xs text-[#8A8477]">
-                                            Last viewed {formatRelativeDate(resource.lastViewedAt)}
-                                        </p>
-                                        <span className="rounded-full bg-[#FAF3E8] px-2 py-0.5 text-[10px] font-medium text-[#B08957]">
-                                            {CATEGORY_LABELS[resource.category]}
-                                        </span>
-                                    </div>
-                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    {visibleCount < sortedResources.length && (
+                        <div className="mt-4 flex justify-center">
+                            <button
+                                onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                                className="rounded-md border border-[#EDE6D8] bg-white px-4 py-2 text-sm font-medium text-[#3D3A34] hover:border-[#D8CBB0]"
+                            >
+                                Show more ({sortedResources.length - visibleCount} remaining)
                             </button>
                         </div>
-                    ))}
-                </div>
-            ) : (
-                <div>
-                    <div className="flex items-center gap-2">
+                    )}
+                </>
+            ) : viewMode === "row" ? ( // List View
+                <>
+                    <div className="divide-y divide-[#EDE6D8] rounded-lg ring-1 ring-[#EDE6D8]">
+                        {visibleResources.map((resource) => (
+                            <div
+                                key={resource.id}
+                                className="group flex items-center gap-4 px-3 py-2.5 transition-colors hover:bg-[#FAF7F0]"
+                            >
+                                <button
+                                    onClick={() =>
+                                        selectMode ? toggleSelected(resource.id) : setPreviewResource(resource)
+                                    }
+                                    className="flex flex-1 items-center gap-4 text-left focus:outline-none"
+                                >
+                                    {selectMode && (
+                                        <div className="flex h-5 w-5 shrink-0 items-center justify-center">
+                                            {selectedIds.has(resource.id) ? (
+                                                <CheckSquare size={16} className="text-[#B08957]" />
+                                            ) : (
+                                                <Square size={16} className="text-[#C7BBA0]" />
+                                            )}
+                                        </div>
+                                    )}
+                                    <div className="h-12 w-10 shrink-0 overflow-hidden rounded-md ring-1 ring-[#EDE6D8]">
+                                        <FileThumbnail fileType={resource.fileType} />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="truncate text-sm font-medium text-[#3D3A34] group-hover:text-[#B08957]">
+                                            {resource.name}
+                                        </p>
+                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                                            <p className="text-xs text-[#8A8477]">
+                                                Uploaded {formatRelativeDate(resource.uploadedAt)}
+                                            </p>
+                                            <p className="text-xs text-[#8A8477]">
+                                                Last viewed {formatRelativeDate(resource.lastViewedAt)}
+                                            </p>
+                                            <span className="rounded-full bg-[#FAF3E8] px-2 py-0.5 text-[10px] font-medium text-[#B08957]">
+                                                {CATEGORY_LABELS[resource.category]}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                    {visibleCount < sortedResources.length && (
+                        <div className="mt-4 flex justify-center">
+                            <button
+                                onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                                className="rounded-md border border-[#EDE6D8] bg-white px-4 py-2 text-sm font-medium text-[#3D3A34] hover:border-[#D8CBB0]"
+                            >
+                                Show more ({sortedResources.length - visibleCount} remaining)
+                            </button>
+                        </div>
+                    )}
+                </>
+            ) : ( // Carousel View
+                // parent
+                <div className="relative w-full"> 
+                    
+                    {/* LEFT ARROW */}
+                    <div className="absolute left-0 top-1/2 -translate-y-1/2 z-20">
                         <CircleIconButton
                             icon={<ChevronLeft size={16} />}
                             ariaLabel="Previous file"
                             onClick={() => setActiveIndex((i) => Math.max(0, i - 1))}
                             disabled={activeIndex === 0}
                         />
+                    </div>
 
-                        <div className="relative h-64 min-w-0 flex-1 overflow-visible sm:h-80">
-                            {sortedResources.map((resource, index) => {
-                                const offset = index - activeIndex;
-                                const distance = Math.abs(offset);
-                                if (distance > 2) return null;
-
-                                const scale = distance === 0 ? 1 : distance === 1 ? 0.75 : 0.55;
-                                const opacity = distance === 0 ? 1 : distance === 1 ? 0.55 : 0.28;
-
-                                return (
-                                    <button
-                                        key={resource.id}
-                                        onClick={() => {
-                                            if (distance !== 0) {
-                                                setActiveIndex(index);
-                                            } else if (selectMode) {
-                                                toggleSelected(resource.id);
-                                            } else {
-                                                setPreviewResource(resource);
-                                            }
-                                        }}
-                                        style={{
-                                            position: "absolute",
-                                            left: "50%",
-                                            top: "50%",
-                                            transform: `translate(-50%, -50%) translateX(${offset * ITEM_SPACING}px) scale(${scale})`,
-                                            zIndex: 10 - distance,
-                                            opacity,
-                                        }}
-                                        className={`h-52 w-40 overflow-hidden rounded-lg ring-1 ring-[#EDE6D8] transition-all duration-300 sm:h-64 sm:w-48 ${
-                                            distance === 0 ? "shadow-lg" : "shadow-sm"
-                                        }`}
-                                    >
-                                        <FileThumbnail fileType={resource.fileType} />
-                                        {selectMode && distance === 0 && (
-                                            <div
-                                                className={`absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full ${
-                                                    selectedIds.has(resource.id) ? "bg-[#B08957]" : "bg-white/80"
-                                                }`}
-                                            >
-                                                {selectedIds.has(resource.id) ? (
-                                                    <CheckSquare size={12} className="text-white" />
-                                                ) : (
-                                                    <Square size={12} className="text-[#8A8477]" />
-                                                )}
-                                            </div>
-                                        )}
-                                    </button>
-                                );
-                            })}
-                        </div>
-
+                    {/* RIGHT ARROW */}
+                    <div className="absolute right-0 top-1/2 -translate-y-1/2 z-20">
                         <CircleIconButton
                             icon={<ChevronRight size={16} />}
                             ariaLabel="Next file"
-                            onClick={() =>
-                                setActiveIndex((i) => Math.min(sortedResources.length - 1, i + 1))
-                            }
+                            onClick={() => setActiveIndex((i) => Math.min(sortedResources.length - 1, i + 1))}
                             disabled={activeIndex === sortedResources.length - 1}
                         />
                     </div>
+
+                    {/* Central Display Viewport */}
+                    <div className="relative h-72 min-w-0 w-full overflow-visible sm:h-96">
+                        {sortedResources.map((resource, index) => {
+                            const offset = index - activeIndex;
+                            const distance = Math.abs(offset);
+                            if (distance > 2) return null;
+
+                            const scale = distance === 0 ? 1 : distance === 1 ? 0.7 : 0.5;
+                            const opacity = distance === 0 ? 1 : distance === 1 ? 0.5 : 0.25;
+
+                            return (
+                                <button
+                                    key={resource.id}
+                                    onClick={() => {
+                                        if (distance !== 0) {
+                                            setActiveIndex(index);
+                                        } else if (selectMode) {
+                                            toggleSelected(resource.id);
+                                        } else {
+                                            setPreviewResource(resource);
+                                        }
+                                    }}
+                                    style={{
+                                        position: "absolute",
+                                        left: "50%",
+                                        top: "50%",
+                                        transform: `translate(-50%, -50%) translateX(${offset * ITEM_SPACING}px) scale(${scale})`,
+                                        zIndex: 10 - distance, 
+                                        opacity,
+                                    }}
+                                    // Carousel view document preview height
+                                    className={`h-72 w-56 sm:h-96 sm:w-80 overflow-hidden rounded-lg ring-1 ring-[#EDE6D8] transition-all duration-300 ${
+                                        distance === 0 ? "shadow-lg" : "shadow-sm"
+                                    }`}
+                                >
+                                    <FileThumbnail
+                                        fileType={resource.fileType}
+                                        preview={thumbnails[resource.id]}
+                                        fontSizePx={closeupSnippetFontSize}
+                                    />
+                                    {selectMode && distance === 0 && (
+                                        <div className={`absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full border-2 shadow-sm ${
+                                            selectedIds.has(resource.id) ? "border-[#B08957] bg-[#B08957]" : "border-[#B0A48C] bg-white"
+                                        }`}>
+                                            {selectedIds.has(resource.id) ? (
+                                                <CheckSquare size={12} className="text-white" />
+                                            ) : (
+                                                <Square size={12} className="text-[#8A8477]" />
+                                            )}
+                                        </div>
+                                    )}
+                                </button>
+                            );
+                        })}
+                        </div>
 
                     <div className="mt-3 flex items-center justify-center gap-2">
                         <p className="truncate text-sm font-medium text-[#3D3A34]">{activeResource?.name}</p>
@@ -745,7 +945,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                 </div>
             )}
 
-            {/* Preview modal — real content per file type */}
+            {/* Preview modal */}
             {previewResource && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 sm:p-10" onClick={() => setPreviewResource(null)}>
                     <div className="flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -774,10 +974,16 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                 </div>
                             ) : previewResource.fileType === "docx" ? (
                                 <>
-                                    <div
-                                        ref={docxContainerRef}
-                                        className="docx-render-container mx-auto max-w-3xl bg-white p-6 shadow-sm"
-                                    />
+                                    <style>{`
+                                        .docx-render p { margin: 0 0 8px 0; }
+                                        .docx-render table { border-collapse: collapse; }
+                                        .docx-render table td, .docx-render table th { border: 1px solid #ddd; padding: 4px 8px; }
+                                        .docx-render ul, .docx-render ol { list-style: revert; padding-left: 1.5rem; margin: revert; }
+                                        .docx-render h1, .docx-render h2, .docx-render h3 { font-weight: revert; font-size: revert; margin: revert; }
+                                    `}</style>
+                                    <div className="h-full overflow-x-auto overflow-y-auto">
+                                        <div ref={docxContainerRef} className="docx-render-container mx-auto max-w-[850px] bg-white p-6 shadow-sm" />
+                                    </div>
                                     {previewLoading && (
                                         <div className="absolute inset-0 flex items-center justify-center gap-2 bg-[#F5F3EE]/80 text-sm text-[#8A8477]">
                                             <Loader2 size={16} className="animate-spin" />
@@ -855,21 +1061,37 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                             />
                         </div>
 
-                        <label className="mb-2 block text-xs font-medium text-[#8A8477]">Select file</label>
-                        <input
-                            type="file"
-                            accept={ACCEPT_ATTR}
-                            onChange={(e) => {
-                                setSelectedFile(e.target.files?.[0] ?? null);
-                                setUploadError(null);
+                        <div
+                            onDragOver={(e) => {
+                                e.preventDefault();
+                                setIsDragging(true);
                             }}
-                            disabled={isUploading}
-                            className="mb-1 block w-full text-sm text-[#3D3A34] file:mr-3 file:rounded-md file:border-0 file:bg-[#FAF3E8] file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-[#B08957] hover:file:bg-[#F5EAD8]"
-                        />
-                        {selectedFile && !getFileType(selectedFile.name) && (
-                            <p className="mb-2 text-xs text-[#C2685A]">
-                                That file type isn&apos;t supported yet.
+                            onDragLeave={() => setIsDragging(false)}
+                            onDrop={handleDrop}
+                            className={`mb-1 flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-6 text-center transition-colors ${
+                                isDragging ? "border-[#B08957] bg-[#FAF3E8]" : "border-[#EDE6D8] bg-[#FAFAF8]"
+                            }`}
+                        >
+                            <UploadCloud size={24} className={isDragging ? "text-[#B08957]" : "text-[#8A8477]"} />
+                            <p className="truncate text-xs text-[#8A8477]">
+                                {selectedFile ? selectedFile.name : "Drag a file here, or"}
                             </p>
+                            <label className="cursor-pointer text-xs font-medium text-[#B08957] underline">
+                                Browse files
+                                <input
+                                    type="file"
+                                    accept={ACCEPT_ATTR}
+                                    onChange={(e) => {
+                                        setSelectedFile(e.target.files?.[0] ?? null);
+                                        setUploadError(null);
+                                    }}
+                                    disabled={isUploading}
+                                    className="hidden"
+                                />
+                            </label>
+                        </div>
+                        {selectedFile && !getFileType(selectedFile.name) && (
+                            <p className="mb-2 text-xs text-[#C2685A]">That file type isn&apos;t supported yet.</p>
                         )}
 
                         <label className="mb-2 mt-4 block text-xs font-medium text-[#8A8477]">Tag</label>
@@ -890,9 +1112,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                             ))}
                         </div>
 
-                        {uploadError && (
-                            <p className="mb-4 text-xs text-[#C2685A]">{uploadError}</p>
-                        )}
+                        {uploadError && <p className="mb-4 text-xs text-[#C2685A]">{uploadError}</p>}
 
                         <button
                             onClick={handleUpload}
@@ -910,6 +1130,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                     </div>
                 </div>
             )}
+
         </div>
     );
 }
