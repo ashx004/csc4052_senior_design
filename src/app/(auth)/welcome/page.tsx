@@ -1,4 +1,3 @@
-// import { db, auth } from "@/lib/firebase";
 import Link from "next/link";
 
 export default function Home() {
@@ -25,17 +24,19 @@ export default function Home() {
         <div className="mt-20 flex flex-col items-center">
           <Link href="/login">
             <button className="bg-transparent font-thin text-sm underline
-            text-black font-sans cursor-pointer px-4 py-1 rounded 
+            text-black font-sans cursor-pointer px-16 py-2 rounded 
             hover:bg-gray-100 active:bg-gray-200">
               Log-In
             </button>
           </Link>
 
-          <button className="mt-2 bg-transparent font-thin text-sm underline
-          text-black font-sans cursor-pointer px-3 py-1 rounded 
-          hover:bg-gray-100 active:bg-gray-200">
-            Create a new account
-          </button>
+          <Link href="/signup">
+            <button className="mt-2 bg-transparent font-thin text-sm underline
+            text-black font-sans cursor-pointer px-4 py-2 rounded 
+            hover:bg-gray-100 active:bg-gray-200">
+              Create a new account
+            </button>
+          </Link>
 
           <button className="mt-24 bg-white font-thin text-sm
           text-black font-sans cursor-pointer px-10 py-2 rounded 
@@ -50,7 +51,7 @@ export default function Home() {
           </button>
 
           <button className="mt-5 bg-white font-thin text-sm
-          text-black font-mono cursor-pointer px-8 py-2 rounded 
+          text-black font-sans cursor-pointer px-12 py-3 rounded 
           hover:bg-gray-100 active:bg-gray-200 flex items-center 
           gap-2">
             <span> Sign in with Apple </span>
