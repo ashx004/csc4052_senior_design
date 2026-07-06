@@ -1,6 +1,7 @@
 // components/fileUploadService.ts
 import { collection, addDoc, getDocs, query, orderBy, serverTimestamp } from "firebase/firestore";
 import { db } from "../library/firebase"; 
+import { doc, deleteDoc } from "firebase/firestore"; // add to your existing firebase/firestore import
 
 const BUCKET_NAME = "studora"; 
 
@@ -36,8 +37,7 @@ export const uploadUserResource = async ({ userId, classDocId, file, category }:
       throw new Error(errData.error || 'Failed to upload file via server proxy');
     }
 
-    const directFileUrl = `https://minio.api.latechsmp.net/studora/${storagePath}`;
-
+    const directFileUrl = `/api/download?key=${encodeURIComponent(storagePath)}`;
 
     // 4. Save file pointer metadata record to free Firestore database layout
     const resourcesCollectionRef = collection(db, "users", userId, "enrollment", classDocId, "resources");
@@ -80,4 +80,16 @@ export const getCourseResources = async (userId: string, classDocId: string) => 
     console.error("Error fetching course resources:", error);
     throw error;
   }
+};
+
+
+export const deleteUserResource = async (
+    userId: string,
+    classDocId: string,
+    resourceId: string,
+    storageKey: string
+) => {
+    await fetch(`/api/delete?key=${encodeURIComponent(storageKey)}`, { method: "DELETE" });
+    const docRef = doc(db, "users", userId, "enrollment", classDocId, "resources", resourceId);
+    await deleteDoc(docRef);
 };
