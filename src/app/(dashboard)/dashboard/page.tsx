@@ -2,10 +2,12 @@ import DashboardCard from '@/src/components/dashboard/DashboardCard';
 
 export default function Dashboard() {
   return (
-    <div className="p-8">
-      <h1 className="text-2xl font-bold" style={{ height: '40px', paddingLeft: '40px' }}>
+    <div className="p-8 min-h-screen bg-[#FAF7F0]">
+      
+      <h1 className="text-2xl font-bold text-[#3D3A34]" style={{ height: '40px', paddingLeft: '40px' }}>
         What Would You Like To Do?
       </h1>
+      
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-4">
         <DashboardCard
           icon="/icons/notebook-pen.png"

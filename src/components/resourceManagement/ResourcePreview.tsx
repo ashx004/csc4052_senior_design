@@ -242,7 +242,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
     const [showAddModal, setShowAddModal] = useState(false);
-    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [selectedFiles, setSelectedFiles] = useState<File[]>([]);    
     const [isDragging, setIsDragging] = useState(false);
     const [newCategory, setNewCategory] = useState<Category>("classDoc");
     const [isUploading, setIsUploading] = useState(false);
@@ -262,6 +262,15 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
 
     const [thumbnails, setThumbnails] = useState<Record<string, ThumbnailData>>({});
     const thumbnailInFlight = useRef<Set<string>>(new Set());
+
+    // WORD DOC PREVIEW CONSTANTS
+    // Track zoom factor as a decimal multiplier (1.0 = 100%)
+    const [zoom, setZoom] = useState<number>(1.0);
+
+    // Helper functions to increase or decrease scale bounds securely
+    const handleZoomIn = () => setZoom((prev) => Math.min(prev + 0.1, 2.0));  // Max 200%
+    const handleZoomOut = () => setZoom((prev) => Math.max(prev - 0.1, 0.5)); // Min 50%
+    const handleZoomReset = () => setZoom(1.0);
 
     async function loadResources() {
         setIsLoadingResources(true);
@@ -507,42 +516,55 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
     }
 
     async function handleUpload() {
-        if (!selectedFile) return;
-        const fileType = getFileType(selectedFile.name);
-        if (!fileType) {
-            setUploadError("That file type isn't supported yet.");
+        if (selectedFiles.length === 0) return;
+
+        // Validate that every single chosen file is supported
+        const allValid = selectedFiles.every((file) => getFileType(file.name));
+        if (!allValid) {
+            setUploadError("One or more selected file types aren't supported yet.");
             return;
         }
 
         setIsUploading(true);
         setUploadError(null);
+        
         try {
-            await uploadUserResource({
-                userId,
-                classDocId: courseId,
-                file: selectedFile,
-                category: newCategory,
-            });
+            // Map file array into an array of concurrent upload executions
+            const uploadPromises = selectedFiles.map((file) =>
+                uploadUserResource({
+                    userId,
+                    classDocId: courseId,
+                    file: file,
+                    category: newCategory,
+                })
+            );
+
+            // Execute all uploads simultaneously
+            await Promise.all(uploadPromises);
+
+            // Refresh the course UI data view list 
             await loadResources();
-            setSelectedFile(null);
+
+            // Clear selection state array and close the dialog modal window
+            setSelectedFiles([]);
             setShowAddModal(false);
         } catch (err: any) {
-            console.error("Upload failed:", err);
+            console.error("Batch upload transaction encountered failures:", err);
             setUploadError(err.message || "Upload failed. Please try again.");
         } finally {
             setIsUploading(false);
         }
     }
 
-    function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();
         setIsDragging(false);
-        const file = e.dataTransfer.files?.[0];
-        if (file) {
-            setSelectedFile(file);
+        
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            setSelectedFiles(Array.from(e.dataTransfer.files));
             setUploadError(null);
         }
-    }
+    };
 
     const activeResource = sortedResources[activeIndex];
     const isFilterActive = fileTypeFilters.size < VALID_FILE_TYPES.length || sortBy !== "name";
@@ -973,27 +995,72 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                     </a>
                                 </div>
                             ) : previewResource.fileType === "docx" ? (
-                                <>
-                                    <style>{`
-                                        .docx-render p { margin: 0 0 8px 0; }
-                                        .docx-render table { border-collapse: collapse; }
-                                        .docx-render table td, .docx-render table th { border: 1px solid #ddd; padding: 4px 8px; }
-                                        .docx-render ul, .docx-render ol { list-style: revert; padding-left: 1.5rem; margin: revert; }
-                                        .docx-render h1, .docx-render h2, .docx-render h3 { font-weight: revert; font-size: revert; margin: revert; }
-                                    `}</style>
-                                    <div className="h-full overflow-x-auto overflow-y-auto">
-                                        <div ref={docxContainerRef} className="docx-render-container mx-auto max-w-[850px] bg-white p-6 shadow-sm" />
-                                    </div>
-                                    {previewLoading && (
-                                        <div className="absolute inset-0 flex items-center justify-center gap-2 bg-[#F5F3EE]/80 text-sm text-[#8A8477]">
-                                            <Loader2 size={16} className="animate-spin" />
-                                            Loading preview...
-                                        </div>
-                                    )}
-                                    {previewError && (
-                                        <div className="absolute inset-0 flex items-center justify-center bg-[#F5F3EE] p-6 text-center text-sm text-[#C2685A]">
-                                            {previewError}
-                                        </div>
+    <>
+        <style>{`
+            .docx-render p { margin: 0 0 8px 0; }
+            .docx-render table { border-collapse: collapse; }
+            .docx-render table td, .docx-render table th { border: 1px solid #ddd; padding: 4px 8px; }
+            .docx-render ul, .docx-render ol { list-style: revert; padding-left: 1.5rem; margin: revert; }
+            .docx-render h1, .docx-render h2, .docx-render h3 { font-weight: revert; font-size: revert; margin: revert; }
+        `}</style>
+        
+        {/* 📦 Master Bounding Container (Acts like an iframe window) */}
+        <div className="flex flex-col w-full h-[75vh] bg-[#FAFAF8] rounded-xl overflow-hidden border border-[#EDE6D8] relative">
+            
+            {/* 🛠️ Floating Zoom Controller Bar Toolbar */}
+            <div className="flex items-center justify-end gap-3 bg-white border-b border-[#EDE6D8] px-4 py-2 z-10 shadow-sm">
+                <span className="text-xs font-medium text-[#8A8477]">{Math.round(zoom * 100)}%</span>
+                <button 
+                    onClick={handleZoomOut} 
+                    className="p-1 px-2 rounded bg-[#FAFAF8] hover:bg-[#EDE6D8] text-xs font-bold text-[#3D3A34] transition-colors"
+                >
+                    Zoom -
+                </button>
+                <button 
+                    onClick={handleZoomReset} 
+                    className="p-1 px-2 rounded bg-[#FAFAF8] hover:bg-[#EDE6D8] text-xs font-medium text-[#3D3A34] transition-colors"
+                >
+                    Reset
+                </button>
+                <button 
+                    onClick={handleZoomIn} 
+                    className="p-1 px-2 rounded bg-[#FAFAF8] hover:bg-[#EDE6D8] text-xs font-bold text-[#3D3A34] transition-colors"
+                >
+                    Zoom +
+                </button>
+            </div>
+
+            {/* 📦 Layer 1: Outer Viewport Window Container (Enables scrolling when zoomed in) */}
+            <div className="flex-1 overflow-auto p-6 flex justify-center items-start">
+                
+                {/* 🚀 Layer 2: Inner Scale Container Wrapper */}
+                <div 
+                    style={{ 
+                        transform: `scale(${zoom})`, 
+                        transformOrigin: 'top center', 
+                        transition: 'transform 0.15s ease-out' 
+                    }}
+                    className="w-full h-auto flex justify-center"
+                >
+                    {/* Your native hook point div containing its original formatting parameters */}
+                    <div ref={docxContainerRef} className="docx-render-container mx-auto max-w-[850px] bg-white p-6 shadow-sm" />
+                </div>
+
+            </div>
+            
+            {/* Kept your loading state overlay cleanly bounded right inside the viewport window */}
+            {previewLoading && (
+                <div className="absolute inset-0 flex items-center justify-center gap-2 bg-[#F5F3EE]/80 text-sm text-[#8A8477] z-20">
+                    <Loader2 size={16} className="animate-spin" />
+                    Loading preview...
+                </div>
+            )}
+        </div>
+        
+        {previewError && (
+            <div className="p-4 text-center text-xs text-[#C2685A]">
+                {previewError}
+            </div>
                                     )}
                                 </>
                             ) : previewLoading ? (
@@ -1074,15 +1141,22 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                         >
                             <UploadCloud size={24} className={isDragging ? "text-[#B08957]" : "text-[#8A8477]"} />
                             <p className="truncate text-xs text-[#8A8477]">
-                                {selectedFile ? selectedFile.name : "Drag a file here, or"}
+                                {selectedFiles.length > 0 
+                                    ? `${selectedFiles.length} file(s) selected` 
+                                    : "Drag files here, or"
+                                }
                             </p>
                             <label className="cursor-pointer text-xs font-medium text-[#B08957] underline">
                                 Browse files
                                 <input
                                     type="file"
                                     accept={ACCEPT_ATTR}
+                                    multiple={true} // 🎯 Allows selecting multiple files via Ctrl/Shift click
                                     onChange={(e) => {
-                                        setSelectedFile(e.target.files?.[0] ?? null);
+                                        if (e.target.files) {
+                                            // Convert the FileList object to a standard JavaScript Array
+                                            setSelectedFiles(Array.from(e.target.files));
+                                        }
                                         setUploadError(null);
                                     }}
                                     disabled={isUploading}
@@ -1090,8 +1164,8 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                 />
                             </label>
                         </div>
-                        {selectedFile && !getFileType(selectedFile.name) && (
-                            <p className="mb-2 text-xs text-[#C2685A]">That file type isn&apos;t supported yet.</p>
+                        {selectedFiles.length > 0 && !selectedFiles.every((f) => getFileType(f.name)) && (
+                            <p className="mb-2 text-xs text-[#C2685A]">One or more file types aren&apos;t supported yet.</p>
                         )}
 
                         <label className="mb-2 mt-4 block text-xs font-medium text-[#8A8477]">Tag</label>
@@ -1116,7 +1190,11 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
 
                         <button
                             onClick={handleUpload}
-                            disabled={!selectedFile || !getFileType(selectedFile?.name ?? "") || isUploading}
+                            disabled={
+                                selectedFiles.length === 0 || 
+                                !selectedFiles.every((f) => getFileType(f.name)) || 
+                                isUploading
+                            }
                             className="flex w-full items-center justify-center gap-2 rounded-md bg-[#B08957] py-2 text-sm font-medium text-white transition-colors hover:bg-[#9C7849] disabled:cursor-not-allowed disabled:opacity-40"
                         >
                             {isUploading ? (

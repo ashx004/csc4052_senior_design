@@ -7,6 +7,7 @@ import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
 import { EnrollmentFields } from '@/src/app/(dashboard)/classes/page';
 import ResourcePreview from '@/src/components/resourceManagement/ResourcePreview';
+import { useAuth } from '@/src/context/AuthContext';
 
 async function getEnrollment(
     userId: string,
@@ -67,8 +68,7 @@ export default function CourseOverview({
 }) {
     const { courseId } = use(params);
 
-    // TODO: replace with your global auth context uid when ready
-    const currentUserId = "12345678";
+    const { user, loading: authLoading } = useAuth();
 
     const [enrollment, setEnrollment] = useState<EnrollmentFields | null>(null);
     const [pageLoading, setPageLoading] = useState(true);
@@ -78,18 +78,27 @@ export default function CourseOverview({
     const [savingEdit, setSavingEdit] = useState(false);
 
     useEffect(() => {
+        // Halt processing if the context session payload is still resolving
+        if (authLoading) return;
+
         async function fetchCourseData() {
             try {
-                const courseData = await getEnrollment(currentUserId, courseId);
-                setEnrollment(courseData);
+                // Securely query Firestore using the active user's authentic UID
+                if (user?.uid) {
+                    const courseData = await getEnrollment(user.uid, courseId);
+                    setEnrollment(courseData);
+                } else {
+                    setEnrollment(null);
+                }
             } catch (err) {
                 console.error("Error fetching enrollment:", err);
             } finally {
                 setPageLoading(false);
             }
         }
+        
         fetchCourseData();
-    }, [courseId]);
+    }, [courseId, user, authLoading]);
 
     function openEdit(section: "details" | "instructor") {
         if (!enrollment) return;
@@ -103,10 +112,11 @@ export default function CourseOverview({
     }
 
     async function handleSaveEdit() {
-        if (!editingSection) return;
+        if (!editingSection || !user?.uid) return;
         setSavingEdit(true);
         try {
-            const docRef = doc(db, "users", currentUserId, "enrollment", courseId);
+            // Updated to route updates back to the authentic user space
+            const docRef = doc(db, "users", user.uid, "enrollment", courseId);
             await updateDoc(docRef, editValues);
             setEnrollment((prev) => (prev ? ({ ...prev, ...editValues } as EnrollmentFields) : prev));
             setEditingSection(null);
@@ -118,12 +128,25 @@ export default function CourseOverview({
         }
     }
 
-    if (pageLoading) {
+    // RENDER LOADER WHILE EITHER AUTH STATE OR FIRESTORE LOADS
+    if (authLoading || pageLoading) {
         return (
             <div className="flex min-h-screen items-center justify-center bg-[#FAF7F0]">
                 <div className="flex flex-col items-center gap-2 text-sm text-[#8A8477]">
                     <Loader2 size={24} className="animate-spin text-[#B08957]" />
                     <p>Loading course dashboard...</p>
+                </div>
+            </div>
+        );
+    }
+
+    // UNAUTHENTICATED SAFETY BLOCK
+    if (!user) {
+        return (
+            <div className="flex min-h-screen items-center justify-center bg-[#FAF7F0]">
+                <div className="text-center">
+                    <h1 className="text-xl font-semibold text-[#3D3A34]">Access Denied</h1>
+                    <p className="mt-1 text-sm text-[#8A8477]">Please log in to view your dashboard resources.</p>
                 </div>
             </div>
         );
@@ -232,7 +255,8 @@ export default function CourseOverview({
                 {/* Course Resources */}
                 <div className="mt-6 rounded-xl bg-white p-6 shadow-sm ring-1 ring-[#EDE6D8]">
                     <h2 className="text-sm font-semibold text-[#3D3A34] mb-4">Course Resources</h2>
-                    <ResourcePreview userId={currentUserId} courseId={courseId} />
+                    {/* PASSING DOWN DYNAMIC CURRENT USER ID TO CLEANLY REROUTE CAROUSEL MINIO FETCHES */}
+                    <ResourcePreview userId={user.uid} courseId={courseId} />
                 </div>
             </div>
 
