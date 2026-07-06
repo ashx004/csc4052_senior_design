@@ -1,0 +1,63 @@
+.dashboard-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 260px;
+  padding: 28px;
+  background: #ffffff;
+  border-radius: 20px;
+  box-shadow: 0 8px 24px rgba(20, 20, 43, 0.08);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.dashboard-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 20px;
+  background: #f2f2f5;
+  border-radius: 14px;
+  color: #1a1a2e;
+  font-size: 24px;
+}
+
+.dashboard-card-title {
+  margin: 0 0 12px;
+  font-size: 20px;
+  font-weight: 700;
+  color: #14142b;
+}
+
+.dashboard-card-description {
+  margin: 0 0 24px;
+  font-size: 15px;
+  color: #8b8b9a;
+}
+
+.dashboard-card-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 600;
+  color: #6b6b7c;
+}
+
+.dashboard-card-action:hover {
+  color: #14142b;
+}
+
+.dashboard-card-arrow {
+  font-size: 15px;
+  transition: transform 0.2s ease;
+}
+
+.dashboard-card-action:hover .dashboard-card-arrow {
+  transform: translateX(5px);
+}
