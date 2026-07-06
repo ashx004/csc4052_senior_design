@@ -1,12 +1,12 @@
-// tells the code that this page is interactive
 "use client";
 
-
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { auth } from "@/src/library/firebase";
 import { signInWithEmailAndPassword } from "firebase/auth";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const greeting: string = "s t u d o r a .";
@@ -14,15 +14,11 @@ export default function LoginPage() {
   async function handleLogin() {
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      alert("Login Successful !");
+      router.push("/dashboard");
     } catch (error) {
       alert("Login failed.");
       console.log(error);
     }
-  }
-
-  async function handSignup() {
-
   }
 
   

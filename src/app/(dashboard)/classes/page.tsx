@@ -1,3 +1,7 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { useAuth } from "@/src/context/AuthContext";
 import ClassCard, { ClassCardProps } from '@/src/components/classes/ClassCard';
 import AddEnrollmentModal from '@/src/components/classes/AddEnrollmentModal';
 import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
@@ -17,8 +21,6 @@ export interface EnrollmentFields {
     classSchedule: string;
 }
 
-// TODO: test with auth when implemented
-// the hope is that the auth system will store UID once logged in so we can route grab classes for the current user
 async function getEnrollment(
     userId: string,
     enrollmentId: string
@@ -46,7 +48,6 @@ async function getEnrollment(
     }
 }
 
-// TODO: test with auth when implemented
 async function getAllEnrollments(userId: string): Promise<ClassCardProps[]> {
     const enrollmentRef = collection(db, "users", userId, "enrollment");
     const querySnapshot = await getDocs(enrollmentRef);
@@ -65,26 +66,33 @@ async function getAllEnrollments(userId: string): Promise<ClassCardProps[]> {
     return enrollments;
 }
 
-export default async function Classes() {
-    // TODO: when auth is implemented, replace "12345678" with the current user's ID
-    const enrollments: ClassCardProps[] = await getAllEnrollments("12345678").then((enrollments) => {
-        return enrollments;
-    }).catch((error) => {
-        console.error("Error getting enrollments: ", error);
-        return [];
-    });
+export default function Classes() {
+    const { user, loading } = useAuth();
+    const [enrollments, setEnrollments] = useState<ClassCardProps[]>([]);
 
-    enrollments.forEach((enrollment) => {
-        console.log(enrollment);
-    });
+    useEffect(() => {
+        if (!user) return;
 
-    // TODO: REPLACE HARDCODED USERID FIELDS WITH CURRENT USER'S ID WHEN AUTH IS IMPLEMENTED
+        getAllEnrollments(user.uid)
+            .then(setEnrollments)
+            .catch((error) => {
+                console.error("Error getting enrollments: ", error);
+                setEnrollments([]);
+            });
+    }, [user]);
 
-    // empty classes screen case
+    if (loading) {
+        return (
+            <div className="relative flex min-h-screen items-center justify-center bg-orange-50">
+                <p className="text-lg text-gray-700">Loading...</p>
+            </div>
+        );
+    }
+
     if (enrollments.length === 0) {
         return (
             <div className="relative flex min-h-screen items-center justify-center bg-orange-50">
-                <AddEnrollmentModal userId="12345678" />
+                <AddEnrollmentModal />
                 <div className="flex flex-col items-center justify-center min-h-screen py-2">
                     <h1 className="text-4xl font-bold mb-8">Classes</h1>
                     <p className="text-lg text-gray-700">No classes found. Please add a new class.</p>
@@ -95,11 +103,10 @@ export default async function Classes() {
 
     return (
         <div className="relative flex min-h-screen items-center justify-center bg-orange-50">
-            <AddEnrollmentModal userId="12345678" />
+            <AddEnrollmentModal />
             <div className="flex flex-col items-center justify-center min-h-screen py-2">
                 <h1 className="text-4xl font-bold mb-8">Classes</h1>
                 <div className="flex flex-wrap justify-center gap-8">
-                    {/* renders a ClassCard for each enrollment successfully queried for */}
                     {enrollments.map((enrollment) => (
                         <ClassCard key={enrollment.classId} {...enrollment} />
                     ))}
