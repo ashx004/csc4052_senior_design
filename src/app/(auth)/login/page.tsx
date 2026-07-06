@@ -5,23 +5,24 @@
 import { useState } from "react";
 import { auth } from "@/src/library/firebase";
 import { signInWithEmailAndPassword } from "firebase/auth";
-//import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const greeting: string = "s t u d o r a .";
-  //const router = useRouter();
 
   async function handleLogin() {
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      //router.push("/dashboard");
       alert("Login Successful !");
     } catch (error) {
       alert("Login failed.");
       console.log(error);
     }
+  }
+
+  async function handSignup() {
+
   }
 
   
@@ -49,7 +50,7 @@ export default function LoginPage() {
           <input
             type="email"
             placeholder="email"
-            className="border px-3 py-2 rounded mt-8"
+            className="border px-3 py-2 rounded mt-8 font-mono text-sm"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
@@ -57,7 +58,7 @@ export default function LoginPage() {
           <input
             type="password"
             placeholder="password"
-            className="border px-3 py-2 rounded"
+            className="border px-3 py-2 rounded font-mono text-sm"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
