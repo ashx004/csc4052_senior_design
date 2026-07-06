@@ -11,6 +11,8 @@ node_modules
 dist
 dist-ssr
 .next
+package-lock.json
+
 *.local
 
 # Editor directories and files
@@ -25,3 +27,7 @@ dist-ssr
 *.sw?
 
 package-lock.json
+
+# secrets
+.env.local
+.env
