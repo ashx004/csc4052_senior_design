@@ -13,7 +13,7 @@ import { getAuth } from "firebase/auth";
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCeduEdR2BPlvTogcnkxhqcDZs-rpoxC1E",
+  apiKey: "",
   authDomain: "studora-933f8.firebaseapp.com",
   databaseURL: "https://studora-933f8-default-rtdb.firebaseio.com",
   projectId: "studora-933f8",
