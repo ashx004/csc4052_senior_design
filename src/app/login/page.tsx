@@ -4,7 +4,7 @@
 
 import { useState } from "react";
 import { auth } from "../../library/firebase";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
 //import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
@@ -22,6 +22,10 @@ export default function LoginPage() {
       alert("Login failed.");
       console.log(error);
     }
+  }
+
+  async function handSignup() {
+
   }
 
   
