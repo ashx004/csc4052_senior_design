@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, ChangeEvent, FormEvent } from 'react';
-import { EnrollmentFields } from '@/src/app/(dashboard)/classes/page'; // Adjust this import path to where your interface lives
+import { useAuth } from '@/src/context/AuthContext';
+import { EnrollmentFields } from '@/src/app/(dashboard)/classes/page';
 import { addDoc, collection } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
 
-export default function AddEnrollmentModal({ userId }: { userId: string }) {
+export default function AddEnrollmentModal() {
+  const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   
   // Initialize state with empty strings for all fields
@@ -49,7 +51,11 @@ export default function AddEnrollmentModal({ userId }: { userId: string }) {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
 
-    // The required fields validation matching your database requirements
+    if (!user) {
+      alert("You must be logged in to add a class.");
+      return;
+    }
+
     if (!formData.className || !formData.classCode || !formData.term) {
       alert("Class Name, Class Code, and Term are required!");
       return;
@@ -58,7 +64,7 @@ export default function AddEnrollmentModal({ userId }: { userId: string }) {
     const savedEnrollmentData: EnrollmentFields = { ...formData };    
 
     try {
-      const enrollmentRef = collection(db, "users", userId, "enrollment");
+      const enrollmentRef = collection(db, "users", user.uid, "enrollment");
       await addDoc(enrollmentRef, savedEnrollmentData);
     } catch (error) {
       console.error("Error adding enrollment: ", error);
