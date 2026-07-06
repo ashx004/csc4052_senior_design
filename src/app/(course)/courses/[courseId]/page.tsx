@@ -8,9 +8,6 @@ import { db } from '@/src/library/firebase';
 import { EnrollmentFields } from '@/src/app/(dashboard)/classes/page';
 import ResourcePreview from '@/src/components/ResourcePreview';
 
-// Import your newly created upload and fetch service tools
-import { uploadUserResource, getCourseResources } from '@/src/components/fileUploadService';
-
 async function getEnrollment(
     userId: string,
     enrollmentId: string
@@ -60,20 +57,14 @@ export default function CourseOverview({
 
     // UI States
     const [enrollment, setEnrollment] = useState<EnrollmentFields | null>(null);
-    const [resources, setResources] = useState<any[]>([]);
     const [pageLoading, setPageLoading] = useState(true);
-    const [uploading, setUploading] = useState(false);
 
     // Pull course details AND uploaded document records on mount
     useEffect(() => {
         async function fetchCourseData() {
             try {
-                const [courseData, fetchedResources] = await Promise.all([
-                    getEnrollment(currentUserId, courseId),
-                    getCourseResources(currentUserId, courseId)
-                ]);
+                const courseData = await getEnrollment(currentUserId, courseId);
                 setEnrollment(courseData);
-                setResources(fetchedResources);
             } catch (err) {
                 console.error("Error synchronizing backend data:", err);
             } finally {
@@ -83,37 +74,7 @@ export default function CourseOverview({
         fetchCourseData();
     }, [courseId]);
 
-    // Handle incoming local uploads
-    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        setUploading(true);
-        try {
-            const result = await uploadUserResource({
-                userId: currentUserId,
-                classDocId: courseId,
-                file: file,
-                category: "notes" // Categorization value
-            });
-
-            // Optimistically update the UI list instantly
-            setResources((prev) => [
-                {
-                    id: result.id,
-                    name: file.name,
-                    url: result.url,
-                    fileType: file.name.split('.').pop()?.toLowerCase() || "",
-                    category: "notes",
-                },
-                ...prev,
-            ]);
-        } catch (err) {
-            alert("File upload pipeline failed. Check console contexts.");
-        } finally {
-            setUploading(false);
-        }
-    };
+ 
 
     if (pageLoading) {
         return (
@@ -216,38 +177,10 @@ export default function CourseOverview({
                     </div>
                 </div>
 
-                {/* File Upload Zone */}
-                <div className="mt-6 rounded-xl border-2 border-dashed border-[#EDE6D8] bg-white p-6 text-center shadow-sm">
-                    <label className="flex flex-col items-center justify-center gap-2 cursor-pointer py-4 group">
-                        {uploading ? (
-                            <>
-                                <Loader2 size={28} className="animate-spin text-[#B08957]" />
-                                <span className="text-sm font-medium text-[#8A8477]">Encrypting and uploading file to vault...</span>
-                            </>
-                        ) : (
-                            <>
-                                <UploadCloud size={28} className="text-[#8A8477] group-hover:text-[#B08957] transition-colors" />
-                                <span className="text-sm font-medium text-[#3D3A34] group-hover:text-[#B08957] transition-colors">
-                                    Click to upload a document to this course
-                                </span>
-                            </>
-                        )}
-                        <input type="file" className="hidden" onChange={handleFileUpload} disabled={uploading} />
-                    </label>
-                </div>
-
                 {/* Course Resources List Container in page.tsx */}
                 <div className="mt-6 rounded-xl bg-white p-6 shadow-sm ring-1 ring-[#EDE6D8]">
                     <h2 className="text-sm font-semibold text-[#3D3A34] mb-4">Course Resources</h2>
-                    
-                    {resources.length === 0 ? (
-                        <p className="text-sm text-[#8A8477] text-center py-4">
-                            No documents uploaded for this course yet.
-                        </p>
-                    ) : (
-                        /* Pass the array straight through. Your grid layout wrapper inside ResourcePreview handles the rest! */
-                        <ResourcePreview resources={resources} />
-                    )}
+                    <ResourcePreview userId={currentUserId} courseId={courseId} />
                 </div>
             </div>
         </div>

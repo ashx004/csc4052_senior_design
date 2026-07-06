@@ -11,6 +11,7 @@ import {
     Upload,
     CheckSquare,
     Square,
+    Download,
     Trash2,
     Search,
     Filter,
@@ -18,18 +19,13 @@ import {
     FileCode,
     FileArchive,
     Loader2,
-    Download,
 } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 // @ts-ignore — docx-preview does not ship official TypeScript types
 import { renderAsync } from "docx-preview";
 import CircleIconButton from "./CircleIconButton";
-
-// 1. Define the props to accept the array from your page file
-interface ResourcePreviewProps {
-    resources: any[]; // The list of files pulled from your course page template
-}
+import { uploadUserResource, getCourseResources, deleteUserResource } from "./fileUploadService";
 
 export type Category = "classDoc" | "notes" | "assignments";
 
@@ -81,13 +77,14 @@ const VALID_FILE_TYPES: FileType[] = [
     "zip",
 ];
 
+const ACCEPT_ATTR = VALID_FILE_TYPES.map((t) => `.${t}`).join(",");
+
 export interface Resource {
     id: string;
     name: string;
     url: string;
     fileType: FileType;
     category: Category;
-    // TODO: filler dates until real upload/view tracking exists
     uploadedAt: Date;
     lastViewedAt: Date;
 }
@@ -106,36 +103,11 @@ function getFileType(fileName: string): FileType | null {
     return null;
 }
 
-const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000);
-
-// TODO: this list should eventually come from Firestore / Storage rather
-// than being hardcoded — for now it mirrors the real files dropped in,
-// filtered down to previewable types, with category guesses you should adjust
-const RAW_FILES: { name: string; category: Category; uploaded: number; viewed: number }[] = [
-    { name: "Bash Terminal Creation Project Grading Sheet.pdf", category: "assignments", uploaded: 12, viewed: 1 },
-    { name: "Binary Addition.pdf", category: "notes", uploaded: 20, viewed: 5 },
-    { name: "GroupCreationAssignment.pdf", category: "assignments", uploaded: 18, viewed: 3 },
-    { name: "Sub Programs, 10.2 Comp Sci notes.docx", category: "notes", uploaded: 25, viewed: 9 },
-    { name: "homework-template-1.docx", category: "assignments", uploaded: 8, viewed: 2 },
-    { name: "pygame info.txt", category: "notes", uploaded: 15, viewed: 6 },
-    { name: "02 Easy Does It...Reloaded-TEMPLATE (1).py", category: "assignments", uploaded: 10, viewed: 4 },
-    { name: "tkinter and classes practice .py", category: "assignments", uploaded: 6, viewed: 1 },
-    { name: "tset file.zip", category: "assignments", uploaded: 6, viewed: 1 },
-];
-
-const REAL_RESOURCES: Resource[] = RAW_FILES.map((file, i) => {
-    const fileType = getFileType(file.name);
-    if (!fileType) return null;
-    return {
-        id: String(i + 1),
-        name: file.name,
-        url: `/resources/${encodeURIComponent(file.name)}`,
-        fileType,
-        category: file.category,
-        uploadedAt: daysAgo(file.uploaded),
-        lastViewedAt: daysAgo(file.viewed),
-    };
-}).filter((r): r is Resource => r !== null);
+// Firestore Timestamp -> Date, tolerating missing/pending values
+function toDateSafe(value: any): Date {
+    if (value && typeof value.toDate === "function") return value.toDate();
+    return new Date();
+}
 
 type ViewMode = "tile" | "row" | "closeup";
 
@@ -146,20 +118,8 @@ const VIEW_META: Record<ViewMode, { icon: JSX.Element; label: string }> = {
     closeup: { icon: <GalleryHorizontal size={15} />, label: "Close-up view" },
 };
 
-function formatRelativeDate(date: any): string {
-    if (!date) return "Just now";
-    
-    // 1. Clean the input variable and normalize it to a native JS Date object
-    const jsDate = typeof date.toDate === 'function' ? date.toDate() : new Date(date);
-    
-    // 2. Double check that it parsed into a valid timestamp integer
-    if (isNaN(jsDate.getTime())) {
-        return "Just now";
-    }
-    
-    // 3. 🚨 FIX: Use jsDate here instead of the raw parameter variable!
-    const diffDays = Math.floor((Date.now() - jsDate.getTime()) / (1000 * 60 * 60 * 24));
-    
+function formatRelativeDate(date: Date): string {
+    const diffDays = Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24));
     if (diffDays <= 0) return "Today";
     if (diffDays === 1) return "Yesterday";
     if (diffDays < 7) return `${diffDays} days ago`;
@@ -193,56 +153,28 @@ function FileThumbnail({ fileType }: { fileType: FileType }) {
     );
 }
 
-export default function ResourcePreview({ resources: initialResources }: ResourcePreviewProps) {
-    // 3. Initialize your local state using the incoming Firebase array!
-    const [resources, setResources] = useState<any[]>(initialResources);
-    
-    // Sync local state if the incoming database array changes
-    useEffect(() => {
-        setResources(initialResources);
-    }, [initialResources]);
+export default function ResourcePreview({ userId, courseId }: { userId: string; courseId: string }) {
+    const [resources, setResources] = useState<Resource[]>([]);
+    const [isLoadingResources, setIsLoadingResources] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
 
     const [viewMode, setViewMode] = useState<ViewMode>("tile");
     const [activeIndex, setActiveIndex] = useState(0);
-    const [previewResource, setPreviewResource] = useState<any | null>(null);
+    const [previewResource, setPreviewResource] = useState<Resource | null>(null);
 
     const [selectMode, setSelectMode] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
-    function toggleSelected(id: string) {
-        setSelectedIds((prev) => {
-            const next = new Set(prev);
-            next.has(id) ? next.delete(id) : next.add(id);
-            return next;
-        });
-    }
-
-    function selectAll() {
-        setSelectedIds(new Set(sortedResources.map((r) => r.id)));
-    }
-
-    function handleDownloadSelected() {
-        // TODO: dummy for now — real version would trigger actual downloads per file
-        console.log("Downloading:", Array.from(selectedIds));
-    }
-
-    function handleDeleteSelected() {
-        setResources((prev) => prev.filter((r) => !selectedIds.has(r.id)));
-        setSelectedIds(new Set());
-        setConfirmDeleteOpen(false);
-    }
-
     const [showAddModal, setShowAddModal] = useState(false);
-    const [newFileType, setNewFileType] = useState<FileType>("pdf");
-    const [newFileName, setNewFileName] = useState("");
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [newCategory, setNewCategory] = useState<Category>("classDoc");
+    const [isUploading, setIsUploading] = useState(false);
+    const [uploadError, setUploadError] = useState<string | null>(null);
 
     const [searchQuery, setSearchQuery] = useState("");
     const [categoryFilter, setCategoryFilter] = useState<Category | "all">("all");
-    const [fileTypeFilters, setFileTypeFilters] = useState<Set<FileType>>(
-        new Set(REAL_RESOURCES.map((r) => r.fileType))
-    );
+    const [fileTypeFilters, setFileTypeFilters] = useState<Set<FileType>>(new Set(VALID_FILE_TYPES));
     const [sortBy, setSortBy] = useState<"name" | "uploadedAt" | "lastViewedAt">("name");
     const [showFilterPopup, setShowFilterPopup] = useState(false);
     const filterPopupRef = useRef<HTMLDivElement | null>(null);
@@ -251,6 +183,40 @@ export default function ResourcePreview({ resources: initialResources }: Resourc
     const [previewLoading, setPreviewLoading] = useState(false);
     const [previewError, setPreviewError] = useState<string | null>(null);
     const docxContainerRef = useRef<HTMLDivElement | null>(null);
+
+    async function loadResources() {
+        setIsLoadingResources(true);
+        setLoadError(null);
+        try {
+            const raw = await getCourseResources(userId, courseId);
+            const mapped: Resource[] = raw
+                .map((r: any) => {
+                    const fileType = getFileType(r.name);
+                    if (!fileType) return null;
+                    return {
+                        id: r.id,
+                        name: r.name,
+                        url: r.url,
+                        fileType,
+                        category: (r.category as Category) ?? "notes",
+                        uploadedAt: toDateSafe(r.uploadedAt),
+                        lastViewedAt: toDateSafe(r.lastViewedAt),
+                    } as Resource;
+                })
+                .filter((r: Resource | null): r is Resource => r !== null);
+            setResources(mapped);
+        } catch (err) {
+            console.error("Error loading resources:", err);
+            setLoadError("Couldn't load resources for this course.");
+        } finally {
+            setIsLoadingResources(false);
+        }
+    }
+
+    useEffect(() => {
+        loadResources();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [userId, courseId]);
 
     const presentFileTypes = Array.from(new Set(resources.map((r) => r.fileType)));
 
@@ -323,47 +289,26 @@ export default function ResourcePreview({ resources: initialResources }: Resourc
 
         async function load() {
             try {
-                const res = await fetch(previewResource!.url);
-                if (!res.ok) throw new Error("File not found");
-
                 if (type === "docx") {
+                    const res = await fetch(previewResource!.url);
+                    if (!res.ok) throw new Error("File not found");
                     const arrayBuffer = await res.arrayBuffer();
-                    if (cancelled) return;
-
-                    // Gives React time to paint the preview container to the DOM layout
-                    setTimeout(async () => {
-                        if (cancelled) return;
-                        if (!docxContainerRef.current) {
-                            setPreviewError("Preview window container initialization failed.");
-                            setPreviewLoading(false);
-                            return;
-                        }
-                        try {
-                            docxContainerRef.current.innerHTML = "";
-                            await renderAsync(arrayBuffer, docxContainerRef.current);
-                        } catch (renderErr) {
-                            console.error("docx render parser crash:", renderErr);
-                            setPreviewError("The structural formatting of this word document is not supported for web rendering.");
-                        } finally {
-                            setPreviewLoading(false);
-                        }
-                    }, 50);
-
+                    if (cancelled || !docxContainerRef.current) return;
+                    docxContainerRef.current.innerHTML = "";
+                    await renderAsync(arrayBuffer, docxContainerRef.current);
                 } else {
+                    const res = await fetch(previewResource!.url);
+                    if (!res.ok) throw new Error("File not found");
                     const text = await res.text();
-                    if (!cancelled) {
-                        setPreviewText(text);
-                        setPreviewLoading(false);
-                    }
+                    if (!cancelled) setPreviewText(text);
                 }
             } catch (err) {
                 console.error("Error loading preview:", err);
                 if (!cancelled) {
-                    setPreviewError(
-                        "Couldn't load this file. Make sure it's been placed in your project's public/resources folder."
-                    );
-                    setPreviewLoading(false);
+                    setPreviewError("Couldn't load this file's content.");
                 }
+            } finally {
+                if (!cancelled) setPreviewLoading(false);
             }
         }
 
@@ -390,32 +335,100 @@ export default function ResourcePreview({ resources: initialResources }: Resourc
         });
     }
 
-    function handleDelete(id: string) {
-        setResources((prev) => prev.filter((r) => r.id !== id));
+    function toggleSelected(id: string) {
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+            return next;
+        });
     }
 
-    function handleAddFile() {
-        if (!newFileName.trim()) return;
-        const fullName = `${newFileName.trim()}.${newFileType}`;
-        setResources((prev) => [
-            ...prev,
-            {
-                id: crypto.randomUUID(),
-                name: fullName,
-                url: `/resources/${encodeURIComponent(fullName)}`,
-                fileType: newFileType,
+    function selectAll() {
+        setSelectedIds(new Set(sortedResources.map((r) => r.id)));
+    }
+
+    async function handleDownloadSelected() {
+        const toDownload = resources.filter((r) => selectedIds.has(r.id));
+        for (const r of toDownload) {
+            try {
+                const res = await fetch(r.url);
+                if (!res.ok) throw new Error("Download failed");
+                const blob = await res.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = blobUrl;
+                a.download = r.name;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(blobUrl);
+            } catch (err) {
+                console.error(`Failed to download ${r.name}:`, err);
+            }
+        }
+    }
+
+    async function handleDeleteSelected() {
+        const toDelete = resources.filter((r) => selectedIds.has(r.id));
+        await Promise.all(
+            toDelete.map((r) => {
+                const key = decodeURIComponent(r.url.split("key=")[1] ?? "");
+                return deleteUserResource(userId, courseId, r.id, key);
+            })
+        );
+        await loadResources();
+        setSelectedIds(new Set());
+        setConfirmDeleteOpen(false);
+    }
+
+    async function handleUpload() {
+        if (!selectedFile) return;
+        const fileType = getFileType(selectedFile.name);
+        if (!fileType) {
+            setUploadError("That file type isn't supported yet.");
+            return;
+        }
+
+        setIsUploading(true);
+        setUploadError(null);
+        try {
+            await uploadUserResource({
+                userId,
+                classDocId: courseId,
+                file: selectedFile,
                 category: newCategory,
-                uploadedAt: new Date(),
-                lastViewedAt: new Date(),
-            },
-        ]);
-        setNewFileName("");
-        setShowAddModal(false);
+            });
+            await loadResources();
+            setSelectedFile(null);
+            setShowAddModal(false);
+        } catch (err: any) {
+            console.error("Upload failed:", err);
+            setUploadError(err.message || "Upload failed. Please try again.");
+        } finally {
+            setIsUploading(false);
+        }
     }
 
     const activeResource = sortedResources[activeIndex];
-    const isFilterActive = fileTypeFilters.size < presentFileTypes.length || sortBy !== "name";
+    const isFilterActive = fileTypeFilters.size < VALID_FILE_TYPES.length || sortBy !== "name";
     const ITEM_SPACING = 155;
+
+    if (isLoadingResources) {
+        return (
+            <div className="flex items-center justify-center gap-2 py-12 text-sm text-[#8A8477]">
+                <Loader2 size={16} className="animate-spin" />
+                Loading resources...
+            </div>
+        );
+    }
+
+    if (loadError) {
+        return <p className="py-8 text-center text-sm text-[#C2685A]">{loadError}</p>;
+    }
 
     return (
         <div>
@@ -503,7 +516,7 @@ export default function ResourcePreview({ resources: initialResources }: Resourc
                     />
                     <CircleIconButton
                         icon={<Upload size={15} />}
-                        ariaLabel="Add document"
+                        ariaLabel="Upload document"
                         size="sm"
                         onClick={() => setShowAddModal(true)}
                     />
@@ -523,9 +536,7 @@ export default function ResourcePreview({ resources: initialResources }: Resourc
 
             {selectMode && (
                 <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md bg-[#FAF3E8] px-3 py-2">
-                    <span className="text-xs font-medium text-[#3D3A34]">
-                        {selectedIds.size} selected
-                    </span>
+                    <span className="text-xs font-medium text-[#3D3A34]">{selectedIds.size} selected</span>
                     <button
                         onClick={selectAll}
                         className="rounded-md border border-[#EDE6D8] bg-white px-3 py-1 text-xs font-medium text-[#3D3A34] hover:border-[#D8CBB0]"
@@ -552,7 +563,7 @@ export default function ResourcePreview({ resources: initialResources }: Resourc
             {sortedResources.length === 0 ? (
                 <p className="py-8 text-center text-sm text-[#8A8477]">
                     {resources.length === 0
-                        ? "No resources yet. Use the + button to add one."
+                        ? "No resources yet. Use the upload button to add one."
                         : "No files match your search or filters."}
                 </p>
             ) : viewMode === "tile" ? (
@@ -560,7 +571,9 @@ export default function ResourcePreview({ resources: initialResources }: Resourc
                     {sortedResources.map((resource) => (
                         <div key={resource.id} className="group relative">
                             <button
-                                onClick={() => (selectMode ? toggleSelected(resource.id) : setPreviewResource(resource))}
+                                onClick={() =>
+                                    selectMode ? toggleSelected(resource.id) : setPreviewResource(resource)
+                                }
                                 className="w-full overflow-hidden rounded-lg text-left ring-1 ring-[#EDE6D8] transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[#B08957]"
                             >
                                 <div className="h-44 w-full">
@@ -582,9 +595,13 @@ export default function ResourcePreview({ resources: initialResources }: Resourc
                                 </div>
                             </button>
                             {selectMode && (
-                                <div className={`absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full border-2 ${
-                                    selectedIds.has(resource.id) ? "border-[#B08957] bg-[#B08957]" : "border-white bg-white/70"
-                                }`}>
+                                <div
+                                    className={`absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full border-2 ${
+                                        selectedIds.has(resource.id)
+                                            ? "border-[#B08957] bg-[#B08957]"
+                                            : "border-white bg-white/70"
+                                    }`}
+                                >
                                     {selectedIds.has(resource.id) && <CheckSquare size={12} className="text-white" />}
                                 </div>
                             )}
@@ -599,9 +616,20 @@ export default function ResourcePreview({ resources: initialResources }: Resourc
                             className="group flex items-center gap-4 px-3 py-2.5 transition-colors hover:bg-[#FAF7F0]"
                         >
                             <button
-                                onClick={() => (selectMode ? toggleSelected(resource.id) : setPreviewResource(resource))}
+                                onClick={() =>
+                                    selectMode ? toggleSelected(resource.id) : setPreviewResource(resource)
+                                }
                                 className="flex flex-1 items-center gap-4 text-left focus:outline-none"
                             >
+                                {selectMode && (
+                                    <div className="flex h-5 w-5 shrink-0 items-center justify-center">
+                                        {selectedIds.has(resource.id) ? (
+                                            <CheckSquare size={16} className="text-[#B08957]" />
+                                        ) : (
+                                            <Square size={16} className="text-[#C7BBA0]" />
+                                        )}
+                                    </div>
+                                )}
                                 <div className="h-12 w-10 shrink-0 overflow-hidden rounded-md ring-1 ring-[#EDE6D8]">
                                     <FileThumbnail fileType={resource.fileType} />
                                 </div>
@@ -622,15 +650,6 @@ export default function ResourcePreview({ resources: initialResources }: Resourc
                                     </div>
                                 </div>
                             </button>
-                            {selectMode && (
-                                <div className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center">
-                                    {selectedIds.has(resource.id) ? (
-                                        <CheckSquare size={16} className="text-[#B08957]" />
-                                    ) : (
-                                        <Square size={16} className="text-[#C7BBA0]" />
-                                    )}
-                                </div>
-                            )}
                         </div>
                     ))}
                 </div>
@@ -656,7 +675,7 @@ export default function ResourcePreview({ resources: initialResources }: Resourc
                                 return (
                                     <button
                                         key={resource.id}
-                                            onClick={() => {
+                                        onClick={() => {
                                             if (distance !== 0) {
                                                 setActiveIndex(index);
                                             } else if (selectMode) {
@@ -664,7 +683,7 @@ export default function ResourcePreview({ resources: initialResources }: Resourc
                                             } else {
                                                 setPreviewResource(resource);
                                             }
-                                            }}
+                                        }}
                                         style={{
                                             position: "absolute",
                                             left: "50%",
@@ -678,6 +697,19 @@ export default function ResourcePreview({ resources: initialResources }: Resourc
                                         }`}
                                     >
                                         <FileThumbnail fileType={resource.fileType} />
+                                        {selectMode && distance === 0 && (
+                                            <div
+                                                className={`absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full ${
+                                                    selectedIds.has(resource.id) ? "bg-[#B08957]" : "bg-white/80"
+                                                }`}
+                                            >
+                                                {selectedIds.has(resource.id) ? (
+                                                    <CheckSquare size={12} className="text-white" />
+                                                ) : (
+                                                    <Square size={12} className="text-[#8A8477]" />
+                                                )}
+                                            </div>
+                                        )}
                                     </button>
                                 );
                             })}
@@ -694,9 +726,7 @@ export default function ResourcePreview({ resources: initialResources }: Resourc
                     </div>
 
                     <div className="mt-3 flex items-center justify-center gap-2">
-                        <p className="truncate text-sm font-medium text-[#3D3A34]">
-                            {activeResource?.name}
-                        </p>
+                        <p className="truncate text-sm font-medium text-[#3D3A34]">{activeResource?.name}</p>
                         {activeResource && (
                             <span className="rounded-full bg-[#FAF3E8] px-2 py-0.5 text-[10px] font-medium text-[#B08957]">
                                 {CATEGORY_LABELS[activeResource.category]}
@@ -709,26 +739,9 @@ export default function ResourcePreview({ resources: initialResources }: Resourc
                             {formatRelativeDate(activeResource.lastViewedAt)}
                         </p>
                     )}
-
-                    <div className="mt-1 flex items-center justify-center gap-2">
-                        <p className="text-center text-xs text-[#8A8477]">
-                            {activeIndex + 1} of {sortedResources.length}
-                        </p>
-                        {selectMode && activeResource && (
-                            <CircleIconButton
-                                icon={<CheckSquare size={15} />}
-                                ariaLabel="Select files"
-                                size="sm"
-                                variant={selectMode ? "accent" : "default"}
-                                onClick={() => {
-                                    setSelectMode((s) => !s);
-                                    setSelectedIds(new Set());
-                                }}
-                                disabled={resources.length === 0}
-                            />
-                        )}
-                        
-                    </div>
+                    <p className="mt-1 text-center text-xs text-[#8A8477]">
+                        {activeIndex + 1} of {sortedResources.length}
+                    </p>
                 </div>
             )}
 
@@ -763,7 +776,7 @@ export default function ResourcePreview({ resources: initialResources }: Resourc
                                 <>
                                     <div
                                         ref={docxContainerRef}
-                                        className="docx-render-container mx-auto max-w-3xl bg-white p-6 shadow-sm min-h-[400px]"
+                                        className="docx-render-container mx-auto max-w-3xl bg-white p-6 shadow-sm"
                                     />
                                     {previewLoading && (
                                         <div className="absolute inset-0 flex items-center justify-center gap-2 bg-[#F5F3EE]/80 text-sm text-[#8A8477]">
@@ -801,84 +814,14 @@ export default function ResourcePreview({ resources: initialResources }: Resourc
                 </div>
             )}
 
-            {/* Add document modal */}
-            {showAddModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowAddModal(false)}>
-                    <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-                        <div className="mb-4 flex items-center justify-between">
-                            <h3 className="text-sm font-semibold text-[#3D3A34]">Add document</h3>
-                            <CircleIconButton icon={<X size={16} />} ariaLabel="Close" size="sm" onClick={() => setShowAddModal(false)} />
-                        </div>
-
-                        <label className="mb-1 block text-xs font-medium text-[#8A8477]">File name</label>
-                        <input
-                            value={newFileName}
-                            onChange={(e) => setNewFileName(e.target.value)}
-                            placeholder="e.g. Week 3 Notes"
-                            className="mb-4 w-full rounded-md border border-[#EDE6D8] px-3 py-2 text-sm text-[#3D3A34] outline-none focus:border-[#B08957]"
-                        />
-
-                        <label className="mb-2 block text-xs font-medium text-[#8A8477]">File type</label>
-                        <select
-                            value={newFileType}
-                            onChange={(e) => setNewFileType(e.target.value as FileType)}
-                            className="mb-4 w-full rounded-md border border-[#EDE6D8] bg-white py-2 px-3 text-sm text-[#3D3A34] outline-none focus:border-[#B08957]"
-                        >
-                            <optgroup label="Documents">
-                                <option value="pdf">PDF</option>
-                                <option value="docx">DOCX</option>
-                                <option value="txt">TXT</option>
-                                <option value="zip">ZIP</option>
-                            </optgroup>
-                            <optgroup label="Code">
-                                {(Object.keys(CODE_TYPES) as CodeType[])
-                                    .filter((t) => t !== "txt")
-                                    .map((t) => (
-                                        <option key={t} value={t}>
-                                            {CODE_TYPES[t].label}
-                                        </option>
-                                    ))}
-                            </optgroup>
-                        </select>
-
-                        <label className="mb-2 block text-xs font-medium text-[#8A8477]">Tag</label>
-                        <div className="mb-6 flex gap-2">
-                            {(Object.keys(CATEGORY_LABELS) as Category[]).map((cat) => (
-                                <button
-                                    key={cat}
-                                    onClick={() => setNewCategory(cat)}
-                                    className={`flex-1 rounded-md border px-2 py-2 text-xs font-medium transition-colors ${
-                                        newCategory === cat
-                                            ? "border-[#B08957] bg-[#FAF3E8] text-[#B08957]"
-                                            : "border-[#EDE6D8] text-[#8A8477] hover:border-[#D8CBB0]"
-                                    }`}
-                                >
-                                    {CATEGORY_LABELS[cat]}
-                                </button>
-                            ))}
-                        </div>
-
-                        <p className="mb-4 text-xs text-[#8A8477]">
-                            This registers the file entry only — place the actual file at
-                            public/resources/ in your project for the preview to load.
-                        </p>
-
-                        <button
-                            onClick={handleAddFile}
-                            disabled={!newFileName.trim()}
-                            className="w-full rounded-md bg-[#B08957] py-2 text-sm font-medium text-white transition-colors hover:bg-[#9C7849] disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                            Add document
-                        </button>
-                    </div>
-                </div>
-            )}
-
+            {/* Delete confirmation */}
             {confirmDeleteOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setConfirmDeleteOpen(false)}>
                     <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-                        <h3 className="mb-2 text-sm font-semibold text-[#3D3A34]">Delete {selectedIds.size} file{selectedIds.size !== 1 ? "s" : ""}?</h3>
-                        <p className="mb-6 text-sm text-[#8A8477]">This can't be undone.</p>
+                        <h3 className="mb-2 text-sm font-semibold text-[#3D3A34]">
+                            Delete {selectedIds.size} file{selectedIds.size !== 1 ? "s" : ""}?
+                        </h3>
+                        <p className="mb-6 text-sm text-[#8A8477]">This can&apos;t be undone.</p>
                         <div className="flex gap-2">
                             <button
                                 onClick={() => setConfirmDeleteOpen(false)}
@@ -897,6 +840,76 @@ export default function ResourcePreview({ resources: initialResources }: Resourc
                 </div>
             )}
 
+            {/* Upload document modal */}
+            {showAddModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => !isUploading && setShowAddModal(false)}>
+                    <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+                        <div className="mb-4 flex items-center justify-between">
+                            <h3 className="text-sm font-semibold text-[#3D3A34]">Upload document</h3>
+                            <CircleIconButton
+                                icon={<X size={16} />}
+                                ariaLabel="Close"
+                                size="sm"
+                                onClick={() => setShowAddModal(false)}
+                                disabled={isUploading}
+                            />
+                        </div>
+
+                        <label className="mb-2 block text-xs font-medium text-[#8A8477]">Select file</label>
+                        <input
+                            type="file"
+                            accept={ACCEPT_ATTR}
+                            onChange={(e) => {
+                                setSelectedFile(e.target.files?.[0] ?? null);
+                                setUploadError(null);
+                            }}
+                            disabled={isUploading}
+                            className="mb-1 block w-full text-sm text-[#3D3A34] file:mr-3 file:rounded-md file:border-0 file:bg-[#FAF3E8] file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-[#B08957] hover:file:bg-[#F5EAD8]"
+                        />
+                        {selectedFile && !getFileType(selectedFile.name) && (
+                            <p className="mb-2 text-xs text-[#C2685A]">
+                                That file type isn&apos;t supported yet.
+                            </p>
+                        )}
+
+                        <label className="mb-2 mt-4 block text-xs font-medium text-[#8A8477]">Tag</label>
+                        <div className="mb-6 flex gap-2">
+                            {(Object.keys(CATEGORY_LABELS) as Category[]).map((cat) => (
+                                <button
+                                    key={cat}
+                                    onClick={() => setNewCategory(cat)}
+                                    disabled={isUploading}
+                                    className={`flex-1 rounded-md border px-2 py-2 text-xs font-medium transition-colors ${
+                                        newCategory === cat
+                                            ? "border-[#B08957] bg-[#FAF3E8] text-[#B08957]"
+                                            : "border-[#EDE6D8] text-[#8A8477] hover:border-[#D8CBB0]"
+                                    }`}
+                                >
+                                    {CATEGORY_LABELS[cat]}
+                                </button>
+                            ))}
+                        </div>
+
+                        {uploadError && (
+                            <p className="mb-4 text-xs text-[#C2685A]">{uploadError}</p>
+                        )}
+
+                        <button
+                            onClick={handleUpload}
+                            disabled={!selectedFile || !getFileType(selectedFile?.name ?? "") || isUploading}
+                            className="flex w-full items-center justify-center gap-2 rounded-md bg-[#B08957] py-2 text-sm font-medium text-white transition-colors hover:bg-[#9C7849] disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                            {isUploading ? (
+                                <>
+                                    <Loader2 size={14} className="animate-spin" /> Uploading...
+                                </>
+                            ) : (
+                                "Upload"
+                            )}
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
