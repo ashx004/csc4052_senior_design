@@ -1,8 +1,7 @@
-// tells the code that this page is interactive
 "use client";
 
-
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { auth, db } from "@/src/library/firebase";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 
@@ -13,6 +12,7 @@ import {
 } from "firebase/firestore";
 
 export default function Signup() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -38,7 +38,7 @@ export default function Signup() {
         joinedAt: serverTimestamp(),
       });
 
-      alert("Account Successfully Created !");
+      router.push("/");
 
     } catch (error) {
 
