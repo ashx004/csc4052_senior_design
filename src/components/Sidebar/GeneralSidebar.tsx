@@ -6,7 +6,7 @@ import {Home,Briefcase,Calendar,MessageSquare,Users,User,} from "lucide-react";
 import Sidebar from "./Sidebar";
 
 const links = [
-  { label: "Home", href: "/", icon: Home },
+  { label: "Home", href: "/dashboard", icon: Home },
   { label: "Classes", href: "/classes", icon: Briefcase },
   { label: "Calendar", href: "/calendar", icon: Calendar },
   { label: "AI Assistant", href: "/ai-assistant", icon: MessageSquare },
