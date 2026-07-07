@@ -21,7 +21,7 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-syntax-highlighter": "^16.1.1",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",
@@ -32,5 +32,8 @@
     "postcss": "^8.5.3",
     "tailwindcss": "^3.4.17",
     "typescript": "~5.8.3"
+  },
+  "overrides": {
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }
