@@ -19,6 +19,9 @@ import { // import symbols
     FileText,
     FileCode,
     FileArchive,
+    FileSpreadsheet,
+    Presentation,
+    BookOpen,
     Loader2,
     Minus,
     Plus,
@@ -58,11 +61,16 @@ const CODE_TYPES = {
 type CodeType = keyof typeof CODE_TYPES;
 
 // other supported file types
-export type FileType = CodeType | "pdf" | "docx" | "zip";
-const NON_CODE_META: Record<"pdf" | "docx" | "zip", { label: string; color: string; bg: string }> = {
+export type FileType = CodeType | "pdf" | "docx" | "zip" | "pptx" | "one" | "xlsx";
+// "download only" formats — no in-browser rendering attempted, since there's
+const DOWNLOAD_ONLY_TYPES: FileType[] = ["zip", "pptx", "one"];
+const NON_CODE_META: Record<"pdf" | "docx" | "zip" | "pptx" | "one" | "xlsx", { label: string; color: string; bg: string }> = {
     pdf: { label: "PDF", color: "#C2685A", bg: "#FBEAE7" },
     docx: { label: "DOCX", color: "#4A6FA5", bg: "#E8EEF9" },
     zip: { label: "ZIP", color: "#8A6D3B", bg: "#F5EEDC" },
+    pptx: { label: "PPTX", color: "#C1440E", bg: "#FBE9E1" },
+    one: { label: "ONE", color: "#7C3F00", bg: "#F5E9DC" },
+    xlsx: { label: "XLSX", color: "#1D6F42", bg: "#E5F3EA" },
 };
 
 const TYPE_META: Record<FileType, { label: string; color: string; bg: string }> = {
@@ -77,6 +85,9 @@ const VALID_FILE_TYPES: FileType[] = [
     "pdf",
     "docx",
     "zip",
+    "pptx",
+    "one",
+    "xlsx",
 ];
 
 const ACCEPT_ATTR = VALID_FILE_TYPES.map((t) => `.${t}`).join(",");
@@ -102,7 +113,8 @@ function getFileType(fileName: string): FileType | null {
     const ext = fileName.split(".").pop()?.toLowerCase();
     if (!ext) return null;
     if (ext in CODE_TYPES) return ext as CodeType;
-    if (ext === "pdf" || ext === "docx" || ext === "zip") return ext;
+    if (ext === "pdf" || ext === "docx" || ext === "zip" || ext === "pptx" || ext === "one") return ext;
+    if (ext === "xlsx" || ext === "xls") return "xlsx";
     return null;
 }
 
@@ -145,7 +157,22 @@ async function generateThumbnail(resource: Resource): Promise<ThumbnailData | nu
             return { kind: "text", content: result.value.slice(0, 240) };
         }
 
-        if (resource.fileType === "zip") return null;
+        if (resource.fileType === "xlsx") {
+            const XLSX = await import("xlsx");
+            const res = await fetch(resource.url);
+            if (!res.ok) return null;
+            const arrayBuffer = await res.arrayBuffer();
+            const workbook = XLSX.read(arrayBuffer, { type: "array" });
+            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+            const rows: string[][] = XLSX.utils.sheet_to_json(firstSheet, { header: 1, blankrows: false });
+            const snippet = rows
+                .slice(0, 8)
+                .map((row) => row.slice(0, 5).join("\t"))
+                .join("\n");
+            return { kind: "text", content: snippet };
+        }
+
+        if (DOWNLOAD_ONLY_TYPES.includes(resource.fileType)) return null;
 
         const res = await fetch(resource.url);
         if (!res.ok) return null;
@@ -209,6 +236,12 @@ function FileThumbnail({
     const icon =
         fileType === "zip" ? (
             <FileArchive size={20} />
+        ) : fileType === "pptx" ? (
+            <Presentation size={20} />
+        ) : fileType === "one" ? (
+            <BookOpen size={20} />
+        ) : fileType === "xlsx" ? (
+            <FileSpreadsheet size={20} />
         ) : fileType === "pdf" || fileType === "docx" ? (
             <FileText size={20} />
         ) : (
@@ -256,6 +289,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
     const filterPopupRef = useRef<HTMLDivElement | null>(null);
 
     const [previewText, setPreviewText] = useState<string | null>(null);
+    const [excelHtml, setExcelHtml] = useState<string | null>(null);
     const [previewLoading, setPreviewLoading] = useState(false);
     const [previewError, setPreviewError] = useState<string | null>(null);
     const docxContainerRef = useRef<HTMLDivElement | null>(null);
@@ -341,7 +375,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
 
         toGenerate.forEach((resource) => {
             if (thumbnails[resource.id] || thumbnailInFlight.current.has(resource.id)) return;
-            if (resource.fileType === "zip") return;
+            if (DOWNLOAD_ONLY_TYPES.includes(resource.fileType)) return;
 
             thumbnailInFlight.current.add(resource.id);
             generateThumbnail(resource)
@@ -394,13 +428,14 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
     useEffect(() => {
         if (!previewResource) {
             setPreviewText(null);
+            setExcelHtml(null);
             setPreviewError(null);
             return;
         }
 
         const type = previewResource.fileType;
 
-        if (type === "pdf" || type === "zip") {
+        if (type === "pdf" || DOWNLOAD_ONLY_TYPES.includes(type)) {
             setPreviewLoading(false);
             setPreviewError(null);
             return;
@@ -410,6 +445,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
         setPreviewLoading(true);
         setPreviewError(null);
         setPreviewText(null);
+        setExcelHtml(null);
 
         async function load() {
             try {
@@ -428,6 +464,15 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                         trimXmlDeclaration: true,
                         useBase64URL: true,
                     });
+                } else if (type === "xlsx") {
+                    const XLSX = await import("xlsx");
+                    const res = await fetch(previewResource!.url);
+                    if (!res.ok) throw new Error("File not found");
+                    const arrayBuffer = await res.arrayBuffer();
+                    const workbook = XLSX.read(arrayBuffer, { type: "array" });
+                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const html = XLSX.utils.sheet_to_html(firstSheet);
+                    if (!cancelled) setExcelHtml(html);
                 } else {
                     const res = await fetch(previewResource!.url);
                     if (!res.ok) throw new Error("File not found");
@@ -979,11 +1024,18 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                         <div className="relative flex-1 overflow-auto bg-[#F5F3EE]">
                             {previewResource.fileType === "pdf" ? (
                                 <iframe src={previewResource.url} title={previewResource.name} className="h-full w-full" />
-                            ) : previewResource.fileType === "zip" ? (
+                            ) : DOWNLOAD_ONLY_TYPES.includes(previewResource.fileType) ? (
                                 <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-                                    <FileArchive size={40} className="text-[#8A6D3B]" />
+                                    {previewResource.fileType === "pptx" ? (
+                                        <Presentation size={40} className="text-[#C1440E]" />
+                                    ) : previewResource.fileType === "one" ? (
+                                        <BookOpen size={40} className="text-[#7C3F00]" />
+                                    ) : (
+                                        <FileArchive size={40} className="text-[#8A6D3B]" />
+                                    )}
                                     <p className="text-sm text-[#3D3A34]">
-                                        Zip archives can&apos;t be previewed here — download it to view contents.
+                                        {TYPE_META[previewResource.fileType].label} files can&apos;t be previewed here —
+                                        download it to view contents.
                                     </p>
                                     <a
                                         href={previewResource.url}
@@ -994,73 +1046,96 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                         Download
                                     </a>
                                 </div>
-                            ) : previewResource.fileType === "docx" ? (
-    <>
-        <style>{`
-            .docx-render p { margin: 0 0 8px 0; }
-            .docx-render table { border-collapse: collapse; }
-            .docx-render table td, .docx-render table th { border: 1px solid #ddd; padding: 4px 8px; }
-            .docx-render ul, .docx-render ol { list-style: revert; padding-left: 1.5rem; margin: revert; }
-            .docx-render h1, .docx-render h2, .docx-render h3 { font-weight: revert; font-size: revert; margin: revert; }
-        `}</style>
-        
-        {/* 📦 Master Bounding Container (Acts like an iframe window) */}
-        <div className="flex flex-col w-full h-[75vh] bg-[#FAFAF8] rounded-xl overflow-hidden border border-[#EDE6D8] relative">
-            
-            {/* 🛠️ Floating Zoom Controller Bar Toolbar */}
-            <div className="flex items-center justify-end gap-3 bg-white border-b border-[#EDE6D8] px-4 py-2 z-10 shadow-sm">
-                <span className="text-xs font-medium text-[#8A8477]">{Math.round(zoom * 100)}%</span>
-                <button 
-                    onClick={handleZoomOut} 
-                    className="p-1 px-2 rounded bg-[#FAFAF8] hover:bg-[#EDE6D8] text-xs font-bold text-[#3D3A34] transition-colors"
-                >
-                    Zoom -
-                </button>
-                <button 
-                    onClick={handleZoomReset} 
-                    className="p-1 px-2 rounded bg-[#FAFAF8] hover:bg-[#EDE6D8] text-xs font-medium text-[#3D3A34] transition-colors"
-                >
-                    Reset
-                </button>
-                <button 
-                    onClick={handleZoomIn} 
-                    className="p-1 px-2 rounded bg-[#FAFAF8] hover:bg-[#EDE6D8] text-xs font-bold text-[#3D3A34] transition-colors"
-                >
-                    Zoom +
-                </button>
-            </div>
-
-            {/* 📦 Layer 1: Outer Viewport Window Container (Enables scrolling when zoomed in) */}
-            <div className="flex-1 overflow-auto p-6 flex justify-center items-start">
-                
-                {/* 🚀 Layer 2: Inner Scale Container Wrapper */}
-                <div 
-                    style={{ 
-                        transform: `scale(${zoom})`, 
-                        transformOrigin: 'top center', 
-                        transition: 'transform 0.15s ease-out' 
-                    }}
-                    className="w-full h-auto flex justify-center"
-                >
-                    {/* Your native hook point div containing its original formatting parameters */}
-                    <div ref={docxContainerRef} className="docx-render-container mx-auto max-w-[850px] bg-white p-6 shadow-sm" />
-                </div>
-
-            </div>
-            
-            {/* Kept your loading state overlay cleanly bounded right inside the viewport window */}
-            {previewLoading && (
-                <div className="absolute inset-0 flex items-center justify-center gap-2 bg-[#F5F3EE]/80 text-sm text-[#8A8477] z-20">
-                    <Loader2 size={16} className="animate-spin" />
-                    Loading preview...
-                </div>
-            )}
-        </div>
-        
-        {previewError && (
-            <div className="p-4 text-center text-xs text-[#C2685A]">
-                {previewError}
-            </div>
+							) : previewResource.fileType === "xlsx" ? (
+                                <>
+                                    <style>{`
+                                        .xlsx-render table { border-collapse: collapse; font-size: 0.8rem; }
+                                        .xlsx-render td, .xlsx-render th { border: 1px solid #ddd; padding: 4px 10px; white-space: nowrap; }
+                                        .xlsx-render tr:first-child td { background: #FAF3E8; font-weight: 600; }
+                                    `}</style>
+                                    {previewLoading ? (
+                                        <div className="flex h-full items-center justify-center gap-2 text-sm text-[#8A8477]">
+                                            <Loader2 size={16} className="animate-spin" />
+                                            Loading preview...
+                                        </div>
+                                    ) : previewError ? (
+                                        <div className="flex h-full items-center justify-center p-6 text-center text-sm text-[#C2685A]">
+                                            {previewError}
+                                        </div>
+                                    ) : excelHtml ? (
+                                        <div
+                                            className="xlsx-render overflow-auto p-4"
+                                            dangerouslySetInnerHTML={{ __html: excelHtml }}
+                                        />
+                                    ) : null}
+                                </>                            
+                               ) : previewResource.fileType === "docx" ? (
+							    <>
+							        <style>{`
+							            .docx-render p { margin: 0 0 8px 0; }
+							            .docx-render table { border-collapse: collapse; }
+							            .docx-render table td, .docx-render table th { border: 1px solid #ddd; padding: 4px 8px; }
+							            .docx-render ul, .docx-render ol { list-style: revert; padding-left: 1.5rem; margin: revert; }
+							            .docx-render h1, .docx-render h2, .docx-render h3 { font-weight: revert; font-size: revert; margin: revert; }
+							        `}</style>
+							        
+							        {/* 📦 Master Bounding Container (Acts like an iframe window) */}
+							        <div className="flex flex-col w-full h-[75vh] bg-[#FAFAF8] rounded-xl overflow-hidden border border-[#EDE6D8] relative">
+							            
+							            {/* 🛠️ Floating Zoom Controller Bar Toolbar */}
+							            <div className="flex items-center justify-end gap-3 bg-white border-b border-[#EDE6D8] px-4 py-2 z-10 shadow-sm">
+							                <span className="text-xs font-medium text-[#8A8477]">{Math.round(zoom * 100)}%</span>
+							                <button 
+							                    onClick={handleZoomOut} 
+							                    className="p-1 px-2 rounded bg-[#FAFAF8] hover:bg-[#EDE6D8] text-xs font-bold text-[#3D3A34] transition-colors"
+							                >
+							                    Zoom -
+							                </button>
+							                <button 
+							                    onClick={handleZoomReset} 
+							                    className="p-1 px-2 rounded bg-[#FAFAF8] hover:bg-[#EDE6D8] text-xs font-medium text-[#3D3A34] transition-colors"
+							                >
+							                    Reset
+							                </button>
+							                <button 
+							                    onClick={handleZoomIn} 
+							                    className="p-1 px-2 rounded bg-[#FAFAF8] hover:bg-[#EDE6D8] text-xs font-bold text-[#3D3A34] transition-colors"
+							                >
+							                    Zoom +
+							                </button>
+							            </div>
+							
+							            {/* 📦 Layer 1: Outer Viewport Window Container (Enables scrolling when zoomed in) */}
+							            <div className="flex-1 overflow-auto p-6 flex justify-center items-start">
+							                
+							                {/* 🚀 Layer 2: Inner Scale Container Wrapper */}
+							                <div 
+							                    style={{ 
+							                        transform: `scale(${zoom})`, 
+							                        transformOrigin: 'top center', 
+							                        transition: 'transform 0.15s ease-out' 
+							                    }}
+							                    className="w-full h-auto flex justify-center"
+							                >
+							                    {/* Your native hook point div containing its original formatting parameters */}
+							                    <div ref={docxContainerRef} className="docx-render-container mx-auto max-w-[850px] bg-white p-6 shadow-sm" />
+							                </div>
+							
+							            </div>
+							            
+							            {/* Kept your loading state overlay cleanly bounded right inside the viewport window */}
+							            {previewLoading && (
+							                <div className="absolute inset-0 flex items-center justify-center gap-2 bg-[#F5F3EE]/80 text-sm text-[#8A8477] z-20">
+							                    <Loader2 size={16} className="animate-spin" />
+							                    Loading preview...
+							                </div>
+							            )}
+							        </div>
+							        
+							        {previewError && (
+							            <div className="p-4 text-center text-xs text-[#C2685A]">
+							                {previewError}
+							            </div>
                                     )}
                                 </>
                             ) : previewLoading ? (
