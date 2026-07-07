@@ -10,6 +10,7 @@ const s3Client = new S3Client({
         secretAccessKey: process.env.MINIO_SECRET_KEY!,
     },
     forcePathStyle: true,
+    tls: true,
 });
 
 export async function GET(req: NextRequest) {
