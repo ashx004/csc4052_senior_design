@@ -26,7 +26,7 @@ export default function ClassCard({
 
       {/* Body */}
       <div className="class-card-body">
-        <Link href={`/classes/${classId}`} className="class-card-title" style={{ color }}>
+        <Link href={`/courses/${classId}`} className="class-card-title" style={{ color }}>
           {className}
         </Link>
         <p className="class-card-code">{classCode}</p>

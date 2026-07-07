@@ -8,12 +8,13 @@ import Sidebar from "./Sidebar";
 
 interface CourseSidebarProps {
   courseId: string;
+  courseName?: string;
 }
 
-export default function CourseSidebar({ courseId }: CourseSidebarProps) {
+export default function CourseSidebar({ courseId, courseName }: CourseSidebarProps) {
   const pathname = usePathname();
   const base = `/courses/${courseId}`;
-  const courseName = courseId.replace(/-/g, " ").toUpperCase();
+  const displayName = courseName || courseId.replace(/-/g, " ").toUpperCase();
 
   // Track which dropdown sections are open
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
@@ -51,7 +52,7 @@ export default function CourseSidebar({ courseId }: CourseSidebarProps) {
     <Sidebar>
       {/* Course name */}
       <div className="mb-4">
-        <p className="px-2 text-sm font-bold text-gray-900">{courseName}</p>
+        <p className="px-2 text-sm font-bold text-gray-900">{displayName}</p>
       </div>
 
       {/* Overview — standalone bold link, no icon */}

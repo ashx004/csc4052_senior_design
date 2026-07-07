@@ -5,8 +5,19 @@ import { useAuth } from '@/src/context/AuthContext';
 import { EnrollmentFields } from '@/src/app/(dashboard)/classes/page';
 import { addDoc, collection } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
+import { Minus } from "lucide-react"; 
 
-export default function AddEnrollmentModal() {
+interface AddEnrollmentModalProps {
+    onEnrollmentAdded?: () => void;
+    deleteMode: boolean;
+    onToggleDeleteMode: () => void;
+}
+
+export default function AddEnrollmentModal({
+      onEnrollmentAdded,
+      deleteMode,
+      onToggleDeleteMode,
+  }: AddEnrollmentModalProps) {
   const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   
@@ -66,6 +77,10 @@ export default function AddEnrollmentModal() {
     try {
       const enrollmentRef = collection(db, "users", user.uid, "enrollment");
       await addDoc(enrollmentRef, savedEnrollmentData);
+      
+      if (onEnrollmentAdded) {
+        onEnrollmentAdded();
+      }
     } catch (error) {
       console.error("Error adding enrollment: ", error);
       alert("Failed to add class. Please try again.");
@@ -86,6 +101,15 @@ export default function AddEnrollmentModal() {
           <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
         </svg>
       </button>
+      <button
+        onClick={onToggleDeleteMode}
+        className={`absolute top-4 right-16 flex h-8 w-8 items-center justify-center rounded-md shadow transition-colors ${
+            deleteMode ? "bg-red-500 text-white" : "bg-white text-gray-700 hover:bg-gray-50"
+        }`}
+        aria-label="Toggle delete mode"
+    >
+        <Minus size={18} />
+    </button>
 
       { /* render the modal iff isOpen is true */}
       {isOpen && (
