@@ -1,28 +1,63 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, FileEdit, BookOpen, Bookmark } from 'lucide-react';
+import { useAuth } from '@/src/context/AuthContext';
+import { getCourseResources } from '@/src/components/resourceManagement/fileUploadService';
+import { ArrowLeft, FileEdit, BookOpen, Bookmark, Loader2 } from 'lucide-react';
 
-// Mock data — will be replaced with getCourseResources() in Phase 2
-const mockDocuments = [
-  { id: 'doc-1', label: 'NOTE 1', title: 'Binary Addition.pdf', type: 'pdf' },
-  { id: 'doc-2', label: 'NOTE 2', title: 'Bash Terminal Creation', type: 'pdf' },
-  { id: 'doc-3', label: 'NOTE 3', title: 'Culture Assessment', type: 'docx' },
-  { id: 'doc-4', label: 'NOTE 4', title: 'Data Structures Overview', type: 'pdf' },
-  { id: 'doc-5', label: 'NOTE 5', title: 'Sorting Algorithms', type: 'pdf' },
-  { id: 'doc-6', label: 'NOTE 6', title: 'Recursion Basics', type: 'pdf' },
-];
+interface Resource {
+  id: string;
+  name: string;
+  url: string;
+  fileType: string;
+  category: string;
+}
 
 export default function CourseLearningPage() {
   const params = useParams();
   const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
+
   const courseId = params.courseId as string;
   const displayName = courseId.replace(/-/g, ' ').toUpperCase();
+
+  const [resources, setResources] = useState<Resource[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    const fetchResources = async () => {
+      try {
+        const data = await getCourseResources(user.uid, courseId);
+        setResources(data as Resource[]);
+      } catch (error) {
+        console.error('Error fetching resources:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchResources();
+  }, [user, authLoading, courseId]);
+
+  if (authLoading || loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-[#FAFAF8]">
+        <Loader2 size={32} className="animate-spin text-[#8B6914]" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#FAFAF8]">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+      <div className="flex items-center justify-between px-16 py-7 border-b border-gray-100">
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.back()}
@@ -44,8 +79,11 @@ export default function CourseLearningPage() {
       </div>
 
       {/* Document grid */}
-      <div className="px-6 py-8">
-        {mockDocuments.length === 0 ? (
+      <div className="px-6 py-6">
+        <p className="text-left text-gray-500 text-md mb-6">
+          Choose a Lecture and make your own flashcard
+        </p>
+        {resources.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-gray-400">
             <BookOpen size={48} className="mb-4" />
             <p className="text-lg font-medium">No documents yet</p>
@@ -53,20 +91,23 @@ export default function CourseLearningPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            {mockDocuments.map((doc) => (
+            {resources.map((resource, index) => (
               <button
-                key={doc.id}
+                key={resource.id}
                 onClick={() =>
                   router.push(
-                    `/courses/${courseId}/flashcards?docId=${doc.id}&docName=${encodeURIComponent(doc.title)}`
+                    `/courses/${courseId}/flashcards?docId=${resource.id}&docName=${encodeURIComponent(resource.name)}`
                   )
                 }
-                className="text-left rounded-xl overflow-hidden border border-gray-100 
+                className="text-left rounded-xl overflow-hidden border border-gray-100
                            hover:shadow-md transition-shadow bg-white group"
               >
-                {/* Preview placeholder — will show real thumbnail in Phase 2 */}
+                {/* Preview placeholder */}
                 <div className="h-36 bg-[#E8E3DA] flex items-center justify-center">
-                  <FileEdit size={36} className="text-[#8B7B5E] opacity-50 group-hover:opacity-75 transition-opacity" />
+                  <FileEdit
+                    size={36}
+                    className="text-[#8B7B5E] opacity-50 group-hover:opacity-75 transition-opacity"
+                  />
                 </div>
 
                 {/* Card info */}
@@ -74,11 +115,11 @@ export default function CourseLearningPage() {
                   <div className="flex items-center gap-1.5 mb-1">
                     <FileEdit size={14} className="text-[#8B7B5E]" />
                     <span className="text-[10px] font-semibold tracking-wider text-[#8B7B5E] uppercase">
-                      {doc.label}
+                      NOTE {index + 1}
                     </span>
                   </div>
-                  <h3 className="text-sm font-semibold text-[#1a1a2e] leading-snug">
-                    {doc.title}
+                  <h3 className="text-sm font-semibold text-[#1a1a2e] leading-snug truncate">
+                    {resource.name}
                   </h3>
                 </div>
               </button>
