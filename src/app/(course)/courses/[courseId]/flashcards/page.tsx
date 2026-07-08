@@ -1,48 +1,89 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, ChevronLeft, ChevronRight, MessagesSquare, Bookmark, RefreshCw, Shuffle } from 'lucide-react';
+import { useAuth } from '@/src/context/AuthContext';
+import { getCourseResources } from '@/src/components/resourceManagement/fileUploadService';
+import {ArrowLeft,ChevronLeft,ChevronRight,BookOpen,Bookmark,RefreshCw,Shuffle,Loader2,AlertCircle,} from 'lucide-react';
 import FlashCard from '@/src/components/learning/FlashCard';
 
-const mockFlashcards = [
-  { id: 1, question: 'What is a Boolean value?', answer: 'A value that can only be true or false.' },
-  { id: 2, question: 'What is a variable?', answer: 'A named container that stores a value in memory.' },
-  { id: 3, question: 'What is an array?', answer: 'An ordered collection of elements, each identified by an index.' },
-  { id: 4, question: 'What is a function?', answer: 'A reusable block of code that performs a specific task.' },
-  { id: 5, question: 'What is a loop?', answer: 'A control structure that repeats a block of code while a condition is true.' },
-  { id: 6, question: 'What is a conditional statement?', answer: 'A statement that executes different code depending on whether a condition is true or false.' },
-  { id: 7, question: 'What is recursion?', answer: 'A technique where a function calls itself to solve a smaller version of the same problem.' },
-  { id: 8, question: 'What is a string?', answer: 'A sequence of characters used to represent text.' },
-  { id: 9, question: 'What is an algorithm?', answer: 'A step-by-step procedure for solving a problem or performing a computation.' },
-  { id: 10, question: 'What is a data type?', answer: 'A classification that specifies the kind of value a variable can hold, such as integer, string, or boolean.' },
-];
+interface Flashcard {
+  question: string;
+  answer: string;
+}
 
 export default function FlashcardsPage() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { user } = useAuth();
 
   const courseId = params.courseId as string;
+  const docId = searchParams.get('docId') || '';
   const docName = searchParams.get('docName') || 'Document';
 
+  const [flashcards, setFlashcards] = useState<Flashcard[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [cards, setCards] = useState(mockFlashcards);
   const [isShuffled, setIsShuffled] = useState(false);
+  const [originalCards, setOriginalCards] = useState<Flashcard[]>([]);
+  const [allPreviousQuestions, setAllPreviousQuestions] = useState<string[]>([]);
 
-  const shuffleCards = () => {
-    if (isShuffled) {
-      setCards(mockFlashcards);
-    } else {
-      const shuffled = [...mockFlashcards].sort(() => Math.random() - 0.5);
-      setCards(shuffled);
-    }
-    setIsShuffled(!isShuffled);
-    setCurrentIndex(0);
-  };
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const totalCards = cards.length;
+  // Fetch the resource URL and generate flashcards on mount
+  useEffect(() => {
+    if (!user || !docId) return;
 
+    const generateInitialFlashcards = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        // Get the resource to find its download URL
+        const resources = await getCourseResources(user.uid, courseId);
+        const resource = resources.find((r: { id: string }) => r.id === docId);
+
+        if (!resource) {
+          setError('Document not found. It may have been deleted.');
+          setLoading(false);
+          return;
+        }
+
+        // Call our API to generate flashcards
+        const response = await fetch('/api/generate-flashcards', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            docUrl: resource.url,
+            docName: resource.name,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          setError(data.error || 'Failed to generate flashcards.');
+          setLoading(false);
+          return;
+        }
+
+        setFlashcards(data.flashcards);
+        setOriginalCards(data.flashcards);
+        setAllPreviousQuestions(data.flashcards.map((f: Flashcard) => f.question));
+      } catch (err) {
+        console.error('Error generating flashcards:', err);
+        setError('Something went wrong. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    generateInitialFlashcards();
+  }, [user, docId, courseId]);
+
+  const totalCards = flashcards.length;
   const isFirstCard = currentIndex === 0;
   const isLastCard = currentIndex === totalCards - 1;
 
@@ -54,15 +95,97 @@ export default function FlashcardsPage() {
     if (!isLastCard) setCurrentIndex((prev) => prev + 1);
   };
 
-  const handleGenerateMore = () => {
-    // Phase 3: will call AI to generate a new set of 10 flashcards
+  const shuffleCards = () => {
+    if (isShuffled) {
+      setFlashcards(originalCards);
+    } else {
+      const shuffled = [...flashcards].sort(() => Math.random() - 0.5);
+      setFlashcards(shuffled);
+    }
+    setIsShuffled(!isShuffled);
     setCurrentIndex(0);
   };
+
+  const handleGenerateMore = async () => {
+    if (!user) return;
+    setGenerating(true);
+    setError(null);
+
+    try {
+      const resources = await getCourseResources(user.uid, courseId);
+      const resource = resources.find((r: { id: string }) => r.id === docId);
+
+      if (!resource) {
+        setError('Document not found.');
+        setGenerating(false);
+        return;
+      }
+
+      const response = await fetch('/api/generate-flashcards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          docUrl: resource.url,
+          docName: resource.name,
+          previousQuestions: allPreviousQuestions,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.error || 'Failed to generate more flashcards.');
+        setGenerating(false);
+        return;
+      }
+
+      setFlashcards(data.flashcards);
+      setOriginalCards(data.flashcards);
+      setIsShuffled(false);
+      setCurrentIndex(0);
+      setAllPreviousQuestions((prev) => [
+        ...prev,
+        ...data.flashcards.map((f: Flashcard) => f.question),
+      ]);
+    } catch (err) {
+      console.error('Error generating more flashcards:', err);
+      setError('Something went wrong. Please try again.');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#FAFAF8] flex flex-col items-center justify-center gap-4">
+        <Loader2 size={36} className="animate-spin text-[#8B6914]" />
+        <p className="text-gray-500 text-sm">Reading your document and generating flashcards...</p>
+        <p className="text-gray-400 text-xs">This may take a few seconds</p>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error && flashcards.length === 0) {
+    return (
+      <div className="min-h-screen bg-[#FAFAF8] flex flex-col items-center justify-center gap-4 px-4">
+        <AlertCircle size={36} className="text-red-400" />
+        <p className="text-gray-700 text-sm text-center max-w-md">{error}</p>
+        <button
+          onClick={() => router.push(`/courses/${courseId}/learning`)}
+          className="mt-2 px-4 py-2 text-sm text-[#8B6914] border border-[#8B6914] rounded-lg hover:bg-[#F5F0EB] transition-colors"
+        >
+          Back to documents
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#FAFAF8] flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-16 py-7 border-b border-gray-100">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.push(`/courses/${courseId}/learning`)}
@@ -77,7 +200,7 @@ export default function FlashcardsPage() {
 
         <div className="flex items-center gap-2">
           <button className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors">
-            <MessagesSquare size={20} className="text-gray-500" />
+            <BookOpen size={20} className="text-gray-500" />
           </button>
           <button className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors">
             <Bookmark size={20} className="text-gray-500" />
@@ -87,66 +210,85 @@ export default function FlashcardsPage() {
 
       {/* Flashcard area */}
       <div className="flex-1 flex flex-col items-center justify-center px-4 py-8">
-        {/* key={currentIndex} forces React to remount the card, resetting flip state */}
-        <FlashCard
-          key={currentIndex}
-          question={cards[currentIndex].question}
-          answer={cards[currentIndex].answer}
-        />
+        {flashcards.length > 0 && (
+          <>
+            <FlashCard
+              key={currentIndex}
+              question={flashcards[currentIndex].question}
+              answer={flashcards[currentIndex].answer}
+            />
 
-        {/* Navigation */}
-        <div className="flex items-center gap-6 mt-8">
-          <button
-            onClick={goToPrevious}
-            disabled={isFirstCard}
-            className={`p-2 rounded-md transition-colors ${
-              isFirstCard
-                ? 'text-gray-300 cursor-not-allowed'
-                : 'text-gray-600 hover:bg-[#F5F0EB]'
-            }`}
-          >
-            <ChevronLeft size={24} />
-          </button>
+            {/* Navigation */}
+            <div className="flex items-center gap-6 mt-8">
+              <button
+                onClick={goToPrevious}
+                disabled={isFirstCard}
+                className={`p-2 rounded-md transition-colors ${
+                  isFirstCard
+                    ? 'text-gray-300 cursor-not-allowed'
+                    : 'text-gray-600 hover:bg-[#F5F0EB]'
+                }`}
+              >
+                <ChevronLeft size={24} />
+              </button>
 
-          <span className="text-sm font-medium text-gray-600 min-w-[40px] text-center">
-            {currentIndex + 1}/{totalCards}
-          </span>
+              <span className="text-sm font-medium text-gray-600 min-w-[40px] text-center">
+                {currentIndex + 1}/{totalCards}
+              </span>
 
-          <button
-            onClick={goToNext}
-            disabled={isLastCard}
-            className={`p-2 rounded-md transition-colors ${
-              isLastCard
-                ? 'text-gray-300 cursor-not-allowed'
-                : 'text-gray-600 hover:bg-[#F5F0EB]'
-            }`}
-          >
-            <ChevronRight size={24} />
-          </button>
+              <button
+                onClick={goToNext}
+                disabled={isLastCard}
+                className={`p-2 rounded-md transition-colors ${
+                  isLastCard
+                    ? 'text-gray-300 cursor-not-allowed'
+                    : 'text-gray-600 hover:bg-[#F5F0EB]'
+                }`}
+              >
+                <ChevronRight size={24} />
+              </button>
 
-          <button
-            onClick={shuffleCards}
-            className={`p-2 rounded-md transition-colors ${
-              isShuffled
-                ? 'text-[#8B6914] bg-[#F5F0EB]'
-                : 'text-gray-400 hover:bg-[#F5F0EB] hover:text-gray-600'
-            }`}
-            title={isShuffled ? 'Unshuffle' : 'Shuffle'}
-          >
-            <Shuffle size={20} />
-          </button>
-        </div>
+              <button
+                onClick={shuffleCards}
+                className={`p-2 rounded-md transition-colors ${
+                  isShuffled
+                    ? 'text-[#8B6914] bg-[#F5F0EB]'
+                    : 'text-gray-400 hover:bg-[#F5F0EB] hover:text-gray-600'
+                }`}
+                title={isShuffled ? 'Unshuffle' : 'Shuffle'}
+              >
+                <Shuffle size={20} />
+              </button>
+            </div>
 
-        {/* Generate More — only on last card */}
-        {isLastCard && (
-          <button
-            onClick={handleGenerateMore}
-            className="mt-6 flex items-center gap-2 px-5 py-2.5 bg-[#1a1a2e] text-white
-                       text-sm font-medium rounded-lg hover:bg-[#2a2a3e] transition-colors"
-          >
-            <RefreshCw size={16} />
-            Generate More Flashcards
-          </button>
+            {/* Error during "generate more" */}
+            {error && (
+              <p className="mt-4 text-sm text-red-400">{error}</p>
+            )}
+
+            {/* Generate More — only on last card */}
+            {isLastCard && (
+              <button
+                onClick={handleGenerateMore}
+                disabled={generating}
+                className="mt-6 flex items-center gap-2 px-5 py-2.5 bg-[#1a1a2e] text-white
+                           text-sm font-medium rounded-lg hover:bg-[#2a2a3e] transition-colors
+                           disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {generating ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw size={16} />
+                    Generate More Flashcards
+                  </>
+                )}
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>
