@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
 import { getCourseResources } from '@/src/components/resourceManagement/fileUploadService';
 import { ArrowLeft, FileEdit, BookOpen, Bookmark, Loader2 } from 'lucide-react';
+import PdfThumbnail from '@/src/components/learning/PdfThumbnail';
 
 interface Resource {
   id: string;
@@ -102,13 +103,17 @@ export default function CourseLearningPage() {
                 className="text-left rounded-xl overflow-hidden border border-gray-100
                            hover:shadow-md transition-shadow bg-white group"
               >
-                {/* Preview placeholder */}
-                <div className="h-36 bg-[#E8E3DA] flex items-center justify-center">
-                  <FileEdit
-                    size={36}
-                    className="text-[#8B7B5E] opacity-50 group-hover:opacity-75 transition-opacity"
-                  />
-                </div>
+            {/* Document preview */}
+            {resource.name?.toLowerCase().endsWith('.pdf') ? (
+              <PdfThumbnail url={resource.url} className="h-36" />
+            ) : (
+              <div className="h-36 bg-[#E8E3DA] flex items-center justify-center">
+                <FileEdit
+                  size={36}
+                  className="text-[#8B7B5E] opacity-50 group-hover:opacity-75 transition-opacity"
+                />
+              </div>
+            )}
 
                 {/* Card info */}
                 <div className="bg-[#F0EBE1] px-4 py-3">
