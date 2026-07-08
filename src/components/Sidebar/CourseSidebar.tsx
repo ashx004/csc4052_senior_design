@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname,  useRouter } from "next/navigation";
 import {ArrowLeft,ChevronDown,FileText,BookOpen,List,} from "lucide-react";
 import Sidebar from "./Sidebar";
 
@@ -13,6 +13,7 @@ interface CourseSidebarProps {
 
 export default function CourseSidebar({ courseId, courseName }: CourseSidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const base = `/courses/${courseId}`;
   const displayName = courseName || courseId.replace(/-/g, " ").toUpperCase();
 
@@ -75,7 +76,10 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
           <div key={title} className="mt-1">
             {/* Dropdown toggle — bold text + rotating chevron */}
             <button
-              onClick={() => toggleSection(title)}
+              onClick={() => {
+                toggleSection(title);
+                router.push(href);
+              }}
               className="flex items-center justify-between w-full text-sm font-bold text-gray-900 px-3 py-2.5 rounded-lg hover:bg-[#F5F0EB] transition-colors"
             >
               <span>{title}</span>
