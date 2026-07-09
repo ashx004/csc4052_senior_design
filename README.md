@@ -10,6 +10,8 @@
 
 3.) Install dependencies with `npm install` at the root of the project directory (`csc4052_senior_design/`)
 
-4.) Run `npm run dev` at the root of the project directory
+4.) Create `.env` file with Firestore database API key (and other required code base secrets)
 
-5.) Navigate to localhost at the port exposed in the output window (typically 3000)
+5.) Run `npm run dev` at the root of the project directory
+
+6.) Navigate to localhost at the port exposed in the output window (typically 3000)
