@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {Home,Briefcase,Calendar,MessageSquare,Users,User,} from "lucide-react";
+import {Home,Briefcase,Calendar,MessageSquare,Users,User,Settings} from "lucide-react";
 import Sidebar from "./Sidebar";
 
 const links = [
@@ -12,6 +12,7 @@ const links = [
   { label: "AI Assistant", href: "/ai-assistant", icon: MessageSquare },
   { label: "Advising", href: "/advising", icon: Users },
   { label: "Profile", href: "/profile", icon: User },
+  //{ label: "Settings", href: "/settings", icon: Settings },
 ];
 
 export default function GeneralSidebar() {
