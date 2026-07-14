@@ -105,7 +105,7 @@ export default function Signup() {
             onClick={handleSignup}
             className="bg-black text-white py-1 px-4 rounded 
                       hover:bg-gray-800" >
-            Sign In
+            Sign Up
           </button>
         </div>
       </div>

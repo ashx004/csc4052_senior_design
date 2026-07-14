@@ -2,13 +2,16 @@
 
 import { useState } from "react";
 import { Menu, X, Plus, Search, Settings } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 interface SidebarProps {
   children: React.ReactNode;
 }
 
+
 export default function Sidebar({ children }: SidebarProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const router = useRouter();
 
   return (
     <>
@@ -36,6 +39,7 @@ export default function Sidebar({ children }: SidebarProps) {
             <h1 className="text-xl font-bold tracking-[0.15em] text-gray-900">
               s t u d o r a.
             </h1>
+
             <button
               onClick={() => setIsOpen(false)}
               className="p-2 text-gray-400 hover:text-gray-600 rounded-full transition-colors"
@@ -67,7 +71,12 @@ export default function Sidebar({ children }: SidebarProps) {
 
           {/* Footer: settings gear */}
           <div className="flex justify-end px-3 py-1 border-t border-gray-100">
-            <button className="p-1 text-gray-500 hover:text-gray-800 transition-colors">
+            <button 
+              type="button"
+              onClick={() => router.push("/settings")}
+              className="p-1 text-gray-500 hover:text-gray-800 transition-colors"
+              aria-label="open settings"
+            >
               <Settings className="w-5 h-5" />
             </button>
           </div>
