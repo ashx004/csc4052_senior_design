@@ -9,11 +9,12 @@ export default function Dashboard() {
         </h1>
 
         <div className="mt-8 grid grid-cols-1 place-items-center gap-6 sm:grid-cols-2 md:grid-cols-3">
+          {/* TODO: Route to /notes when Notes feature is implemented */}
           <DashboardCard
             icon="/icons/notebook-pen.png"
             title="Notes"
             description="Create and manage your notes"
-            href="/notes"
+            href="/dashboard"
           />
           <DashboardCard
             icon="/icons/book-open.png"

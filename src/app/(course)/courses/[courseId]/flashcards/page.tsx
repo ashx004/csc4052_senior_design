@@ -4,12 +4,80 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
 import { getCourseResources } from '@/src/components/resourceManagement/fileUploadService';
+import {
+  doc,
+  getDoc,
+  addDoc,
+  collection,
+  getDocs,
+  query,
+  where,
+  updateDoc,
+  arrayUnion,
+  serverTimestamp,
+} from 'firebase/firestore';
+import { db } from '@/src/library/firebase';
 import {ArrowLeft,ChevronLeft,ChevronRight,BookOpen,Bookmark,RefreshCw,Shuffle,Loader2,AlertCircle,} from 'lucide-react';
 import FlashCard from '@/src/components/learning/FlashCard';
 
 interface Flashcard {
   question: string;
   answer: string;
+}
+
+function extractStorageKey(url: string): string {
+  return decodeURIComponent(url.split('key=')[1] ?? '');
+}
+
+async function requestFlashcards(
+  docUrl: string,
+  docName: string,
+  previousQuestions?: string[]
+): Promise<{ topicName: string; questions: Flashcard[] }> {
+  const response = await fetch('/api/generate-flashcards', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ docUrl, docName, previousQuestions }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || 'Failed to generate flashcards.');
+  }
+
+  return { topicName: data.topicName, questions: data.questions };
+}
+
+// Creates a new flashcardSets doc for this source document, or appends cards
+// to the existing one if a set for this sourceDocKey already exists.
+async function persistFlashcardSet(
+  userId: string,
+  courseId: string,
+  sourceDocKey: string,
+  topicName: string,
+  cards: Flashcard[]
+): Promise<string> {
+  const setsRef = collection(db, 'users', userId, 'enrollment', courseId, 'flashcardSets');
+  const existing = await getDocs(query(setsRef, where('sourceDocKey', '==', sourceDocKey)));
+
+  if (!existing.empty) {
+    const existingDoc = existing.docs[0];
+    await updateDoc(existingDoc.ref, {
+      cards: arrayUnion(...cards),
+      updatedAt: serverTimestamp(),
+    });
+    return existingDoc.id;
+  }
+
+  const newDoc = await addDoc(setsRef, {
+    name: topicName,
+    sourceDocKey,
+    cards,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return newDoc.id;
 }
 
 export default function FlashcardsPage() {
@@ -20,7 +88,8 @@ export default function FlashcardsPage() {
 
   const courseId = params.courseId as string;
   const docId = searchParams.get('docId') || '';
-  const docName = searchParams.get('docName') || 'Document';
+  const docNameParam = searchParams.get('docName') || '';
+  const setId = searchParams.get('setId') || '';
 
   const [flashcards, setFlashcards] = useState<Flashcard[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -28,13 +97,55 @@ export default function FlashcardsPage() {
   const [originalCards, setOriginalCards] = useState<Flashcard[]>([]);
   const [allPreviousQuestions, setAllPreviousQuestions] = useState<string[]>([]);
 
+  const [displayName, setDisplayName] = useState(
+    docNameParam ? decodeURIComponent(docNameParam) : 'Document'
+  );
+  const [sourceDocKey, setSourceDocKey] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch the resource URL and generate flashcards on mount
+  // Load a previously saved flashcard set (opened from the course sidebar)
   useEffect(() => {
-    if (!user || !docId) return;
+    if (!user || !setId) return;
+
+    const loadSavedSet = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const setRef = doc(db, 'users', user.uid, 'enrollment', courseId, 'flashcardSets', setId);
+        const setSnap = await getDoc(setRef);
+
+        if (!setSnap.exists()) {
+          setError('Flashcard set not found. It may have been deleted.');
+          setLoading(false);
+          return;
+        }
+
+        const data = setSnap.data();
+        const cards: Flashcard[] = data.cards || [];
+
+        setFlashcards(cards);
+        setOriginalCards(cards);
+        setAllPreviousQuestions(cards.map((c) => c.question));
+        setDisplayName(data.name || 'Document');
+        setSourceDocKey(data.sourceDocKey || null);
+      } catch (err) {
+        console.error('Error loading flashcard set:', err);
+        setError('Something went wrong loading this flashcard set.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadSavedSet();
+  }, [user, setId, courseId]);
+
+  // Generate a brand-new set of flashcards from a source document
+  useEffect(() => {
+    if (!user || !docId || setId) return;
 
     const generateInitialFlashcards = async () => {
       setLoading(true);
@@ -51,37 +162,26 @@ export default function FlashcardsPage() {
           return;
         }
 
-        // Call our API to generate flashcards
-        const response = await fetch('/api/generate-flashcards', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            docUrl: resource.url,
-            docName: resource.name,
-          }),
-        });
+        const key = extractStorageKey(resource.url);
+        const { topicName, questions } = await requestFlashcards(resource.url, resource.name);
 
-        const data = await response.json();
+        setFlashcards(questions);
+        setOriginalCards(questions);
+        setAllPreviousQuestions(questions.map((f) => f.question));
+        setDisplayName(topicName || resource.name);
+        setSourceDocKey(key);
 
-        if (!response.ok) {
-          setError(data.error || 'Failed to generate flashcards.');
-          setLoading(false);
-          return;
-        }
-
-        setFlashcards(data.flashcards);
-        setOriginalCards(data.flashcards);
-        setAllPreviousQuestions(data.flashcards.map((f: Flashcard) => f.question));
+        await persistFlashcardSet(user.uid, courseId, key, topicName, questions);
       } catch (err) {
         console.error('Error generating flashcards:', err);
-        setError('Something went wrong. Please try again.');
+        setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
       } finally {
         setLoading(false);
       }
     };
 
     generateInitialFlashcards();
-  }, [user, docId, courseId]);
+  }, [user, docId, setId, courseId]);
 
   const totalCards = flashcards.length;
   const isFirstCard = currentIndex === 0;
@@ -112,44 +212,44 @@ export default function FlashcardsPage() {
     setError(null);
 
     try {
-      const resources = await getCourseResources(user.uid, courseId);
-      const resource = resources.find((r: { id: string }) => r.id === docId);
+      let docUrl: string;
+      let docName: string;
 
-      if (!resource) {
-        setError('Document not found.');
+      if (docId) {
+        const resources = await getCourseResources(user.uid, courseId);
+        const resource = resources.find((r: { id: string }) => r.id === docId);
+
+        if (!resource) {
+          setError('Document not found.');
+          setGenerating(false);
+          return;
+        }
+
+        docUrl = resource.url;
+        docName = resource.name;
+      } else if (sourceDocKey) {
+        docUrl = `/api/download?key=${encodeURIComponent(sourceDocKey)}`;
+        docName = sourceDocKey.split('/').pop() || 'document';
+      } else {
+        setError('Source document not found for this flashcard set.');
         setGenerating(false);
         return;
       }
 
-      const response = await fetch('/api/generate-flashcards', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          docUrl: resource.url,
-          docName: resource.name,
-          previousQuestions: allPreviousQuestions,
-        }),
-      });
+      const { questions } = await requestFlashcards(docUrl, docName, allPreviousQuestions);
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        setError(data.error || 'Failed to generate more flashcards.');
-        setGenerating(false);
-        return;
-      }
-
-      setFlashcards(data.flashcards);
-      setOriginalCards(data.flashcards);
+      setFlashcards(questions);
+      setOriginalCards(questions);
       setIsShuffled(false);
       setCurrentIndex(0);
-      setAllPreviousQuestions((prev) => [
-        ...prev,
-        ...data.flashcards.map((f: Flashcard) => f.question),
-      ]);
+      setAllPreviousQuestions((prev) => [...prev, ...questions.map((f) => f.question)]);
+
+      if (sourceDocKey) {
+        await persistFlashcardSet(user.uid, courseId, sourceDocKey, '', questions);
+      }
     } catch (err) {
       console.error('Error generating more flashcards:', err);
-      setError('Something went wrong. Please try again.');
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
     } finally {
       setGenerating(false);
     }
@@ -160,8 +260,10 @@ export default function FlashcardsPage() {
     return (
       <div className="min-h-screen bg-[#FAFAF8] flex flex-col items-center justify-center gap-4">
         <Loader2 size={36} className="animate-spin text-[#8B6914]" />
-        <p className="text-gray-500 text-sm">Reading your document and generating flashcards...</p>
-        <p className="text-gray-400 text-xs">This may take a few seconds</p>
+        <p className="text-gray-500 text-sm">
+          {setId ? 'Loading your saved flashcards...' : 'Reading your document and generating flashcards...'}
+        </p>
+        {!setId && <p className="text-gray-400 text-xs">This may take a few seconds</p>}
       </div>
     );
   }
@@ -194,7 +296,7 @@ export default function FlashcardsPage() {
             <ArrowLeft size={20} className="text-gray-700" />
           </button>
           <h1 className="text-xl font-bold text-[#1a1a2e]">
-            {decodeURIComponent(docName)}
+            {displayName}
           </h1>
         </div>
 

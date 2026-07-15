@@ -1,24 +1,34 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname,  useRouter } from "next/navigation";
 import {ArrowLeft,ChevronDown,FileText,BookOpen,List,} from "lucide-react";
 import Sidebar from "./Sidebar";
+import { useAuth } from "@/src/context/AuthContext";
+import { collection, getDocs, query, orderBy } from "firebase/firestore";
+import { db } from "@/src/library/firebase";
 
 interface CourseSidebarProps {
   courseId: string;
   courseName?: string;
 }
 
+interface FlashcardSetSummary {
+  id: string;
+  name: string;
+}
+
 export default function CourseSidebar({ courseId, courseName }: CourseSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const { user } = useAuth();
   const base = `/courses/${courseId}`;
   const displayName = courseName || courseId.replace(/-/g, " ").toUpperCase();
 
   // Track which dropdown sections are open
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  const [flashcardSets, setFlashcardSets] = useState<FlashcardSetSummary[]>([]);
 
   const toggleSection = (title: string) => {
     setOpenSections((prev) => ({
@@ -26,6 +36,31 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
       [title]: !prev[title],
     }));
   };
+
+  // Real flashcard sets for the "Learning" dropdown
+  useEffect(() => {
+    if (!user) {
+      setFlashcardSets([]);
+      return;
+    }
+
+    const setsRef = collection(db, "users", user.uid, "enrollment", courseId, "flashcardSets");
+    const q = query(setsRef, orderBy("createdAt", "desc"));
+
+    getDocs(q)
+      .then((snapshot) => {
+        setFlashcardSets(
+          snapshot.docs.map((docSnap) => ({
+            id: docSnap.id,
+            name: (docSnap.data().name as string) || "Untitled",
+          }))
+        );
+      })
+      .catch((error) => {
+        console.error("Error fetching flashcard sets:", error);
+        setFlashcardSets([]);
+      });
+  }, [user, courseId]);
 
   // Dropdown sections: icons moved from parent to sub-items
   const dropdownSections = [
@@ -39,7 +74,7 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
       title: "Learning",
       icon: BookOpen,
       href: `${base}/learning`,
-      items: ["Lecture 1", "Lecture 2", "Lecture 3"],
+      items: [] as string[],
     },
     {
       title: "Summaries",
@@ -94,16 +129,33 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
             {/* Sub-items — icon (moved from parent) + placeholder text */}
             {isOpen && (
               <div className="ml-2 mt-0.5 space-y-0.5">
-                {items.map((item) => (
-                  <Link
-                    key={item}
-                    href={href}
-                    className="flex items-center gap-3 px-3 py-2 text-sm text-gray-600 hover:bg-[#F5F0EB] rounded-lg transition-colors"
-                  >
-                    <Icon size={16} strokeWidth={1.5} className="shrink-0" />
-                    <span>{item}</span>
-                  </Link>
-                ))}
+                {title === "Learning" ? (
+                  flashcardSets.length > 0 ? (
+                    flashcardSets.map((set) => (
+                      <Link
+                        key={set.id}
+                        href={`${base}/flashcards?setId=${set.id}`}
+                        className="flex items-center gap-3 px-3 py-2 text-sm text-gray-600 hover:bg-[#F5F0EB] rounded-lg transition-colors"
+                      >
+                        <Icon size={16} strokeWidth={1.5} className="shrink-0" />
+                        <span className="truncate">{set.name}</span>
+                      </Link>
+                    ))
+                  ) : (
+                    <p className="px-3 py-2 text-xs text-gray-400">No flashcards yet</p>
+                  )
+                ) : (
+                  items.map((item) => (
+                    <Link
+                      key={item}
+                      href={href}
+                      className="flex items-center gap-3 px-3 py-2 text-sm text-gray-600 hover:bg-[#F5F0EB] rounded-lg transition-colors"
+                    >
+                      <Icon size={16} strokeWidth={1.5} className="shrink-0" />
+                      <span>{item}</span>
+                    </Link>
+                  ))
+                )}
               </div>
             )}
           </div>

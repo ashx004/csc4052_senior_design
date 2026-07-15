@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     // 3. Build the prompt — clear, specific instructions (Kaggle Day 1: prompt engineering)
     let prompt = `You are an expert academic tutor helping a college student study.
 
-Based ONLY on the following document content, generate exactly 10 flashcards that cover the most important key concepts.
+Based ONLY on the following document content, generate exactly 10 flashcards that cover the most important key concepts. Also come up with a short, descriptive topic name (3-6 words) summarizing what this set of flashcards covers, e.g. "Evolution and Natural Selection" or "Boolean Logic Fundamentals".
 
 Rules:
 - Each question should test understanding of one specific concept
@@ -72,7 +72,8 @@ Rules:
 - Questions should be clear and unambiguous
 - Cover different topics across the document, not just the beginning
 - Use simple language that a student can quickly understand
-- Do NOT use information outside of this document`;
+- Do NOT use information outside of this document
+- The topic name should reflect the overall subject of the document, not a single flashcard`;
 
     if (previousQuestions && previousQuestions.length > 0) {
       prompt += `\n\nIMPORTANT: Do NOT repeat any of these previously generated questions:\n${previousQuestions.map((q: string, i: number) => `${i + 1}. ${q}`).join('\n')}`;
@@ -87,21 +88,31 @@ Rules:
       generationConfig: {
         responseMimeType: 'application/json',
         responseSchema: {
-          type: SchemaType.ARRAY,
-          items: {
-            type: SchemaType.OBJECT,
-            properties: {
-              question: {
-                type: SchemaType.STRING,
-                description: 'A clear, concise question about a key concept from the document',
-              },
-              answer: {
-                type: SchemaType.STRING,
-                description: 'A brief, accurate answer in 1-2 sentences',
+          type: SchemaType.OBJECT,
+          properties: {
+            topicName: {
+              type: SchemaType.STRING,
+              description: 'A short, descriptive name (3-6 words) summarizing what this set of flashcards covers',
+            },
+            questions: {
+              type: SchemaType.ARRAY,
+              items: {
+                type: SchemaType.OBJECT,
+                properties: {
+                  question: {
+                    type: SchemaType.STRING,
+                    description: 'A clear, concise question about a key concept from the document',
+                  },
+                  answer: {
+                    type: SchemaType.STRING,
+                    description: 'A brief, accurate answer in 1-2 sentences',
+                  },
+                },
+                required: ['question', 'answer'],
               },
             },
-            required: ['question', 'answer'],
           },
+          required: ['topicName', 'questions'],
         },
         temperature: 0.7,
       },
@@ -109,9 +120,9 @@ Rules:
 
     const result = await model.generateContent(prompt);
     const response = result.response;
-    const flashcards = JSON.parse(response.text());
+    const parsed = JSON.parse(response.text());
 
-    return NextResponse.json({ flashcards });
+    return NextResponse.json({ topicName: parsed.topicName, questions: parsed.questions });
   } catch (error) {
     console.error('Flashcard generation error:', error);
     return NextResponse.json(
