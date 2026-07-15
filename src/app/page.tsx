@@ -1,4 +1,7 @@
+'use client';
+
 import Link from "next/link";
+import GoogleButton from '@/src/components/homepage/GoogleButton'
 
 export default function Home() {
   const greeting: string = "s t u d o r a .";
@@ -38,17 +41,7 @@ export default function Home() {
             </button>
           </Link>
 
-          <button className="mt-24 bg-white font-thin text-sm
-          text-black font-sans cursor-pointer px-10 py-2 rounded 
-          hover:bg-gray-100 active:bg-gray-200 flex items-center 
-          gap-2">
-            <span> Sign in with Google </span>
-            <img 
-              src="/google-logo.png" 
-              alt="Google Icon" 
-              className="w-6 h-6"
-            />
-          </button>
+          <GoogleButton />
 
           <button className="mt-5 bg-white font-thin text-sm
           text-black font-sans cursor-pointer px-12 py-3 rounded 
