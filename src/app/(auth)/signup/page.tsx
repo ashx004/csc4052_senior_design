@@ -38,7 +38,7 @@ export default function Signup() {
         joinedAt: serverTimestamp(),
       });
 
-      router.push("/");
+      router.push("/dashboard");
 
     } catch (error) {
 

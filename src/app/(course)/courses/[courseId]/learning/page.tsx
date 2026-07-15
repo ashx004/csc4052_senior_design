@@ -6,6 +6,7 @@ import { useAuth } from '@/src/context/AuthContext';
 import { getCourseResources } from '@/src/components/resourceManagement/fileUploadService';
 import { ArrowLeft, FileEdit, BookOpen, Bookmark, Loader2 } from 'lucide-react';
 import PdfThumbnail from '@/src/components/learning/PdfThumbnail';
+import { useCourseInfo } from '@/src/hooks/useCourseInfo';
 
 interface Resource {
   id: string;
@@ -21,7 +22,7 @@ export default function CourseLearningPage() {
   const { user, loading: authLoading } = useAuth();
 
   const courseId = params.courseId as string;
-  const displayName = courseId.replace(/-/g, ' ').toUpperCase();
+  const { displayName: courseDisplayName, loading: courseInfoLoading } = useCourseInfo(courseId);
 
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,7 +59,7 @@ export default function CourseLearningPage() {
   return (
     <div className="min-h-screen bg-[#FAFAF8]">
       {/* Header */}
-      <div className="flex items-center justify-between px-16 py-7 border-b border-gray-100">
+      <div className="flex items-center justify-between px-14 py-7 border-b border-gray-100">
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.back()}
@@ -66,7 +67,9 @@ export default function CourseLearningPage() {
           >
             <ArrowLeft size={20} className="text-gray-700" />
           </button>
-          <h1 className="text-xl font-bold text-[#1a1a2e]">{displayName}</h1>
+          <h1 className="text-xl font-bold text-[#1a1a2e]">
+            {courseInfoLoading ? 'Loading...' : courseDisplayName}
+          </h1>
         </div>
 
         <div className="flex items-center gap-2">
