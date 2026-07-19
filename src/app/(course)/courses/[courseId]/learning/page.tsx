@@ -1,12 +1,26 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
 import { getCourseResources } from '@/src/components/resourceManagement/fileUploadService';
+import {
+  collection,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  orderBy,
+  query,
+  Timestamp,
+} from 'firebase/firestore';
+import { db } from '@/src/library/firebase';
 import { ArrowLeft, FileEdit, BookOpen, Bookmark, Loader2 } from 'lucide-react';
 import PdfThumbnail from '@/src/components/learning/PdfThumbnail';
 import { useCourseInfo } from '@/src/hooks/useCourseInfo';
+import RecentItemRow, { RecentItem } from '@/src/components/learning/RecentItemRow';
+import SortDropdown, { SortOption } from '@/src/components/learning/SortDropdown';
+import LectureChoiceModal from '@/src/components/learning/LectureChoiceModal';
+import ConfirmDeleteModal from '@/src/components/learning/ConfirmDeleteModal';
 
 interface Resource {
   id: string;
@@ -14,6 +28,18 @@ interface Resource {
   url: string;
   fileType: string;
   category: string;
+}
+
+type DeleteTarget = { id: string; kind: 'flashcard' | 'quiz' };
+
+function sortRecentItems(items: RecentItem[], sort: SortOption): RecentItem[] {
+  const copy = [...items];
+  if (sort === 'title') {
+    copy.sort((a, b) => a.name.localeCompare(b.name));
+  } else {
+    copy.sort((a, b) => (b.createdAt?.toMillis() ?? 0) - (a.createdAt?.toMillis() ?? 0));
+  }
+  return copy;
 }
 
 export default function CourseLearningPage() {
@@ -26,6 +52,16 @@ export default function CourseLearningPage() {
 
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [flashcardSets, setFlashcardSets] = useState<RecentItem[]>([]);
+  const [flashcardSort, setFlashcardSort] = useState<SortOption>('recent');
+
+  const [quizSets, setQuizSets] = useState<RecentItem[]>([]);
+  const [quizSort, setQuizSort] = useState<SortOption>('recent');
+
+  const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
@@ -47,6 +83,103 @@ export default function CourseLearningPage() {
 
     fetchResources();
   }, [user, authLoading, courseId]);
+
+  // Recent flashcard sets — every set for this course, regardless of pinned status
+  useEffect(() => {
+    if (!user) {
+      setFlashcardSets([]);
+      return;
+    }
+
+    const setsRef = collection(db, 'users', user.uid, 'enrollment', courseId, 'flashcardSets');
+    const q = query(setsRef, orderBy('createdAt', 'desc'));
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        setFlashcardSets(
+          snapshot.docs.map((docSnap) => {
+            const data = docSnap.data();
+            return {
+              id: docSnap.id,
+              name: (data.name as string) || 'Untitled',
+              itemCount: Array.isArray(data.cards) ? data.cards.length : 0,
+              createdAt: (data.createdAt as Timestamp) ?? null,
+            };
+          })
+        );
+      },
+      (error) => {
+        console.error('Error fetching flashcard sets:', error);
+        setFlashcardSets([]);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user, courseId]);
+
+  // Recent quizzes — the quizSets collection does not exist yet, so this stays empty
+  useEffect(() => {
+    if (!user) {
+      setQuizSets([]);
+      return;
+    }
+
+    const setsRef = collection(db, 'users', user.uid, 'enrollment', courseId, 'quizSets');
+    const q = query(setsRef, orderBy('createdAt', 'desc'));
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        setQuizSets(
+          snapshot.docs.map((docSnap) => {
+            const data = docSnap.data();
+            return {
+              id: docSnap.id,
+              name: (data.name as string) || 'Untitled',
+              itemCount: Array.isArray(data.questions) ? data.questions.length : 0,
+              createdAt: (data.createdAt as Timestamp) ?? null,
+            };
+          })
+        );
+      },
+      (error) => {
+        console.error('Error fetching quiz sets:', error);
+        setQuizSets([]);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user, courseId]);
+
+  const sortedFlashcardSets = useMemo(
+    () => sortRecentItems(flashcardSets, flashcardSort),
+    [flashcardSets, flashcardSort]
+  );
+  const sortedQuizSets = useMemo(() => sortRecentItems(quizSets, quizSort), [quizSets, quizSort]);
+
+  const handleSelectFlashcard = () => {
+    if (!selectedResource) return;
+    router.push(
+      `/courses/${courseId}/flashcards?docId=${selectedResource.id}&docName=${encodeURIComponent(
+        selectedResource.name
+      )}`
+    );
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!user || !deleteTarget) return;
+    setDeleting(true);
+    try {
+      const collectionName = deleteTarget.kind === 'flashcard' ? 'flashcardSets' : 'quizSets';
+      await deleteDoc(doc(db, 'users', user.uid, 'enrollment', courseId, collectionName, deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (error) {
+      console.error('Error deleting item:', error);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   if (authLoading || loading) {
     return (
@@ -82,11 +215,13 @@ export default function CourseLearningPage() {
         </div>
       </div>
 
-      {/* Document grid */}
-      <div className="px-6 py-6">
-        <p className="text-left text-gray-500 text-md mb-6">
-          Choose a Lecture and make your own flashcard
-        </p>
+      <div className="px-14 py-6">
+        {/* Page header */}
+        <h2 className="text-left text-lg font-bold text-[#1a1a2e] mb-6">
+          Choose A Lecture And Make Your Own Flashcard Or Quizzes
+        </h2>
+
+        {/* Document grid */}
         {resources.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-gray-400">
             <BookOpen size={48} className="mb-4" />
@@ -98,25 +233,21 @@ export default function CourseLearningPage() {
             {resources.map((resource, index) => (
               <button
                 key={resource.id}
-                onClick={() =>
-                  router.push(
-                    `/courses/${courseId}/flashcards?docId=${resource.id}&docName=${encodeURIComponent(resource.name)}`
-                  )
-                }
+                onClick={() => setSelectedResource(resource)}
                 className="text-left rounded-xl overflow-hidden border border-gray-100
                            hover:shadow-md transition-shadow bg-white group"
               >
-            {/* Document preview */}
-            {resource.name?.toLowerCase().endsWith('.pdf') ? (
-              <PdfThumbnail url={resource.url} className="h-36" />
-            ) : (
-              <div className="h-36 bg-[#E8E3DA] flex items-center justify-center">
-                <FileEdit
-                  size={36}
-                  className="text-[#8B7B5E] opacity-50 group-hover:opacity-75 transition-opacity"
-                />
-              </div>
-            )}
+                {/* Document preview */}
+                {resource.name?.toLowerCase().endsWith('.pdf') ? (
+                  <PdfThumbnail url={resource.url} className="h-36" />
+                ) : (
+                  <div className="h-36 bg-[#E8E3DA] flex items-center justify-center">
+                    <FileEdit
+                      size={36}
+                      className="text-[#8B7B5E] opacity-50 group-hover:opacity-75 transition-opacity"
+                    />
+                  </div>
+                )}
 
                 {/* Card info */}
                 <div className="bg-[#F0EBE1] px-4 py-3">
@@ -134,7 +265,73 @@ export default function CourseLearningPage() {
             ))}
           </div>
         )}
+
+        {/* Recent Flashcard */}
+        <div className="mt-12">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-base font-bold text-[#1a1a2e]">Recent Flashcard</h2>
+            <SortDropdown value={flashcardSort} onChange={setFlashcardSort} />
+          </div>
+
+          {sortedFlashcardSets.length === 0 ? (
+            <p className="px-1 py-6 text-sm text-gray-400">No flashcards yet</p>
+          ) : (
+            <div className="flex flex-col divide-y divide-gray-100 rounded-xl border border-gray-100 bg-white">
+              {sortedFlashcardSets.map((set) => (
+                <RecentItemRow
+                  key={set.id}
+                  item={set}
+                  courseId={courseId}
+                  courseName={courseDisplayName}
+                  kind="flashcard"
+                  onDelete={(id) => setDeleteTarget({ id, kind: 'flashcard' })}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Recent Quizzes */}
+        <div className="mt-10 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-base font-bold text-[#1a1a2e]">Recent Quizzes</h2>
+            <SortDropdown value={quizSort} onChange={setQuizSort} />
+          </div>
+
+          {sortedQuizSets.length === 0 ? (
+            <p className="px-1 py-6 text-sm text-gray-400">No quizzes yet</p>
+          ) : (
+            <div className="flex flex-col divide-y divide-gray-100 rounded-xl border border-gray-100 bg-white">
+              {sortedQuizSets.map((set) => (
+                <RecentItemRow
+                  key={set.id}
+                  item={set}
+                  courseId={courseId}
+                  courseName={courseDisplayName}
+                  kind="quiz"
+                  onDelete={(id) => setDeleteTarget({ id, kind: 'quiz' })}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
+
+      <LectureChoiceModal
+        open={!!selectedResource}
+        documentName={selectedResource?.name ?? ''}
+        onClose={() => setSelectedResource(null)}
+        onSelectFlashcard={handleSelectFlashcard}
+      />
+
+      <ConfirmDeleteModal
+        open={!!deleteTarget}
+        title="Remove from folder"
+        message="This will permanently delete this set. This action cannot be undone."
+        loading={deleting}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }
