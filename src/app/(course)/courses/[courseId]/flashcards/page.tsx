@@ -74,6 +74,7 @@ async function persistFlashcardSet(
     name: topicName,
     sourceDocKey,
     cards,
+    pinned: true,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
