@@ -1,7 +1,7 @@
 // Server-only: talks to the secondary Ollama box (the embeddings-only GPU).
 // Never import this from a client component — OLLAMA_SECONDARY_URL /
 // OLLAMA_AUTH_TOKEN are not NEXT_PUBLIC_ and must stay server-side.
-export async function embedTexts(texts: string[]): Promise<number[][]> {
+export async function embedTexts(texts: string[], signal?: AbortSignal): Promise<number[][]> {
   if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN) {
     throw new Error("Embedding service is not configured.");
   }
@@ -12,6 +12,7 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
       "Content-Type": "application/json",
       Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
     },
+    signal,
     body: JSON.stringify({
       model: process.env.OLLAMA_EMBED_MODEL || "qwen3-embedding:latest",
       input: texts,

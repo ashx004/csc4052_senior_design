@@ -62,7 +62,9 @@ import nasm from "react-syntax-highlighter/dist/esm/languages/prism/nasm";
 ].forEach(([name, lang]) => SyntaxHighlighter.registerLanguage(name as string, lang as any));
 import { renderAsync } from "docx-preview";
 import CircleIconButton from "./CircleIconButton";
-import { uploadUserResource, getCourseResources, deleteUserResource } from "./fileUploadService";
+import { uploadUserResource, getCourseResources, deleteUserResource, MAX_FILE_SIZE_BYTES } from "./fileUploadService";
+
+const MAX_FILES_PER_BATCH = 5;
 
 export type Category = "classDoc" | "notes" | "assignments";
 
@@ -633,13 +635,29 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
         }
     }
 
+    const applyFileSelection = (files: File[]) => {
+        if (files.length > MAX_FILES_PER_BATCH) {
+            setUploadError(`You can upload up to ${MAX_FILES_PER_BATCH} files at once — only the first ${MAX_FILES_PER_BATCH} were kept.`);
+            files = files.slice(0, MAX_FILES_PER_BATCH);
+        } else {
+            setUploadError(null);
+        }
+
+        const oversized = files.filter((f) => f.size > MAX_FILE_SIZE_BYTES);
+        if (oversized.length > 0) {
+            setUploadError(`Skipped (over 20MB): ${oversized.map((f) => f.name).join(", ")}`);
+            files = files.filter((f) => f.size <= MAX_FILE_SIZE_BYTES);
+        }
+
+        setSelectedFiles(files);
+    };
+
     const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();
         setIsDragging(false);
-        
+
         if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            setSelectedFiles(Array.from(e.dataTransfer.files));
-            setUploadError(null);
+            applyFileSelection(Array.from(e.dataTransfer.files));
         }
     };
 
@@ -1261,10 +1279,8 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                     multiple={true} // 🎯 Allows selecting multiple files via Ctrl/Shift click
                                     onChange={(e) => {
                                         if (e.target.files) {
-                                            // Convert the FileList object to a standard JavaScript Array
-                                            setSelectedFiles(Array.from(e.target.files));
+                                            applyFileSelection(Array.from(e.target.files));
                                         }
-                                        setUploadError(null);
                                     }}
                                     disabled={isUploading}
                                     className="hidden"

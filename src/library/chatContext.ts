@@ -15,6 +15,9 @@ export type ChatClass = {
   classCode: string;
   term: string;
   facultyName: string;
+  facultyEmail: string;
+  facultyPhoneNumber: string;
+  facultyOfficeNumber: string;
   classSchedule: string;
   classRoom: string;
   classDescription: string;
@@ -86,6 +89,9 @@ export async function buildChatContext(userId: string, email: string): Promise<C
         classCode: data.classCode ?? "",
         term: data.term ?? "",
         facultyName: data.facultyName ?? "",
+        facultyEmail: data.facultyEmail ?? "",
+        facultyPhoneNumber: data.facultyPhoneNumber ?? "",
+        facultyOfficeNumber: data.facultyOfficeNumber ?? "",
         classSchedule: data.classSchedule ?? "",
         classRoom: data.classRoom ?? "",
         classDescription: data.classDescription ?? "",

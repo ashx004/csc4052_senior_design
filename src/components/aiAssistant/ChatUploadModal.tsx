@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import { X, UploadCloud, Loader2 } from "lucide-react";
-import { uploadUserResource } from "@/src/components/resourceManagement/fileUploadService";
+import { uploadUserResource, MAX_FILE_SIZE_BYTES } from "@/src/components/resourceManagement/fileUploadService";
 import type { ChatClass } from "@/src/library/chatContext";
 
 type Category = "classDoc" | "notes" | "assignments";
+
+const MAX_FILES_PER_BATCH = 5;
 
 const CATEGORY_LABELS: Record<Category, string> = {
   classDoc: "Class Doc",
@@ -26,6 +28,23 @@ export default function ChatUploadModal({ userId, classes, onClose, onUploaded }
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function applyFileSelection(files: File[]) {
+    if (files.length > MAX_FILES_PER_BATCH) {
+      setError(`You can upload up to ${MAX_FILES_PER_BATCH} files at once — only the first ${MAX_FILES_PER_BATCH} were kept.`);
+      files = files.slice(0, MAX_FILES_PER_BATCH);
+    } else {
+      setError(null);
+    }
+
+    const oversized = files.filter((f) => f.size > MAX_FILE_SIZE_BYTES);
+    if (oversized.length > 0) {
+      setError(`Skipped (over 20MB): ${oversized.map((f) => f.name).join(", ")}`);
+      files = files.filter((f) => f.size <= MAX_FILE_SIZE_BYTES);
+    }
+
+    setSelectedFiles(files);
+  }
 
   async function handleUpload() {
     if (!selectedClassId || selectedFiles.length === 0) return;
@@ -124,8 +143,7 @@ export default function ChatUploadModal({ userId, classes, onClose, onUploaded }
                   multiple
                   disabled={isUploading}
                   onChange={(event) => {
-                    if (event.target.files) setSelectedFiles(Array.from(event.target.files));
-                    setError(null);
+                    if (event.target.files) applyFileSelection(Array.from(event.target.files));
                   }}
                   className="hidden"
                 />

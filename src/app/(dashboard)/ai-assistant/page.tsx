@@ -10,7 +10,6 @@ import {
   createChatSession,
   deriveChatTitle,
   getChatSession,
-  getLatestChatSession,
   saveChatState,
   StoredChatMessage,
 } from "@/src/library/chatMemory";
@@ -113,8 +112,9 @@ const TOOL_STATUS_LABELS: Record<string, string> = {
   search_youtube: "Looking for videos...",
   create_pdf: "Creating a PDF...",
   recall_past_chat: "Checking past conversations...",
-  self_check: "Double-checking that answer...",
 };
+
+const MAX_CHAT_INPUT_CHARS = 4000;
 
 export default function AIAssistantPage() {
   const { user, loading: authLoading } = useAuth();
@@ -131,6 +131,11 @@ export default function AIAssistantPage() {
   const [micSupported, setMicSupported] = useState(true);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const sessionId = useRef<string | null>(null);
+  // Tracks the in-flight buildChatContext call so handleSubmit can wait for
+  // it even if the student sends a message before the state update lands —
+  // without this, a message sent in that window goes out with context:null,
+  // and the assistant answers as if it has no idea what classes exist.
+  const chatContextPromiseRef = useRef<Promise<ChatContext | null> | null>(null);
   const nextId = useRef(1);
   const recognitionRef = useRef<any>(null);
   const summaryRef = useRef("");
@@ -153,7 +158,9 @@ export default function AIAssistantPage() {
 
     recognition.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript as string;
-      setInput((prev) => (prev.trim() ? `${prev.trim()} ${transcript}` : transcript));
+      setInput((prev) =>
+        (prev.trim() ? `${prev.trim()} ${transcript}` : transcript).slice(0, MAX_CHAT_INPUT_CHARS)
+      );
     };
 
     recognition.onerror = (event: any) => {
@@ -194,28 +201,19 @@ export default function AIAssistantPage() {
   useEffect(() => {
     if (authLoading || !user?.email) return;
 
-    buildChatContext(user.uid, user.email)
-      .then(setChatContext)
+    // Deliberately does NOT resume the most recent session — every visit to
+    // this tab starts a fresh chat. Past chats are still reachable from the
+    // history panel (loadSession) for anyone who wants to pick one back up.
+    chatContextPromiseRef.current = buildChatContext(user.uid, user.email)
+      .then((ctx) => {
+        setChatContext(ctx);
+        return ctx;
+      })
       .catch((error) => {
         console.error("Error building chat context:", error);
         setChatContext(null);
+        return null;
       });
-
-    getLatestChatSession(user.uid)
-      .then((session) => {
-        if (session && session.messages.length > 0) {
-          sessionId.current = session.id;
-          setActiveSessionId(session.id);
-          summaryRef.current = session.summary;
-          summarizedCountRef.current = session.summarizedCount;
-          titleRef.current = session.title;
-          if (session.title) document.title = `Catalyst — ${session.title}`;
-          setMessages(session.messages);
-          setHasStarted(true);
-          nextId.current = Math.max(...session.messages.map((m) => m.id)) + 1;
-        }
-      })
-      .catch((error) => console.error("Error loading chat session:", error));
   }, [user, authLoading]);
 
   const starterPrompts = useMemo(() => getStarterPrompts(chatContext), [chatContext]);
@@ -299,6 +297,12 @@ export default function AIAssistantPage() {
       setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, ...patch } : m)));
     }
 
+    // chatContext may still be null if this message is sent right after the
+    // page loads, before buildChatContext's state update has landed — wait
+    // on the actual in-flight promise rather than sending stale/empty
+    // context (see chatContextPromiseRef above).
+    const effectiveContext = chatContext ?? (await chatContextPromiseRef.current);
+
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -308,7 +312,7 @@ export default function AIAssistantPage() {
             role: message.role,
             content: message.text,
           })),
-          context: chatContext,
+          context: effectiveContext,
           summary: summaryRef.current,
           summarizedCount: summarizedCountRef.current,
           currentSessionId: sessionId.current,
@@ -430,7 +434,12 @@ export default function AIAssistantPage() {
     persist(nextMessages);
 
     if (user?.email) {
-      buildChatContext(user.uid, user.email).then(setChatContext).catch(() => {});
+      chatContextPromiseRef.current = buildChatContext(user.uid, user.email)
+        .then((ctx) => {
+          setChatContext(ctx);
+          return ctx;
+        })
+        .catch(() => null);
     }
   }
 
@@ -597,9 +606,10 @@ export default function AIAssistantPage() {
 
             <input
               value={input}
-              onChange={(event) => setInput(event.target.value)}
+              onChange={(event) => setInput(event.target.value.slice(0, MAX_CHAT_INPUT_CHARS))}
               placeholder="Ask Catalyst anything..."
               disabled={isSending}
+              maxLength={MAX_CHAT_INPUT_CHARS}
               className="min-w-1 flex-1 bg-transparent text-sm text-text-main outline-none placeholder:text-text-muted disabled:opacity-60"
             />
 
