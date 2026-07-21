@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { auth } from "@/src/library/firebase";
-import { onAuthStateChanged, User, signOut } from "firebase/auth";
+import { onIdTokenChanged, User, signOut } from "firebase/auth";
 
 interface AuthContextType {
   user: User | null;
@@ -16,14 +16,26 @@ const AuthContext = createContext<AuthContextType>({
   logout: async () => {},
 });
 
+const SESSION_COOKIE = "fb_token";
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    // onIdTokenChanged (not onAuthStateChanged) so the cookie also refreshes
+    // when Firebase silently rotates the token — middleware reads this
+    // cookie to decide whether a page request is authenticated.
+    const unsubscribe = onIdTokenChanged(auth, async (currentUser) => {
       setUser(currentUser);
       setLoading(false);
+
+      if (currentUser) {
+        const token = await currentUser.getIdToken();
+        document.cookie = `${SESSION_COOKIE}=${token}; path=/; max-age=3600; SameSite=Lax`;
+      } else {
+        document.cookie = `${SESSION_COOKIE}=; path=/; max-age=0`;
+      }
     });
     return unsubscribe;
   }, []);
