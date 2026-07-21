@@ -4,6 +4,13 @@ import { doc, deleteDoc } from "firebase/firestore";
 
 const BUCKET_NAME = "studora";
 
+// Large files (esp. text-heavy PDFs) can blow up into hundreds of chunks
+// during indexing — each needing its own contextualization + embedding call
+// — which has caused real Cloudflare tunnel timeouts under sustained load.
+// This caps it well before that becomes a problem. Exported so both upload
+// UIs (course page + chat) can validate before ever calling this function.
+export const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
+
 // Kept in sync with SUPPORTED_DOCUMENT_TYPES in src/library/documentExtract.ts —
 // duplicated as a plain array here (rather than imported) so this client
 // bundle never pulls in server-only extraction code.
@@ -22,6 +29,10 @@ interface UploadFileProps {
 
 // ─── FUNCTION 1: UPLOAD A FILE ───
 export const uploadUserResource = async ({ userId, classDocId, file, category }: UploadFileProps) => {
+  if (file.size > MAX_FILE_SIZE_BYTES) {
+    throw new Error(`"${file.name}" is too large (${(file.size / 1024 / 1024).toFixed(1)}MB) — the limit is 20MB.`);
+  }
+
   const fileExtension = file.name.split('.').pop()?.toLowerCase() || "";
   const uniqueFileName = `${Date.now()}_${file.name}`;
   const storagePath = `users/${userId}/classes/${classDocId}/${uniqueFileName}`;

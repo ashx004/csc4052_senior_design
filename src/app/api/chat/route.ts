@@ -7,6 +7,7 @@ import { embedTexts, cosineSimilarity } from "@/src/library/ollamaEmbeddings";
 import { searchWeb } from "@/src/library/webSearch";
 import { searchYoutube } from "@/src/library/youtubeSearch";
 import { generateAndUploadPdf } from "@/src/library/pdfGenerate";
+import { warnIfSlowGeneration } from "@/src/library/ollamaHealthCheck";
 
 const OLLAMA_TIMEOUT_MS = 120000; // first request after idle can take 30-60s+ to cold-load the model
 const MAX_TOOL_ROUNDS = 5;
@@ -17,6 +18,7 @@ const RERANK_CANDIDATE_POOL = 15; // widen hybrid-score recall, then rerank down
 const SIMILARITY_THRESHOLD = 0.3; // below this, a chunk is treated as "not actually relevant"
 const CHAT_TEMPERATURE = 0.3; // lower than Ollama's default (~0.8) — favors grounded answers over creative ones
 const WEB_SEARCH_MAX_RESULTS = 5;
+const MAX_CHAT_INPUT_CHARS = 4000; // mirrors the client's <input maxLength> in ai-assistant/page.tsx
 
 // Conversation compaction: once the "unsummarized" tail of a conversation
 // gets this long, fold everything except the last KEEP_RECENT_MESSAGES turns
@@ -38,6 +40,9 @@ type ChatClass = {
   classCode: string;
   term: string;
   facultyName?: string;
+  facultyEmail?: string;
+  facultyPhoneNumber?: string;
+  facultyOfficeNumber?: string;
   classSchedule?: string;
   classRoom?: string;
   classDescription?: string;
@@ -159,7 +164,22 @@ const RECALL_PAST_CHAT_TOOL = {
 };
 
 function buildSystemPrompt(context?: ChatContext): string {
+  // Computed server-side per request (never client-supplied) so it's always
+  // real, current time — not something the model can be tricked about.
+  const now = new Date();
+  const nowLine = `Current date/time: ${now.toLocaleString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  })}`;
+
   const behaviorRules = `Your purpose in this chat is to help the student understand their coursework, study more effectively, and navigate their classes — you are a focused study assistant, not a general-purpose chatbot.
+
+${nowLine}. Use this for anything date/time-relative — "this week," "how many days until X," what's due soon, etc. Don't guess at today's date or claim not to know it.
 
 Guardrails:
 - Only engage with the student's courses, assignments, study materials, and learning/academic topics in general (including general-knowledge questions that support their studies, and web research that supports their studies).
@@ -175,13 +195,29 @@ Style:
 Tools available:
 - search_documents(query, courseId?): semantically search the student's indexed course documents (PDF, Word, Excel, plain text, code files) for relevant passages. Use this when you don't know which document has the answer or need to check what's actually written inside files.
 - read_document(courseId, resourceId): read one specific document in full, once you know exactly which one you need.
-- web_search(query, scholarly?): search the live web for general/current information not in the student's materials. Set scholarly=true for research-oriented questions to restrict results to reputable academic sources.
-- search_youtube(query): find real explainer/lecture videos when a video would genuinely help — link them with the real URL returned by the tool, never a made-up one. Show the thumbnail too: render it as a markdown image, ![video title](thumbnail url), right above the video link.
+- web_search(query, scholarly?): search the live web. Reach for this proactively, without being asked — whenever you're not fully confident in a fact, when something could plausibly have changed since your training (version numbers, syntax, current events, tools/libraries), or when a real citable source would make an explanation more trustworthy for coursework. Set scholarly=true for research-oriented questions to restrict results to reputable academic sources. Don't wait for the student to say "look this up" — a confident guess you didn't check is worse than a 5-second search.
+- search_youtube(query): find real explainer/lecture videos. When a concept is genuinely easier to grasp by watching it worked through than by reading text about it (algorithm walkthroughs, data structure operations, math proofs, hardware/architecture), or the student seems stuck after a text explanation — call it immediately, in the SAME turn, before you finish responding. Never end a response with a line like "If you'd like, I can find a video — would you like that?" — that specific pattern is wrong every time you're about to write it: either call search_youtube right now and show the result, or don't mention video at all. Offering and waiting is not an acceptable substitute for calling the tool. Not for every question, just ones where seeing it actually helps. Link with the real URL returned by the tool, never a made-up one, and show the thumbnail as a markdown image, ![video title](thumbnail url), right above the link.
 - create_pdf(title, markdown): generate a downloadable, formatted PDF (e.g. a practice exam, study guide, worksheet) from markdown you write. Use this when the student wants an actual document, not just a chat answer — you're capable of drafting a basic practice exam this way when asked.
-- recall_past_chat(query): search the student's other past conversations, only when they explicitly reference something discussed before.
+- recall_past_chat(query): search the student's other past conversations. Each visit to this chat starts a brand-new session with no memory of earlier ones, so this is the only way to pick up continuity. If the student references anything that sounds like it continues earlier work — "that thing I was doing," "the presentation/essay/project I was putting together," "keep going on X," "like we discussed," or any request that assumes shared context you don't actually have yet — call this FIRST, before asking them to re-explain from scratch. Asking them to repeat something they already told you defeats the entire point of this tool.
 You already know each class's document names and categories (Class Doc / Notes / Assignments) from the class listing above without calling anything — answer questions about what materials or assignments *exist* directly from that list. Only call a tool when you need to know what's actually written inside a document's content, or need to search for something not already visible above.
 If more than one document could reasonably answer the question, or it's unclear which one the student means, list the relevant options by name and ask which they want — don't guess and read the first one you find.
 Only call a tool when it would materially improve your answer — never call a tool for something you already know.
+read_document gives you a specific document's FULL content — once you've called it successfully for a document, you already have everything in that file. Do not also call search_documents for the same document afterward; that's redundant, and if it comes back empty you must NOT treat that as the read having failed — the read already succeeded and its content is still right here in the conversation.
+
+When a tool result isn't enough:
+- search_documents or read_document comes up empty/irrelevant: tell the student plainly that their course materials don't cover this — don't silently fall back to general knowledge and present it as if it came from their class. You MAY then offer general background or call web_search for it, but say explicitly that it's general information, not from their specific course.
+- web_search fails or returns nothing useful: say the search didn't turn up anything, then answer from your own general knowledge if you can — but flag that it's not verified against a live source, so the student knows to double-check anything that matters.
+- create_pdf fails: report the actual error plainly. Never claim a PDF was created if the tool didn't confirm success.
+- recall_past_chat comes up empty: that's normal, not a failure — it just means there's nothing relevant from before. Proceed with the current conversation, don't mention the empty search unless it's relevant to say so.
+- If you've tried the reasonably relevant tools and still can't answer, say so directly and plainly — don't stretch a weak or irrelevant result into an answer just to seem helpful.
+
+What data you have access to:
+- The class listing below is the full picture — if a class shows an instructor name but no email/phone/office, that specifically means the student never entered that when adding the class, not that the platform doesn't support storing it. Don't imply you categorically can't access instructor contact info; say the specific field wasn't filled in for that class, and that they can add it from their class settings.
+- You do not have access to a student's grades, attendance records, tuition/billing info, or anything outside what's shown in the Student/class listing below and their uploaded documents. Be clear about that distinction rather than treating "not in my context" the same as "the platform can't have this."
+
+Ask instead of guessing:
+- If a request is genuinely ambiguous or missing something you'd need to answer well (which topics to cover, what format, which of several plausible interpretations), ask a short clarifying question rather than picking an interpretation and running with it. This applies broadly, not just to picking between documents — a quick question beats a confident answer to the wrong question.
+- If the message is gibberish, a typo, an accidental keystroke, or you genuinely cannot tell what's being asked — say so and ask them to rephrase. Do NOT call a tool as a default action when you don't understand the input; calling read_document or search_documents on a guess about unclear input is worse than just asking what they meant.
 
 Internal IDs:
 - The courseId and resourceId values in the class listing above are internal identifiers for your own tool calls only. Never show them to the student — refer to classes by their course code/name and to documents by their filename.
@@ -191,19 +227,28 @@ Accuracy:
 - Only state a student's school/college if it's given to you in the Student line below — if it's blank, don't guess or invent one.
 - When you use content from read_document, search_documents, or web_search, briefly name the source (document or site) so the student knows where it came from.
 - If a tool returns nothing relevant, tell the student that rather than answering from a guess.
+- Class names, document filenames, and instructor names in the class listing below are real data you have — copy them exactly rather than rephrasing (e.g. don't turn "Intro to Computer Science" into "Introduction to Programming," or "JumpTableMain.java" into "JumpGame.java"). If facultyEmail/facultyPhoneNumber are blank, that means not entered — say so rather than constructing one.
 
 Using tool results:
 - After a tool call returns, always circle back and directly answer the student's actual question using what you found — don't stop at just acknowledging that you read something. If you called read_document and the student asked "what should I study first," your next message must actually answer that from the document's content, not just confirm you have it.
 - Tool results (from read_document, search_documents, web_search, etc.) are things YOU looked up yourself — never describe them as something the student "pasted," "gave you," or "provided." Refer to them as "the document," "what I found," or by name.
 
 Reviewing code files:
-- When asked to summarize, review, or debug a code file, don't stop at the first issue you notice and present it as the whole picture — scan the full file for other bugs, logic errors, or design problems too. If you found more than one real issue, mention all of them, ranked by severity, not just the first. If you only have time/space to cover one in depth, explicitly say there's more you could go into rather than implying that's everything.
-- Don't treat "summarize this file" as inherently exhaustive — for code specifically, a summary that misses a bug that breaks the whole program is misleading. Bias toward completeness over brevity for code review requests.
+- Match the depth to what's actually asked. A general request ("tell me about this file," "what does this do," "give me an overview") wants a broad structural summary — the file's purpose, its main classes/methods, and how they fit together — not a deep dive into one specific method or line. Don't treat a general "tell me about" request as an invitation to review or debug code nobody asked you to review.
+- Only when the student specifically asks you to review, debug, or find bugs/issues: don't stop at the first issue you notice and present it as the whole picture — scan the full file for other bugs, logic errors, or design problems too. If you found more than one real issue, mention all of them, ranked by severity, not just the first.
+- Exception: if a plain summary would be actively misleading without flagging a severe, program-breaking bug, a brief one-line mention is fine — but keep it a short aside, not the focus of the response.
+- When you quote or show code from a document you read, reproduce it EXACTLY as written — same language, same syntax, character-for-character from the source. Never paraphrase, "clean up," or rewrite it into a different language's style (e.g. never render a Java method as if it were Python). Getting the general behavior right while showing the wrong syntax is still wrong — the student may copy what you show verbatim.
 
 Teaching approach:
 - You're a study aid, not a homework-completion service. When a student is debugging their own code or working through a concept, default to guiding them toward the answer (ask what they've tried, point at the specific line/concept that's wrong, explain the underlying mechanism) rather than immediately handing over a complete rewritten solution.
 - It's fine to give full corrected code when the student explicitly asks for it, when they're clearly stuck after a guided attempt, or when the task is inherently about producing a document (e.g. create_pdf, generating a practice exam) rather than solving their own assignment.
-- Always explain the *why* behind a bug or concept, not just the fix — the goal is the student understanding it, not just the code working.`;
+- Always explain the *why* behind a bug or concept, not just the fix — the goal is the student understanding it, not just the code working.
+
+Academic integrity:
+- Never produce a complete deliverable that's clearly meant to be submitted as the student's own graded work — a full essay/paper, a complete solution to a homework problem set, or a finished program that IS the assignment. This holds even if they ask directly or insist; decline that specific framing and offer to help them build it themselves instead (outline, brainstorm, explain the approach, review a draft they've actually written).
+- Watch for text that reads like it was pasted straight from a live quiz, exam, or timed assessment (question-and-multiple-choice formatting, "select the best answer," phrasing implying it's currently being taken) — don't just answer it. Say you can't answer live assessment questions directly, and offer to explain the underlying concept instead so they can answer it themselves.
+- This is different from legitimate practice: generating a practice exam via create_pdf, reviewing code the student wrote and explaining bugs, or working through a past homework problem together as a learning exercise are all fine — the line is "producing the actual thing being submitted or graded right now" vs. "helping them learn to produce it themselves."
+- If genuinely unsure whether something is a live graded assessment or practice, ask rather than assume either way.`;
 
   if (!context) {
     return `You are Catalyst, an AI study assistant embedded in a student's academic platform.\n\n${behaviorRules}`;
@@ -227,8 +272,10 @@ Teaching approach:
             : "      - No documents uploaded yet";
 
           return `  - [courseId: ${c.classId}] ${c.classCode} — ${c.className} (${c.term})
-      Instructor: ${c.facultyName || "not listed"}
-      Schedule: ${c.classSchedule || "not listed"}${
+      Instructor: ${c.facultyName || "not listed"}${c.facultyEmail ? `, email: ${c.facultyEmail}` : ""}${
+            c.facultyPhoneNumber ? `, phone: ${c.facultyPhoneNumber}` : ""
+          }${c.facultyOfficeNumber ? `, office: ${c.facultyOfficeNumber}` : ""}
+      Schedule: ${c.classSchedule || "not listed"}${c.classRoom ? `, room: ${c.classRoom}` : ""}${
             c.classDescription ? `\n      Description: ${c.classDescription}` : ""
           }
 ${docLines}`;
@@ -303,11 +350,23 @@ function keywordScore(query: string, text: string): number {
 async function searchDocuments(
   context: ChatContext | undefined,
   query: string,
-  courseId?: string
+  courseId?: string,
+  documentsReadThisTurn: { courseId: string; resourceId: string; name: string }[] = []
 ): Promise<string> {
   if (!context?.userId) {
     return "Error: no student context available for search.";
   }
+
+  // If a document was already fully read via read_document this turn, an
+  // empty/weak search result must not read as "nothing found" — the model
+  // has repeatedly (confirmed live 2026-07-21) treated a failed search as
+  // overriding a successful read it had moments earlier, and reported total
+  // failure despite already having the document's full content in hand.
+  const alreadyReadNote = documentsReadThisTurn.length
+    ? ` Note: you already successfully read the full content of ${documentsReadThisTurn
+        .map((d) => `"${d.name}"`)
+        .join(", ")} this turn via read_document — that content is still in this conversation and is not affected by this search coming up empty. Use it directly; do not report failure to access the document.`
+    : "";
 
   const targetClasses = courseId
     ? context.classes.filter((c) => c.classId === courseId)
@@ -320,7 +379,7 @@ async function searchDocuments(
   );
 
   if (candidateDocs.length === 0) {
-    return "No indexed documents are available to search.";
+    return "No indexed documents are available to search." + alreadyReadNote;
   }
 
   let queryEmbedding: number[];
@@ -368,14 +427,20 @@ async function searchDocuments(
   }
 
   if (scored.length === 0) {
-    return "No indexed content found yet — these documents may still be processing. Try read_document on a specific file instead.";
+    return (
+      "No indexed content found yet — these documents may still be processing. Try read_document on a specific file instead." +
+      alreadyReadNote
+    );
   }
 
   scored.sort((a, b) => b.score - a.score);
   const candidates = scored.filter((r) => r.score >= SIMILARITY_THRESHOLD).slice(0, RERANK_CANDIDATE_POOL);
 
   if (candidates.length === 0) {
-    return "Nothing in the indexed documents is actually relevant to that query — don't guess from weak matches. Tell the student you couldn't find this in their materials.";
+    return (
+      "Nothing in the indexed documents is actually relevant to that query — don't guess from weak matches. Tell the student you couldn't find this in their materials." +
+      alreadyReadNote
+    );
   }
 
   const relevant = await rerankChunks(query, candidates, TOP_K_CHUNKS);
@@ -421,6 +486,12 @@ async function rerankChunks<T extends { text: string }>(
     if (!response.ok) return candidates.slice(0, topK);
 
     const data = await response.json();
+    warnIfSlowGeneration(
+      process.env.OLLAMA_SECONDARY_URL || "",
+      process.env.OLLAMA_SUMMARY_MODEL || "qwen3:4b",
+      data?.eval_count,
+      data?.eval_duration
+    );
     const raw = (data?.message?.content || "").trim();
     const indices = raw
       .split(",")
@@ -681,6 +752,7 @@ async function streamOllamaRound(
 
         if (chunk?.done) {
           rawMessage = chunk.message ?? { role: "assistant", content: contentAccum };
+          warnIfSlowGeneration(target.baseUrl, target.model, chunk.eval_count, chunk.eval_duration);
         }
       }
     }
@@ -737,6 +809,12 @@ async function compactIfNeeded(
     if (!response.ok) throw new Error(`Summarization failed (${response.status})`);
 
     const data = await response.json();
+    warnIfSlowGeneration(
+      process.env.OLLAMA_SECONDARY_URL || process.env.OLLAMA_PRIMARY_URL || "",
+      process.env.OLLAMA_SUMMARY_MODEL || process.env.OLLAMA_MODEL || "gpt-oss:20b",
+      data?.eval_count,
+      data?.eval_duration
+    );
     const newSummary = data?.message?.content;
     if (!newSummary) throw new Error("Summarization returned no content");
 
@@ -744,51 +822,6 @@ async function compactIfNeeded(
   } catch (error) {
     console.error("Conversation compaction failed, continuing without it:", error);
     return { summary, summarizedCount };
-  }
-}
-
-// Reviews a draft response that used tool results before the student sees
-// it — a local, inference-time analog to the self-critique step used in
-// Constitutional AI, but applied per-turn instead of baked in via training.
-// Only called for tool-grounded turns, where fabrication/formatting slips
-// actually happen; casual no-tool replies skip this and stream live.
-// Fails open: any error here just shows the draft as-is.
-async function critiqueDraft(
-  secondaryTarget: { baseUrl: string; model: string },
-  draft: string,
-  toolResultsText: string
-): Promise<string | null> {
-  const rubric = `You are reviewing an AI study assistant's draft reply before it's shown to a student. Check ONLY for these specific problems:
-1. Raw HTML tags (like <br>, <b>, <table>, <div>) instead of markdown formatting.
-2. Facts, numbers, or claims in the draft that are NOT supported by the tool results below (invented/fabricated content).
-3. Long internal-ID-looking strings (random alphanumeric IDs) shown to the student.
-4. The draft fails to actually answer the student's question and just gives a vague acknowledgment instead.
-
-If none of these apply, reply with exactly: OK
-If one does apply, reply with one short sentence naming the specific problem — nothing else.`;
-
-  try {
-    const response = await callOllama(
-      [
-        { role: "system", content: rubric },
-        {
-          role: "user",
-          content: `Tool results available this turn:\n${toolResultsText.slice(0, 8000) || "(none)"}\n\nDraft reply to check:\n"""${draft}"""`,
-        },
-      ],
-      undefined,
-      0.1,
-      secondaryTarget
-    );
-    if (!response.ok) return null;
-
-    const data = await response.json();
-    const verdict = (data?.message?.content || "").trim();
-    if (!verdict || verdict.toUpperCase().startsWith("OK")) return null;
-    return verdict;
-  } catch (error) {
-    console.error("Self-critique check failed, skipping:", error);
-    return null;
   }
 }
 
@@ -816,6 +849,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "messages is required" }, { status: 400 });
   }
 
+  // Server-side backstop behind the client's maxLength — the client can be
+  // bypassed by calling this route directly.
+  const latestMessage = messages[messages.length - 1];
+  if (typeof latestMessage?.content === "string" && latestMessage.content.length > MAX_CHAT_INPUT_CHARS) {
+    return NextResponse.json(
+      { error: `Message is too long (max ${MAX_CHAT_INPUT_CHARS.toLocaleString()} characters).` },
+      { status: 400 }
+    );
+  }
+
   if (!process.env.OLLAMA_PRIMARY_URL || !process.env.OLLAMA_AUTH_TOKEN) {
     return NextResponse.json({ error: "The AI assistant is not configured." }, { status: 500 });
   }
@@ -825,11 +868,6 @@ export async function POST(request: NextRequest) {
     baseUrl: process.env.OLLAMA_PRIMARY_URL,
     model: process.env.OLLAMA_MODEL || "gpt-oss:20b",
   };
-  const secondaryTarget = {
-    baseUrl: process.env.OLLAMA_SECONDARY_URL || process.env.OLLAMA_PRIMARY_URL || "",
-    model: process.env.OLLAMA_SUMMARY_MODEL || process.env.OLLAMA_MODEL || "gpt-oss:20b",
-  };
-
   const stream = new ReadableStream({
     async start(controller) {
       function send(obj: unknown) {
@@ -861,33 +899,18 @@ export async function POST(request: NextRequest) {
 
         let finished = false;
         let emptyRoundRetries = 0;
-        let anyToolCalled = false;
-        let critiqueRetried = false;
-        const toolResultsThisTurn: string[] = [];
+        const documentsReadThisTurn: { courseId: string; resourceId: string; name: string }[] = [];
 
         for (let round = 0; round < MAX_TOOL_ROUNDS && !finished; round++) {
-          // Once a tool has been used this turn, the next round's content is
-          // buffered instead of streamed live so it can be self-critiqued
-          // before the student sees it (below) — rounds before any tool use
-          // stream normally for a responsive feel, since that's the
-          // low fabrication-risk path.
-          let buffered = "";
-          const onDelta = anyToolCalled
-            ? (delta: string) => {
-                buffered += delta;
-              }
-            : (delta: string) => send({ type: "delta", text: delta });
-
           const { content, toolCalls, rawMessage } = await streamOllamaRound(
             conversation,
             tools,
             CHAT_TEMPERATURE,
             primaryTarget,
-            onDelta
+            (delta) => send({ type: "delta", text: delta })
           );
 
           if (toolCalls && toolCalls.length > 0) {
-            anyToolCalled = true;
             conversation.push(rawMessage);
 
             for (const toolCall of toolCalls) {
@@ -902,10 +925,13 @@ export async function POST(request: NextRequest) {
                   const docMeta = context?.classes
                     .find((c) => c.classId === args.courseId)
                     ?.documents.find((d) => d.resourceId === args.resourceId);
-                  if (docMeta) documentsRead.push(docMeta.name);
+                  if (docMeta) {
+                    documentsRead.push(docMeta.name);
+                    documentsReadThisTurn.push({ courseId: args.courseId, resourceId: args.resourceId, name: docMeta.name });
+                  }
                 }
               } else if (fnName === "search_documents") {
-                result = await searchDocuments(context, args.query, args.courseId);
+                result = await searchDocuments(context, args.query, args.courseId, documentsReadThisTurn);
               } else if (fnName === "web_search") {
                 result = await webSearchTool(args.query, args.scholarly);
               } else if (fnName === "search_youtube") {
@@ -920,7 +946,6 @@ export async function POST(request: NextRequest) {
                 result = `Error: unknown tool "${fnName}".`;
               }
 
-              toolResultsThisTurn.push(`[${fnName}] ${result}`);
               conversation.push({ role: "tool", tool_call_id: toolCall.id, content: result });
             }
 
@@ -945,29 +970,6 @@ export async function POST(request: NextRequest) {
             break;
           }
 
-          if (!anyToolCalled) {
-            // No tools were used this turn — already streamed live above,
-            // low fabrication/formatting risk, skip the critique pass.
-            finished = true;
-            send({ type: "done", documentsRead, generatedFiles, summary, summarizedCount });
-            break;
-          }
-
-          // A tool was used this turn — self-critique the buffered draft
-          // before showing it (see critiqueDraft above).
-          send({ type: "tool", name: "self_check" });
-          const issue = await critiqueDraft(secondaryTarget, buffered, toolResultsThisTurn.join("\n\n"));
-
-          if (issue && !critiqueRetried) {
-            critiqueRetried = true;
-            conversation.push({
-              role: "system",
-              content: `Your previous draft had a problem: ${issue}. Revise your answer to fix this, using only the tool results already in this conversation — don't call any more tools.`,
-            });
-            continue;
-          }
-
-          send({ type: "delta", text: buffered });
           finished = true;
           send({ type: "done", documentsRead, generatedFiles, summary, summarizedCount });
         }
@@ -982,28 +984,17 @@ export async function POST(request: NextRequest) {
               "You've used up your tool calls for this turn. Answer now using only what you've already found. If you genuinely don't have enough to answer, say so plainly.",
           });
 
-          // This is a rushed, forced answer under a tool-round budget it
-          // already failed to work within — arguably the highest-risk path
-          // for exactly what critiqueDraft checks for, so it gets buffered
-          // and critiqued too, never streamed live.
-          let buffered = "";
-          const { content } = await streamOllamaRound(conversation, [], CHAT_TEMPERATURE, primaryTarget, (delta) => {
-            buffered += delta;
-          });
+          const { content } = await streamOllamaRound(conversation, [], CHAT_TEMPERATURE, primaryTarget, (delta) =>
+            send({ type: "delta", text: delta })
+          );
 
-          if (!content) {
+          if (content) {
+            send({ type: "done", documentsRead, generatedFiles, summary, summarizedCount });
+          } else {
             send({
               type: "error",
               error: "The assistant needed too many steps to answer. Please try rephrasing your question.",
             });
-          } else {
-            send({ type: "tool", name: "self_check" });
-            const issue = await critiqueDraft(secondaryTarget, buffered, toolResultsThisTurn.join("\n\n"));
-            if (issue) {
-              buffered += `\n\n*(Heads up: this answer may be incomplete or not fully grounded in your materials — ${issue.replace(/\.$/, "")}.)*`;
-            }
-            send({ type: "delta", text: buffered });
-            send({ type: "done", documentsRead, generatedFiles, summary, summarizedCount });
           }
         }
       } catch (error: any) {

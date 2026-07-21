@@ -6,7 +6,42 @@
 // Reported to cut retrieval failures ~49% alone, ~67% combined with
 // reranking. Fails open per-chunk: a chunk that fails to get context is
 // still indexed using its raw text rather than dropped.
-export async function addChunkContext(fullText: string, chunks: string[]): Promise<string[]> {
+// Ollama processes one request at a time per model (OLLAMA_NUM_PARALLEL=1
+// on the secondary box) — firing every chunk's context call at once via a
+// single Promise.all just piles them into its internal queue. For a
+// document with enough chunks, the ones queued furthest back sit "in
+// flight" long enough to blow the Cloudflare tunnel's ~100s proxy timeout,
+// even though the GPU itself is fast — confirmed live on 2026-07-21 with a
+// large PDF. Bounded concurrency keeps any single request's queue wait
+// small regardless of how many chunks the document has.
+const CONTEXT_GENERATION_CONCURRENCY = 3;
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  signal: AbortSignal | undefined,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      if (signal?.aborted) throw signal.reason ?? new Error("Aborted");
+      const current = nextIndex++;
+      results[current] = await fn(items[current]);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+export async function addChunkContext(
+  fullText: string,
+  chunks: string[],
+  signal?: AbortSignal
+): Promise<string[]> {
   if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN) {
     return chunks;
   }
@@ -16,40 +51,40 @@ export async function addChunkContext(fullText: string, chunks: string[]): Promi
   // count for marginal benefit past the first several thousand characters.
   const docExcerpt = fullText.slice(0, 6000);
 
-  return Promise.all(
-    chunks.map(async (chunk) => {
-      try {
-        const response = await fetch(`${process.env.OLLAMA_SECONDARY_URL}/api/chat`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
-          },
-          body: JSON.stringify({
-            model: process.env.OLLAMA_SUMMARY_MODEL || "qwen3:4b",
-            stream: false,
-            options: { temperature: 0.1 },
-            messages: [
-              {
-                role: "system",
-                content:
-                  "Give a short 1-2 sentence context blurb situating the chunk within the overall document, for the purposes of improving search retrieval. Reply with only the blurb, nothing else.",
-              },
-              {
-                role: "user",
-                content: `Document excerpt:\n${docExcerpt}\n\nChunk to situate:\n${chunk}`,
-              },
-            ],
-          }),
-        });
+  return mapWithConcurrency(chunks, CONTEXT_GENERATION_CONCURRENCY, signal, async (chunk) => {
+    try {
+      const response = await fetch(`${process.env.OLLAMA_SECONDARY_URL}/api/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+        },
+        signal,
+        body: JSON.stringify({
+          model: process.env.OLLAMA_SUMMARY_MODEL || "qwen3:4b",
+          stream: false,
+          options: { temperature: 0.1 },
+          messages: [
+            {
+              role: "system",
+              content:
+                "Give a short 1-2 sentence context blurb situating the chunk within the overall document, for the purposes of improving search retrieval. Reply with only the blurb, nothing else.",
+            },
+            {
+              role: "user",
+              content: `Document excerpt:\n${docExcerpt}\n\nChunk to situate:\n${chunk}`,
+            },
+          ],
+        }),
+      });
 
-        if (!response.ok) return chunk;
-        const data = await response.json();
-        const context = (data?.message?.content || "").trim();
-        return context ? `${context}\n\n${chunk}` : chunk;
-      } catch {
-        return chunk;
-      }
-    })
-  );
+      if (!response.ok) return chunk;
+      const data = await response.json();
+      const context = (data?.message?.content || "").trim();
+      return context ? `${context}\n\n${chunk}` : chunk;
+    } catch (error) {
+      if (signal?.aborted) throw error; // real cancellation — don't swallow it as a per-chunk failure
+      return chunk;
+    }
+  });
 }
