@@ -49,43 +49,43 @@ export default function CourseLearningPage() {
 
   if (authLoading || loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-[#FAFAF8]">
-        <Loader2 size={32} className="animate-spin text-[#8B6914]" />
+      <div className="flex items-center justify-center min-h-screen bg-bg-container">
+        <Loader2 size={32} className="animate-spin text-primary" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#FAFAF8]">
+    <div className="min-h-screen bg-bg-container">
       {/* Header */}
-      <div className="flex items-center justify-between px-16 py-7 border-b border-gray-100">
+      <div className="flex items-center justify-between px-16 py-7 border-b border-border-light">
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.back()}
-            className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors"
+            className="p-1.5 rounded-md hover:bg-bg-warm transition-colors"
           >
-            <ArrowLeft size={20} className="text-gray-700" />
+            <ArrowLeft size={20} className="text-text-muted" />
           </button>
-          <h1 className="text-xl font-bold text-[#1a1a2e]">{displayName}</h1>
+          <h1 className="text-xl font-bold text-text-main">{displayName}</h1>
         </div>
 
         <div className="flex items-center gap-2">
-          <button className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors">
-            <BookOpen size={20} className="text-gray-500" />
+          <button className="p-1.5 rounded-md hover:bg-bg-warm transition-colors">
+            <BookOpen size={20} className="text-text-muted" />
           </button>
-          <button className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors">
-            <Bookmark size={20} className="text-gray-500" />
+          <button className="p-1.5 rounded-md hover:bg-bg-warm transition-colors">
+            <Bookmark size={20} className="text-text-muted" />
           </button>
         </div>
       </div>
 
       {/* Document grid */}
       <div className="px-6 py-6">
-        <p className="text-left text-gray-500 text-md mb-6">
+        <p className="text-left text-text-muted text-md mb-6">
           Choose a Lecture and make your own flashcard
         </p>
         {resources.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+          <div className="flex flex-col items-center justify-center py-20 text-text-muted">
             <BookOpen size={48} className="mb-4" />
             <p className="text-lg font-medium">No documents yet</p>
             <p className="text-sm mt-1">Upload resources to your course to start learning</p>
@@ -100,30 +100,30 @@ export default function CourseLearningPage() {
                     `/courses/${courseId}/flashcards?docId=${resource.id}&docName=${encodeURIComponent(resource.name)}`
                   )
                 }
-                className="text-left rounded-xl overflow-hidden border border-gray-100
+                className="text-left rounded-xl overflow-hidden border border-border-light
                            hover:shadow-md transition-shadow bg-white group"
               >
             {/* Document preview */}
             {resource.name?.toLowerCase().endsWith('.pdf') ? (
               <PdfThumbnail url={resource.url} className="h-36" />
             ) : (
-              <div className="h-36 bg-[#E8E3DA] flex items-center justify-center">
+              <div className="h-36 bg-border-light flex items-center justify-center">
                 <FileEdit
                   size={36}
-                  className="text-[#8B7B5E] opacity-50 group-hover:opacity-75 transition-opacity"
+                  className="text-text-muted opacity-50 group-hover:opacity-75 transition-opacity"
                 />
               </div>
             )}
 
                 {/* Card info */}
-                <div className="bg-[#F0EBE1] px-4 py-3">
+                <div className="bg-bg-warm px-4 py-3">
                   <div className="flex items-center gap-1.5 mb-1">
-                    <FileEdit size={14} className="text-[#8B7B5E]" />
-                    <span className="text-[10px] font-semibold tracking-wider text-[#8B7B5E] uppercase">
+                    <FileEdit size={14} className="text-text-muted" />
+                    <span className="text-[10px] font-semibold tracking-wider text-text-muted uppercase">
                       NOTE {index + 1}
                     </span>
                   </div>
-                  <h3 className="text-sm font-semibold text-[#1a1a2e] leading-snug truncate">
+                  <h3 className="text-sm font-semibold text-text-main leading-snug truncate">
                     {resource.name}
                   </h3>
                 </div>
