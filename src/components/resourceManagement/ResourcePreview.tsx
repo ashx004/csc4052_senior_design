@@ -26,8 +26,40 @@ import { // import symbols
     Minus,
     Plus,
 } from "lucide-react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+// PrismLight + explicit per-language registration instead of the default
+// `react-syntax-highlighter` import, which bundles all ~300 Prism language
+// grammars (~400KB) even though this app only ever highlights ~20 of them —
+// that was the single biggest contributor to this route's dev-compile time
+// and its production JS bundle size.
+import { PrismLight as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
+import python from "react-syntax-highlighter/dist/esm/languages/prism/python";
+import javascript from "react-syntax-highlighter/dist/esm/languages/prism/javascript";
+import jsx from "react-syntax-highlighter/dist/esm/languages/prism/jsx";
+import typescript from "react-syntax-highlighter/dist/esm/languages/prism/typescript";
+import tsx from "react-syntax-highlighter/dist/esm/languages/prism/tsx";
+import java from "react-syntax-highlighter/dist/esm/languages/prism/java";
+import go from "react-syntax-highlighter/dist/esm/languages/prism/go";
+import sql from "react-syntax-highlighter/dist/esm/languages/prism/sql";
+import c from "react-syntax-highlighter/dist/esm/languages/prism/c";
+import cpp from "react-syntax-highlighter/dist/esm/languages/prism/cpp";
+import csharp from "react-syntax-highlighter/dist/esm/languages/prism/csharp";
+import rust from "react-syntax-highlighter/dist/esm/languages/prism/rust";
+import markup from "react-syntax-highlighter/dist/esm/languages/prism/markup";
+import css from "react-syntax-highlighter/dist/esm/languages/prism/css";
+import php from "react-syntax-highlighter/dist/esm/languages/prism/php";
+import ruby from "react-syntax-highlighter/dist/esm/languages/prism/ruby";
+import kotlin from "react-syntax-highlighter/dist/esm/languages/prism/kotlin";
+import swift from "react-syntax-highlighter/dist/esm/languages/prism/swift";
+import bash from "react-syntax-highlighter/dist/esm/languages/prism/bash";
+import nasm from "react-syntax-highlighter/dist/esm/languages/prism/nasm";
+
+[
+    ["python", python], ["javascript", javascript], ["jsx", jsx], ["typescript", typescript],
+    ["tsx", tsx], ["java", java], ["go", go], ["sql", sql], ["c", c], ["cpp", cpp],
+    ["csharp", csharp], ["rust", rust], ["markup", markup], ["css", css], ["php", php],
+    ["ruby", ruby], ["kotlin", kotlin], ["swift", swift], ["bash", bash], ["nasm", nasm],
+].forEach(([name, lang]) => SyntaxHighlighter.registerLanguage(name as string, lang as any));
 import { renderAsync } from "docx-preview";
 import CircleIconButton from "./CircleIconButton";
 import { uploadUserResource, getCourseResources, deleteUserResource } from "./fileUploadService";
@@ -36,10 +68,10 @@ export type Category = "classDoc" | "notes" | "assignments";
 
 // Code language syntax highlighting support
 const CODE_TYPES = {
-    txt: { label: "TXT", prismLanguage: "text", color: "#8A8477", bg: "#F0EFEA" },
+    txt: { label: "TXT", prismLanguage: "text", color: "#8C7A67", bg: "#F0EFEA" },
     py: { label: "PY", prismLanguage: "python", color: "#4C9A6A", bg: "#EAF4EC" },
-    js: { label: "JS", prismLanguage: "javascript", color: "#B08957", bg: "#FBF3E1" },
-    jsx: { label: "JSX", prismLanguage: "jsx", color: "#B08957", bg: "#FBF3E1" },
+    js: { label: "JS", prismLanguage: "javascript", color: "#7A4F30", bg: "#FBF3E1" },
+    jsx: { label: "JSX", prismLanguage: "jsx", color: "#7A4F30", bg: "#FBF3E1" },
     ts: { label: "TS", prismLanguage: "typescript", color: "#3178C6", bg: "#E7EFFB" },
     tsx: { label: "TSX", prismLanguage: "tsx", color: "#3178C6", bg: "#E7EFFB" },
     java: { label: "JAVA", prismLanguage: "java", color: "#B07219", bg: "#FBF1E1" },
@@ -49,7 +81,7 @@ const CODE_TYPES = {
     cpp: { label: "C++", prismLanguage: "cpp", color: "#004482", bg: "#E3ECF5" },
     cs: { label: "C#", prismLanguage: "csharp", color: "#68217A", bg: "#F1E7F4" },
     rs: { label: "RUST", prismLanguage: "rust", color: "#DE6E4B", bg: "#FBEAE3" },
-    html: { label: "HTML", prismLanguage: "markup", color: "#C2685A", bg: "#FBEAE7" },
+    html: { label: "HTML", prismLanguage: "markup", color: "#B85C45", bg: "#FBEAE7" },
     css: { label: "CSS", prismLanguage: "css", color: "#2965F1", bg: "#E6ECFD" },
     php: { label: "PHP", prismLanguage: "php", color: "#787CB5", bg: "#EDEEF7" },
     rb: { label: "RUBY", prismLanguage: "ruby", color: "#CC342D", bg: "#FBE7E6" },
@@ -65,7 +97,7 @@ export type FileType = CodeType | "pdf" | "docx" | "zip" | "pptx" | "one" | "xls
 // "download only" formats — no in-browser rendering attempted, since there's
 const DOWNLOAD_ONLY_TYPES: FileType[] = ["zip", "pptx", "one"];
 const NON_CODE_META: Record<"pdf" | "docx" | "zip" | "pptx" | "one" | "xlsx", { label: string; color: string; bg: string }> = {
-    pdf: { label: "PDF", color: "#C2685A", bg: "#FBEAE7" },
+    pdf: { label: "PDF", color: "#B85C45", bg: "#FBEAE7" },
     docx: { label: "DOCX", color: "#4A6FA5", bg: "#E8EEF9" },
     zip: { label: "ZIP", color: "#8A6D3B", bg: "#F5EEDC" },
     pptx: { label: "PPTX", color: "#C1440E", bg: "#FBE9E1" },
@@ -621,7 +653,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
 
     if (isLoadingResources) {
         return (
-            <div className="flex items-center justify-center gap-2 py-12 text-sm text-[#8A8477]">
+            <div className="flex items-center justify-center gap-2 py-12 text-sm text-text-muted">
                 <Loader2 size={16} className="animate-spin" />
                 Loading resources...
             </div>
@@ -629,7 +661,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
     }
 
     if (loadError) {
-        return <p className="py-8 text-center text-sm text-[#C2685A]">{loadError}</p>;
+        return <p className="py-8 text-center text-sm text-alert-error">{loadError}</p>;
     }
 
     return (
@@ -640,21 +672,21 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                     <div className="relative">
                         <Search
                             size={14}
-                            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[#8A8477]"
+                            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted"
                         />
                         <input
                             type="text"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             placeholder="Search files..."
-                            className="w-40 rounded-md border border-[#EDE6D8] py-1.5 pl-8 pr-3 text-sm text-[#3D3A34] outline-none focus:border-[#B08957] sm:w-48"
+                            className="w-40 rounded-md border border-border-light py-1.5 pl-8 pr-3 text-sm text-text-main outline-none focus:border-primary sm:w-48"
                         />
                     </div>
 
                     <select
                         value={categoryFilter}
                         onChange={(e) => setCategoryFilter(e.target.value as Category | "all")}
-                        className="rounded-md border border-[#EDE6D8] bg-white py-1.5 px-2 text-sm text-[#3D3A34] outline-none focus:border-[#B08957]"
+                        className="rounded-md border border-border-light bg-white py-1.5 px-2 text-sm text-text-main outline-none focus:border-primary"
                     >
                         <option value="all">All tags</option>
                         <option value="classDoc">Class Docs</option>
@@ -671,30 +703,30 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                             onClick={() => setShowFilterPopup((s) => !s)}
                         />
                         {showFilterPopup && (
-                            <div className="absolute left-0 top-full z-20 mt-2 w-48 rounded-lg bg-white p-3 shadow-lg ring-1 ring-[#EDE6D8]">
-                                <p className="mb-2 text-xs font-semibold text-[#8A8477]">File type</p>
+                            <div className="absolute left-0 top-full z-20 mt-2 w-48 rounded-lg bg-white p-3 shadow-lg ring-1 ring-border-light">
+                                <p className="mb-2 text-xs font-semibold text-text-muted">File type</p>
                                 <div className="max-h-40 space-y-1.5 overflow-y-auto pr-1">
                                     {presentFileTypes.map((type) => (
-                                        <label key={type} className="flex items-center gap-2 text-sm text-[#3D3A34]">
+                                        <label key={type} className="flex items-center gap-2 text-sm text-text-main">
                                             <input
                                                 type="checkbox"
                                                 checked={fileTypeFilters.has(type)}
                                                 onChange={() => toggleFileTypeFilter(type)}
-                                                className="accent-[#B08957]"
+                                                className="accent-primary"
                                             />
                                             {TYPE_META[type].label}
                                         </label>
                                     ))}
                                 </div>
 
-                                <div className="mt-3 border-t border-[#EDE6D8] pt-3">
-                                    <p className="mb-2 text-xs font-semibold text-[#8A8477]">Sort by</p>
+                                <div className="mt-3 border-t border-border-light pt-3">
+                                    <p className="mb-2 text-xs font-semibold text-text-muted">Sort by</p>
                                     <select
                                         value={sortBy}
                                         onChange={(e) =>
                                             setSortBy(e.target.value as "name" | "uploadedAt" | "lastViewedAt")
                                         }
-                                        className="w-full rounded-md border border-[#EDE6D8] bg-white py-1.5 px-2 text-sm text-[#3D3A34] outline-none focus:border-[#B08957]"
+                                        className="w-full rounded-md border border-border-light bg-white py-1.5 px-2 text-sm text-text-main outline-none focus:border-primary"
                                     >
                                         <option value="name">Name (A–Z)</option>
                                         <option value="uploadedAt">Upload date (newest)</option>
@@ -734,25 +766,25 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
             </div>
 
             {selectMode && (
-                <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md bg-[#FAF3E8] px-3 py-2">
-                    <span className="text-xs font-medium text-[#3D3A34]">{selectedIds.size} selected</span>
+                <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md bg-bg-warm px-3 py-2">
+                    <span className="text-xs font-medium text-text-main">{selectedIds.size} selected</span>
                     <button
                         onClick={selectAll}
-                        className="rounded-md border border-[#EDE6D8] bg-white px-3 py-1 text-xs font-medium text-[#3D3A34] hover:border-[#D8CBB0]"
+                        className="rounded-md border border-border-light bg-white px-3 py-1 text-xs font-medium text-text-main hover:border-border-hover"
                     >
                         Select all
                     </button>
                     <button
                         onClick={handleDownloadSelected}
                         disabled={selectedIds.size === 0}
-                        className="flex items-center gap-1 rounded-md border border-[#EDE6D8] bg-white px-3 py-1 text-xs font-medium text-[#3D3A34] hover:border-[#D8CBB0] disabled:cursor-not-allowed disabled:opacity-40"
+                        className="flex items-center gap-1 rounded-md border border-border-light bg-white px-3 py-1 text-xs font-medium text-text-main hover:border-border-hover disabled:cursor-not-allowed disabled:opacity-40"
                     >
                         <Download size={12} /> Download selected
                     </button>
                     <button
                         onClick={() => setConfirmDeleteOpen(true)}
                         disabled={selectedIds.size === 0}
-                        className="flex items-center gap-1 rounded-md border border-[#EDE6D8] bg-white px-3 py-1 text-xs font-medium text-[#C2685A] hover:bg-[#FBEFED] disabled:cursor-not-allowed disabled:opacity-40"
+                        className="flex items-center gap-1 rounded-md border border-border-light bg-white px-3 py-1 text-xs font-medium text-alert-error hover:bg-alert-error-bg disabled:cursor-not-allowed disabled:opacity-40"
                     >
                         <Trash2 size={12} /> Delete selected
                     </button>
@@ -764,7 +796,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                     <button
                         onClick={() => setTileZoom((z) => Math.max(0.7, +(z - 0.15).toFixed(2)))}
                         aria-label="Zoom out thumbnails"
-                        className="text-[#8A8477] hover:text-[#3D3A34]"
+                        className="text-text-muted hover:text-text-main"
                     >
                         <Minus size={14} />
                     </button>
@@ -776,12 +808,12 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                         value={tileZoom}
                         onChange={(e) => setTileZoom(parseFloat(e.target.value))}
                         aria-label="Thumbnail zoom"
-                        className="h-1 w-28 cursor-pointer appearance-none rounded-full bg-[#EDE6D8] accent-[#B08957]"
+                        className="h-1 w-28 cursor-pointer appearance-none rounded-full bg-border-light accent-primary"
                     />
                     <button
                         onClick={() => setTileZoom((z) => Math.min(1.8, +(z + 0.15).toFixed(2)))}
                         aria-label="Zoom in thumbnails"
-                        className="text-[#8A8477] hover:text-[#3D3A34]"
+                        className="text-text-muted hover:text-text-main"
                     >
                         <Plus size={14} />
                     </button>
@@ -789,7 +821,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
             )}
 
             {sortedResources.length === 0 ? (
-                <p className="py-8 text-center text-sm text-[#8A8477]">
+                <p className="py-8 text-center text-sm text-text-muted">
                     {resources.length === 0
                         ? "No resources yet. Use the upload button to add one."
                         : "No files match your search or filters."}
@@ -806,7 +838,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                     onClick={() =>
                                         selectMode ? toggleSelected(resource.id) : setPreviewResource(resource)
                                     }
-                                    className="w-full overflow-hidden rounded-lg text-left ring-1 ring-[#EDE6D8] transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[#B08957]"
+                                    className="w-full overflow-hidden rounded-lg text-left ring-1 ring-border-light transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                                 >
                                     <div className="w-full" style={{ height: `${tileImgHeight}px` }}>
                                         <FileThumbnail
@@ -816,15 +848,15 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                         />
                                     </div>
                                     <div className="px-3 py-2">
-                                        <p className="truncate text-xs font-medium text-[#3D3A34] group-hover:text-[#B08957]">
+                                        <p className="truncate text-xs font-medium text-text-main group-hover:text-primary">
                                             {resource.name}
                                         </p>
                                         <div className="mt-1">
-                                            <span className="inline-block rounded-full bg-[#FAF3E8] px-2 py-0.5 text-[10px] font-medium text-[#B08957]">
+                                            <span className="inline-block rounded-full bg-bg-warm px-2 py-0.5 text-[10px] font-medium text-primary">
                                                 {CATEGORY_LABELS[resource.category]}
                                             </span>
                                         </div>
-                                        <p className="mt-1 text-[10px] text-[#8A8477]">
+                                        <p className="mt-1 text-[10px] text-text-muted">
                                             Uploaded {formatRelativeDate(resource.uploadedAt)} &middot; Viewed{" "}
                                             {formatRelativeDate(resource.lastViewedAt)}
                                         </p>
@@ -834,8 +866,8 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                     <div
                                         className={`absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full border-2 shadow-sm ${
                                             selectedIds.has(resource.id)
-                                                ? "border-[#B08957] bg-[#B08957]"
-                                                : "border-[#B0A48C] bg-white"
+                                                ? "border-primary bg-primary"
+                                                : "border-border-hover bg-white"
                                         }`}
                                     >
                                         {selectedIds.has(resource.id) && <CheckSquare size={12} className="text-white" />}
@@ -848,7 +880,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                         <div className="mt-4 flex justify-center">
                             <button
                                 onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
-                                className="rounded-md border border-[#EDE6D8] bg-white px-4 py-2 text-sm font-medium text-[#3D3A34] hover:border-[#D8CBB0]"
+                                className="rounded-md border border-border-light bg-white px-4 py-2 text-sm font-medium text-text-main hover:border-border-hover"
                             >
                                 Show more ({sortedResources.length - visibleCount} remaining)
                             </button>
@@ -857,11 +889,11 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                 </>
             ) : viewMode === "row" ? ( // List View
                 <>
-                    <div className="divide-y divide-[#EDE6D8] rounded-lg ring-1 ring-[#EDE6D8]">
+                    <div className="divide-y divide-border-light rounded-lg ring-1 ring-border-light">
                         {visibleResources.map((resource) => (
                             <div
                                 key={resource.id}
-                                className="group flex items-center gap-4 px-3 py-2.5 transition-colors hover:bg-[#FAF7F0]"
+                                className="group flex items-center gap-4 px-3 py-2.5 transition-colors hover:bg-bg-main"
                             >
                                 <button
                                     onClick={() =>
@@ -872,27 +904,27 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                     {selectMode && (
                                         <div className="flex h-5 w-5 shrink-0 items-center justify-center">
                                             {selectedIds.has(resource.id) ? (
-                                                <CheckSquare size={16} className="text-[#B08957]" />
+                                                <CheckSquare size={16} className="text-primary" />
                                             ) : (
-                                                <Square size={16} className="text-[#C7BBA0]" />
+                                                <Square size={16} className="text-border-hover" />
                                             )}
                                         </div>
                                     )}
-                                    <div className="h-12 w-10 shrink-0 overflow-hidden rounded-md ring-1 ring-[#EDE6D8]">
+                                    <div className="h-12 w-10 shrink-0 overflow-hidden rounded-md ring-1 ring-border-light">
                                         <FileThumbnail fileType={resource.fileType} />
                                     </div>
                                     <div className="min-w-0 flex-1">
-                                        <p className="truncate text-sm font-medium text-[#3D3A34] group-hover:text-[#B08957]">
+                                        <p className="truncate text-sm font-medium text-text-main group-hover:text-primary">
                                             {resource.name}
                                         </p>
                                         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
-                                            <p className="text-xs text-[#8A8477]">
+                                            <p className="text-xs text-text-muted">
                                                 Uploaded {formatRelativeDate(resource.uploadedAt)}
                                             </p>
-                                            <p className="text-xs text-[#8A8477]">
+                                            <p className="text-xs text-text-muted">
                                                 Last viewed {formatRelativeDate(resource.lastViewedAt)}
                                             </p>
-                                            <span className="rounded-full bg-[#FAF3E8] px-2 py-0.5 text-[10px] font-medium text-[#B08957]">
+                                            <span className="rounded-full bg-bg-warm px-2 py-0.5 text-[10px] font-medium text-primary">
                                                 {CATEGORY_LABELS[resource.category]}
                                             </span>
                                         </div>
@@ -905,7 +937,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                         <div className="mt-4 flex justify-center">
                             <button
                                 onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
-                                className="rounded-md border border-[#EDE6D8] bg-white px-4 py-2 text-sm font-medium text-[#3D3A34] hover:border-[#D8CBB0]"
+                                className="rounded-md border border-border-light bg-white px-4 py-2 text-sm font-medium text-text-main hover:border-border-hover"
                             >
                                 Show more ({sortedResources.length - visibleCount} remaining)
                             </button>
@@ -967,7 +999,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                         opacity,
                                     }}
                                     // Carousel view document preview height
-                                    className={`h-72 w-56 sm:h-96 sm:w-80 overflow-hidden rounded-lg ring-1 ring-[#EDE6D8] transition-all duration-300 ${
+                                    className={`h-72 w-56 sm:h-96 sm:w-80 overflow-hidden rounded-lg ring-1 ring-border-light transition-all duration-300 ${
                                         distance === 0 ? "shadow-lg" : "shadow-sm"
                                     }`}
                                 >
@@ -978,12 +1010,12 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                     />
                                     {selectMode && distance === 0 && (
                                         <div className={`absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full border-2 shadow-sm ${
-                                            selectedIds.has(resource.id) ? "border-[#B08957] bg-[#B08957]" : "border-[#B0A48C] bg-white"
+                                            selectedIds.has(resource.id) ? "border-primary bg-primary" : "border-border-hover bg-white"
                                         }`}>
                                             {selectedIds.has(resource.id) ? (
                                                 <CheckSquare size={12} className="text-white" />
                                             ) : (
-                                                <Square size={12} className="text-[#8A8477]" />
+                                                <Square size={12} className="text-text-muted" />
                                             )}
                                         </div>
                                     )}
@@ -993,20 +1025,20 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                         </div>
 
                     <div className="mt-3 flex items-center justify-center gap-2">
-                        <p className="truncate text-sm font-medium text-[#3D3A34]">{activeResource?.name}</p>
+                        <p className="truncate text-sm font-medium text-text-main">{activeResource?.name}</p>
                         {activeResource && (
-                            <span className="rounded-full bg-[#FAF3E8] px-2 py-0.5 text-[10px] font-medium text-[#B08957]">
+                            <span className="rounded-full bg-bg-warm px-2 py-0.5 text-[10px] font-medium text-primary">
                                 {CATEGORY_LABELS[activeResource.category]}
                             </span>
                         )}
                     </div>
                     {activeResource && (
-                        <p className="mt-1 text-center text-xs text-[#8A8477]">
+                        <p className="mt-1 text-center text-xs text-text-muted">
                             Uploaded {formatRelativeDate(activeResource.uploadedAt)} &middot; Last viewed{" "}
                             {formatRelativeDate(activeResource.lastViewedAt)}
                         </p>
                     )}
-                    <p className="mt-1 text-center text-xs text-[#8A8477]">
+                    <p className="mt-1 text-center text-xs text-text-muted">
                         {activeIndex + 1} of {sortedResources.length}
                     </p>
                 </div>
@@ -1016,12 +1048,12 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
             {previewResource && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 sm:p-10" onClick={() => setPreviewResource(null)}>
                     <div className="flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-between border-b border-[#EDE6D8] px-4 py-3">
-                            <p className="truncate text-sm font-semibold text-[#3D3A34]">{previewResource.name}</p>
+                        <div className="flex items-center justify-between border-b border-border-light px-4 py-3">
+                            <p className="truncate text-sm font-semibold text-text-main">{previewResource.name}</p>
                             <CircleIconButton icon={<X size={16} />} ariaLabel="Close preview" size="sm" onClick={() => setPreviewResource(null)} />
                         </div>
 
-                        <div className="relative flex-1 overflow-auto bg-[#F5F3EE]">
+                        <div className="relative flex-1 overflow-auto bg-bg-container">
                             {previewResource.fileType === "pdf" ? (
                                 <iframe src={previewResource.url} title={previewResource.name} className="h-full w-full" />
                             ) : DOWNLOAD_ONLY_TYPES.includes(previewResource.fileType) ? (
@@ -1033,14 +1065,14 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                     ) : (
                                         <FileArchive size={40} className="text-[#8A6D3B]" />
                                     )}
-                                    <p className="text-sm text-[#3D3A34]">
+                                    <p className="text-sm text-text-main">
                                         {TYPE_META[previewResource.fileType].label} files can&apos;t be previewed here —
                                         download it to view contents.
                                     </p>
                                     <a
                                         href={previewResource.url}
                                         download
-                                        className="mt-2 flex items-center gap-2 rounded-md bg-[#B08957] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#9C7849]"
+                                        className="mt-2 flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-hover"
                                     >
                                         <Download size={15} />
                                         Download
@@ -1051,15 +1083,15 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                     <style>{`
                                         .xlsx-render table { border-collapse: collapse; font-size: 0.8rem; }
                                         .xlsx-render td, .xlsx-render th { border: 1px solid #ddd; padding: 4px 10px; white-space: nowrap; }
-                                        .xlsx-render tr:first-child td { background: #FAF3E8; font-weight: 600; }
+                                        .xlsx-render tr:first-child td { background: #E8D2AF; font-weight: 600; }
                                     `}</style>
                                     {previewLoading ? (
-                                        <div className="flex h-full items-center justify-center gap-2 text-sm text-[#8A8477]">
+                                        <div className="flex h-full items-center justify-center gap-2 text-sm text-text-muted">
                                             <Loader2 size={16} className="animate-spin" />
                                             Loading preview...
                                         </div>
                                     ) : previewError ? (
-                                        <div className="flex h-full items-center justify-center p-6 text-center text-sm text-[#C2685A]">
+                                        <div className="flex h-full items-center justify-center p-6 text-center text-sm text-alert-error">
                                             {previewError}
                                         </div>
                                     ) : excelHtml ? (
@@ -1080,26 +1112,26 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
 							        `}</style>
 							        
 							        {/* 📦 Master Bounding Container (Acts like an iframe window) */}
-							        <div className="flex flex-col w-full h-[75vh] bg-[#FAFAF8] rounded-xl overflow-hidden border border-[#EDE6D8] relative">
+							        <div className="flex flex-col w-full h-[75vh] bg-bg-container rounded-xl overflow-hidden border border-border-light relative">
 							            
 							            {/* 🛠️ Floating Zoom Controller Bar Toolbar */}
-							            <div className="flex items-center justify-end gap-3 bg-white border-b border-[#EDE6D8] px-4 py-2 z-10 shadow-sm">
-							                <span className="text-xs font-medium text-[#8A8477]">{Math.round(zoom * 100)}%</span>
+							            <div className="flex items-center justify-end gap-3 bg-white border-b border-border-light px-4 py-2 z-10 shadow-sm">
+							                <span className="text-xs font-medium text-text-muted">{Math.round(zoom * 100)}%</span>
 							                <button 
 							                    onClick={handleZoomOut} 
-							                    className="p-1 px-2 rounded bg-[#FAFAF8] hover:bg-[#EDE6D8] text-xs font-bold text-[#3D3A34] transition-colors"
+							                    className="p-1 px-2 rounded bg-bg-container hover:bg-border-light text-xs font-bold text-text-main transition-colors"
 							                >
 							                    Zoom -
 							                </button>
 							                <button 
 							                    onClick={handleZoomReset} 
-							                    className="p-1 px-2 rounded bg-[#FAFAF8] hover:bg-[#EDE6D8] text-xs font-medium text-[#3D3A34] transition-colors"
+							                    className="p-1 px-2 rounded bg-bg-container hover:bg-border-light text-xs font-medium text-text-main transition-colors"
 							                >
 							                    Reset
 							                </button>
 							                <button 
 							                    onClick={handleZoomIn} 
-							                    className="p-1 px-2 rounded bg-[#FAFAF8] hover:bg-[#EDE6D8] text-xs font-bold text-[#3D3A34] transition-colors"
+							                    className="p-1 px-2 rounded bg-bg-container hover:bg-border-light text-xs font-bold text-text-main transition-colors"
 							                >
 							                    Zoom +
 							                </button>
@@ -1125,7 +1157,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
 							            
 							            {/* Kept your loading state overlay cleanly bounded right inside the viewport window */}
 							            {previewLoading && (
-							                <div className="absolute inset-0 flex items-center justify-center gap-2 bg-[#F5F3EE]/80 text-sm text-[#8A8477] z-20">
+							                <div className="absolute inset-0 flex items-center justify-center gap-2 bg-bg-container/80 text-sm text-text-muted z-20">
 							                    <Loader2 size={16} className="animate-spin" />
 							                    Loading preview...
 							                </div>
@@ -1133,18 +1165,18 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
 							        </div>
 							        
 							        {previewError && (
-							            <div className="p-4 text-center text-xs text-[#C2685A]">
+							            <div className="p-4 text-center text-xs text-alert-error">
 							                {previewError}
 							            </div>
                                     )}
                                 </>
                             ) : previewLoading ? (
-                                <div className="flex h-full items-center justify-center gap-2 text-sm text-[#8A8477]">
+                                <div className="flex h-full items-center justify-center gap-2 text-sm text-text-muted">
                                     <Loader2 size={16} className="animate-spin" />
                                     Loading preview...
                                 </div>
                             ) : previewError ? (
-                                <div className="flex h-full items-center justify-center p-6 text-center text-sm text-[#C2685A]">
+                                <div className="flex h-full items-center justify-center p-6 text-center text-sm text-alert-error">
                                     {previewError}
                                 </div>
                             ) : previewText !== null ? (
@@ -1166,20 +1198,20 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
             {confirmDeleteOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setConfirmDeleteOpen(false)}>
                     <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-                        <h3 className="mb-2 text-sm font-semibold text-[#3D3A34]">
+                        <h3 className="mb-2 text-sm font-semibold text-text-main">
                             Delete {selectedIds.size} file{selectedIds.size !== 1 ? "s" : ""}?
                         </h3>
-                        <p className="mb-6 text-sm text-[#8A8477]">This can&apos;t be undone.</p>
+                        <p className="mb-6 text-sm text-text-muted">This can&apos;t be undone.</p>
                         <div className="flex gap-2">
                             <button
                                 onClick={() => setConfirmDeleteOpen(false)}
-                                className="flex-1 rounded-md border border-[#EDE6D8] py-2 text-sm font-medium text-[#3D3A34] hover:bg-[#FAF7F0]"
+                                className="flex-1 rounded-md border border-border-light py-2 text-sm font-medium text-text-main hover:bg-bg-main"
                             >
                                 Cancel
                             </button>
                             <button
                                 onClick={handleDeleteSelected}
-                                className="flex-1 rounded-md bg-[#C2685A] py-2 text-sm font-medium text-white hover:bg-[#A9564A]"
+                                className="flex-1 rounded-md bg-alert-error py-2 text-sm font-medium text-white hover:bg-alert-error-hover"
                             >
                                 Delete
                             </button>
@@ -1193,7 +1225,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => !isUploading && setShowAddModal(false)}>
                     <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
                         <div className="mb-4 flex items-center justify-between">
-                            <h3 className="text-sm font-semibold text-[#3D3A34]">Upload document</h3>
+                            <h3 className="text-sm font-semibold text-text-main">Upload document</h3>
                             <CircleIconButton
                                 icon={<X size={16} />}
                                 ariaLabel="Close"
@@ -1211,17 +1243,17 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                             onDragLeave={() => setIsDragging(false)}
                             onDrop={handleDrop}
                             className={`mb-1 flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-6 text-center transition-colors ${
-                                isDragging ? "border-[#B08957] bg-[#FAF3E8]" : "border-[#EDE6D8] bg-[#FAFAF8]"
+                                isDragging ? "border-primary bg-bg-warm" : "border-border-light bg-bg-container"
                             }`}
                         >
-                            <UploadCloud size={24} className={isDragging ? "text-[#B08957]" : "text-[#8A8477]"} />
-                            <p className="truncate text-xs text-[#8A8477]">
+                            <UploadCloud size={24} className={isDragging ? "text-primary" : "text-text-muted"} />
+                            <p className="truncate text-xs text-text-muted">
                                 {selectedFiles.length > 0 
                                     ? `${selectedFiles.length} file(s) selected` 
                                     : "Drag files here, or"
                                 }
                             </p>
-                            <label className="cursor-pointer text-xs font-medium text-[#B08957] underline">
+                            <label className="cursor-pointer text-xs font-medium text-primary underline">
                                 Browse files
                                 <input
                                     type="file"
@@ -1240,10 +1272,10 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                             </label>
                         </div>
                         {selectedFiles.length > 0 && !selectedFiles.every((f) => getFileType(f.name)) && (
-                            <p className="mb-2 text-xs text-[#C2685A]">One or more file types aren&apos;t supported yet.</p>
+                            <p className="mb-2 text-xs text-alert-error">One or more file types aren&apos;t supported yet.</p>
                         )}
 
-                        <label className="mb-2 mt-4 block text-xs font-medium text-[#8A8477]">Tag</label>
+                        <label className="mb-2 mt-4 block text-xs font-medium text-text-muted">Tag</label>
                         <div className="mb-6 flex gap-2">
                             {(Object.keys(CATEGORY_LABELS) as Category[]).map((cat) => (
                                 <button
@@ -1252,8 +1284,8 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                     disabled={isUploading}
                                     className={`flex-1 rounded-md border px-2 py-2 text-xs font-medium transition-colors ${
                                         newCategory === cat
-                                            ? "border-[#B08957] bg-[#FAF3E8] text-[#B08957]"
-                                            : "border-[#EDE6D8] text-[#8A8477] hover:border-[#D8CBB0]"
+                                            ? "border-primary bg-bg-warm text-primary"
+                                            : "border-border-light text-text-muted hover:border-border-hover"
                                     }`}
                                 >
                                     {CATEGORY_LABELS[cat]}
@@ -1261,7 +1293,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                             ))}
                         </div>
 
-                        {uploadError && <p className="mb-4 text-xs text-[#C2685A]">{uploadError}</p>}
+                        {uploadError && <p className="mb-4 text-xs text-alert-error">{uploadError}</p>}
 
                         <button
                             onClick={handleUpload}
@@ -1270,7 +1302,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                 !selectedFiles.every((f) => getFileType(f.name)) || 
                                 isUploading
                             }
-                            className="flex w-full items-center justify-center gap-2 rounded-md bg-[#B08957] py-2 text-sm font-medium text-white transition-colors hover:bg-[#9C7849] disabled:cursor-not-allowed disabled:opacity-40"
+                            className="flex w-full items-center justify-center gap-2 rounded-md bg-primary py-2 text-sm font-medium text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40"
                         >
                             {isUploading ? (
                                 <>

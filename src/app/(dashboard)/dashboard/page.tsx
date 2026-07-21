@@ -2,9 +2,9 @@ import DashboardCard from '@/src/components/dashboard/DashboardCard';
 
 export default function Dashboard() {
   return (
-    <div className="flex min-h-screen flex-col items-center bg-[#FAF7F0] px-8 py-12">
+    <div className="flex min-h-screen flex-col items-center bg-bg-main px-8 py-12">
       <div className="w-full max-w-4xl">
-        <h1 className="text-center text-2xl font-bold text-[#3D3A34]">
+        <h1 className="text-center text-2xl font-bold text-text-main">
           What Would You Like To Do?
         </h1>
 

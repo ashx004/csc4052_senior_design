@@ -1,8 +1,11 @@
+"use client";
+
+import { use, useEffect, useState } from "react";
 import CourseSidebar from "@/src/components/Sidebar/CourseSidebar";
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
+import { useAuth } from "@/src/context/AuthContext";
 
-// TODO: test with auth when implemented
 async function getEnrollmentName(userId: string, enrollmentId: string): Promise<string | null> {
     const docRef = doc(db, "users", userId, "enrollment", enrollmentId);
     const docSnap = await getDoc(docRef);
@@ -15,20 +18,27 @@ async function getEnrollmentName(userId: string, enrollmentId: string): Promise<
     return docSnap.data().className ?? null;
 }
 
-export default async function CourseLayout({
+export default function CourseLayout({
   children,
   params,
 }: {
   children: React.ReactNode;
   params: Promise<{ courseId: string }>;
 }) {
-  const { courseId } = await params;
+  const { courseId } = use(params);
+  const { user, loading: authLoading } = useAuth();
+  const [courseName, setCourseName] = useState<string | null>(null);
 
-  // TODO: when auth is implemented, replace "12345678" with the current user's ID
-  const courseName = await getEnrollmentName("12345678", courseId).catch((error) => {
-    console.error("Error getting enrollment name: ", error);
-    return null;
-  });
+  useEffect(() => {
+    if (authLoading || !user) return;
+
+    getEnrollmentName(user.uid, courseId)
+      .then(setCourseName)
+      .catch((error) => {
+        console.error("Error getting enrollment name: ", error);
+        setCourseName(null);
+      });
+  }, [user, authLoading, courseId]);
 
   return (
     <div className="flex h-screen">

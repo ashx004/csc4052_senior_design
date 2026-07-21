@@ -53,7 +53,7 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
     <Sidebar>
       {/* Course name */}
       <div className="mb-4">
-        <p className="px-2 text-sm font-bold text-gray-900">{displayName}</p>
+        <p className="px-2 text-sm font-bold text-text-main">{displayName}</p>
       </div>
 
       {/* Overview — standalone bold link, no icon */}
@@ -61,8 +61,8 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
         href={base}
         className={`block text-sm font-bold px-3 py-2.5 rounded-lg transition-colors ${
           pathname === base
-            ? "bg-[#F5F0EB] text-gray-900"
-            : "text-gray-900 hover:bg-[#F5F0EB]"
+            ? "bg-bg-warm text-text-main"
+            : "text-text-main hover:bg-bg-warm"
         }`}
       >
         Overview
@@ -80,12 +80,12 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
                 toggleSection(title);
                 router.push(href);
               }}
-              className="flex items-center justify-between w-full text-sm font-bold text-gray-900 px-3 py-2.5 rounded-lg hover:bg-[#F5F0EB] transition-colors"
+              className="flex items-center justify-between w-full text-sm font-bold text-text-main px-3 py-2.5 rounded-lg hover:bg-bg-warm transition-colors"
             >
               <span>{title}</span>
               <ChevronDown
                 size={16}
-                className={`text-gray-500 transition-transform duration-200 ${
+                className={`text-text-muted transition-transform duration-200 ${
                   isOpen ? "rotate-180" : ""
                 }`}
               />
@@ -98,7 +98,7 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
                   <Link
                     key={item}
                     href={href}
-                    className="flex items-center gap-3 px-3 py-2 text-sm text-gray-600 hover:bg-[#F5F0EB] rounded-lg transition-colors"
+                    className="flex items-center gap-3 px-3 py-2 text-sm text-text-muted hover:bg-bg-warm rounded-lg transition-colors"
                   >
                     <Icon size={16} strokeWidth={1.5} className="shrink-0" />
                     <span>{item}</span>
@@ -115,8 +115,8 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
         href={`${base}/assignments`}
         className={`block text-sm font-bold px-3 py-2.5 mt-1 rounded-lg transition-colors ${
           pathname === `${base}/assignments`
-            ? "bg-[#F5F0EB] text-gray-900"
-            : "text-gray-900 hover:bg-[#F5F0EB]"
+            ? "bg-bg-warm text-text-main"
+            : "text-text-main hover:bg-bg-warm"
         }`}
       >
         Assignments
@@ -127,8 +127,8 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
         href={`${base}/due-dates`}
         className={`block text-sm font-bold px-3 py-2.5 mt-1 rounded-lg transition-colors ${
           pathname === `${base}/due-dates`
-            ? "bg-[#F5F0EB] text-gray-900"
-            : "text-gray-900 hover:bg-[#F5F0EB]"
+            ? "bg-bg-warm text-text-main"
+            : "text-text-main hover:bg-bg-warm"
         }`}
       >
         Due Dates
@@ -136,7 +136,7 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
       {/* Back link */}
       <Link
           href="/classes"
-          className="mt-1 flex justify-end gap-2 text-xs text-gray-500 transition-colors hover:text-gray-900"
+          className="mt-1 flex justify-end gap-2 text-xs text-text-muted transition-colors hover:text-text-main"
         >
           <ArrowLeft size={14} strokeWidth={1.5} />
           <span>Back to Classes</span>

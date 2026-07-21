@@ -2,7 +2,16 @@ import { collection, addDoc, getDocs, query, orderBy, serverTimestamp } from "fi
 import { db } from "../../library/firebase"; 
 import { doc, deleteDoc } from "firebase/firestore";
 
-const BUCKET_NAME = "studora"; 
+const BUCKET_NAME = "studora";
+
+// Kept in sync with SUPPORTED_DOCUMENT_TYPES in src/library/documentExtract.ts —
+// duplicated as a plain array here (rather than imported) so this client
+// bundle never pulls in server-only extraction code.
+const INDEXABLE_FILE_TYPES = [
+  "pdf", "docx", "xlsx", "xls",
+  "txt", "py", "js", "jsx", "ts", "tsx", "java", "go", "sql", "c", "cpp",
+  "cs", "rs", "html", "css", "php", "rb", "kt", "swift", "sh", "asm",
+];
 
 interface UploadFileProps {
   userId: string;
@@ -45,6 +54,21 @@ export const uploadUserResource = async ({ userId, classDocId, file, category }:
       uploadedAt: serverTimestamp(),
       lastViewedAt: serverTimestamp()
     });
+
+    // Fire-and-forget: index the document for semantic search.
+    // Not awaited so upload doesn't wait on embedding, which can take a while.
+    // keepalive is required here — without it, the browser cancels this
+    // request the moment the user navigates away (e.g. to view the
+    // document they just uploaded), which is almost immediate after an
+    // upload — so indexing was silently never completing.
+    if (INDEXABLE_FILE_TYPES.includes(fileExtension)) {
+      fetch("/api/embed-document", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, courseId: classDocId, resourceId: newDoc.id }),
+        keepalive: true,
+      }).catch((error) => console.error("Background document indexing failed:", error));
+    }
 
     return { success: true, id: newDoc.id, url: directFileUrl };
   } catch (error) {

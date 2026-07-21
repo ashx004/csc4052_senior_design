@@ -26,33 +26,33 @@ export default function FlashCard({ question, answer }: FlashCardProps) {
       >
         {/* Front — Question */}
         <div
-          className="absolute inset-0 bg-white rounded-2xl border border-gray-200 shadow-md
+          className="absolute inset-0 bg-white rounded-2xl border border-border-light shadow-md
                      px-8 py-10 flex flex-col items-center justify-center"
           style={{ backfaceVisibility: 'hidden' }}
         >
-          <p className="text-sm text-gray-400 mb-4">Question</p>
-          <p className="text-base font-semibold text-[#1a1a2e] text-center leading-relaxed mb-8">
+          <p className="text-sm text-text-muted mb-4">Question</p>
+          <p className="text-base font-semibold text-text-main text-center leading-relaxed mb-8">
             {question}
           </p>
-          <span className="px-5 py-2 text-sm font-medium border border-gray-800 rounded-md text-gray-800">
+          <span className="px-5 py-2 text-sm font-medium border border-primary rounded-md text-primary">
             Reveal Answer
           </span>
         </div>
 
         {/* Back — Answer */}
         <div
-          className="absolute inset-0 bg-white rounded-2xl border border-gray-200 shadow-md
+          className="absolute inset-0 bg-white rounded-2xl border border-border-light shadow-md
                      px-8 py-10 flex flex-col items-center justify-center"
           style={{
             backfaceVisibility: 'hidden',
             transform: 'rotateY(180deg)',
           }}
         >
-          <p className="text-sm text-gray-400 mb-4">Answer</p>
-          <p className="text-base font-semibold text-[#1a1a2e] text-center leading-relaxed mb-8">
+          <p className="text-sm text-text-muted mb-4">Answer</p>
+          <p className="text-base font-semibold text-text-main text-center leading-relaxed mb-8">
             {answer}
           </p>
-          <span className="px-5 py-2 text-sm font-medium border border-gray-800 rounded-md text-gray-800">
+          <span className="px-5 py-2 text-sm font-medium border border-primary rounded-md text-primary">
             Back to question
           </span>
         </div>

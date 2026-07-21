@@ -104,7 +104,7 @@ export default function AddEnrollmentModal({
       <button
         onClick={onToggleDeleteMode}
         className={`absolute top-4 right-16 flex h-8 w-8 items-center justify-center rounded-md shadow transition-colors ${
-            deleteMode ? "bg-red-500 text-white" : "bg-white text-gray-700 hover:bg-gray-50"
+            deleteMode ? "bg-red-500 text-white" : "bg-white text-text-muted hover:bg-bg-warm"
         }`}
         aria-label="Toggle delete mode"
     >
@@ -117,9 +117,9 @@ export default function AddEnrollmentModal({
           <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl transition-all max-h-[90vh] overflow-y-auto">
             {/* Top label */}
             <div className="flex items-center justify-between border-b pb-3 mb-4">
-              <h3 className="text-xl font-semibold text-gray-900">Add New Class</h3>
+              <h3 className="text-xl font-semibold text-text-main">Add New Class</h3>
               {/* close modal button -- top right */}
-              <button onClick={handleClose} className="text-gray-400 hover:text-gray-600">✕</button>
+              <button onClick={handleClose} className="text-text-muted hover:text-text-main">✕</button>
             </div>
             
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -130,38 +130,38 @@ export default function AddEnrollmentModal({
               
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Class Name *</label>
+                  <label className="block text-sm font-medium text-text-muted">Class Name *</label>
                   <input
                     type="text"
                     name="className"
                     required
                     value={formData.className}
                     onChange={handleChange}
-                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
+                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
                     placeholder="e.g. Introduction to Databases"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Class Code *</label>
+                  <label className="block text-sm font-medium text-text-muted">Class Code *</label>
                   <input
                     type="text"
                     name="classCode"
                     required
                     value={formData.classCode}
                     onChange={handleChange}
-                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
+                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
                     placeholder="e.g. CS 304"
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700">Term *</label>
+                  <label className="block text-sm font-medium text-text-muted">Term *</label>
                   <input
                     type="text"
                     name="term"
                     required
                     value={formData.term}
                     onChange={handleChange}
-                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
+                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
                     placeholder="e.g. Fall 2026"
                   />
                 </div>
@@ -169,73 +169,73 @@ export default function AddEnrollmentModal({
 
               {/* --- Optional Section --- */}
               <div className="border-b pb-2 pt-2">
-                <span className="text-xs font-bold uppercase text-gray-400">Optional Schedule & Faculty Info</span>
+                <span className="text-xs font-bold uppercase text-text-muted">Optional Schedule & Faculty Info</span>
               </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-gray-600">Time</label>
+                  <label className="block text-sm font-medium text-text-muted">Time</label>
                   <input
                     type="text"
                     name="time"
                     value={formData.time}
                     onChange={handleChange}
-                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
+                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
                     placeholder="e.g. 10:00 AM - 11:30 AM"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-600">Class Schedule</label>
+                  <label className="block text-sm font-medium text-text-muted">Class Schedule</label>
                   <input
                     type="text"
                     name="classSchedule"
                     value={formData.classSchedule}
                     onChange={handleChange}
-                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
+                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
                     placeholder="e.g. Mon / Wed"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-600">Faculty Name</label>
+                  <label className="block text-sm font-medium text-text-muted">Faculty Name</label>
                   <input
                     type="text"
                     name="facultyName"
                     value={formData.facultyName}
                     onChange={handleChange}
-                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
+                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
                     placeholder="Dr. Smith"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-600">Faculty Email</label>
+                  <label className="block text-sm font-medium text-text-muted">Faculty Email</label>
                   <input
                     type="email"
                     name="facultyEmail"
                     value={formData.facultyEmail}
                     onChange={handleChange}
-                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
+                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
                     placeholder="smith@university.edu"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-600">Faculty Phone</label>
+                  <label className="block text-sm font-medium text-text-muted">Faculty Phone</label>
                   <input
                     type="text"
                     name="facultyPhoneNumber"
                     value={formData.facultyPhoneNumber}
                     onChange={handleChange}
-                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
+                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
                     placeholder="555-0199"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-600">Faculty Office</label>
+                  <label className="block text-sm font-medium text-text-muted">Faculty Office</label>
                   <input
                     type="text"
                     name="facultyOfficeNumber"
                     value={formData.facultyOfficeNumber}
                     onChange={handleChange}
-                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
+                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
                     placeholder="Tech Tower Room 402"
                   />
                 </div>
@@ -246,7 +246,7 @@ export default function AddEnrollmentModal({
                 <button
                   type="button"
                   onClick={handleClose}
-                  className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  className="rounded-md border border-border-light px-4 py-2 text-sm font-medium text-text-muted hover:bg-bg-warm"
                 >
                   Cancel
                 </button>
