@@ -1,7 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
+import { z } from 'zod';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+
+const FlashcardResponseSchema = z.object({
+  topicName: z
+    .string()
+    .describe('A short, descriptive name (3-6 words) summarizing what this set of flashcards covers'),
+  questions: z.array(
+    z.object({
+      question: z.string().describe('A clear, concise question about a key concept from the document'),
+      answer: z.string().describe('A brief, accurate answer in 1-2 sentences'),
+    })
+  ),
+});
 
 export async function POST(request: NextRequest) {
   try {
@@ -83,44 +96,17 @@ Rules:
     prompt += `\n\n--- DOCUMENT CONTENT ---\n${extractedText}`;
 
     // 4. Call Gemini with structured output (Kaggle Day 1: structured output)
-    const model = genAI.getGenerativeModel({
+    const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
-      generationConfig: {
+      contents: prompt,
+      config: {
         responseMimeType: 'application/json',
-        responseSchema: {
-          type: SchemaType.OBJECT,
-          properties: {
-            topicName: {
-              type: SchemaType.STRING,
-              description: 'A short, descriptive name (3-6 words) summarizing what this set of flashcards covers',
-            },
-            questions: {
-              type: SchemaType.ARRAY,
-              items: {
-                type: SchemaType.OBJECT,
-                properties: {
-                  question: {
-                    type: SchemaType.STRING,
-                    description: 'A clear, concise question about a key concept from the document',
-                  },
-                  answer: {
-                    type: SchemaType.STRING,
-                    description: 'A brief, accurate answer in 1-2 sentences',
-                  },
-                },
-                required: ['question', 'answer'],
-              },
-            },
-          },
-          required: ['topicName', 'questions'],
-        },
+        responseSchema: z.toJSONSchema(FlashcardResponseSchema),
         temperature: 0.7,
       },
     });
 
-    const result = await model.generateContent(prompt);
-    const response = result.response;
-    const parsed = JSON.parse(response.text());
+    const parsed = FlashcardResponseSchema.parse(JSON.parse(response.text ?? '{}'));
 
     return NextResponse.json({ topicName: parsed.topicName, questions: parsed.questions });
   } catch (error) {

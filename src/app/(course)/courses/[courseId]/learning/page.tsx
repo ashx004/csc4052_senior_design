@@ -5,12 +5,14 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
 import { getCourseResources } from '@/src/components/resourceManagement/fileUploadService';
 import {
+  addDoc,
   collection,
   deleteDoc,
   doc,
   onSnapshot,
   orderBy,
   query,
+  serverTimestamp,
   Timestamp,
 } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
@@ -21,6 +23,7 @@ import RecentItemRow, { RecentItem } from '@/src/components/learning/RecentItemR
 import SortDropdown, { SortOption } from '@/src/components/learning/SortDropdown';
 import LectureChoiceModal from '@/src/components/learning/LectureChoiceModal';
 import ConfirmDeleteModal from '@/src/components/learning/ConfirmDeleteModal';
+import QuizSetupModal from '@/src/components/quizzes/QuizSetupModal';
 
 interface Resource {
   id: string;
@@ -31,6 +34,10 @@ interface Resource {
 }
 
 type DeleteTarget = { id: string; kind: 'flashcard' | 'quiz' };
+
+function extractStorageKey(url: string): string {
+  return decodeURIComponent(url.split('key=')[1] ?? '');
+}
 
 function sortRecentItems(items: RecentItem[], sort: SortOption): RecentItem[] {
   const copy = [...items];
@@ -62,6 +69,10 @@ export default function CourseLearningPage() {
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  const [quizDocument, setQuizDocument] = useState<Resource | null>(null);
+  const [quizGenerating, setQuizGenerating] = useState(false);
+  const [quizError, setQuizError] = useState<string | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -105,6 +116,7 @@ export default function CourseLearningPage() {
               name: (data.name as string) || 'Untitled',
               itemCount: Array.isArray(data.cards) ? data.cards.length : 0,
               createdAt: (data.createdAt as Timestamp) ?? null,
+              pinned: data.pinned as boolean | undefined,
             };
           })
         );
@@ -139,6 +151,7 @@ export default function CourseLearningPage() {
               name: (data.name as string) || 'Untitled',
               itemCount: Array.isArray(data.questions) ? data.questions.length : 0,
               createdAt: (data.createdAt as Timestamp) ?? null,
+              pinned: data.pinned as boolean | undefined,
             };
           })
         );
@@ -165,6 +178,62 @@ export default function CourseLearningPage() {
         selectedResource.name
       )}`
     );
+  };
+
+  const handleSelectQuiz = () => {
+    if (!selectedResource) return;
+    setQuizDocument(selectedResource);
+    setSelectedResource(null);
+    setQuizError(null);
+  };
+
+  const handleStartQuiz = async (config: {
+    questionCount: number;
+    questionTypes: { multipleChoice: boolean; trueFalse: boolean };
+  }) => {
+    if (!user || !quizDocument) return;
+    setQuizGenerating(true);
+    setQuizError(null);
+
+    try {
+      const response = await fetch('/api/generate-quiz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          docUrl: quizDocument.url,
+          docName: quizDocument.name,
+          questionCount: config.questionCount,
+          questionTypes: config.questionTypes,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to generate quiz.');
+      }
+
+      const sourceDocKey = extractStorageKey(quizDocument.url);
+      const setsRef = collection(db, 'users', user.uid, 'enrollment', courseId, 'quizSets');
+      const newDoc = await addDoc(setsRef, {
+        name: data.topicName,
+        sourceDocKey,
+        questions: data.questions,
+        questionTypes: config.questionTypes,
+        questionCount: data.questions.length,
+        pinned: true,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      setQuizDocument(null);
+      router.push(`/courses/${courseId}/quizzes/${newDoc.id}`);
+    } catch (err) {
+      console.error('Error generating quiz:', err);
+      setQuizError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
+    } finally {
+      setQuizGenerating(false);
+    }
   };
 
   const handleConfirmDelete = async () => {
@@ -322,6 +391,19 @@ export default function CourseLearningPage() {
         documentName={selectedResource?.name ?? ''}
         onClose={() => setSelectedResource(null)}
         onSelectFlashcard={handleSelectFlashcard}
+        onSelectQuiz={handleSelectQuiz}
+      />
+
+      <QuizSetupModal
+        open={!!quizDocument}
+        documentName={quizDocument?.name ?? ''}
+        onClose={() => {
+          setQuizDocument(null);
+          setQuizError(null);
+        }}
+        onStart={handleStartQuiz}
+        loading={quizGenerating}
+        error={quizError}
       />
 
       <ConfirmDeleteModal

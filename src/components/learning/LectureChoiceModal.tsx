@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { X } from "lucide-react";
 
 interface LectureChoiceModalProps {
@@ -8,6 +7,7 @@ interface LectureChoiceModalProps {
   documentName: string;
   onClose: () => void;
   onSelectFlashcard: () => void;
+  onSelectQuiz: () => void;
 }
 
 export default function LectureChoiceModal({
@@ -15,9 +15,8 @@ export default function LectureChoiceModal({
   documentName,
   onClose,
   onSelectFlashcard,
+  onSelectQuiz,
 }: LectureChoiceModalProps) {
-  const [showComingSoon, setShowComingSoon] = useState(false);
-
   if (!open) return null;
 
   return (
@@ -49,18 +48,12 @@ export default function LectureChoiceModal({
             Flashcard
           </button>
 
-          <div>
-            <button
-              onClick={() => setShowComingSoon(true)}
-              title="Coming soon"
-              className="w-full rounded-xl border border-gray-200 px-5 py-4 text-sm font-semibold text-gray-400 hover:bg-gray-50 transition-colors"
-            >
-              Quizzes
-            </button>
-            {showComingSoon && (
-              <p className="mt-2 text-center text-xs text-gray-400">Coming soon</p>
-            )}
-          </div>
+          <button
+            onClick={onSelectQuiz}
+            className="w-full rounded-xl border border-gray-200 px-5 py-4 text-sm font-semibold text-[#1a1a2e] hover:bg-gray-50 transition-colors"
+          >
+            Quizzes
+          </button>
         </div>
       </div>
     </div>
