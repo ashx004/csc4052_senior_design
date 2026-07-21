@@ -9,8 +9,17 @@ export function resolveInternalUrl(request: NextRequest, relativeUrl: string): s
   return `${protocol}://${host}${relativeUrl}`;
 }
 
+// /api/download now requires either a logged-in owner or this internal
+// header (see verifyAuth.ts) — every server-to-server document fetch must
+// go through this instead of a bare fetch().
+export function fetchInternal(url: string): Promise<Response> {
+  return fetch(url, {
+    headers: process.env.INTERNAL_API_SECRET ? { "x-internal-secret": process.env.INTERNAL_API_SECRET } : {},
+  });
+}
+
 export async function extractPdfTextFromUrl(fullUrl: string): Promise<string> {
-  const fileResponse = await fetch(fullUrl);
+  const fileResponse = await fetchInternal(fullUrl);
   if (!fileResponse.ok) {
     throw new Error(`Failed to download PDF (${fileResponse.status})`);
   }

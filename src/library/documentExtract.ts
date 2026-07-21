@@ -1,4 +1,4 @@
-import { extractPdfTextFromUrl } from "./pdfExtract";
+import { extractPdfTextFromUrl, fetchInternal } from "./pdfExtract";
 
 // Plain-text/code types — same set the upload/preview flow already accepts
 // (see CODE_TYPES in ResourcePreview.tsx), just read as raw text, no parser
@@ -15,7 +15,7 @@ export const SUPPORTED_DOCUMENT_TYPES = ["pdf", "docx", "xlsx", "xls", ...PLAIN_
 
 async function extractDocxText(fullUrl: string): Promise<string> {
   const mammoth = (await import("mammoth")).default;
-  const fileResponse = await fetch(fullUrl);
+  const fileResponse = await fetchInternal(fullUrl);
   if (!fileResponse.ok) {
     throw new Error(`Failed to download document (${fileResponse.status})`);
   }
@@ -26,7 +26,7 @@ async function extractDocxText(fullUrl: string): Promise<string> {
 
 async function extractXlsxText(fullUrl: string): Promise<string> {
   const XLSX = await import("xlsx");
-  const fileResponse = await fetch(fullUrl);
+  const fileResponse = await fetchInternal(fullUrl);
   if (!fileResponse.ok) {
     throw new Error(`Failed to download spreadsheet (${fileResponse.status})`);
   }
@@ -41,7 +41,7 @@ async function extractXlsxText(fullUrl: string): Promise<string> {
 }
 
 async function extractPlainText(fullUrl: string): Promise<string> {
-  const fileResponse = await fetch(fullUrl);
+  const fileResponse = await fetchInternal(fullUrl);
   if (!fileResponse.ok) {
     throw new Error(`Failed to download file (${fileResponse.status})`);
   }
