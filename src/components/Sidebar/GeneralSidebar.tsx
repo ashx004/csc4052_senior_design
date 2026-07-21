@@ -29,8 +29,8 @@ export default function GeneralSidebar() {
                 href={href}
                 className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
                   isActive
-                    ? "bg-[#F5F0EB] font-semibold text-gray-900"
-                    : "text-gray-600 hover:bg-[#F5F0EB]"
+                    ? "bg-bg-warm font-semibold text-text-main"
+                    : "text-text-muted hover:bg-bg-warm"
                 }`}
               >
                 <Icon size={20} strokeWidth={1.5} />

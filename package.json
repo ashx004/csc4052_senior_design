@@ -1,5 +1,5 @@
 {
-  "name": "studora",
+  "name": "catalyst",
   "private": true,
   "version": "0.0.0",
   "scripts": {
@@ -15,20 +15,26 @@
     "@google/generative-ai": "^0.24.1",
     "docx-preview": "^0.3.7",
     "firebase": "^12.15.0",
+    "jose": "^5.9.6",
     "lucide-react": "^1.23.0",
     "mammoth": "^1.12.0",
     "next": "^15.3.2",
     "pdf-parse": "^1.1.1",
     "pdfjs-dist": "^6.1.200",
+    "pdfkit": "^0.19.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "react-markdown": "^9.0.1",
     "react-syntax-highlighter": "^16.1.1",
+    "remark-gfm": "^4.0.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
+    "@tailwindcss/typography": "^0.5.15",
     "@types/node": "^24.13.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "@types/pdfkit": "^0.13.9",
     "@types/react-syntax-highlighter": "^15.5.13",
     "autoprefixer": "^10.4.21",
     "postcss": "^8.5.3",

@@ -68,14 +68,14 @@ export default function PdfThumbnail({ url, className = '' }: PdfThumbnailProps)
   // Fallback icon if loading fails
   if (error) {
     return (
-      <div className={`flex items-center justify-center bg-[#E8E3DA] ${className}`}>
-        <FileEdit size={36} className="text-[#8B7B5E] opacity-50" />
+      <div className={`flex items-center justify-center bg-border-light ${className}`}>
+        <FileEdit size={36} className="text-text-muted opacity-50" />
       </div>
     );
   }
 
   return (
-    <div className={`relative overflow-hidden bg-[#E8E3DA] ${className}`}>
+    <div className={`relative overflow-hidden bg-border-light ${className}`}>
       <canvas
         ref={canvasRef}
         className={`w-full h-full object-cover object-top transition-opacity duration-300 ${
@@ -86,7 +86,7 @@ export default function PdfThumbnail({ url, className = '' }: PdfThumbnailProps)
       {/* Loading shimmer while rendering */}
       {!loaded && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="w-8 h-8 border-2 border-[#8B7B5E] border-t-transparent rounded-full animate-spin opacity-30" />
+          <div className="w-8 h-8 border-2 border-text-muted border-t-transparent rounded-full animate-spin opacity-30" />
         </div>
       )}
     </div>
