@@ -1,10 +1,36 @@
 "use client";
 
-import { useState } from "react";
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+import { useEffect, useState } from "react";
 
 export default function Settings() {
 
     const [notificationIsOn, setNotificationOn] = useState<boolean>(false);
+    const [studyRemIsOn, setstudyRemOn] = useState<boolean>(false);
+    const [appearanceIsOn, setAppearanceOn] = useState<boolean>(false);
+    const [focusIsOn, setFocusOn] = useState<boolean>(false);
+
+    useEffect(() => {
+        const selectedTheme = localStorage.getItem("theme");
+
+        if (selectedTheme == "dark") {
+            document.documentElement.classList.add("dark");
+            setAppearanceOn(true);
+        }
+    }, []);
+
+    function handleAppearanceChange(isOn: boolean) {
+        setAppearanceOn(isOn);
+
+        if (isOn) {
+            document.documentElement.classList.add("dark");
+                localStorage.setItem("theme", "dark");
+        } else {
+            document.documentElement.classList.remove("dark");
+            localStorage.setItem("theme", "light");
+        }
+    }
 
     return (
         <section className="flex h-screen flex-col bg-[#f7f5f1] text-[#1f2933]">
@@ -77,49 +103,193 @@ export default function Settings() {
             </div>
 
 
-            {/* Study Reminder */}
+
+            {/* Study Reminder */ }
             <header className="mt-5 relative flex w-3/4 self-center 
-                shrink-0 items-center justify-between border-b border-black
-                px-6"> 
-            </header>
+                shrink-0 border-b border-black px-6"> 
+            </header> 
 
-            <main className="mt-2 flex w-3/4 self-center text-sm py-3 px-2 text-semibold">
-                Study Reminder
-            </main>
+            <div className="mt-2 flex w-3/4 self-center justify-between py-3 px-2">
 
-            <main className="flex w-3/4 self-center text-xs py-1 px-2 text-bold text-gray-400">
+                <span className="text-sm">
+                    Study Reminder
+                </span>
+
+
+                <label className="inline-flex items-center cursor-pointer">
+
+                    <input
+                        type="checkbox"
+                        checked={studyRemIsOn}
+                        onChange={(event) => setstudyRemOn(event.target.checked)}
+                        className="peer sr-only"
+                    />
+
+                    <div
+                        className="
+                            relative 
+                            h-6 
+                            w-11 
+                            rounded-full 
+                            bg-gray-300
+                            transition-colors
+                            peer-checked:bg-orange-500
+
+                            peer-focus:outline-none
+                            peer-focus:ring-4
+                            peer-focus:ring-orange-200
+
+                            after:absolute
+                            after:left-[2px]
+                            after:top-[2px]
+                            after:h-5
+                            after:w-5
+                            after:rounded-full
+                            after:bg-white
+                            after:content-['']
+                            after:transition-transform
+
+                            peer-checked:after:translate-x-5
+                        "
+                    />
+
+                    <span className="ml-2 text-xs font-medium text-gray-500">
+                        {studyRemIsOn ? "On" : "Off"}
+                    </span>
+
+                </label>
+
+            </div>
+
+            <div className="flex w-3/4 self-center px-2 py-1 text-xs text-gray-400">
                 Get reminder for study sections
-            </main>
+            </div>
 
 
-            {/* Appearance */}
+            {/* Appearance */ }
             <header className="mt-5 relative flex w-3/4 self-center 
-                shrink-0 items-center justify-between border-b border-black
-                px-6"> 
-            </header>
+                shrink-0 border-b border-black px-6"> 
+            </header> 
 
-            <main className="mt-2 flex w-3/4 self-center text-sm py-3 px-2 text-semibold">
-                Appearance
-            </main>
+            <div className="mt-2 flex w-3/4 self-center justify-between py-3 px-2">
 
-            <main className="flex w-3/4 self-center text-xs py-1 px-2 text-bold text-gray-400">
+                <span className="text-sm">
+                    Appearance
+                </span>
+
+
+                <label className="inline-flex items-center cursor-pointer">
+
+                    <input
+                        type="checkbox"
+                        checked={appearanceIsOn}
+                        onChange={(event) => handleAppearanceChange(event.target.checked)}
+                        className="peer sr-only"
+                    />
+
+                    <div
+                        className="
+                            relative 
+                            h-6 
+                            w-11 
+                            rounded-full 
+                            bg-gray-300
+                            transition-colors
+                            peer-checked:bg-orange-500
+
+                            peer-focus:outline-none
+                            peer-focus:ring-4
+                            peer-focus:ring-orange-200
+
+                            after:absolute
+                            after:left-[2px]
+                            after:top-[2px]
+                            after:h-5
+                            after:w-5
+                            after:rounded-full
+                            after:bg-white
+                            after:content-['']
+                            after:transition-transform
+
+                            peer-checked:after:translate-x-5
+                        "
+                    />
+
+                    <span className="ml-2 text-xs font-medium text-gray-500">
+                        {appearanceIsOn ? "Dark" : "Light"}
+                    </span>
+
+                </label>
+
+            </div>
+
+            <div className="flex w-3/4 self-center px-2 py-1 text-xs text-gray-400">
                 Use Dark Theme
-            </main>
+            </div>
 
 
-            {/* Focus Mode */}
+
+            {/* Focus Mode */ }
             <header className="mt-5 relative flex w-3/4 self-center 
-                shrink-0 items-center justify-between border-b border-black
-                px-6"> 
-            </header>
+                shrink-0 border-b border-black px-6"> 
+            </header> 
 
-            <main className="mt-2 flex w-3/4 self-center text-sm py-3 px-2 text-semibold">
-                Focus Mode
-            </main>
+            <div className="mt-2 flex w-3/4 self-center justify-between py-3 px-2">
 
-            <main className="flex w-3/4 self-center text-xs py-1 px-2 text-bold text-gray-400">
+                <span className="text-sm">
+                    Focus Mode
+                </span>
+
+
+                <label className="inline-flex items-center cursor-pointer">
+
+                    <input
+                        type="checkbox"
+                        checked={focusIsOn}
+                        onChange={(event) => setFocusOn(event.target.checked)}
+                        className="peer sr-only"
+                    />
+
+                    <div
+                        className="
+                            relative 
+                            h-6 
+                            w-11 
+                            rounded-full 
+                            bg-gray-300
+                            transition-colors
+                            peer-checked:bg-orange-500
+
+                            peer-focus:outline-none
+                            peer-focus:ring-4
+                            peer-focus:ring-orange-200
+
+                            after:absolute
+                            after:left-[2px]
+                            after:top-[2px]
+                            after:h-5
+                            after:w-5
+                            after:rounded-full
+                            after:bg-white
+                            after:content-['']
+                            after:transition-transform
+
+                            peer-checked:after:translate-x-5
+                        "
+                    />
+
+                    <span className="ml-2 text-xs font-medium text-gray-500">
+                        {focusIsOn ? "On" : "Off"}
+                    </span>
+
+                </label>
+
+            </div>
+
+            <div className="flex w-3/4 self-center px-2 py-1 text-xs text-gray-400">
                 Block distractions while studying
-            </main>
+            </div>
+
 
 
             {/* Change Password */}
@@ -140,6 +310,7 @@ export default function Settings() {
             </main>
 
 
+
             {/* Change Email */}
             <header className="mt-5 relative flex w-3/4 self-center 
                 shrink-0 items-center justify-between border-b border-black
@@ -156,6 +327,7 @@ export default function Settings() {
             <main className="flex w-3/4 self-center text-xs py-1 px-2 text-bold text-gray-400">
                 Update your accound email
             </main>
+
 
 
             {/* Language */}
