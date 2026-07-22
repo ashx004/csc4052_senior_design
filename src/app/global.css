@@ -32,6 +32,35 @@
 }
 
 /* ==========================================================================
+   DARK THEME
+   ========================================================================== */
+
+.dark {
+  /* --- Brand & Accent Colorways --- */
+  --color-primary: #c89b72;
+  --color-primary-hover: #ddb58f;
+
+  /* --- Typography Colors --- */
+  --color-text-main: #f5eadf;
+  --color-text-muted: #b8a899;
+  --color-text-inverse: #24170f;
+
+  /* --- Backgrounds & Canvas Tones --- */
+  --color-bg-main: #1f1712;
+  --color-bg-container: #2a2019;
+  --color-bg-warm: #3a2a20;
+
+  /* --- Borders & Separation Utilities --- */
+  --color-border-light: #4a392d;
+  --color-border-hover: #6b503d;
+
+  /* --- System Feedback Tones --- */
+  --color-alert-error: #e58b73;
+  --color-alert-error-bg: #3a211c;
+  --color-alert-error-hover: #f0a18c;
+}
+
+/* ==========================================================================
    BASELINE APP OVERRIDES
    ========================================================================== */
 
@@ -70,11 +99,21 @@ a:hover {
     background-color: transparent !important;
 }
 
-.docx,
+/* .docx,
 .docx-render {
     background: #ffffff !important;
     background-color: #ffffff !important;
     border: none !important;
     margin-top: -40px !important; 
     margin-bottom: -10px !important; 
+} */
+
+.docx,
+.docx-render {
+  background: var(--color-bg-container) !important;
+  background-color: var(--color-bg-container) !important;
+  color: var(--color-text-main) !important;
+  border: none !important;
+  margin-top: -40px !important;
+  margin-bottom: -10px !important;
 }

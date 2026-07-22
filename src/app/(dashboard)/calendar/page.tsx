@@ -33,7 +33,7 @@ export default function CalendarPage() {
       <div className="mx-auto max-w-7xl">
         <header className="mb-7 flex items-start justify-between gap-6">
           <div>
-            <div className="mb-2 flex items-center gap-2 text-xs text-text-muted">
+            <div className="mb-2 flex items-center gap-2 text-xs text-text-muted py-8">
               <CalendarDays size={15} strokeWidth={1.8} />
               <span>Dashboard</span>
               <span>/</span>

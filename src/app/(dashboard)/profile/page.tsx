@@ -36,7 +36,7 @@ export default function Profile() {
   return (
     <div className="min-h-screen bg-bg-main p-8">
       <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-bold text-text-main">Profile</h1>
+        <h1 className="text-2xl font-bold text-text-main py-8">Profile</h1>
         {user?.email && <p className="mt-1 text-sm text-text-muted">{user.email}</p>}
 
         <div className="mt-8 rounded-xl border border-border-light bg-bg-container p-6">
