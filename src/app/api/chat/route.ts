@@ -8,6 +8,12 @@ import { searchWeb } from "@/src/library/webSearch";
 import { searchYoutube } from "@/src/library/youtubeSearch";
 import { generateAndUploadPdf } from "@/src/library/pdfGenerate";
 import { warnIfSlowGeneration } from "@/src/library/ollamaHealthCheck";
+import { getStudentProfile, maybeUpdateStudentProfile, StudentProfile } from "@/src/library/studentProfile";
+import { verifyRequestAuth } from "@/src/library/verifyAuth";
+import { checkRateLimit } from "@/src/library/rateLimit";
+
+const CHAT_RATE_LIMIT_WINDOW_MS = 60_000;
+const CHAT_RATE_LIMIT_MAX = 15; // per user per window — generous for real use, catches runaway/abusive callers
 
 const OLLAMA_TIMEOUT_MS = 120000; // first request after idle can take 30-60s+ to cold-load the model
 const MAX_TOOL_ROUNDS = 5;
@@ -59,19 +65,29 @@ type ChatContext = {
 
 type ChatMessage = { role: string; content: string };
 
+const LIST_CLASSES_TOOL = {
+  type: "function",
+  function: {
+    name: "list_enrolled_classes",
+    description:
+      "Returns the student's exact enrolled classes, instructors, contact info, and document lists, verbatim. Call this ONLY for requests about classes/documents AS A SET — 'what classes am I in', 'tell me about my classes', 'what documents do I have overall'. Do NOT call this when the student names or asks about ONE SPECIFIC document (use read_document or search_documents instead) — this tool is for the roster/overview level only. The tool's result is the complete, final answer to give the student — present its actual contents in your reply immediately; do not treat it as needing further clarification before you can answer, and do not describe it as something the student shared or provided (you looked it up yourself).",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+};
+
 const READ_DOCUMENT_TOOL = {
   type: "function",
   function: {
     name: "read_document",
     description:
-      "Fetch and read the full text of a specific class document (PDF, Word, Excel, plain text, or code file). Use this when you already know exactly which document is relevant — e.g. the student names it, or you already found it via search_documents. Reference the exact courseId and resourceId listed in the system context.",
+      "Fetch and read the full text of a specific class document (PDF, Word, Excel, plain text, or code file). Use this when you already know exactly which document is relevant — e.g. the student names it, or you already found it via search_documents. Reference the exact courseId from the system context, and the document's filename exactly as shown there — the filename is matched server-side, so get it close rather than needing it character-perfect.",
     parameters: {
       type: "object",
       properties: {
         courseId: { type: "string", description: "The class ID the document belongs to" },
-        resourceId: { type: "string", description: "The document's resource ID" },
+        documentName: { type: "string", description: "The document's filename, e.g. \"GroupCreationAssignment.pdf\"" },
       },
-      required: ["courseId", "resourceId"],
+      required: ["courseId", "documentName"],
     },
   },
 };
@@ -163,96 +179,56 @@ const RECALL_PAST_CHAT_TOOL = {
   },
 };
 
-function buildSystemPrompt(context?: ChatContext): string {
-  // Computed server-side per request (never client-supplied) so it's always
-  // real, current time — not something the model can be tricked about.
-  const now = new Date();
-  const nowLine = `Current date/time: ${now.toLocaleString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short",
-  })}`;
+// Four-layer compositional prompt, following the architecture described in
+// Open TutorAI (arxiv 2602.07176) — a real academic AI-tutor project
+// deployed on Ollama on resource-constrained hardware — rather than one
+// monolithic string. Each layer is small and independently maintainable,
+// which is the actual point: a prior version of this function grew to
+// ~3,700 tokens of pure instructions through a night of incremental
+// patches, well past the ~3,000 token point where LLM instruction-following
+// measurably degrades. Layer 4 (post-tool) is the one deliberate exception
+// to "always include everything" — it's added only for rounds after a tool
+// has actually been called this turn, so the fabrication-prevention rules
+// that matter most right after a tool result comes back get undiluted
+// focus at exactly the moment they're needed, instead of being one of a
+// dozen unrelated rules present from turn one.
 
-  const behaviorRules = `Your purpose in this chat is to help the student understand their coursework, study more effectively, and navigate their classes — you are a focused study assistant, not a general-purpose chatbot.
+function buildGlobalContextLayer(identity: string | undefined, nowLine: string): string {
+  const who = identity
+    ? `You are Catalyst, an AI study assistant embedded in ${identity}'s academic platform. You have real access to their identity, school, enrolled classes, and uploaded course materials — use it naturally to personalize answers instead of asking the student to repeat information you already have.`
+    : `You are Catalyst, an AI study assistant embedded in a student's academic platform.`;
 
-${nowLine}. Use this for anything date/time-relative — "this week," "how many days until X," what's due soon, etc. Don't guess at today's date or claim not to know it.
+  return `${who} ${nowLine} — use it for anything date/time-relative.
 
-Guardrails:
-- Only engage with the student's courses, assignments, study materials, and learning/academic topics in general (including general-knowledge questions that support their studies, and web research that supports their studies).
-- If asked about anything unrelated to school or learning, or anything inappropriate, politely decline and steer the conversation back to how you can help academically. Don't lecture or moralize about it — just redirect briefly and warmly.
+Guardrails & style: Stay on academic/learning topics; redirect off-topic or inappropriate requests briefly and warmly, no lecturing. Markdown only (CommonMark/GFM — this chat cannot render raw HTML like <br>/<b>, they'll show as literal text); real pipe tables for tabular data. Match response length to the question. Emojis sparingly. Use the student's first name and their real class/instructor names naturally.`;
+}
 
-Style:
-- Format responses with standard markdown (headings, **bold**, lists, code blocks, tables) when it improves clarity — the chat renders CommonMark/GFM markdown only, NOT raw HTML. Never use HTML tags like <br> or <b> — they'll show up as literal text, not formatting.
-- For tabular or spreadsheet data, use a real markdown table: a header row, a |---|---| separator row, and pipe-separated data rows — not spaced-out text pretending to be a table.
-- Match your response length to the question: a quick, direct answer for a simple question; a fuller, structured explanation for a complex one. Don't pad short answers or truncate ones that need real depth.
-- Use emojis sparingly — only when they add clarity or help organize a response (e.g. marking steps or a checklist), never as decoration.
-- Address the student by their first name when it feels natural, and refer to their real classes, instructors, and school by name rather than speaking generically.
+function buildInstructionalLogicLayer(): string {
+  return `Tools:
+- list_enrolled_classes(): the student's exact classes/instructors/contact info/documents, verbatim. Use for requests about classes or documents AS A SET ("what classes am I in," "tell me about my classes") — never recite that data from memory. Not for one named document (use read_document). Present its actual output directly — it IS the complete answer, not a preliminary step to build on.
+- search_documents(query, courseId?): semantic search across indexed documents when you don't know which file has the answer.
+- read_document(courseId, documentName): read one document in full by its filename (not an internal ID) once you know exactly which one. Its result is the document's FULL content — don't also call search_documents on the same document afterward, and don't let an empty search_documents result override an already-successful read_document earlier this turn.
+- web_search(query, scholarly?): live web search. Use proactively, unprompted, whenever unsure of a fact or something could have changed since training — a confident unchecked guess is worse than a 5-second search. scholarly=true restricts to academic sources.
+- search_youtube(query): find real videos when watching something worked through genuinely helps (algorithms, proofs, hardware) or the student seems stuck after text. Call it and show the result in the same turn you decide it'd help — never end a response offering to look one up later; that's not a substitute for calling the tool.
+- create_pdf(title, markdown): generate a downloadable document (practice exam, study guide) when the student wants an artifact, not just a chat answer.
+- recall_past_chat(query): search past conversations. Every visit starts a brand-new session with no memory of earlier ones, so this is the only continuity mechanism — call it proactively whenever a request sounds like it continues earlier work ("that thing I was doing," "keep going on X"), before asking the student to re-explain from scratch.
+Only call a tool when it materially improves the answer. If a tool comes up empty or fails, say so plainly and report what actually happened — never fabricate a fallback and present it as if it came from their materials, never claim a PDF/search succeeded when the tool result says otherwise. You may then offer general knowledge, clearly labeled as general, not from their course.
 
-Tools available:
-- search_documents(query, courseId?): semantically search the student's indexed course documents (PDF, Word, Excel, plain text, code files) for relevant passages. Use this when you don't know which document has the answer or need to check what's actually written inside files.
-- read_document(courseId, resourceId): read one specific document in full, once you know exactly which one you need.
-- web_search(query, scholarly?): search the live web. Reach for this proactively, without being asked — whenever you're not fully confident in a fact, when something could plausibly have changed since your training (version numbers, syntax, current events, tools/libraries), or when a real citable source would make an explanation more trustworthy for coursework. Set scholarly=true for research-oriented questions to restrict results to reputable academic sources. Don't wait for the student to say "look this up" — a confident guess you didn't check is worse than a 5-second search.
-- search_youtube(query): find real explainer/lecture videos. When a concept is genuinely easier to grasp by watching it worked through than by reading text about it (algorithm walkthroughs, data structure operations, math proofs, hardware/architecture), or the student seems stuck after a text explanation — call it immediately, in the SAME turn, before you finish responding. Never end a response with a line like "If you'd like, I can find a video — would you like that?" — that specific pattern is wrong every time you're about to write it: either call search_youtube right now and show the result, or don't mention video at all. Offering and waiting is not an acceptable substitute for calling the tool. Not for every question, just ones where seeing it actually helps. Link with the real URL returned by the tool, never a made-up one, and show the thumbnail as a markdown image, ![video title](thumbnail url), right above the link.
-- create_pdf(title, markdown): generate a downloadable, formatted PDF (e.g. a practice exam, study guide, worksheet) from markdown you write. Use this when the student wants an actual document, not just a chat answer — you're capable of drafting a basic practice exam this way when asked.
-- recall_past_chat(query): search the student's other past conversations. Each visit to this chat starts a brand-new session with no memory of earlier ones, so this is the only way to pick up continuity. If the student references anything that sounds like it continues earlier work — "that thing I was doing," "the presentation/essay/project I was putting together," "keep going on X," "like we discussed," or any request that assumes shared context you don't actually have yet — call this FIRST, before asking them to re-explain from scratch. Asking them to repeat something they already told you defeats the entire point of this tool.
-You already know each class's document names and categories (Class Doc / Notes / Assignments) from the class listing above without calling anything — answer questions about what materials or assignments *exist* directly from that list. Only call a tool when you need to know what's actually written inside a document's content, or need to search for something not already visible above.
-If more than one document could reasonably answer the question, or it's unclear which one the student means, list the relevant options by name and ask which they want — don't guess and read the first one you find.
-Only call a tool when it would materially improve your answer — never call a tool for something you already know.
-read_document gives you a specific document's FULL content — once you've called it successfully for a document, you already have everything in that file. Do not also call search_documents for the same document afterward; that's redundant, and if it comes back empty you must NOT treat that as the read having failed — the read already succeeded and its content is still right here in the conversation.
+Baseline accuracy: never invent facts, class names, instructor names, or contact details beyond what's in the context or a tool result — copy them exactly rather than paraphrasing (e.g. don't turn "Intro to Computer Science" into "Introduction to Programming"). Never show internal courseId/resourceId values to the student.
 
-When a tool result isn't enough:
-- search_documents or read_document comes up empty/irrelevant: tell the student plainly that their course materials don't cover this — don't silently fall back to general knowledge and present it as if it came from their class. You MAY then offer general background or call web_search for it, but say explicitly that it's general information, not from their specific course.
-- web_search fails or returns nothing useful: say the search didn't turn up anything, then answer from your own general knowledge if you can — but flag that it's not verified against a live source, so the student knows to double-check anything that matters.
-- create_pdf fails: report the actual error plainly. Never claim a PDF was created if the tool didn't confirm success.
-- recall_past_chat comes up empty: that's normal, not a failure — it just means there's nothing relevant from before. Proceed with the current conversation, don't mention the empty search unless it's relevant to say so.
-- If you've tried the reasonably relevant tools and still can't answer, say so directly and plainly — don't stretch a weak or irrelevant result into an answer just to seem helpful.
+If a request is ambiguous, gibberish, or you can't tell what's being asked, ask a short clarifying question rather than guessing or defaulting to a tool call. Read phrasing in light of what was just said, not its most common standalone meaning — "what do you see" right after a data/access question means "what information do you have," not literal vision (you have no camera or image input at all).
 
-What data you have access to:
-- The class listing below is the full picture — if a class shows an instructor name but no email/phone/office, that specifically means the student never entered that when adding the class, not that the platform doesn't support storing it. Don't imply you categorically can't access instructor contact info; say the specific field wasn't filled in for that class, and that they can add it from their class settings.
-- You do not have access to a student's grades, attendance records, tuition/billing info, or anything outside what's shown in the Student/class listing below and their uploaded documents. Be clear about that distinction rather than treating "not in my context" the same as "the platform can't have this."
+Code review: match depth to what's asked. "Tell me about this file" wants a structural overview (purpose, main pieces, how they fit), not a bug hunt. Only when actually asked to review/debug should you scan exhaustively and rank every issue by severity rather than stopping at the first one.
 
-Ask instead of guessing:
-- If a request is genuinely ambiguous or missing something you'd need to answer well (which topics to cover, what format, which of several plausible interpretations), ask a short clarifying question rather than picking an interpretation and running with it. This applies broadly, not just to picking between documents — a quick question beats a confident answer to the wrong question.
-- If the message is gibberish, a typo, an accidental keystroke, or you genuinely cannot tell what's being asked — say so and ask them to rephrase. Do NOT call a tool as a default action when you don't understand the input; calling read_document or search_documents on a guess about unclear input is worse than just asking what they meant.
+Teaching approach: guide, don't dump. Ask what they've tried, point at the specific issue, explain the underlying mechanism — hand over complete corrected code only if asked directly or they're stuck after a real attempt. Never produce a complete deliverable meant to be submitted as the student's own graded work (a full essay, a finished assignment) even on direct request — offer to help them build it instead. If text looks pasted from a live quiz/exam, decline to answer it directly and explain the concept instead.`;
+}
 
-Internal IDs:
-- The courseId and resourceId values in the class listing above are internal identifiers for your own tool calls only. Never show them to the student — refer to classes by their course code/name and to documents by their filename.
+function buildAdaptiveVariableLayer(context: ChatContext | undefined, learnerProfile?: string): string {
+  const profileBlock = learnerProfile
+    ? `\n\nWhat you've learned about this student over time (use it to tailor explanations and stay aligned with their goals — don't recite it back verbatim or make them feel watched):\n${learnerProfile}`
+    : "";
 
-Accuracy:
-- Never invent facts, sources, page numbers, quotes, or details that aren't in the context above or in a tool result. If you don't actually know something, say so plainly instead of guessing — a confident wrong answer is worse than "I don't have that in your materials."
-- Only state a student's school/college if it's given to you in the Student line below — if it's blank, don't guess or invent one.
-- When you use content from read_document, search_documents, or web_search, briefly name the source (document or site) so the student knows where it came from.
-- If a tool returns nothing relevant, tell the student that rather than answering from a guess.
-- Class names, document filenames, and instructor names in the class listing below are real data you have — copy them exactly rather than rephrasing (e.g. don't turn "Intro to Computer Science" into "Introduction to Programming," or "JumpTableMain.java" into "JumpGame.java"). If facultyEmail/facultyPhoneNumber are blank, that means not entered — say so rather than constructing one.
-
-Using tool results:
-- After a tool call returns, always circle back and directly answer the student's actual question using what you found — don't stop at just acknowledging that you read something. If you called read_document and the student asked "what should I study first," your next message must actually answer that from the document's content, not just confirm you have it.
-- Tool results (from read_document, search_documents, web_search, etc.) are things YOU looked up yourself — never describe them as something the student "pasted," "gave you," or "provided." Refer to them as "the document," "what I found," or by name.
-
-Reviewing code files:
-- Match the depth to what's actually asked. A general request ("tell me about this file," "what does this do," "give me an overview") wants a broad structural summary — the file's purpose, its main classes/methods, and how they fit together — not a deep dive into one specific method or line. Don't treat a general "tell me about" request as an invitation to review or debug code nobody asked you to review.
-- Only when the student specifically asks you to review, debug, or find bugs/issues: don't stop at the first issue you notice and present it as the whole picture — scan the full file for other bugs, logic errors, or design problems too. If you found more than one real issue, mention all of them, ranked by severity, not just the first.
-- Exception: if a plain summary would be actively misleading without flagging a severe, program-breaking bug, a brief one-line mention is fine — but keep it a short aside, not the focus of the response.
-- When you quote or show code from a document you read, reproduce it EXACTLY as written — same language, same syntax, character-for-character from the source. Never paraphrase, "clean up," or rewrite it into a different language's style (e.g. never render a Java method as if it were Python). Getting the general behavior right while showing the wrong syntax is still wrong — the student may copy what you show verbatim.
-
-Teaching approach:
-- You're a study aid, not a homework-completion service. When a student is debugging their own code or working through a concept, default to guiding them toward the answer (ask what they've tried, point at the specific line/concept that's wrong, explain the underlying mechanism) rather than immediately handing over a complete rewritten solution.
-- It's fine to give full corrected code when the student explicitly asks for it, when they're clearly stuck after a guided attempt, or when the task is inherently about producing a document (e.g. create_pdf, generating a practice exam) rather than solving their own assignment.
-- Always explain the *why* behind a bug or concept, not just the fix — the goal is the student understanding it, not just the code working.
-
-Academic integrity:
-- Never produce a complete deliverable that's clearly meant to be submitted as the student's own graded work — a full essay/paper, a complete solution to a homework problem set, or a finished program that IS the assignment. This holds even if they ask directly or insist; decline that specific framing and offer to help them build it themselves instead (outline, brainstorm, explain the approach, review a draft they've actually written).
-- Watch for text that reads like it was pasted straight from a live quiz, exam, or timed assessment (question-and-multiple-choice formatting, "select the best answer," phrasing implying it's currently being taken) — don't just answer it. Say you can't answer live assessment questions directly, and offer to explain the underlying concept instead so they can answer it themselves.
-- This is different from legitimate practice: generating a practice exam via create_pdf, reviewing code the student wrote and explaining bugs, or working through a past homework problem together as a learning exercise are all fine — the line is "producing the actual thing being submitted or graded right now" vs. "helping them learn to produce it themselves."
-- If genuinely unsure whether something is a live graded assessment or practice, ask rather than assume either way.`;
-
-  if (!context) {
-    return `You are Catalyst, an AI study assistant embedded in a student's academic platform.\n\n${behaviorRules}`;
-  }
+  if (!context) return profileBlock.trim();
 
   const identityParts = [context.name, context.college].filter(Boolean).join(", ");
   const identity = identityParts ? `${identityParts} (${context.email})` : context.email;
@@ -283,31 +259,109 @@ ${docLines}`;
         .join("\n")
     : "  (Not enrolled in any classes yet)";
 
-  return `You are Catalyst, an AI study assistant embedded in ${identity}'s academic platform. You have real access to their identity, school, enrolled classes, and uploaded course materials below — use it naturally to personalize answers instead of asking the student to repeat information you already have.
-
-Student: ${identity}
+  return `Student: ${identity}${profileBlock}
 
 Enrolled classes:
-${classLines}
+${classLines}`;
+}
 
-${behaviorRules}`;
+// Only appended once a tool has actually been called this turn — see the
+// header comment above for why this is deliberately separated rather than
+// always-present.
+function buildPostToolLayer(): string {
+  return `You've used a tool this turn. Now: actually answer the student's question with what you found — don't just confirm you looked something up. Tool results are things YOU looked up yourself — never describe them as something the student "pasted" or "provided." Everything you state about the student's classes, documents, instructors, or contact info must come verbatim from the tool result, never from memory or a plausible-sounding guess — if a field (email, phone, syllabus) is blank in the result, say plainly it wasn't entered/uploaded, never construct a value that merely looks right. When quoting code, reproduce it character-for-character in its real language — never re-render Java as Python-style pseudocode.
+
+Do exactly what was asked with what you found, nothing more. If the request was to summarize, explain, or describe a document, give a summary — even if that document turns out to describe a programming assignment or problem set, do NOT start writing or solving it; a strong pull toward "I found a coding problem, let me solve it" is a known failure mode here and must be resisted unless the student specifically asked you to write or help write the code.`;
+}
+
+function buildSystemPrompt(context?: ChatContext, learnerProfile?: string, includePostToolLayer = false): string {
+  // Computed server-side per request (never client-supplied) so it's always
+  // real, current time — not something the model can be tricked about.
+  const now = new Date();
+  const nowLine = `Current date/time: ${now.toLocaleString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  })}`;
+
+  const identity = context ? [context.name, context.college].filter(Boolean).join(", ") || context.email : undefined;
+  const identityWithEmail = context && identity && !identity.includes(context.email) ? `${identity} (${context.email})` : identity;
+
+  const layers = [
+    buildGlobalContextLayer(identityWithEmail, nowLine),
+    buildInstructionalLogicLayer(),
+    buildAdaptiveVariableLayer(context, learnerProfile),
+  ];
+  if (includePostToolLayer) layers.push(buildPostToolLayer());
+
+  return layers.filter(Boolean).join("\n\n");
+}
+
+// Code-generated, not LLM-generated — the class listing is already fully
+// known from context, but reciting it from memory has repeatedly produced
+// fabricated course codes, instructor names, and invented contact emails
+// (confirmed live 2026-07-21, even with correct context present and even
+// on plain, non-compound requests). Returning the exact real text removes
+// the model's opportunity to get it wrong.
+function listEnrolledClasses(context: ChatContext | undefined): string {
+  if (!context?.classes.length) {
+    return "The student is not enrolled in any classes yet.";
+  }
+
+  return context.classes
+    .map((c) => {
+      const contactParts = [
+        c.facultyName ? `Instructor: ${c.facultyName}` : "Instructor: not listed",
+        c.facultyEmail ? `Email: ${c.facultyEmail}` : "Email: not entered",
+        c.facultyPhoneNumber ? `Phone: ${c.facultyPhoneNumber}` : "Phone: not entered",
+        c.facultyOfficeNumber ? `Office: ${c.facultyOfficeNumber}` : "Office: not entered",
+      ].join(", ");
+
+      const docLines = c.documents.length
+        ? c.documents.map((d) => `  - ${d.name} (${d.fileType}, tag: ${d.category || "untagged"})`).join("\n")
+        : "  (no documents uploaded)";
+
+      return `${c.classCode} — ${c.className} (${c.term})\n${contactParts}\nSchedule: ${c.classSchedule || "not listed"}\nDocuments:\n${docLines}`;
+    })
+    .join("\n\n");
 }
 
 async function readDocument(
   request: NextRequest,
   context: ChatContext | undefined,
   courseId: string,
-  resourceId: string
-): Promise<string> {
-  const doc = context?.classes
-    .find((c) => c.classId === courseId)
-    ?.documents.find((d) => d.resourceId === resourceId);
+  documentName: string
+): Promise<{ text: string; doc?: ChatDocument }> {
+  const classDoc = context?.classes.find((c) => c.classId === courseId);
+  if (!classDoc) {
+    return { text: "Error: no class found with that courseId." };
+  }
+
+  // Match by name rather than requiring the model to reproduce an opaque
+  // resourceId character-for-character — confirmed live 2026-07-21 that
+  // this was a real source of failures (the model asked for a document by
+  // its real filename, but transcribed the wrong internal ID, and the
+  // lookup failed even though the document genuinely existed). Exact match
+  // first, then case-insensitive, then substring, so small naming slips
+  // still resolve.
+  const needle = documentName.trim().toLowerCase();
+  const doc =
+    classDoc.documents.find((d) => d.name === documentName) ??
+    classDoc.documents.find((d) => d.name.toLowerCase() === needle) ??
+    classDoc.documents.find((d) => d.name.toLowerCase().includes(needle) || needle.includes(d.name.toLowerCase()));
 
   if (!doc) {
-    return "Error: no document found with that courseId/resourceId.";
+    const available = classDoc.documents.map((d) => d.name).join(", ") || "(no documents in this class)";
+    return { text: `Error: no document named "${documentName}" found in this class. Available documents: ${available}` };
   }
   if (!SUPPORTED_DOCUMENT_TYPES.includes(doc.fileType)) {
-    return `Error: "${doc.name}" is a .${doc.fileType} file — that type isn't readable yet (PDF, Word, Excel, plain text, and common code files are supported).`;
+    return {
+      text: `Error: "${doc.name}" is a .${doc.fileType} file — that type isn't readable yet (PDF, Word, Excel, plain text, and common code files are supported).`,
+    };
   }
 
   try {
@@ -315,16 +369,16 @@ async function readDocument(
     let text = await extractDocumentText(fullUrl, doc.fileType);
 
     if (!text) {
-      return `Error: "${doc.name}" has no extractable text.`;
+      return { text: `Error: "${doc.name}" has no extractable text.` };
     }
     if (text.length > MAX_DOCUMENT_CHARS) {
       text = text.slice(0, MAX_DOCUMENT_CHARS) + "\n\n[document truncated]";
     }
 
-    return text;
+    return { text, doc };
   } catch (error) {
     console.error(`Error reading document ${doc.name}:`, error);
-    return `Error: failed to read "${doc.name}".`;
+    return { text: `Error: failed to read "${doc.name}".` };
   }
 }
 
@@ -831,6 +885,19 @@ async function compactIfNeeded(
 //   {"type":"done","documentsRead":[...],"generatedFiles":[...],"summary":"...","summarizedCount":N}
 //   {"type":"error","error":"..."}
 export async function POST(request: NextRequest) {
+  const auth = await verifyRequestAuth(request);
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const rateLimit = checkRateLimit(auth.uid, CHAT_RATE_LIMIT_WINDOW_MS, CHAT_RATE_LIMIT_MAX);
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "You're sending messages too quickly — please wait a moment and try again." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+    );
+  }
+
   const {
     messages,
     context,
@@ -847,6 +914,14 @@ export async function POST(request: NextRequest) {
 
   if (!Array.isArray(messages) || messages.length === 0) {
     return NextResponse.json({ error: "messages is required" }, { status: 400 });
+  }
+
+  // The client sends its own ChatContext (built client-side) rather than us
+  // trusting a userId string alone — verify it actually matches who's
+  // logged in, so one account can't pull another's class/document data by
+  // just editing the request body.
+  if (context?.userId && context.userId !== auth.uid) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   // Server-side backstop behind the client's maxLength — the client can be
@@ -874,21 +949,24 @@ export async function POST(request: NextRequest) {
         controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
       }
 
+      let studentProfile: StudentProfile = { summary: "", messageCount: 0 };
+
       try {
-        const { summary, summarizedCount } = await compactIfNeeded(
-          messages,
-          incomingSummary ?? "",
-          incomingSummarizedCount ?? 0
-        );
+        const [{ summary, summarizedCount }, loadedProfile] = await Promise.all([
+          compactIfNeeded(messages, incomingSummary ?? "", incomingSummarizedCount ?? 0),
+          context?.userId ? getStudentProfile(context.userId) : Promise.resolve(studentProfile),
+        ]);
+        studentProfile = loadedProfile;
 
         const conversation: any[] = [
-          { role: "system", content: buildSystemPrompt(context) },
+          { role: "system", content: buildSystemPrompt(context, studentProfile.summary) },
           ...(summary ? [{ role: "system", content: `Summary of earlier conversation:\n${summary}` }] : []),
           ...messages.slice(summarizedCount),
         ];
         const documentsRead: string[] = [];
         const generatedFiles: { name: string; url: string }[] = [];
         const tools = [
+          LIST_CLASSES_TOOL,
           SEARCH_DOCUMENTS_TOOL,
           READ_DOCUMENT_TOOL,
           WEB_SEARCH_TOOL,
@@ -899,6 +977,7 @@ export async function POST(request: NextRequest) {
 
         let finished = false;
         let emptyRoundRetries = 0;
+        let anyToolCalled = false;
         const documentsReadThisTurn: { courseId: string; resourceId: string; name: string }[] = [];
 
         for (let round = 0; round < MAX_TOOL_ROUNDS && !finished; round++) {
@@ -911,6 +990,13 @@ export async function POST(request: NextRequest) {
           );
 
           if (toolCalls && toolCalls.length > 0) {
+            if (!anyToolCalled) {
+              anyToolCalled = true;
+              // Swap in the post-tool layer for every round from here on —
+              // no extra request, just changes what this same next round
+              // already sends. See buildPostToolLayer's comment for why.
+              conversation[0] = { role: "system", content: buildSystemPrompt(context, studentProfile.summary, true) };
+            }
             conversation.push(rawMessage);
 
             for (const toolCall of toolCalls) {
@@ -919,16 +1005,18 @@ export async function POST(request: NextRequest) {
               send({ type: "tool", name: fnName });
               let result: string;
 
-              if (fnName === "read_document") {
-                result = await readDocument(request, context, args.courseId, args.resourceId);
-                if (!result.startsWith("Error:")) {
-                  const docMeta = context?.classes
-                    .find((c) => c.classId === args.courseId)
-                    ?.documents.find((d) => d.resourceId === args.resourceId);
-                  if (docMeta) {
-                    documentsRead.push(docMeta.name);
-                    documentsReadThisTurn.push({ courseId: args.courseId, resourceId: args.resourceId, name: docMeta.name });
-                  }
+              if (fnName === "list_enrolled_classes") {
+                result = listEnrolledClasses(context);
+              } else if (fnName === "read_document") {
+                const readResult = await readDocument(request, context, args.courseId, args.documentName);
+                result = readResult.text;
+                if (readResult.doc) {
+                  documentsRead.push(readResult.doc.name);
+                  documentsReadThisTurn.push({
+                    courseId: args.courseId,
+                    resourceId: readResult.doc.resourceId,
+                    name: readResult.doc.name,
+                  });
                 }
               } else if (fnName === "search_documents") {
                 result = await searchDocuments(context, args.query, args.courseId, documentsReadThisTurn);
@@ -1007,6 +1095,14 @@ export async function POST(request: NextRequest) {
               : "Couldn't reach the assistant. Please try again.",
         });
       } finally {
+        // Fire-and-forget — never awaited, must not add latency to a
+        // response the student is already looking at. Errors are handled
+        // entirely inside maybeUpdateStudentProfile itself.
+        if (context?.userId) {
+          maybeUpdateStudentProfile(context.userId, studentProfile, messages.slice(-8)).catch((error) =>
+            console.error("Unhandled student profile update error:", error)
+          );
+        }
         controller.close();
       }
     },

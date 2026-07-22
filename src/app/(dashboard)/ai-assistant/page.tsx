@@ -1,9 +1,12 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileDown, History, Mic, Paperclip } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import { useAuth } from "@/src/context/AuthContext";
 import { buildChatContext, ChatContext } from "@/src/library/chatContext";
 import {
@@ -19,6 +22,87 @@ import ChatHistoryPanel from "@/src/components/aiAssistant/ChatHistoryPanel";
 type ChatMessage = StoredChatMessage;
 
 type StarterPrompt = { title: string; subtitle: string; prompt: string };
+
+// Memoized so typing in the input (which lives in the same parent component)
+// doesn't re-render every existing message's ReactMarkdown parse on each
+// keystroke — confirmed live 2026-07-21 as the cause of visible input lag
+// that got worse the longer a conversation ran.
+const ChatMessageBubble = memo(function ChatMessageBubble({
+  message,
+  isPending,
+  toolStatus,
+  onCopy,
+}: {
+  message: ChatMessage;
+  isPending: boolean;
+  toolStatus: string | null;
+  onCopy: (text: string) => void;
+}) {
+  const isUser = message.role === "user";
+
+  return (
+    <div className={`flex w-full ${isUser ? "justify-end" : "justify-start"}`}>
+      {isUser ? (
+        <div className="max-w-xl rounded-2xl rounded-tr-md bg-primary px-5 py-3 text-sm leading-relaxed text-white shadow-sm">
+          {message.text}
+        </div>
+      ) : isPending ? (
+        <div className="flex items-center gap-2 rounded-2xl bg-white px-5 py-4 shadow-sm ring-1 ring-border-light">
+          {toolStatus ? (
+            <span className="text-sm text-text-muted">{toolStatus}</span>
+          ) : (
+            <>
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-muted [animation-delay:-0.3s]" />
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-muted [animation-delay:-0.15s]" />
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-muted" />
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="group flex max-w-2xl flex-col items-start gap-1.5">
+          {message.documentsRead && (
+            <p className="px-1 text-xs text-text-muted">
+              📄 Read: {message.documentsRead.join(", ")}
+            </p>
+          )}
+
+          <div className="flex items-start gap-3">
+            <div className="prose prose-sm max-w-none rounded-2xl bg-white px-5 py-4 leading-relaxed shadow-sm ring-1 ring-border-light prose-headings:mb-2 prose-headings:mt-3 prose-headings:text-text-main prose-p:my-1.5 prose-p:text-text-main prose-strong:text-text-main prose-a:text-primary prose-blockquote:border-primary prose-blockquote:text-text-muted prose-code:rounded prose-code:bg-bg-warm prose-code:px-1 prose-code:py-0.5 prose-code:text-text-main prose-code:before:content-none prose-code:after:content-none prose-pre:bg-bg-warm prose-pre:text-text-main prose-ol:text-text-main prose-ul:text-text-main prose-li:my-0.5 prose-table:text-text-main prose-th:text-text-main">
+              <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+                {message.text}
+              </ReactMarkdown>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => onCopy(message.text)}
+              className="mt-2 rounded-md border border-border-light bg-white px-2 py-1 text-xs text-text-muted opacity-80 transition hover:bg-bg-warm group-hover:opacity-100"
+              aria-label="Copy assistant message"
+            >
+              ⧉
+            </button>
+          </div>
+
+          {message.generatedFiles && (
+            <div className="flex flex-wrap gap-2 px-1">
+              {message.generatedFiles.map((file) => (
+                <a
+                  key={file.url}
+                  href={file.url}
+                  download={file.name}
+                  className="flex items-center gap-1.5 rounded-md border border-border-light bg-white px-3 py-1.5 text-xs font-medium text-primary shadow-sm transition hover:bg-bg-warm"
+                >
+                  <FileDown size={14} />
+                  {file.name}
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
 
 function shuffle<T>(items: T[]): T[] {
   const copy = [...items];
@@ -410,13 +494,13 @@ export default function AIAssistantPage() {
     document.title = "Catalyst";
   }
 
-  async function handleCopy(text: string) {
+  const handleCopy = useCallback(async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
     } catch {
       console.log("Copy failed");
     }
-  }
+  }, []);
 
   function handleUploaded(fileNames: string[], classCode: string) {
     setShowUploadModal(false);
@@ -511,75 +595,15 @@ export default function AIAssistantPage() {
             </div>
           ) : (
             <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-              {messages.map((message) => {
-                const isUser = message.role === "user";
-
-                return (
-                  <div
-                    key={message.id}
-                    className={`flex w-full ${
-                      isUser ? "justify-end" : "justify-start"
-                    }`}
-                  >
-                    {isUser ? (
-                      <div className="max-w-xl rounded-2xl rounded-tr-md bg-primary px-5 py-3 text-sm leading-relaxed text-white shadow-sm">
-                        {message.text}
-                      </div>
-                    ) : message.text === "" && isSending ? (
-                      <div className="flex items-center gap-2 rounded-2xl bg-white px-5 py-4 shadow-sm ring-1 ring-border-light">
-                        {toolStatus ? (
-                          <span className="text-sm text-text-muted">{toolStatus}</span>
-                        ) : (
-                          <>
-                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-muted [animation-delay:-0.3s]" />
-                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-muted [animation-delay:-0.15s]" />
-                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-muted" />
-                          </>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="group flex max-w-2xl flex-col items-start gap-1.5">
-                        {message.documentsRead && (
-                          <p className="px-1 text-xs text-text-muted">
-                            📄 Read: {message.documentsRead.join(", ")}
-                          </p>
-                        )}
-
-                        <div className="flex items-start gap-3">
-                          <div className="prose prose-sm max-w-none rounded-2xl bg-white px-5 py-4 leading-relaxed shadow-sm ring-1 ring-border-light prose-headings:mb-2 prose-headings:mt-3 prose-headings:text-text-main prose-p:my-1.5 prose-p:text-text-main prose-strong:text-text-main prose-a:text-primary prose-blockquote:border-primary prose-blockquote:text-text-muted prose-code:rounded prose-code:bg-bg-warm prose-code:px-1 prose-code:py-0.5 prose-code:text-text-main prose-code:before:content-none prose-code:after:content-none prose-pre:bg-bg-warm prose-pre:text-text-main prose-ol:text-text-main prose-ul:text-text-main prose-li:my-0.5 prose-table:text-text-main prose-th:text-text-main">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => handleCopy(message.text)}
-                            className="mt-2 rounded-md border border-border-light bg-white px-2 py-1 text-xs text-text-muted opacity-80 transition hover:bg-bg-warm group-hover:opacity-100"
-                            aria-label="Copy assistant message"
-                          >
-                            ⧉
-                          </button>
-                        </div>
-
-                        {message.generatedFiles && (
-                          <div className="flex flex-wrap gap-2 px-1">
-                            {message.generatedFiles.map((file) => (
-                              <a
-                                key={file.url}
-                                href={file.url}
-                                download={file.name}
-                                className="flex items-center gap-1.5 rounded-md border border-border-light bg-white px-3 py-1.5 text-xs font-medium text-primary shadow-sm transition hover:bg-bg-warm"
-                              >
-                                <FileDown size={14} />
-                                {file.name}
-                              </a>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              {messages.map((message) => (
+                <ChatMessageBubble
+                  key={message.id}
+                  message={message}
+                  isPending={message.text === "" && isSending}
+                  toolStatus={toolStatus}
+                  onCopy={handleCopy}
+                />
+              ))}
             </div>
           )}
         </div>

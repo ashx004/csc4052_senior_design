@@ -1,14 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+import { verifyRequestAuth } from '@/src/library/verifyAuth';
+import { resolveInternalUrl, fetchInternal } from '@/src/library/pdfExtract';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = await verifyRequestAuth(request);
+    if (!auth) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { docUrl, docName, previousQuestions } = await request.json();
 
     if (!docUrl) {
       return NextResponse.json({ error: 'Document URL is required' }, { status: 400 });
+    }
+    if (!docUrl.startsWith(`/api/download?key=users%2F${auth.uid}%2F`) && !docUrl.startsWith(`/api/download?key=users/${auth.uid}/`)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     if (!process.env.GEMINI_API_KEY) {
@@ -16,11 +26,9 @@ export async function POST(request: NextRequest) {
     }
 
     // 1. Fetch the document from internal MinIO proxy
-    const host = request.headers.get('host');
-    const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https';
-    const fullUrl = `${protocol}://${host}${docUrl}`;
+    const fullUrl = resolveInternalUrl(request, docUrl);
 
-    const fileResponse = await fetch(fullUrl);
+    const fileResponse = await fetchInternal(fullUrl);
     if (!fileResponse.ok) {
       return NextResponse.json({ error: 'Failed to download document' }, { status: 500 });
     }

@@ -16,6 +16,7 @@
     "docx-preview": "^0.3.7",
     "firebase": "^12.15.0",
     "jose": "^5.9.6",
+    "katex": "^0.18.1",
     "lucide-react": "^1.23.0",
     "mammoth": "^1.12.0",
     "next": "^15.3.2",
@@ -26,22 +27,26 @@
     "react-dom": "^19.2.7",
     "react-markdown": "^9.0.1",
     "react-syntax-highlighter": "^16.1.1",
+    "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.0",
+    "remark-math": "^6.0.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.15",
     "@types/node": "^24.13.2",
+    "@types/pdfkit": "^0.13.9",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "@types/pdfkit": "^0.13.9",
     "@types/react-syntax-highlighter": "^15.5.13",
     "autoprefixer": "^10.4.21",
-    "postcss": "^8.5.3",
+    "postcss": "^8.5.10",
     "tailwindcss": "^3.4.17",
     "typescript": "~5.8.3"
   },
   "overrides": {
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "sharp": "^0.35.0",
+    "postcss": "^8.5.10"
   }
 }
