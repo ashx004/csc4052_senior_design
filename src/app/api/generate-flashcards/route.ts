@@ -95,7 +95,7 @@ Rules:
 
     prompt += `\n\n--- DOCUMENT CONTENT ---\n${extractedText}`;
 
-    // 4. Call Gemini with structured output (Kaggle Day 1: structured output)
+    // 4. Call Gemini with structured output 
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,

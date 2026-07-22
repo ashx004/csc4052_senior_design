@@ -79,7 +79,7 @@ export default function QuizSetupModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl"
+        className="w-full max-w-lg rounded-2xl bg-white p-7 shadow-xl"
       >
         {/* Header */}
         <div className="flex items-start justify-between mb-1">
@@ -99,8 +99,8 @@ export default function QuizSetupModal({
         <p className="text-xs text-gray-400 mb-5">Set up your test</p>
 
         {/* Question count */}
-        <div className="mb-5">
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+        <div className="flex items-center justify-between">
+          <label className="block text-sm font-medium text-gray-700 mb-8">
             Questions (max 20)
           </label>
           <input
@@ -110,12 +110,12 @@ export default function QuizSetupModal({
             value={questionCount}
             onChange={(e) => setQuestionCount(Number(e.target.value))}
             disabled={loading}
-            className="w-24 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none disabled:opacity-50"
+            className="w-15 rounded-lg border border-gray-200 px-4 py-2 text-sm focus:border-[#8B6914] focus:outline-none disabled:opacity-50"
           />
-          {!isCountValid && (
+        </div>
+        {!isCountValid && (
             <p className="mt-1 text-xs text-red-400">Enter a number between 1 and 20.</p>
           )}
-        </div>
 
         {/* Question types */}
         <div className="flex flex-col gap-3 mb-2">

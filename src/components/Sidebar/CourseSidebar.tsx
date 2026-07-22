@@ -265,7 +265,7 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
                   className="group relative flex items-center rounded-lg hover:bg-[#F5F0EB] transition-colors"
                 >
                   <Link
-                    href={`${base}/quizzes?setId=${set.id}`}
+                    href={`${base}/quizzes/${set.id}`}
                     className="flex flex-1 min-w-0 items-center gap-3 px-3 py-2 text-sm text-gray-600"
                   >
                     <HelpCircle size={16} strokeWidth={1.5} className="shrink-0" />
