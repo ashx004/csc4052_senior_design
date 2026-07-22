@@ -7,6 +7,11 @@ import { chunkText } from "@/src/library/chunking";
 import { addChunkContext } from "@/src/library/contextualChunking";
 import { embedTexts } from "@/src/library/ollamaEmbeddings";
 import { createTimeoutSignal } from "@/src/library/withTimeout";
+import { verifyRequestAuth } from "@/src/library/verifyAuth";
+import { checkRateLimit } from "@/src/library/rateLimit";
+
+const EMBED_RATE_LIMIT_WINDOW_MS = 60_000;
+const EMBED_RATE_LIMIT_MAX = 10; // per user per window — uploads aren't normally rapid-fire
 
 // Give up on a single document past this long rather than let one slow file
 // hang the whole indexing job — confirmed live 2026-07-21.
@@ -29,6 +34,19 @@ const MAX_INDEXABLE_CHARS = 100000;
 // Called in the background right after a PDF finishes uploading.
 export async function POST(request: NextRequest) {
   try {
+    const auth = await verifyRequestAuth(request);
+    if (!auth) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const rateLimit = checkRateLimit(auth.uid, EMBED_RATE_LIMIT_WINDOW_MS, EMBED_RATE_LIMIT_MAX);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many documents being indexed at once — please wait a moment." },
+        { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+      );
+    }
+
     const { userId, courseId, resourceId } = await request.json();
 
     if (!userId || !courseId || !resourceId) {
@@ -36,6 +54,9 @@ export async function POST(request: NextRequest) {
         { error: "userId, courseId, and resourceId are required" },
         { status: 400 }
       );
+    }
+    if (userId !== auth.uid) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const resourceRef = doc(db, "users", userId, "enrollment", courseId, "resources", resourceId);
