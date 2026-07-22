@@ -1,7 +1,5 @@
 "use client";
 
-@import "tailwindcss";
-@custom-variant dark (&:where(.dark, .dark *));
 import { useEffect, useState } from "react";
 
 export default function Settings() {
@@ -33,9 +31,12 @@ export default function Settings() {
     }
 
     return (
-        <section className="flex h-screen flex-col bg-[#f7f5f1] text-[#1f2933]">
-            <header className="relative flex h-[73px] shrink-0 items-center justify-between border-b border-[#d8d3ca] bg-[#fbfaf8] px-6">
-                <h1 className="absolute left-1/2 -translate-x-1/2 text-center text-lg font-semibold tracking-[0.45em] text-black">
+        <section className="flex h-screen flex-col bg-[#f7f5f1] text-[#1f2933]
+                            transition-colors duration-300 dark:bg-[#171717] dark:text-gray-100">
+            <header className="relative flex h-[73px] shrink-0 items-center justify-between border-b border-[#d8d3ca] bg-[#fbfaf8] px-6
+                            transition-colors duration-300 dark:border-gray-700 dark:bg-[#202020">
+                <h1 className="absolute left-1/2 -translate-x-1/2 text-center text-lg font-semibold tracking-[0.45em] text-black
+                            dark:text-white">
                     Settings.
                 </h1>
             </header>
@@ -43,10 +44,12 @@ export default function Settings() {
 
             {/* Notification */ }
             <header className="mt-5 relative flex w-3/4 self-center 
-                shrink-0 border-b border-black px-6"> 
+                shrink-0 border-b border-black dark:border-gray-600 px-6"> 
             </header> 
 
-            <div className="mt-2 flex w-3/4 self-center justify-between py-3 px-2">
+            <div className="mt-2 flex w-3/4 self-center justify-between py-3 px-2
+                        bg-[#f7f5f1] text-black hover:bg-gray-200
+                        dark:bg-[#171717] dark:text-gray-100 dark:hover:bg-gray-700">
 
                 <span className="text-sm">
                     Notification
@@ -106,10 +109,12 @@ export default function Settings() {
 
             {/* Study Reminder */ }
             <header className="mt-5 relative flex w-3/4 self-center 
-                shrink-0 border-b border-black px-6"> 
+                shrink-0 border-b border-black dark:border-gray-600 px-6"> 
             </header> 
 
-            <div className="mt-2 flex w-3/4 self-center justify-between py-3 px-2">
+            <div className="mt-2 flex w-3/4 self-center justify-between py-3 px-2
+                            bg-[#f7f5f1] text-black hover:bg-gray-200
+                            dark:bg-[#171717] dark:text-gray-100 dark:hover:bg-gray-700">
 
                 <span className="text-sm">
                     Study Reminder
@@ -168,10 +173,12 @@ export default function Settings() {
 
             {/* Appearance */ }
             <header className="mt-5 relative flex w-3/4 self-center 
-                shrink-0 border-b border-black px-6"> 
+                shrink-0 border-b border-black dark:border-gray-600 px-6"> 
             </header> 
 
-            <div className="mt-2 flex w-3/4 self-center justify-between py-3 px-2">
+            <div className="mt-2 flex w-3/4 self-center justify-between py-3 px-2
+                        bg-[#f7f5f1] text-black hover:bg-gray-200
+                        dark:bg-[#171717] dark:text-gray-100 dark:hover:bg-gray-700">
 
                 <span className="text-sm">
                     Appearance
@@ -231,10 +238,12 @@ export default function Settings() {
 
             {/* Focus Mode */ }
             <header className="mt-5 relative flex w-3/4 self-center 
-                shrink-0 border-b border-black px-6"> 
+                shrink-0 border-b border-black dark:border-gray-600 px-6"> 
             </header> 
 
-            <div className="mt-2 flex w-3/4 self-center justify-between py-3 px-2">
+            <div className="mt-2 flex w-3/4 self-center justify-between py-3 px-2
+                        bg-[#f7f5f1] text-black hover:bg-gray-200
+                        dark:bg-[#171717] dark:text-gray-100 dark:hover:bg-gray-700">
 
                 <span className="text-sm">
                     Focus Mode
@@ -294,7 +303,7 @@ export default function Settings() {
 
             {/* Change Password */}
             <header className="mt-5 relative flex w-3/4 self-center 
-                shrink-0 items-center justify-between border-b border-black
+                shrink-0 items-center justify-between border-b border-black dark:border-gray-600
                 px-6"> 
             </header>
 
@@ -313,7 +322,7 @@ export default function Settings() {
 
             {/* Change Email */}
             <header className="mt-5 relative flex w-3/4 self-center 
-                shrink-0 items-center justify-between border-b border-black
+                shrink-0 items-center justify-between border-b border-black dark:border-gray-600
                 px-6"> 
             </header>
 
