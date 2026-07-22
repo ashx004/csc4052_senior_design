@@ -52,7 +52,7 @@ export default function RecentItemRow({ item, courseId, courseName, kind, onDele
     if (kind === "flashcard") {
       router.push(`/courses/${courseId}/flashcards?setId=${item.id}`);
     } else {
-      console.log("Quiz row clicked (quizzes feature not yet implemented):", item.id);
+      router.push(`/courses/${courseId}/quizzes/${item.id}`);
     }
   };
 
