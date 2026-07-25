@@ -12,6 +12,12 @@ export type CalendarEvent = {
   title: string;
   time?: string;
   tone: EventTone;
+  source: "google" | "local";
+  id: string;
+  startTime?: string;
+  endTime?: string;
+  local?: string 
+  htmlLink?: string; // links to a GC event
 };
 
 export type CalendarDay = {
