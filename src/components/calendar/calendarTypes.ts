@@ -8,16 +8,21 @@ export type EventTone =
   | "brown"
   | "blue";
 
+export type CalendarConnectionStatus = "connected" | "disconnected" | "loading";
+
 export type CalendarEvent = {
-  title: string;
-  time?: string;
-  tone: EventTone;
-  source: "google" | "local";
   id: string;
-  startTime?: string;
-  endTime?: string;
-  local?: string 
-  htmlLink?: string; // links to a GC event
+  title: string;
+  description?: string;
+  location?: string;
+  startTime: string;
+  endTime: string;
+  allDay: boolean;
+  timeZone?: string;
+  status?: "confirmed" | "tentative" | "cancelled";
+  htmlLink?: string;
+  tone?: EventTone;
+  source: "google" | "local";
 };
 
 export type CalendarDay = {
