@@ -1,8 +1,9 @@
 import { useMemo } from "react";
 import EventPill from "@/src/components/calendar/EventPill";
 import { buildMonthGrid } from "@/src/library/calendarHelpers";
-import { monthWeekDays } from "@/src/components/calendar/calendarMockData";
 import type { CalendarEvent } from "@/src/components/calendar/calendarTypes";
+
+const monthWeekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 type MonthViewProps = {
   events: CalendarEvent[];
