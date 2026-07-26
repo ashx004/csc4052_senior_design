@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Menu, X, Plus, Search, Settings } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 interface SidebarProps {
   children: React.ReactNode;
@@ -9,6 +10,7 @@ interface SidebarProps {
 
 export default function Sidebar({ children }: SidebarProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const router = useRouter();
 
   return (
     <>
@@ -67,7 +69,11 @@ export default function Sidebar({ children }: SidebarProps) {
 
           {/* Footer: settings gear */}
           <div className="flex justify-end px-3 py-1 border-t border-border-light">
-            <button className="p-1 text-text-muted hover:text-text-main transition-colors">
+            <button 
+              onClick={() => router.push("/settings")}
+              className="p-1 text-text-muted hover:text-text-main transition-colors"
+              aria-label="Open settings"
+              >
               <Settings className="w-5 h-5" />
             </button>
           </div>
