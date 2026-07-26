@@ -1,4 +1,4 @@
-import { eventToneClasses } from "@/src/components/calendar/calendarMockData";
+import { eventToneClasses } from "@/src/components/calendar/calendarTypes";
 import type { CalendarEvent } from "@/src/components/calendar/calendarTypes";
 
 type EventPillProps = {
