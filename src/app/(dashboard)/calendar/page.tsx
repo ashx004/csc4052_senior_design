@@ -60,7 +60,7 @@ export default function CalendarPage() {
     return { start, end };
   }, [currentDate, view, status]);
 
-  const { events, loading: eventsLoading } = useCalendarEvents(dateRange);
+  const { events, loading: eventsLoading, error: eventsError } = useCalendarEvents(dateRange);
 
   // ── Navigation handlers ──────────────────────────────────────────────────
 
@@ -255,6 +255,11 @@ export default function CalendarPage() {
                 <p className="py-12 text-center text-sm text-text-muted">
                   Loading events...
                 </p>
+              )}
+              {eventsError && (
+                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {eventsError}
+                </div>
               )}
               {!eventsLoading && (
                 <>
