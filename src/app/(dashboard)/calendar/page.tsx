@@ -14,9 +14,23 @@ import MonthView from "@/src/components/calendar/MonthView";
 import WeekView from "@/src/components/calendar/WeekView";
 
 import type { CalendarView } from "@/src/components/calendar/calendarTypes";
+import { useSetPageContext } from "@/src/context/AIPageContext";
 
 export default function CalendarPage() {
   const [view, setView] = useState<CalendarView>("month");
+
+  // The calendar has no real event data wired up yet (static UI scaffolding
+  // — no backend model, confirmed no events exist anywhere in this
+  // component tree) — say so honestly rather than letting the model assume
+  // or invent a schedule if asked about it.
+  useSetPageContext(
+    {
+      page: "calendar",
+      label: "Calendar",
+      summary: `The student is viewing their calendar in ${view} view. No real event/schedule data is wired up on this page yet — don't assume or invent any events.`,
+    },
+    [view]
+  );
 
   function getViewButtonClass(buttonView: CalendarView) {
     const isActive = view === buttonView;
