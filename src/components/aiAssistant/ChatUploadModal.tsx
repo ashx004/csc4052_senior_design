@@ -75,7 +75,7 @@ export default function ChatUploadModal({ userId, classes, onClose, onUploaded }
       onClick={() => !isUploading && onClose()}
     >
       <div
-        className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl"
+        className="w-full max-w-sm rounded-xl bg-bg-container p-6 shadow-xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
@@ -102,7 +102,7 @@ export default function ChatUploadModal({ userId, classes, onClose, onUploaded }
               value={selectedClassId}
               onChange={(event) => setSelectedClassId(event.target.value)}
               disabled={isUploading}
-              className="mb-4 w-full rounded-md border border-border-light bg-white px-3 py-2 text-sm text-text-main outline-none focus:border-primary"
+              className="mb-4 w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main outline-none focus:border-primary"
             >
               {classes.map((c) => (
                 <option key={c.classId} value={c.classId}>

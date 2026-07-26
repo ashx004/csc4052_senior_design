@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { Loader2, LayoutGrid, List } from "lucide-react";
 import { useAuth } from "@/src/context/AuthContext";
 import { useSetPageContext } from "@/src/context/AIPageContext";
@@ -34,7 +35,7 @@ interface AdvisingResponse {
   sourceUnavailable?: boolean;
   university?: { name: string; domain: string };
   universityUnsupported?: boolean;
-  completedCourses: { classCode: string; className: string; term: string; creditHours?: number }[];
+  completedCourses: { classId: string; classCode: string; className: string; term: string; creditHours?: number }[];
   progress: { completedCount: number; totalCreditsCompleted: number };
 }
 
@@ -121,7 +122,7 @@ function CourseCard({
 
   if (dense) {
     return (
-      <div className="flex items-center gap-3 rounded-lg bg-white px-4 py-2.5 shadow-sm ring-1 ring-border-light">
+      <div className="flex items-center gap-3 rounded-lg bg-bg-container px-4 py-2.5 shadow-sm ring-1 ring-border-light">
         <div className="min-w-0 flex-1">
           <span className="font-semibold text-text-main">{course.courseCode}</span>{" "}
           <span className="text-sm text-text-muted">{course.title}</span>
@@ -141,7 +142,7 @@ function CourseCard({
   }
 
   return (
-    <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-border-light">
+    <div className="rounded-2xl bg-bg-container p-5 shadow-sm ring-1 ring-border-light">
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="font-semibold text-text-main">{course.courseCode}</p>
@@ -335,13 +336,13 @@ export default function Advising() {
           )}
 
           {!loading && !data && error && (
-            <div className="rounded-2xl bg-white p-6 text-center shadow-sm ring-1 ring-border-light">
+            <div className="rounded-2xl bg-bg-container p-6 text-center shadow-sm ring-1 ring-border-light">
               <p className="text-text-main">{error}</p>
             </div>
           )}
 
           {data && data.progress.completedCount > 0 && (
-            <div className="flex flex-wrap items-center gap-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-border-light">
+            <div className="flex flex-wrap items-center gap-6 rounded-2xl bg-bg-container p-5 shadow-sm ring-1 ring-border-light">
               <div>
                 <p className="text-2xl font-bold text-text-main">{data.progress.completedCount}</p>
                 <p className="text-xs uppercase tracking-wide text-text-muted">Courses completed</p>
@@ -359,7 +360,7 @@ export default function Advising() {
           )}
 
           {data && data.universityUnsupported && (
-            <div className="rounded-2xl bg-white p-6 text-center shadow-sm ring-1 ring-border-light">
+            <div className="rounded-2xl bg-bg-container p-6 text-center shadow-sm ring-1 ring-border-light">
               {data.university && (
                 <img
                   src={faviconUrl(data.university.domain)}
@@ -378,7 +379,7 @@ export default function Advising() {
 
           {data && !data.universityUnsupported && (
             <>
-              <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-border-light">
+              <div className="rounded-2xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light">
                 <div className="flex items-center gap-3">
                   {data.university && (
                     <img src={faviconUrl(data.university.domain)} alt="" className="h-8 w-8 rounded" />
@@ -403,12 +404,12 @@ export default function Advising() {
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
                   placeholder="Search by course code or title..."
-                  className="flex-1 rounded-md border border-border-light bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  className="flex-1 rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm focus:border-primary focus:outline-none"
                 />
                 <select
                   value={department}
                   onChange={(e) => setDepartment(e.target.value)}
-                  className="rounded-md border border-border-light bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  className="rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm focus:border-primary focus:outline-none"
                 >
                   <option value="">All departments</option>
                   {data.departments.map((dept) => (
@@ -417,7 +418,7 @@ export default function Advising() {
                     </option>
                   ))}
                 </select>
-                <div className="flex shrink-0 rounded-md border border-border-light bg-white p-1">
+                <div className="flex shrink-0 rounded-md border border-border-light bg-bg-container p-1">
                   <button
                     type="button"
                     onClick={() => changeView("grid")}
@@ -438,7 +439,7 @@ export default function Advising() {
               </div>
 
               {data.recommended.length === 0 && otherLikely.length === 0 ? (
-                <div className="rounded-2xl bg-white p-6 text-center shadow-sm ring-1 ring-border-light">
+                <div className="rounded-2xl bg-bg-container p-6 text-center shadow-sm ring-1 ring-border-light">
                   <p className="text-text-main">No matching course offerings found for {data.termLabel}.</p>
                 </div>
               ) : (
@@ -481,7 +482,7 @@ export default function Advising() {
                           <button
                             onClick={loadMore}
                             disabled={loadingMore}
-                            className="flex items-center gap-2 rounded-md border border-border-light bg-white px-4 py-2 text-sm font-medium text-text-main hover:bg-bg-warm disabled:opacity-60"
+                            className="flex items-center gap-2 rounded-md border border-border-light bg-bg-container px-4 py-2 text-sm font-medium text-text-main hover:bg-bg-warm disabled:opacity-60"
                           >
                             {loadingMore && <Loader2 className="h-4 w-4 animate-spin" />}
                             {loadingMore ? "Loading..." : "Load more"}
@@ -496,15 +497,16 @@ export default function Advising() {
           )}
 
           {data && data.completedCourses.length > 0 && (
-            <details className="rounded-2xl bg-white shadow-sm ring-1 ring-border-light">
+            <details className="rounded-2xl bg-bg-container shadow-sm ring-1 ring-border-light">
               <summary className="cursor-pointer select-none p-5 text-sm font-semibold uppercase tracking-wide text-text-muted">
                 Completed courses ({data.completedCourses.length})
               </summary>
               <div className="grid grid-cols-1 gap-4 border-t border-border-light p-5 sm:grid-cols-2 lg:grid-cols-3">
                 {data.completedCourses.map((course) => (
-                  <div
+                  <Link
                     key={`${course.classCode}-${course.term}`}
-                    className="rounded-xl bg-bg-warm p-4"
+                    href={`/courses/${course.classId}`}
+                    className="block rounded-xl bg-bg-warm p-4 transition hover:-translate-y-0.5 hover:shadow-md"
                   >
                     <p className="font-semibold text-text-main">{course.classCode}</p>
                     <p className="mt-0.5 text-sm text-text-muted">{course.className}</p>
@@ -512,7 +514,7 @@ export default function Advising() {
                       {course.term}
                       {course.creditHours ? ` · ${course.creditHours} credit hours` : ""}
                     </p>
-                  </div>
+                  </Link>
                 ))}
               </div>
             </details>

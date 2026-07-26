@@ -83,7 +83,7 @@ export default function AIPanel() {
           </div>
 
           <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
-            <div className="rounded-2xl bg-white px-4 py-3 text-sm leading-relaxed text-text-main shadow-sm ring-1 ring-border-light">
+            <div className="rounded-2xl bg-bg-container px-4 py-3 text-sm leading-relaxed text-text-main shadow-sm ring-1 ring-border-light">
               <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
                 {buildGreeting()}
               </ReactMarkdown>
@@ -96,13 +96,13 @@ export default function AIPanel() {
                     {message.text}
                   </div>
                 ) : message.text ? (
-                  <div className="prose prose-sm max-w-[85%] rounded-2xl bg-white px-4 py-3 leading-relaxed shadow-sm ring-1 ring-border-light prose-headings:text-text-main prose-p:my-1 prose-p:text-text-main prose-strong:text-text-main prose-a:text-primary prose-code:text-text-main">
+                  <div className="prose prose-sm max-w-[85%] rounded-2xl bg-bg-container px-4 py-3 leading-relaxed shadow-sm ring-1 ring-border-light prose-headings:text-text-main prose-p:my-1 prose-p:text-text-main prose-strong:text-text-main prose-a:text-primary prose-code:text-text-main">
                     <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
                       {message.text}
                     </ReactMarkdown>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-border-light">
+                  <div className="flex items-center gap-2 rounded-2xl bg-bg-container px-4 py-3 shadow-sm ring-1 ring-border-light">
                     {toolStatus ? (
                       <span className="text-xs text-text-muted">{toolStatus}</span>
                     ) : (
@@ -132,7 +132,7 @@ export default function AIPanel() {
               placeholder="Ask Catalyst..."
               maxLength={4000}
               disabled={isSending}
-              className="flex-1 rounded-full border border-border-light bg-white px-4 py-2 text-sm focus:border-primary focus:outline-none disabled:opacity-60"
+              className="flex-1 rounded-full border border-border-light bg-bg-container px-4 py-2 text-sm focus:border-primary focus:outline-none disabled:opacity-60"
             />
             <button
               type="submit"

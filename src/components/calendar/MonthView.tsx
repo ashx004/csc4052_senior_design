@@ -6,7 +6,7 @@ import {
 
 export default function MonthView() {
   return (
-    <div className="overflow-hidden rounded-2xl border border-border-light bg-white">
+    <div className="overflow-hidden rounded-2xl border border-border-light bg-bg-container">
       <div className="grid grid-cols-7 border-b border-border-light bg-bg-container">
         {monthWeekDays.map((day) => (
           <div
@@ -24,7 +24,7 @@ export default function MonthView() {
             key={`${calendarDay.day}-${index}`}
             className={`min-h-[118px] border-r border-b border-border-light p-3 ${
               index % 7 === 6 ? "border-r-0" : ""
-            } ${calendarDay.muted ? "bg-bg-container" : "bg-white"} ${
+            } ${calendarDay.muted ? "bg-bg-container" : "bg-bg-container"} ${
               calendarDay.selected ? "bg-bg-warm" : ""
             }`}
           >
