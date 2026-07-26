@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { JSX } from "react";
 import { // import symbols
     X,
     ChevronLeft,
@@ -178,7 +179,7 @@ async function generateThumbnail(resource: Resource): Promise<ThumbnailData | nu
             const context = canvas.getContext("2d");
             if (!context) return null;
 
-            await page.render({ canvasContext: context, viewport }).promise;
+            await page.render({ canvasContext: context, viewport, canvas: canvas }).promise;
             return { kind: "image", content: canvas.toDataURL("image/png") };
         }
 
