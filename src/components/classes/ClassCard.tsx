@@ -1,5 +1,6 @@
 import "@/src/components/classes/ClassCard.css";
 import Link from 'next/link';
+import { EnrollmentStatus } from "@/src/library/enrollmentStatus";
 
 // to hold props for class information for later user input
 export interface ClassCardProps {
@@ -8,6 +9,7 @@ export interface ClassCardProps {
   classCode?: string;
   term?: string;
   color?: string;
+  status?: EnrollmentStatus;
 }
 
 export default function ClassCard({

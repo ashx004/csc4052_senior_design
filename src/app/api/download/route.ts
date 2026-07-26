@@ -1,18 +1,10 @@
 // src/app/api/download/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { verifyRequestAuth, isInternalRequest } from "@/src/library/verifyAuth";
+import { getMinioClient } from "@/src/library/minioClient";
 
-const s3Client = new S3Client({
-    endpoint: process.env.MINIO_ENDPOINT, // e.g. "http://192.168.1.11:9069"
-    region: "us-east-1",
-    credentials: {
-        accessKeyId: process.env.MINIO_ACCESS_KEY!,
-        secretAccessKey: process.env.MINIO_SECRET_KEY!,
-    },
-    forcePathStyle: true,
-    tls: true,
-});
+const s3Client = getMinioClient();
 
 export async function GET(req: NextRequest) {
     const key = req.nextUrl.searchParams.get("key");

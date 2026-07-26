@@ -1,16 +1,8 @@
 import PDFDocument from "pdfkit";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { getMinioClient } from "@/src/library/minioClient";
 
-const s3Client = new S3Client({
-  endpoint: process.env.MINIO_ENDPOINT,
-  region: "us-east-1",
-  credentials: {
-    accessKeyId: process.env.MINIO_ACCESS_KEY!,
-    secretAccessKey: process.env.MINIO_SECRET_KEY!,
-  },
-  forcePathStyle: true,
-  tls: true,
-});
+const s3Client = getMinioClient();
 
 // Minimal inline-markdown renderer (bold only) — chains styled segments on
 // one pdfkit line via `continued`, since pdfkit has no rich-text markup input.
