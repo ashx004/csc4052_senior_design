@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
-import { verifyRequestAuth } from "@/library/verifyAuth";
+import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { doc, getDoc } from "firebase/firestore";
-import { db } from "@/library/firebase";
+import { db } from "@/src/library/firebase";
 
 export async function GET(req: NextRequest) {
   const user = await verifyRequestAuth(req);
