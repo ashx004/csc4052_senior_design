@@ -5,12 +5,14 @@ type TimedEventProps = {
   title: string;
   tone: EventTone;
   height: string;
+  style?: React.CSSProperties;
 };
 
-export default function TimedEvent({ title, tone, height }: TimedEventProps) {
+export default function TimedEvent({ title, tone, height, style }: TimedEventProps) {
   return (
     <div
-      className={`absolute left-1.5 right-1.5 top-1.5 z-10 rounded-lg px-2.5 py-2 text-xs font-semibold leading-snug shadow-sm ${
+      style={style}
+      className={`absolute left-1.5 right-1.5 z-10 rounded-lg px-2.5 py-2 text-xs font-semibold leading-snug shadow-sm ${
         eventToneClasses[tone]
       } ${height}`}
     >
