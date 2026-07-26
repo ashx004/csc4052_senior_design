@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useState } from "react";
 import { Loader2, Trash2 } from "lucide-react";
 import { useAuth } from "@/src/context/AuthContext";
