@@ -12,10 +12,17 @@ import {
 import DayView from "@/src/components/calendar/DayView";
 import MonthView from "@/src/components/calendar/MonthView";
 import WeekView from "@/src/components/calendar/WeekView";
+// >>> GOOGLE_CALENDAR_INTEGRATION_START
+import GoogleCalendarConnect from "@/src/components/calendar/GoogleCalendarConnect";
+import { useCalendarConnection } from "@/src/hooks/useCalendarConnection";
+// <<< GOOGLE_CALENDAR_INTEGRATION_END
 
 import type { CalendarView } from "@/src/components/calendar/calendarTypes";
 
 export default function CalendarPage() {
+  // >>> GOOGLE_CALENDAR_INTEGRATION_START
+  const { status, refresh } = useCalendarConnection();
+  // <<< GOOGLE_CALENDAR_INTEGRATION_END
   const [view, setView] = useState<CalendarView>("month");
 
   function getViewButtonClass(buttonView: CalendarView) {
@@ -124,9 +131,25 @@ export default function CalendarPage() {
             </div>
           </div>
 
-          {view === "month" && <MonthView />}
-          {view === "week" && <WeekView />}
-          {view === "day" && <DayView />}
+          {/* >>> GOOGLE_CALENDAR_INTEGRATION_START */}
+          {status === "loading" && (
+            <p className="py-12 text-center text-sm text-text-muted">
+              Loading calendar...
+            </p>
+          )}
+
+          {status === "disconnected" && (
+            <GoogleCalendarConnect onConnected={refresh} />
+          )}
+
+          {status === "connected" && (
+            <>
+              {view === "month" && <MonthView />}
+              {view === "week" && <WeekView />}
+              {view === "day" && <DayView />}
+            </>
+          )}
+          {/* <<< GOOGLE_CALENDAR_INTEGRATION_END */}
         </div>
       </div>
     </section>
