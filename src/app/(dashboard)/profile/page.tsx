@@ -132,7 +132,7 @@ export default function Profile() {
             ) : (
               <>
                 {university && (
-                  <div className="mb-3 flex items-center gap-2 rounded-lg border border-border-light bg-white p-3">
+                  <div className="mb-3 flex items-center gap-2 rounded-lg border border-border-light bg-bg-container p-3">
                     <img src={faviconUrl(university.domain)} alt="" className="h-6 w-6 rounded" />
                     <span className="text-sm text-text-main">{university.name}</span>
                   </div>
@@ -145,10 +145,10 @@ export default function Profile() {
                   onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
                   disabled={savingUniversity}
                   placeholder={university ? "Search to change your university..." : "Search for your university..."}
-                  className="w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-primary focus:outline-none disabled:opacity-60"
+                  className="w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-primary focus:outline-none disabled:opacity-60"
                 />
                 {showSuggestions && suggestions.length > 0 && (
-                  <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-border-light bg-white shadow-lg">
+                  <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-border-light bg-bg-container shadow-lg">
                     {suggestions.map((s) => (
                       <li key={`${s.name}-${s.domain}`}>
                         <button
@@ -185,7 +185,7 @@ export default function Profile() {
               </div>
             ) : profile?.summary ? (
               <>
-                <div className="rounded-lg border border-border-light bg-white p-4 text-sm leading-relaxed text-text-main">
+                <div className="rounded-lg border border-border-light bg-bg-container p-4 text-sm leading-relaxed text-text-main">
                   {profile.summary}
                 </div>
                 {profile.updatedAt && (
@@ -237,3 +237,5 @@ export default function Profile() {
     </div>
   );
 }
+
+

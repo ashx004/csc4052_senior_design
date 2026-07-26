@@ -38,7 +38,14 @@ Your output: CLEAR
 Now do the same for the next student message. Preserve every concrete detail (course codes, document names, exact numbers/wording) — never paraphrase details away or add anything not implied by the message. Do not answer the question yourself.`;
 
 const MIN_MESSAGE_LENGTH = 12; // below this ("hi", "yes", "thanks"), there's nothing to clarify
-const CLARIFY_TIMEOUT_MS = 15000;
+// Was 15s — raised after a real timeout was traced to the secondary box
+// evicting/reloading whichever of qwen3:4b / qwen3-embedding wasn't most
+// recently used (no OLLAMA_MAX_LOADED_MODELS set, so only one stayed
+// resident). Fixed at the infra level (both models now kept loaded
+// simultaneously, OLLAMA_KEEP_ALIVE=-1) — this extra headroom is just
+// defense-in-depth for real concurrent-request queueing, not the reload
+// case anymore.
+const CLARIFY_TIMEOUT_MS = 20000;
 
 export async function clarifyUserQuery(message: string): Promise<string | null> {
   if (process.env.ENABLE_QUERY_CLARIFICATION === "false") return null;
@@ -72,7 +79,11 @@ export async function clarifyUserQuery(message: string): Promise<string | null> 
     if (!clarified || clarified.toUpperCase() === "CLEAR") return null;
     return clarified;
   } catch (error) {
-    console.error("Query clarification failed, continuing without it:", error);
+    // Log just the message/name, not the raw error object — a DOMException
+    // from AbortSignal.timeout() dumps a huge, noisy block of unrelated
+    // legacy error-code constants when passed to console.error directly.
+    const description = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    console.error(`Query clarification failed, continuing without it: ${description}`);
     return null;
   }
 }

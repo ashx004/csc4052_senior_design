@@ -189,7 +189,7 @@ export default function Classes() {
 
             {confirmingClass && confirmingClass.classId && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
-                    <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
+                    <div className="w-full max-w-sm rounded-lg bg-bg-container p-6 shadow-xl">
                         <h3 className="text-lg font-semibold text-text-main">Remove {confirmingClass.className}?</h3>
                         <p className="mt-2 text-sm text-text-muted">
                             If you've finished this class, mark it completed to keep it in your course history —

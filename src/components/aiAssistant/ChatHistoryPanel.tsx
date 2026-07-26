@@ -102,7 +102,7 @@ export default function ChatHistoryPanel({ userId, activeSessionId, onClose, onS
                     event.stopPropagation();
                     togglePin(session);
                   }}
-                  className={`shrink-0 rounded-md p-1.5 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-white ${
+                  className={`shrink-0 rounded-md p-1.5 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-bg-container ${
                     session.pinned ? "text-primary opacity-100" : "text-text-muted"
                   }`}
                   aria-label={session.pinned ? "Unpin chat" : "Pin chat"}
@@ -116,7 +116,7 @@ export default function ChatHistoryPanel({ userId, activeSessionId, onClose, onS
                     event.stopPropagation();
                     remove(session);
                   }}
-                  className="shrink-0 rounded-md p-1.5 text-text-muted opacity-0 transition-opacity hover:bg-white hover:text-alert-error group-hover:opacity-100"
+                  className="shrink-0 rounded-md p-1.5 text-text-muted opacity-0 transition-opacity hover:bg-bg-container hover:text-alert-error group-hover:opacity-100"
                   aria-label="Delete chat"
                 >
                   <Trash2 size={14} />

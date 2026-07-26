@@ -183,7 +183,7 @@ export default function AddEnrollmentModal({
           <button
             onClick={onToggleDeleteMode}
             className={`absolute top-4 right-16 flex h-8 w-8 items-center justify-center rounded-md shadow transition-colors ${
-                deleteMode ? "bg-red-500 text-white" : "bg-white text-text-muted hover:bg-bg-warm"
+                deleteMode ? "bg-red-500 text-white" : "bg-bg-container text-text-muted hover:bg-bg-warm"
             }`}
             aria-label="Toggle delete mode"
         >
@@ -195,7 +195,7 @@ export default function AddEnrollmentModal({
       { /* render the modal iff isOpen is true */}
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
-          <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl transition-all max-h-[90vh] overflow-y-auto">
+          <div className="w-full max-w-lg rounded-lg bg-bg-container p-6 shadow-xl transition-all max-h-[90vh] overflow-y-auto">
             {/* Top label */}
             <div className="flex items-center justify-between border-b pb-3 mb-4">
               <h3 className="text-xl font-semibold text-text-main">Add New Class</h3>
@@ -218,7 +218,7 @@ export default function AddEnrollmentModal({
                     required
                     value={formData.className}
                     onChange={handleChange}
-                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
+                    className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-green-500 focus:outline-none"
                     placeholder="e.g. Introduction to Databases"
                   />
                 </div>
@@ -233,11 +233,11 @@ export default function AddEnrollmentModal({
                     onChange={handleChange}
                     onFocus={() => setShowSuggestions(true)}
                     onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
+                    className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-green-500 focus:outline-none"
                     placeholder="e.g. CS 304"
                   />
                   {showSuggestions && courseSuggestions.length > 0 && (
-                    <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-border-light bg-white shadow-lg">
+                    <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-border-light bg-bg-container shadow-lg">
                       {courseSuggestions.map((suggestion) => (
                         <li key={suggestion.courseCode}>
                           <button
@@ -261,7 +261,7 @@ export default function AddEnrollmentModal({
                     required
                     value={termSeason}
                     onChange={(e) => setTermSeason(e.target.value as Term)}
-                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
+                    className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-green-500 focus:outline-none"
                   >
                     {TERM_OPTIONS.map((t) => (
                       <option key={t} value={t}>{t}</option>
@@ -276,7 +276,7 @@ export default function AddEnrollmentModal({
                     required
                     value={termYear}
                     onChange={(e) => setTermYear(parseInt(e.target.value, 10) || currentTerm.year)}
-                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
+                    className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-green-500 focus:outline-none"
                     placeholder="e.g. 2026"
                   />
                 </div>
@@ -295,7 +295,7 @@ export default function AddEnrollmentModal({
                     name="time"
                     value={formData.time}
                     onChange={handleChange}
-                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
+                    className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-green-500 focus:outline-none"
                     placeholder="e.g. 10:00 AM - 11:30 AM"
                   />
                 </div>
@@ -306,7 +306,7 @@ export default function AddEnrollmentModal({
                     name="classSchedule"
                     value={formData.classSchedule}
                     onChange={handleChange}
-                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
+                    className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-green-500 focus:outline-none"
                     placeholder="e.g. Mon / Wed"
                   />
                 </div>
@@ -318,7 +318,7 @@ export default function AddEnrollmentModal({
                     step="0.5"
                     value={creditHours}
                     onChange={(e) => setCreditHours(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
+                    className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-green-500 focus:outline-none"
                     placeholder="e.g. 3"
                   />
                 </div>
@@ -329,7 +329,7 @@ export default function AddEnrollmentModal({
                     name="prerequisites"
                     value={formData.prerequisites}
                     onChange={handleChange}
-                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
+                    className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-green-500 focus:outline-none"
                     placeholder="e.g. CSC 200, MATH 101 (self-reported — no catalog to validate against)"
                   />
                 </div>
@@ -340,7 +340,7 @@ export default function AddEnrollmentModal({
                     name="facultyName"
                     value={formData.facultyName}
                     onChange={handleChange}
-                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
+                    className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-green-500 focus:outline-none"
                     placeholder="Dr. Smith"
                   />
                 </div>
@@ -351,7 +351,7 @@ export default function AddEnrollmentModal({
                     name="facultyEmail"
                     value={formData.facultyEmail}
                     onChange={handleChange}
-                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
+                    className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-green-500 focus:outline-none"
                     placeholder="smith@university.edu"
                   />
                 </div>
@@ -362,7 +362,7 @@ export default function AddEnrollmentModal({
                     name="facultyPhoneNumber"
                     value={formData.facultyPhoneNumber}
                     onChange={handleChange}
-                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
+                    className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-green-500 focus:outline-none"
                     placeholder="555-0199"
                   />
                 </div>
@@ -373,7 +373,7 @@ export default function AddEnrollmentModal({
                     name="facultyOfficeNumber"
                     value={formData.facultyOfficeNumber}
                     onChange={handleChange}
-                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-green-500 focus:outline-none"
+                    className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-green-500 focus:outline-none"
                     placeholder="Tech Tower Room 402"
                   />
                 </div>

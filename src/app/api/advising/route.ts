@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
   // creditHours is self-reported (AddEnrollmentModal) — no external catalog
   // has this data for arbitrary courses, confirmed during the Advising work.
   const enrollments: StudentEnrollment[] = [];
-  const completedCourses: { classCode: string; className: string; term: string; creditHours?: number }[] = [];
+  const completedCourses: { classId: string; classCode: string; className: string; term: string; creditHours?: number }[] = [];
   let totalCreditsCompleted = 0;
   try {
     const enrollmentRef = collection(db, "users", auth.uid, "enrollment");
@@ -80,6 +80,7 @@ export async function GET(request: NextRequest) {
       if (getEnrollmentStatus(data) === "completed") {
         const creditHours = typeof data.creditHours === "number" ? data.creditHours : undefined;
         completedCourses.push({
+          classId: d.id,
           classCode: data.classCode ?? "",
           className: data.className ?? "",
           term: data.term ?? "",
