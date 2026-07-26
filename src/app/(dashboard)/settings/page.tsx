@@ -15,10 +15,10 @@ import { auth } from "../../../library/firebase";
 
 export default function Settings() {
 
-    const [notificationIsOn, setNotificationOn] = useState<boolean>(false);
-    const [studyRemIsOn, setstudyRemOn] = useState<boolean>(false);
+    // const [notificationIsOn, setNotificationOn] = useState<boolean>(false);
+    // const [studyRemIsOn, setstudyRemOn] = useState<boolean>(false);
     const [appearanceIsOn, setAppearanceOn] = useState<boolean>(false);
-    const [focusIsOn, setFocusOn] = useState<boolean>(false);
+    // const [focusIsOn, setFocusOn] = useState<boolean>(false);
 
     const [showPasswordForm, setShowPasswordForm] = useState<boolean>(false);
     const [showEmailForm, setShowEmailForm] = useState<boolean>(false);
