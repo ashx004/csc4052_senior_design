@@ -1,14 +1,15 @@
 import { NextRequest } from "next/server";
-import { verifyRequestAuth } from "@/src/library/verifyAuth";
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "@/src/library/firebase";
+import { getUidFromRequest, firestoreGet } from "@/src/library/googleCalendar";
 
 export async function GET(req: NextRequest) {
-  const user = await verifyRequestAuth(req);
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const uid = await getUidFromRequest(req);
+  if (!uid) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
-  const userDoc = await getDoc(doc(db, "users", user.uid));
-  const tokens = userDoc.data()?.calendarTokens;
+  const idToken = req.cookies.get("fb_token")?.value;
+  if (!idToken) return Response.json({ error: "Unauthorized" }, { status: 401 });
+
+  const userDoc = await firestoreGet(idToken, "users", uid);
+  const tokens = (userDoc?.calendarTokens as { refresh_token?: string } | undefined) ?? undefined;
 
   return Response.json({ connected: Boolean(tokens?.refresh_token) });
 }

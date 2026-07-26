@@ -1,26 +1,27 @@
 import { NextRequest } from "next/server";
-import { verifyRequestAuth } from "@/src/library/verifyAuth";
-import { updateEvent, deleteEvent } from "@/src/library/googleCalendar";
+import { getUidFromRequest, updateEvent, deleteEvent } from "@/src/library/googleCalendar";
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { eventId: string } }
+  { params }: { params: Promise<{ eventId: string }> }
 ) {
-  const user = await verifyRequestAuth(req);
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const uid = await getUidFromRequest(req);
+  if (!uid) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
+  const { eventId } = await params;
   const body = await req.json();
-  const event = await updateEvent(user.uid, params.eventId, body);
+  const event = await updateEvent(req, uid, eventId, body);
   return Response.json({ event });
 }
 
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { eventId: string } }
+  { params }: { params: Promise<{ eventId: string }> }
 ) {
-  const user = await verifyRequestAuth(req);
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const uid = await getUidFromRequest(req);
+  if (!uid) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
-  const success = await deleteEvent(user.uid, params.eventId);
+  const { eventId } = await params;
+  const success = await deleteEvent(req, uid, eventId);
   return Response.json({ success });
 }
