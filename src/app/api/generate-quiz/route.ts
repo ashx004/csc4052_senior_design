@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
+import {
+  fetchInternal,
+  resolveInternalUrl,
+} from '@/src/library/pdfExtract';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
@@ -51,14 +55,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Gemini API key not configured' }, { status: 500 });
     }
 
-    // 1. Fetch the document from internal MinIO proxy
-    const host = request.headers.get('host');
-    const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https';
-    const fullUrl = `${protocol}://${host}${docUrl}`;
+    // 1. Fetch the document from the protected internal download route
+    const fullUrl = resolveInternalUrl(request, docUrl);
+    const fileResponse = await fetchInternal(fullUrl);
 
-    const fileResponse = await fetch(fullUrl);
     if (!fileResponse.ok) {
-      return NextResponse.json({ error: 'Failed to download document' }, { status: 500 });
+      console.error(
+        `Failed to download quiz document: ${fileResponse.status} ${fileResponse.statusText}`
+      );
+
+      return NextResponse.json(
+        { error: `Failed to download document (${fileResponse.status})` },
+        { status: 500 }
+      );
     }
 
     // 2. Extract text from the document
