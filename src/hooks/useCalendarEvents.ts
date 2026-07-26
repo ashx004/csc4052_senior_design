@@ -32,5 +32,7 @@ export function useCalendarEvents( dateRange?: { start: Date; end: Date }) {
     }, [dateRange?.start?.toISOString(),
     dateRange?.end?.toISOString()]);
 
-    return { events, loading, error, refectch: fetchEvents };
+    useEffect(() => { fetchEvents(); }, [fetchEvents]);
+
+    return { events, loading, error, refetch: fetchEvents };
 }
