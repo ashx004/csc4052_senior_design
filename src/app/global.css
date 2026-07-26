@@ -78,3 +78,17 @@ a:hover {
     margin-top: -40px !important; 
     margin-bottom: -10px !important; 
 }
+
+/* Catalyst AI panel slide-in animation */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.25s ease-out;
+}
