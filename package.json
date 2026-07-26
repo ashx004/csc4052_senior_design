@@ -12,7 +12,7 @@
     "@aws-sdk/client-s3": "^3.1079.0",
     "@aws-sdk/node-http-handler": "^3.370.0",
     "@aws-sdk/s3-request-presigner": "^3.1079.0",
-    "@google/generative-ai": "^0.24.1",
+    "@google/genai": "^2.12.0",
     "docx-preview": "^0.3.7",
     "firebase": "^12.15.0",
     "jose": "^5.9.6",
@@ -30,7 +30,8 @@
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.0",
     "remark-math": "^6.0.0",
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.15",
