@@ -227,7 +227,7 @@ export default function CourseLearningPage() {
       });
 
       setQuizDocument(null);
-      router.push(`/courses/${courseId}/quizzes/${newDoc.id}`);
+      router.push(`/courses/${courseId}/quizzes/${newDoc.id}?mode=take`);
     } catch (err) {
       console.error('Error generating quiz:', err);
       setQuizError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
