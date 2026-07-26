@@ -6,12 +6,12 @@ import {
 
 export default function MonthView() {
   return (
-    <div className="overflow-hidden rounded-2xl border border-[#e1dbd1] bg-white">
-      <div className="grid grid-cols-7 border-b border-[#e1dbd1] bg-[#fbfaf8]">
+    <div className="overflow-hidden rounded-2xl border border-border-light bg-white">
+      <div className="grid grid-cols-7 border-b border-border-light bg-bg-container">
         {monthWeekDays.map((day) => (
           <div
             key={day}
-            className="border-r border-[#e1dbd1] py-3 text-center text-xs font-semibold text-[#6b675f] last:border-r-0"
+            className="border-r border-border-light py-3 text-center text-xs font-semibold text-text-muted last:border-r-0"
           >
             {day}
           </div>
@@ -22,15 +22,15 @@ export default function MonthView() {
         {monthDays.map((calendarDay, index) => (
           <article
             key={`${calendarDay.day}-${index}`}
-            className={`min-h-[118px] border-r border-b border-[#e1dbd1] p-3 ${
+            className={`min-h-[118px] border-r border-b border-border-light p-3 ${
               index % 7 === 6 ? "border-r-0" : ""
-            } ${calendarDay.muted ? "bg-[#faf9f7]" : "bg-white"} ${
-              calendarDay.selected ? "bg-[#f1eadf]" : ""
+            } ${calendarDay.muted ? "bg-bg-container" : "bg-white"} ${
+              calendarDay.selected ? "bg-bg-warm" : ""
             }`}
           >
             <div
               className={`mb-3 text-xs ${
-                calendarDay.muted ? "text-[#b7afa4]" : "text-[#5f5a52]"
+                calendarDay.muted ? "text-text-muted" : "text-text-main"
               }`}
             >
               {calendarDay.day}

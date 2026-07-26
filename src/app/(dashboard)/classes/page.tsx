@@ -20,6 +20,8 @@ export interface EnrollmentFields {
     facultyEmail: string;
     facultyName: string;
     classSchedule: string;
+    classRoom?: string;
+    classDescription?: string;
 }
 
 async function getEnrollment(
@@ -108,8 +110,8 @@ export default function Classes() {
     // Combined/Cleaned condition checks (No duplicates)
     if (loading) {
         return (
-            <div className="relative flex min-h-screen items-center justify-center bg-orange-50">
-                <p className="text-lg text-gray-700">Loading...</p>
+            <div className="relative flex min-h-screen items-center justify-center bg-bg-main">
+                <p className="text-lg text-text-muted">Loading...</p>
             </div>
         );
     }
@@ -117,7 +119,7 @@ export default function Classes() {
     // View state when no classes are found in Firestore
     if (enrollments.length === 0) {
         return (
-            <div className="relative flex min-h-screen items-center justify-center bg-orange-50">
+            <div className="relative flex min-h-screen items-center justify-center bg-bg-main">
                 <AddEnrollmentModal
                     onEnrollmentAdded={refreshEnrollments}
                     deleteMode={deleteMode}
@@ -125,7 +127,7 @@ export default function Classes() {
                 />
                 <div className="flex flex-col items-center justify-center min-h-screen py-2">
                     <h1 className="text-4xl font-bold mb-8">Classes</h1>
-                    <p className="text-lg text-gray-700">No classes found. Please add a new class.</p>
+                    <p className="text-lg text-text-muted">No classes found. Please add a new class.</p>
                 </div>
             </div>
         )
@@ -133,7 +135,7 @@ export default function Classes() {
 
     // Default view layout when user has active class cards
     return (
-        <div className="relative flex min-h-screen items-center justify-center bg-[#FAF7F0]">
+        <div className="relative flex min-h-screen items-center justify-center bg-bg-main">
             <AddEnrollmentModal
                 onEnrollmentAdded={refreshEnrollments}
                 deleteMode={deleteMode}
@@ -147,7 +149,7 @@ export default function Classes() {
                             <ClassCard {...enrollment} />
                             {deleteMode && (
                                 <button
-                                    onClick={() => handleDeleteClass(enrollment.classId)}
+                                    onClick={() => enrollment.classId && handleDeleteClass(enrollment.classId)}
                                     className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-red-500 text-white shadow-md hover:bg-red-600"
                                     aria-label={`Delete ${enrollment.className}`}
                                 >

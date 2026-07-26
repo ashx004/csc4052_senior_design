@@ -8,23 +8,23 @@ import {
 export default function WeekView() {
   return (
     <div className="overflow-x-auto">
-      <div className="overflow-hidden rounded-2xl border border-[#e1dbd1] bg-white">
-        <div className="grid min-w-[900px] grid-cols-[80px_repeat(7,minmax(110px,1fr))] border-b border-[#e1dbd1]">
-          <div className="border-r border-[#e1dbd1] bg-[#fbfaf8]" />
+      <div className="overflow-hidden rounded-2xl border border-border-light bg-white">
+        <div className="grid min-w-[900px] grid-cols-[80px_repeat(7,minmax(110px,1fr))] border-b border-border-light">
+          <div className="border-r border-border-light bg-bg-container" />
 
           {weekDays.map((day) => (
             <div
               key={day.label}
-              className={`border-r border-[#e1dbd1] px-4 py-3 text-center last:border-r-0 ${
-                day.selected ? "bg-[#eef3fb]" : "bg-[#fbfaf8]"
+              className={`border-r border-border-light px-4 py-3 text-center last:border-r-0 ${
+                day.selected ? "bg-bg-warm" : "bg-bg-container"
               }`}
             >
-              <p className="text-xs font-medium text-[#6b7280]">
+              <p className="text-xs font-medium text-text-muted">
                 {day.label}
               </p>
               <p
                 className={`mt-1 text-lg font-semibold ${
-                  day.selected ? "text-[#4256d6]" : "text-[#27251f]"
+                  day.selected ? "text-primary" : "text-text-main"
                 }`}
               >
                 {day.day}
@@ -34,15 +34,15 @@ export default function WeekView() {
         </div>
 
         <div className="max-h-[620px] min-w-[900px] overflow-y-auto">
-          <div className="grid grid-cols-[80px_repeat(7,minmax(110px,1fr))] border-b border-[#e1dbd1]">
-            <div className="flex items-center justify-end border-r border-[#e1dbd1] bg-[#fbfaf8] px-3 text-xs text-[#6b7280]">
+          <div className="grid grid-cols-[80px_repeat(7,minmax(110px,1fr))] border-b border-border-light">
+            <div className="flex items-center justify-end border-r border-border-light bg-bg-container px-3 text-xs text-text-muted">
               All day
             </div>
 
             {weekDays.map((day) => (
               <div
                 key={`all-day-${day.label}`}
-                className="min-h-[64px] border-r border-[#e1dbd1] p-2 last:border-r-0"
+                className="min-h-[64px] border-r border-border-light p-2 last:border-r-0"
               >
                 {day.label === "Thu" && (
                   <div className="space-y-1">
@@ -67,14 +67,14 @@ export default function WeekView() {
               key={time}
               className="grid grid-cols-[80px_repeat(7,minmax(110px,1fr))]"
             >
-              <div className="h-16 border-r border-b border-[#e1dbd1] bg-[#fbfaf8] px-3 pt-2 text-right text-xs text-[#6b7280]">
+              <div className="h-16 border-r border-b border-border-light bg-bg-container px-3 pt-2 text-right text-xs text-text-muted">
                 {time}
               </div>
 
               {weekDays.map((day) => (
                 <div
                   key={`${day.label}-${time}`}
-                  className="relative h-16 border-r border-b border-[#e1dbd1] p-1.5 last:border-r-0"
+                  className="relative h-16 border-r border-b border-border-light p-1.5 last:border-r-0"
                 >
                   {day.label === "Tue" && time === "05:00" && (
                     <TimedEvent
