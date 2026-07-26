@@ -37,3 +37,12 @@ export type WeekDay = {
   day: number;
   selected?: boolean;
 };
+
+export const eventToneClasses: Record<EventTone, string> = {
+  cream: "bg-[#f3dfc0] text-[#7a5626]",
+  sage: "bg-[#eef0d8] text-[#6a6f33]",
+  rose: "bg-[#ead7dc] text-[#87485a]",
+  lavender: "bg-[#eee3f2] text-[#735384]",
+  brown: "bg-[#d8b99a] text-[#5f4026]",
+  blue: "bg-[#4256d6] text-white",
+};
