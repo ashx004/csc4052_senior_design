@@ -53,36 +53,36 @@ export default function LearningPage() {
 
   if (authLoading || loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-[#FAFAF8]">
-        <Loader2 size={32} className="animate-spin text-[#8B6914]" />
+      <div className="flex items-center justify-center min-h-screen bg-bg-container">
+        <Loader2 size={32} className="animate-spin text-primary" />
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-[#FAFAF8] px-4">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-bg-container px-4">
       {/* Brain icon + heading */}
       <div className="flex flex-col items-center mb-10">
         <div className="relative mb-2">
-          <Brain size={44} className="text-[#8B6914]" />
+          <Brain size={44} className="text-primary" />
           <Zap
             size={18}
-            className="text-[#8B6914] absolute -top-1 -left-2 fill-[#8B6914]"
+            className="text-primary absolute -top-1 -left-2 fill-primary"
           />
         </div>
-        <h1 className="text-2xl md:text-3xl font-bold text-[#1a1a2e] tracking-tight">
+        <h1 className="text-2xl md:text-3xl font-bold text-text-main tracking-tight">
           What Do You Want To Learn Today ?
         </h1>
       </div>
 
       {/* Class cards */}
       {classes.length === 0 ? (
-        <div className="text-center text-gray-400">
+        <div className="text-center text-text-muted">
           <Briefcase size={48} className="mx-auto mb-4 opacity-50" />
           <p className="text-lg font-medium">No classes enrolled</p>
           <p className="text-sm mt-1">
             Add classes from the{' '}
-            <Link href="/classes" className="text-[#8B6914] underline">
+            <Link href="/classes" className="text-primary underline">
               Classes
             </Link>{' '}
             page to start learning
@@ -94,11 +94,11 @@ export default function LearningPage() {
             <Link
               key={cls.id}
               href={`/courses/${cls.id}/learning`}
-              className="block w-52 bg-[#F0EDE8] hover:bg-[#E8E4DD] rounded-lg p-5 transition-colors"
+              className="block w-52 bg-bg-warm hover:bg-border-light rounded-lg p-5 transition-colors"
             >
-              <Briefcase size={22} className="text-[#8B6914] mb-3" />
-              <h2 className="text-sm font-bold text-[#1a1a2e]">{cls.classCode}</h2>
-              <p className="text-sm text-gray-500 mt-1">
+              <Briefcase size={22} className="text-primary mb-3" />
+              <h2 className="text-sm font-bold text-text-main">{cls.classCode}</h2>
+              <p className="text-sm text-text-muted mt-1">
                 {cls.className}<span className="ml-0.5">→</span>
               </p>
             </Link>

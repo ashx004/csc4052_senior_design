@@ -1,6 +1,7 @@
 // src/app/api/upload/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { verifyRequestAuth } from "@/src/library/verifyAuth";
 
 const s3Client = new S3Client({
     endpoint: process.env.MINIO_ENDPOINT, // e.g. "http://192.168.1.11:9069"
@@ -21,6 +22,14 @@ export async function POST(req: NextRequest) {
 
         if (!storagePath) {
             return NextResponse.json({ error: 'Missing x-storage-path header' }, { status: 400 });
+        }
+
+        const auth = await verifyRequestAuth(req);
+        if (!auth) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+        if (!storagePath.startsWith(`users/${auth.uid}/`)) {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
 
         const arrayBuffer = await req.arrayBuffer();

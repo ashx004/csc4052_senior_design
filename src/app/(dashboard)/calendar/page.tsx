@@ -23,24 +23,24 @@ export default function CalendarPage() {
 
     return `px-4 py-2 text-sm font-medium transition ${
       isActive
-        ? "bg-[#6f6a5e] text-white"
-        : "text-[#27251f] hover:bg-[#f0ece5]"
+        ? "bg-primary text-white"
+        : "text-text-main hover:bg-bg-warm"
     }`;
   }
 
   return (
-    <section className="min-h-screen bg-[#f7f5f1] px-8 py-8 text-[#1f2933]">
+    <section className="min-h-screen bg-bg-main px-8 py-8 text-text-main">
       <div className="mx-auto max-w-7xl">
         <header className="mb-7 flex items-start justify-between gap-6">
           <div>
-            <div className="mb-2 flex items-center gap-2 text-xs text-[#777166]">
+            <div className="mb-2 flex items-center gap-2 text-xs text-text-muted">
               <CalendarDays size={15} strokeWidth={1.8} />
               <span>Dashboard</span>
               <span>/</span>
-              <span className="font-medium text-[#27251f]">Calendar</span>
+              <span className="font-medium text-text-main">Calendar</span>
             </div>
 
-            <h1 className="text-3xl font-semibold tracking-tight text-black">
+            <h1 className="text-3xl font-semibold tracking-tight text-text-main">
               Calendar
             </h1>
           </div>
@@ -48,7 +48,7 @@ export default function CalendarPage() {
           <div className="flex items-center gap-3">
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-lg border border-[#d8d3ca] bg-white px-4 py-2 text-sm font-medium text-[#3f3a34] shadow-sm transition hover:bg-[#f0ece5]"
+              className="inline-flex items-center gap-2 rounded-lg border border-border-light bg-white px-4 py-2 text-sm font-medium text-text-main shadow-sm transition hover:bg-bg-warm"
             >
               <Filter size={15} strokeWidth={1.8} />
               Filter
@@ -56,7 +56,7 @@ export default function CalendarPage() {
 
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-lg bg-[#6f6a5e] px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-[#565248]"
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-primary-hover"
             >
               <Plus size={16} strokeWidth={2} />
               Add Event
@@ -64,17 +64,17 @@ export default function CalendarPage() {
           </div>
         </header>
 
-        <div className="rounded-3xl border border-[#ded8cf] bg-[#fbfaf8] p-6 shadow-sm">
-          <div className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-[#e5ded3] pb-4">
+        <div className="rounded-3xl border border-border-light bg-bg-container p-6 shadow-sm">
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-border-light pb-4">
             <div className="flex items-center gap-8">
-              <h2 className="text-xl font-semibold text-[#27251f]">
+              <h2 className="text-xl font-semibold text-text-main">
                 September 2026
               </h2>
 
-              <div className="flex items-center overflow-hidden rounded-lg border border-[#d8d3ca] bg-white">
+              <div className="flex items-center overflow-hidden rounded-lg border border-border-light bg-white">
                 <button
                   type="button"
-                  className="flex h-9 w-10 items-center justify-center border-r border-[#d8d3ca] text-[#4b5563] transition hover:bg-[#f0ece5]"
+                  className="flex h-9 w-10 items-center justify-center border-r border-border-light text-text-muted transition hover:bg-bg-warm"
                   aria-label="Previous"
                 >
                   <ChevronLeft size={17} strokeWidth={2} />
@@ -82,14 +82,14 @@ export default function CalendarPage() {
 
                 <button
                   type="button"
-                  className="h-9 px-4 text-sm font-medium text-[#27251f] transition hover:bg-[#f0ece5]"
+                  className="h-9 px-4 text-sm font-medium text-text-main transition hover:bg-bg-warm"
                 >
                   Today
                 </button>
 
                 <button
                   type="button"
-                  className="flex h-9 w-10 items-center justify-center border-l border-[#d8d3ca] text-[#4b5563] transition hover:bg-[#f0ece5]"
+                  className="flex h-9 w-10 items-center justify-center border-l border-border-light text-text-muted transition hover:bg-bg-warm"
                   aria-label="Next"
                 >
                   <ChevronRight size={17} strokeWidth={2} />
@@ -97,11 +97,11 @@ export default function CalendarPage() {
               </div>
             </div>
 
-            <div className="flex overflow-hidden rounded-lg border border-[#d8d3ca] bg-white">
+            <div className="flex overflow-hidden rounded-lg border border-border-light bg-white">
               <button
                 type="button"
                 onClick={() => setView("month")}
-                className={`${getViewButtonClass("month")} border-r border-[#d8d3ca]`}
+                className={`${getViewButtonClass("month")} border-r border-border-light`}
               >
                 Monthly
               </button>
@@ -109,7 +109,7 @@ export default function CalendarPage() {
               <button
                 type="button"
                 onClick={() => setView("week")}
-                className={`${getViewButtonClass("week")} border-r border-[#d8d3ca]`}
+                className={`${getViewButtonClass("week")} border-r border-border-light`}
               >
                 Weekly
               </button>

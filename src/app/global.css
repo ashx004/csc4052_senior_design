@@ -6,26 +6,29 @@
    UNIFIED APP THEME
    ========================================================================== */
 
-@theme {
-  /* --- Brand & Accent Colorways --- */
-  --color-primary: #b08957;        /* Main accent gold for buttons, links, active states */
-  --color-primary-hover: #9c7849;  /* Slightly deeper gold for interactive hover states */
+:root {
+  /* --- Brand & Accent Colorways: roasted coffee --- */
+  --color-primary: #7a4f30;        /* Roasted coffee brown for buttons, links, active states */
+  --color-primary-hover: #5f3d25;  /* Darker roast for interactive hover states */
 
   /* --- Typography Colors --- */
-  --color-text-main: #3d3a34;      /* Deep charcoal body text (softer than harsh black) */
-  --color-text-muted: #8a8477;    /* Muted earth gray for subtitles, captions, and placeholders */
+  --color-text-main: #3a2a1e;      /* Dark roast brown-black body text (warmer than neutral charcoal) */
+  --color-text-muted: #8c7a67;     /* Steamed-milk taupe for subtitles, captions, and placeholders */
+  --color-text-inverse: #fbf6ec;   /* Warm off-white for text on dark/primary surfaces */
 
   /* --- Backgrounds & Canvas Tones --- */
-  --color-bg-main: #FAF7F0;        /* Off-white page canvas background */
-  --color-bg-container: #ffffff;   /* Pure white cards, containers, and modal layouts */
-  --color-bg-warm: #faf3e8;        /* Soft sand container hue for highlight sections */
+  --color-bg-main: #f5ecdc;        /* Oat-milk page canvas — light coffee, not plain cream */
+  --color-bg-container: #fbf6ec;   /* Milk-foam cards, containers, and modal layouts */
+  --color-bg-warm: #e8d2af;        /* Latte accent hue for highlight sections and active states */
 
   /* --- Borders & Separation Utilities --- */
-  --color-border-light: #ede6d8;   /* Default soft line separator color */
-  --color-border-hover: #d8cbb0;   /* Interactive border focus/hover state */
+  --color-border-light: #e1cca9;   /* Default soft tan line separator color */
+  --color-border-hover: #c9a46e;   /* Toasted border focus/hover state */
 
   /* --- System Feedback Tones --- */
-  --color-alert-error: #c2685a;    /* Muted coral red for warning messages or errors */
+  --color-alert-error: #b85c45;    /* Warm cinnamon red for warning messages or errors */
+  --color-alert-error-bg: #f6e3de; /* Soft tint for error hover/highlight backgrounds */
+  --color-alert-error-hover: #96432f; /* Darker cinnamon for error button hover states */
 }
 
 /* ==========================================================================
@@ -35,7 +38,7 @@
 body {
   background-color: var(--color-bg-main);
   color: var(--color-text-main);
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   margin: 0;
   padding: 0;
   -webkit-font-smoothing: antialiased;

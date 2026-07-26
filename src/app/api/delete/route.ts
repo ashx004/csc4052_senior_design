@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { verifyRequestAuth } from "@/src/library/verifyAuth";
 
 const s3Client = new S3Client({
     endpoint: process.env.MINIO_ENDPOINT,
@@ -16,6 +17,14 @@ export async function DELETE(req: NextRequest) {
     const key = req.nextUrl.searchParams.get("key");
     if (!key) {
         return NextResponse.json({ error: "Missing key" }, { status: 400 });
+    }
+
+    const auth = await verifyRequestAuth(req);
+    if (!auth) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (!key.startsWith(`users/${auth.uid}/`)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     try {
