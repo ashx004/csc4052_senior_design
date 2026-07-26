@@ -1,24 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
-import { verifyRequestAuth } from '@/src/library/verifyAuth';
-import { resolveInternalUrl, fetchInternal } from '@/src/library/pdfExtract';
+import { GoogleGenAI } from '@google/genai';
+import { z } from 'zod';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+
+const FlashcardResponseSchema = z.object({
+  topicName: z
+    .string()
+    .describe('A short, descriptive name (3-6 words) summarizing what this set of flashcards covers'),
+  questions: z.array(
+    z.object({
+      question: z.string().describe('A clear, concise question about a key concept from the document'),
+      answer: z.string().describe('A brief, accurate answer in 1-2 sentences'),
+    })
+  ),
+});
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = await verifyRequestAuth(request);
-    if (!auth) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const { docUrl, docName, previousQuestions } = await request.json();
 
     if (!docUrl) {
       return NextResponse.json({ error: 'Document URL is required' }, { status: 400 });
-    }
-    if (!docUrl.startsWith(`/api/download?key=users%2F${auth.uid}%2F`) && !docUrl.startsWith(`/api/download?key=users/${auth.uid}/`)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     if (!process.env.GEMINI_API_KEY) {
@@ -26,9 +29,11 @@ export async function POST(request: NextRequest) {
     }
 
     // 1. Fetch the document from internal MinIO proxy
-    const fullUrl = resolveInternalUrl(request, docUrl);
+    const host = request.headers.get('host');
+    const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https';
+    const fullUrl = `${protocol}://${host}${docUrl}`;
 
-    const fileResponse = await fetchInternal(fullUrl);
+    const fileResponse = await fetch(fullUrl);
     if (!fileResponse.ok) {
       return NextResponse.json({ error: 'Failed to download document' }, { status: 500 });
     }
@@ -72,7 +77,7 @@ export async function POST(request: NextRequest) {
     // 3. Build the prompt — clear, specific instructions (Kaggle Day 1: prompt engineering)
     let prompt = `You are an expert academic tutor helping a college student study.
 
-Based ONLY on the following document content, generate exactly 10 flashcards that cover the most important key concepts.
+Based ONLY on the following document content, generate exactly 10 flashcards that cover the most important key concepts. Also come up with a short, descriptive topic name (3-6 words) summarizing what this set of flashcards covers, e.g. "Evolution and Natural Selection" or "Boolean Logic Fundamentals".
 
 Rules:
 - Each question should test understanding of one specific concept
@@ -80,7 +85,8 @@ Rules:
 - Questions should be clear and unambiguous
 - Cover different topics across the document, not just the beginning
 - Use simple language that a student can quickly understand
-- Do NOT use information outside of this document`;
+- Do NOT use information outside of this document
+- The topic name should reflect the overall subject of the document, not a single flashcard`;
 
     if (previousQuestions && previousQuestions.length > 0) {
       prompt += `\n\nIMPORTANT: Do NOT repeat any of these previously generated questions:\n${previousQuestions.map((q: string, i: number) => `${i + 1}. ${q}`).join('\n')}`;
@@ -89,37 +95,20 @@ Rules:
 
     prompt += `\n\n--- DOCUMENT CONTENT ---\n${extractedText}`;
 
-    // 4. Call Gemini with structured output (Kaggle Day 1: structured output)
-    const model = genAI.getGenerativeModel({
+    // 4. Call Gemini with structured output 
+    const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
-      generationConfig: {
+      contents: prompt,
+      config: {
         responseMimeType: 'application/json',
-        responseSchema: {
-          type: SchemaType.ARRAY,
-          items: {
-            type: SchemaType.OBJECT,
-            properties: {
-              question: {
-                type: SchemaType.STRING,
-                description: 'A clear, concise question about a key concept from the document',
-              },
-              answer: {
-                type: SchemaType.STRING,
-                description: 'A brief, accurate answer in 1-2 sentences',
-              },
-            },
-            required: ['question', 'answer'],
-          },
-        },
+        responseSchema: z.toJSONSchema(FlashcardResponseSchema),
         temperature: 0.7,
       },
     });
 
-    const result = await model.generateContent(prompt);
-    const response = result.response;
-    const flashcards = JSON.parse(response.text());
+    const parsed = FlashcardResponseSchema.parse(JSON.parse(response.text ?? '{}'));
 
-    return NextResponse.json({ flashcards });
+    return NextResponse.json({ topicName: parsed.topicName, questions: parsed.questions });
   } catch (error) {
     console.error('Flashcard generation error:', error);
     return NextResponse.json(

@@ -7,28 +7,28 @@
    ========================================================================== */
 
 :root {
-  /* --- Brand & Accent Colorways: roasted coffee --- */
-  --color-primary: #7a4f30;        /* Roasted coffee brown for buttons, links, active states */
-  --color-primary-hover: #5f3d25;  /* Darker roast for interactive hover states */
+  /* --- Brand & Accent Colorways --- */
+  --color-primary: #b08957;        /* Main accent gold for buttons, links, active states */
+  --color-primary-hover: #9c7849;  /* Slightly deeper gold for interactive hover states */
 
   /* --- Typography Colors --- */
-  --color-text-main: #3a2a1e;      /* Dark roast brown-black body text (warmer than neutral charcoal) */
-  --color-text-muted: #8c7a67;     /* Steamed-milk taupe for subtitles, captions, and placeholders */
-  --color-text-inverse: #fbf6ec;   /* Warm off-white for text on dark/primary surfaces */
+  --color-text-main: #3d3a34;      /* Deep charcoal body text (softer than harsh black) */
+  --color-text-muted: #8a8477;     /* Muted earth gray for subtitles, captions, and placeholders */
+  --color-text-inverse: #ffffff;   /* White text for use on dark/primary surfaces */
 
   /* --- Backgrounds & Canvas Tones --- */
-  --color-bg-main: #f5ecdc;        /* Oat-milk page canvas — light coffee, not plain cream */
-  --color-bg-container: #fbf6ec;   /* Milk-foam cards, containers, and modal layouts */
-  --color-bg-warm: #e8d2af;        /* Latte accent hue for highlight sections and active states */
+  --color-bg-main: #FAFAF8;        /* Off-white page canvas background */
+  --color-bg-container: #ffffff;   /* Pure white cards, containers, and modal layouts */
+  --color-bg-warm: #F5F0EB;        /* Soft sand container hue for highlight sections */
 
   /* --- Borders & Separation Utilities --- */
-  --color-border-light: #e1cca9;   /* Default soft tan line separator color */
-  --color-border-hover: #c9a46e;   /* Toasted border focus/hover state */
+  --color-border-light: #ede6d8;   /* Default soft line separator color */
+  --color-border-hover: #d8cbb0;   /* Interactive border focus/hover state */
 
   /* --- System Feedback Tones --- */
-  --color-alert-error: #b85c45;    /* Warm cinnamon red for warning messages or errors */
-  --color-alert-error-bg: #f6e3de; /* Soft tint for error hover/highlight backgrounds */
-  --color-alert-error-hover: #96432f; /* Darker cinnamon for error button hover states */
+  --color-alert-error: #c2685a;    /* Muted coral red for warning messages or errors */
+  --color-alert-error-bg: #f5e7e5; /* Soft tint for error hover/highlight backgrounds */
+  --color-alert-error-hover: #a85a4e; /* Darker coral for error button hover states */
 }
 
 /* ==========================================================================
