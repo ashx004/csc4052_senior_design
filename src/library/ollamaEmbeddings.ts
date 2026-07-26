@@ -1,3 +1,5 @@
+import { resolveOllamaBaseUrl } from "./ollamaClient";
+
 // Server-only: talks to the secondary Ollama box (the embeddings-only GPU).
 // Never import this from a client component — OLLAMA_SECONDARY_URL /
 // OLLAMA_AUTH_TOKEN are not NEXT_PUBLIC_ and must stay server-side.
@@ -6,7 +8,8 @@ export async function embedTexts(texts: string[], signal?: AbortSignal): Promise
     throw new Error("Embedding service is not configured.");
   }
 
-  const response = await fetch(`${process.env.OLLAMA_SECONDARY_URL}/api/embed`, {
+  const baseUrl = await resolveOllamaBaseUrl(process.env.OLLAMA_SECONDARY_URL, process.env.OLLAMA_SECONDARY_FALLBACK_URL);
+  const response = await fetch(`${baseUrl}/api/embed`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

@@ -3,12 +3,12 @@
 import { useEffect, useState } from "react";
 import {
     EmailAuthProvider,
-    FirebaseError,
     reauthenticateWithCredential,
     updatePassword,
     verifyBeforeUpdateEmail,
 } from "firebase/auth";
 import { signOut } from "firebase/auth";
+import { FirebaseError } from "firebase/app";
 import { useRouter } from "next/navigation";
 import { auth } from "../../../library/firebase";
 
@@ -233,12 +233,10 @@ export default function Settings() {
 
 
     return (
-        <section className="flex min-h-screen flex-col bg-[#f7f5f1] text-[#1f2933]
-                            transition-colors duration-700 dark:bg-[#171717] dark:text-gray-100">
-            <header className="relative flex h-[73px] shrink-0 items-center justify-between border-b border-[#d8d3ca] bg-[#fbfaf8] px-6
-                            transition-colors duration-300 dark:border-gray-700 dark:bg-[#202020]">
-                <h1 className="absolute left-1/2 -translate-x-1/2 text-center text-lg font-semibold tracking-[0.45em] text-black
-                            dark:text-white">
+        <section className="flex min-h-screen flex-col bg-bg-main text-text-main transition-colors duration-700">
+            <header className="relative flex h-[73px] shrink-0 items-center justify-between border-b border-border-light bg-bg-container px-6
+                            transition-colors duration-300">
+                <h1 className="absolute left-1/2 -translate-x-1/2 text-center text-lg font-semibold tracking-[0.45em] text-text-main">
                     Settings.
                 </h1>
             </header>
@@ -378,13 +376,12 @@ export default function Settings() {
 
 
             {/* Appearance */ }
-            <header className="mt-5 relative flex w-3/4 self-center 
-                shrink-0 border-b border-black dark:border-gray-600 px-6"> 
-            </header> 
+            <header className="mt-5 relative flex w-3/4 self-center
+                shrink-0 border-b border-border-light px-6">
+            </header>
 
             <div className="mt-2 flex w-3/4 self-center justify-between py-3 px-2
-                        bg-[#f7f5f1] text-black hover:bg-gray-200
-                        dark:bg-[#171717] dark:text-gray-100 dark:hover:bg-gray-700">
+                        bg-bg-main text-text-main hover:bg-bg-warm">
 
                 <span className="text-sm">
                     Appearance
@@ -402,17 +399,17 @@ export default function Settings() {
 
                     <div
                         className="
-                            relative 
-                            h-6 
-                            w-11 
-                            rounded-full 
-                            bg-gray-300
+                            relative
+                            h-6
+                            w-11
+                            rounded-full
+                            bg-border-light
                             transition-colors
-                            peer-checked:bg-orange-500
+                            peer-checked:bg-primary
 
                             peer-focus:outline-none
                             peer-focus:ring-4
-                            peer-focus:ring-orange-200
+                            peer-focus:ring-border-hover
 
                             after:absolute
                             after:left-[2px]
@@ -428,7 +425,7 @@ export default function Settings() {
                         "
                     />
 
-                    <span className="ml-2 text-xs font-medium text-gray-500">
+                    <span className="ml-2 text-xs font-medium text-text-muted">
                         {appearanceIsOn ? "Dark" : "Light"}
                     </span>
 
@@ -436,7 +433,7 @@ export default function Settings() {
 
             </div>
 
-            <div className="flex w-3/4 self-center px-2 py-1 text-xs text-gray-400">
+            <div className="flex w-3/4 self-center px-2 py-1 text-xs text-text-muted">
                 Use Dark Theme
             </div>
 
@@ -512,8 +509,7 @@ export default function Settings() {
             {/* Change Password */}
             <header
                 className="relative mt-5 flex w-3/4 shrink-0 self-center
-                        items-center justify-between border-b border-black px-6
-                        dark:border-gray-600"
+                        items-center justify-between border-b border-border-light px-6"
             />
 
             <button
@@ -526,15 +522,13 @@ export default function Settings() {
                     setCurrentPassword("");
                 }}
                 className="mt-2 flex w-3/4 self-center rounded
-                        bg-[#f7f5f1] px-2 py-3 text-sm text-black
-                        hover:bg-gray-200
-                        dark:bg-[#171717] dark:text-gray-100
-                        dark:hover:bg-gray-700"
+                        bg-bg-main px-2 py-3 text-sm text-text-main
+                        hover:bg-bg-warm"
             >
                 Change Password
             </button>
 
-            <p className="flex w-3/4 self-center px-2 py-1 text-xs text-gray-400">
+            <p className="flex w-3/4 self-center px-2 py-1 text-xs text-text-muted">
                 Update your account password
             </p>
 
@@ -542,8 +536,7 @@ export default function Settings() {
                 <form
                     onSubmit={handlePasswordChange}
                     className="mt-3 flex w-3/4 flex-col gap-3 self-center
-                            rounded border border-[#d8d3ca] bg-[#fbfaf8] p-4
-                            dark:border-gray-700 dark:bg-[#202020]"
+                            rounded border border-border-light bg-bg-container p-4"
                 >
                     <label className="flex flex-col gap-1 text-sm">
                         Current Password
@@ -555,11 +548,9 @@ export default function Settings() {
                                 setCurrentPassword(event.target.value)
                             }
                             autoComplete="current-password"
-                            className="rounded border border-gray-300 bg-white
-                                    px-3 py-2 text-black outline-none
-                                    focus:border-orange-500
-                                    dark:border-gray-600 dark:bg-[#171717]
-                                    dark:text-white"
+                            className="rounded border border-border-light bg-bg-container
+                                    px-3 py-2 text-text-main outline-none
+                                    focus:border-primary"
                         />
                     </label>
 
@@ -573,11 +564,9 @@ export default function Settings() {
                                 setNewPassword(event.target.value)
                             }
                             autoComplete="new-password"
-                            className="rounded border border-gray-300 bg-white
-                                    px-3 py-2 text-black outline-none
-                                    focus:border-orange-500
-                                    dark:border-gray-600 dark:bg-[#171717]
-                                    dark:text-white"
+                            className="rounded border border-border-light bg-bg-container
+                                    px-3 py-2 text-text-main outline-none
+                                    focus:border-primary"
                         />
                     </label>
 
@@ -591,11 +580,9 @@ export default function Settings() {
                                 setConfirmPassword(event.target.value)
                             }
                             autoComplete="new-password"
-                            className="rounded border border-gray-300 bg-white
-                                    px-3 py-2 text-black outline-none
-                                    focus:border-orange-500
-                                    dark:border-gray-600 dark:bg-[#171717]
-                                    dark:text-white"
+                            className="rounded border border-border-light bg-bg-container
+                                    px-3 py-2 text-text-main outline-none
+                                    focus:border-primary"
                         />
                     </label>
 
@@ -609,8 +596,7 @@ export default function Settings() {
                                 setConfirmPassword("");
                                 setAccountError("");
                             }}
-                            className="rounded px-4 py-2 text-sm hover:bg-gray-200
-                                    dark:hover:bg-gray-700"
+                            className="rounded px-4 py-2 text-sm text-text-muted hover:bg-bg-warm"
                         >
                             Cancel
                         </button>
@@ -618,8 +604,8 @@ export default function Settings() {
                         <button
                             type="submit"
                             disabled={isUpdatingAccount}
-                            className="rounded bg-orange-500 px-4 py-2 text-sm
-                                    text-white hover:bg-orange-600
+                            className="rounded bg-primary px-4 py-2 text-sm
+                                    text-white hover:bg-primary-hover
                                     disabled:cursor-not-allowed
                                     disabled:opacity-50"
                         >
@@ -639,8 +625,7 @@ export default function Settings() {
             {/* Change Email */}
             <header
                 className="relative mt-5 flex w-3/4 shrink-0 self-center
-                        items-center justify-between border-b border-black px-6
-                        dark:border-gray-600"
+                        items-center justify-between border-b border-border-light px-6"
             />
 
             <button
@@ -653,15 +638,13 @@ export default function Settings() {
                     setCurrentPassword("");
                 }}
                 className="mt-2 flex w-3/4 self-center rounded
-                        bg-[#f7f5f1] px-2 py-3 text-sm text-black
-                        hover:bg-gray-200
-                        dark:bg-[#171717] dark:text-gray-100
-                        dark:hover:bg-gray-700"
+                        bg-bg-main px-2 py-3 text-sm text-text-main
+                        hover:bg-bg-warm"
             >
                 Change Email
             </button>
 
-            <p className="flex w-3/4 self-center px-2 py-1 text-xs text-gray-400">
+            <p className="flex w-3/4 self-center px-2 py-1 text-xs text-text-muted">
                 Current email: {auth.currentUser?.email ?? "Not available"}
             </p>
 
@@ -669,8 +652,7 @@ export default function Settings() {
                 <form
                     onSubmit={handleEmailChange}
                     className="mt-3 flex w-3/4 flex-col gap-3 self-center
-                            rounded border border-[#d8d3ca] bg-[#fbfaf8] p-4
-                            dark:border-gray-700 dark:bg-[#202020]"
+                            rounded border border-border-light bg-bg-container p-4"
                 >
                     <label className="flex flex-col gap-1 text-sm">
                         Current Password
@@ -682,11 +664,9 @@ export default function Settings() {
                                 setCurrentPassword(event.target.value)
                             }
                             autoComplete="current-password"
-                            className="rounded border border-gray-300 bg-white
-                                    px-3 py-2 text-black outline-none
-                                    focus:border-orange-500
-                                    dark:border-gray-600 dark:bg-[#171717]
-                                    dark:text-white"
+                            className="rounded border border-border-light bg-bg-container
+                                    px-3 py-2 text-text-main outline-none
+                                    focus:border-primary"
                         />
                     </label>
 
@@ -701,11 +681,9 @@ export default function Settings() {
                             }
                             autoComplete="email"
                             placeholder="newemail@example.com"
-                            className="rounded border border-gray-300 bg-white
-                                    px-3 py-2 text-black outline-none
-                                    focus:border-orange-500
-                                    dark:border-gray-600 dark:bg-[#171717]
-                                    dark:text-white"
+                            className="rounded border border-border-light bg-bg-container
+                                    px-3 py-2 text-text-main outline-none
+                                    focus:border-primary"
                         />
                     </label>
 
@@ -718,8 +696,7 @@ export default function Settings() {
                                 setNewEmail("");
                                 setAccountError("");
                             }}
-                            className="rounded px-4 py-2 text-sm hover:bg-gray-200
-                                    dark:hover:bg-gray-700"
+                            className="rounded px-4 py-2 text-sm text-text-muted hover:bg-bg-warm"
                         >
                             Cancel
                         </button>
@@ -727,8 +704,8 @@ export default function Settings() {
                         <button
                             type="submit"
                             disabled={isUpdatingAccount}
-                            className="rounded bg-orange-500 px-4 py-2 text-sm
-                                    text-white hover:bg-orange-600
+                            className="rounded bg-primary px-4 py-2 text-sm
+                                    text-white hover:bg-primary-hover
                                     disabled:cursor-not-allowed
                                     disabled:opacity-50"
                         >
@@ -747,8 +724,7 @@ export default function Settings() {
             <p
                 role="alert"
                 className="mt-3 w-3/4 self-center rounded
-                        bg-red-100 px-3 py-2 text-sm text-red-700
-                        dark:bg-red-950 dark:text-red-300" >
+                        bg-alert-error-bg px-3 py-2 text-sm text-alert-error" >
                 {accountError}
             </p>
             )}
@@ -757,8 +733,7 @@ export default function Settings() {
             <p
                 role="status"
                 className="mt-3 w-3/4 self-center rounded
-                        bg-green-100 px-3 py-2 text-sm text-green-700
-                        dark:bg-green-950 dark:text-green-300" >
+                        bg-alert-success-bg px-3 py-2 text-sm text-alert-success" >
                 {accountMessage}
             </p>
             )}
@@ -770,16 +745,15 @@ export default function Settings() {
 
 
             {/* Sign Out */}
-            <header className="mt-5 relative flex w-3/4 self-center 
-                shrink-0 items-center justify-between border-b border-black
-                px-6"> 
+            <header className="mt-5 relative flex w-3/4 self-center
+                shrink-0 items-center justify-between border-b border-border-light
+                px-6">
             </header>
 
             <button
                 onClick={handleSignOut}
-                className="mt-2 flex w-3/4 self-center text-sm py-3 px-2 
-                    bg-[#f7f5f1] text-red-500 rounded hover:bg-gray-200
-                    dark:bg-[#171717] dark:text-red-500 dark:hover:bg-gray-700" >
+                className="mt-2 flex w-3/4 self-center text-sm py-3 px-2
+                    bg-bg-main text-alert-error rounded hover:bg-bg-warm" >
                 Sign Out
             </button>
 
