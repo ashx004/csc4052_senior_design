@@ -26,7 +26,7 @@ export default function MonthView({
   );
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-border-light bg-white">
+    <div className="overflow-hidden rounded-2xl border border-border-light bg-bg-container">
       {/* Day-of-week header */}
       <div className="grid grid-cols-7 border-b border-border-light bg-bg-container">
         {monthWeekDays.map((day) => (
@@ -64,7 +64,7 @@ export default function MonthView({
               }}
               className={`min-h-[118px] border-r border-b border-border-light p-3 ${
                 index % 7 === 6 ? "border-r-0" : ""
-              } ${cell.muted ? "bg-bg-container" : "bg-white"} ${
+              } ${cell.muted ? "bg-bg-main" : "bg-bg-container"} ${
                 isSelected ? "bg-bg-warm" : ""
               } ${!cell.muted ? "cursor-pointer transition-colors hover:bg-bg-warm/50" : ""}`}
             >

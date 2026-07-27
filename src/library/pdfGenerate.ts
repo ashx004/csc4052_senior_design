@@ -2,8 +2,6 @@ import PDFDocument from "pdfkit";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getMinioClient } from "@/src/library/minioClient";
 
-const s3Client = getMinioClient();
-
 // Minimal inline-markdown renderer (bold only) — chains styled segments on
 // one pdfkit line via `continued`, since pdfkit has no rich-text markup input.
 function renderInlineLine(doc: PDFKit.PDFDocument, text: string) {
@@ -100,6 +98,7 @@ export async function generateAndUploadPdf(
   const fileName = `${sanitizeFilename(title)}.pdf`;
   const storagePath = `users/${userId}/generated/${Date.now()}_${fileName}`;
 
+  const s3Client = await getMinioClient();
   await s3Client.send(
     new PutObjectCommand({
       Bucket: "studora",

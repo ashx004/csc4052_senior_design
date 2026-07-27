@@ -89,7 +89,7 @@ export default function LearningPage() {
               <button
                 key={cls.id}
                 onClick={() => router.push(`/courses/${cls.id}/learning`)}
-                className="rounded-xl bg-white p-6 text-left shadow-sm ring-1 ring-border-light transition-all hover:shadow-md hover:ring-primary"
+                className="rounded-xl bg-bg-container p-6 text-left shadow-sm ring-1 ring-border-light transition-all hover:shadow-md hover:ring-primary"
               >
                 <GraduationCap size={22} className="mb-3 text-primary" />
 
