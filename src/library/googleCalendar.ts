@@ -135,11 +135,17 @@ export async function getCalendarClient(
   uid: string
 ): Promise<{ calendar: calendar_v3.Calendar; idToken: string } | null> {
   const idToken = getIdToken(req);
-  if (!idToken) return null;
+  if (!idToken) {
+    console.warn("[googleCalendar] No fb_token cookie — cannot build calendar client");
+    return null;
+  }
 
   const userDoc = await firestoreGet(idToken, "users", uid);
   const tokens = (userDoc?.calendarTokens as CalendarTokens | undefined) ?? undefined;
-  if (!tokens?.refresh_token) return null;
+  if (!tokens?.refresh_token) {
+    console.warn(`[googleCalendar] No calendarTokens.refresh_token for uid=${uid}`);
+    return null;
+  }
 
   const oauth2 = new google.auth.OAuth2(
     process.env.GOOGLE_CALENDAR_CLIENT_ID,
@@ -171,7 +177,7 @@ export async function getCalendarClient(
 export async function listEvents(
   req: NextRequest,
   uid: string,
-  opts: { timeMin?: string; timeMax?: string; maxResults?: number } = {}
+  opts: { timeMin?: string; timeMax?: string; maxResults?: number; timeZone?: string } = {}
 ): Promise<calendar_v3.Schema$Event[]> {
   const client = await getCalendarClient(req, uid);
   if (!client) return [];
@@ -183,6 +189,7 @@ export async function listEvents(
     maxResults: opts.maxResults ?? 250,
     singleEvents: true,
     orderBy: "startTime",
+    timeZone: opts.timeZone,
   });
 
   return res.data.items ?? [];
@@ -246,6 +253,8 @@ export function toCalendarEvent(gcal: calendar_v3.Schema$Event): CalendarEvent {
   // Deterministic tone from event ID so the same event keeps its color.
   const hash = (gcal.id ?? "").split("").reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 0);
   const tone = TONE_POOL[Math.abs(hash) % TONE_POOL.length];
+
+  console.log("RAW startTime from Google:", gcal.start?.dateTime, gcal.start?.timeZone);
 
   return {
     id: gcal.id ?? crypto.randomUUID(),

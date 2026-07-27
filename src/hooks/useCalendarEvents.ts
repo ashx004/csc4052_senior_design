@@ -21,6 +21,7 @@ export function useCalendarEvents(dateRange?: { start: Date; end: Date }) {
       const params = new URLSearchParams();
       params.set("timeMin", dateRange.start.toISOString());
       params.set("timeMax", dateRange.end.toISOString());
+      params.set("timeZone", Intl.DateTimeFormat().resolvedOptions().timeZone);
 
       const res = await fetch(`/api/calendar/events?${params}`);
       if (!res.ok) throw new Error("Failed to fetch events");
