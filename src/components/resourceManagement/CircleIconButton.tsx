@@ -22,9 +22,9 @@ export default function CircleIconButton({
     const sizeClasses = size === "sm" ? "h-7 w-7" : "h-9 w-9";
 
     const variantClasses = {
-        default: "bg-white text-text-muted ring-1 ring-border-light hover:text-text-main hover:bg-bg-main",
+        default: "bg-bg-container text-text-muted ring-1 ring-border-light hover:text-text-main hover:bg-bg-main",
         accent: "bg-primary text-white hover:bg-primary-hover",
-        danger: "bg-white text-alert-error ring-1 ring-border-light hover:bg-alert-error-bg",
+        danger: "bg-bg-container text-alert-error ring-1 ring-border-light hover:bg-alert-error-bg",
     }[variant];
 
     return (

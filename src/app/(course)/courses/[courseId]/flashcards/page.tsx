@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
 import { getCourseResources } from '@/src/components/resourceManagement/fileUploadService';
@@ -19,6 +19,9 @@ import {
 import { db } from '@/src/library/firebase';
 import {ArrowLeft,ChevronLeft,ChevronRight,BookOpen,Bookmark,RefreshCw,Shuffle,Loader2,AlertCircle,} from 'lucide-react';
 import FlashCard from '@/src/components/learning/FlashCard';
+import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
+import { buildFlashcardSuggestions, type FlashcardPageContext } from '@/src/library/Contextual_AI/contextualAi';
+import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
 
 interface Flashcard {
   question: string;
@@ -106,6 +109,24 @@ export default function FlashcardsPage() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [catalystOpen, setCatalystOpen] = useState(false);
+  const catalystBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [catalystChatContext, setCatalystChatContext] = useState<ChatContext | null>(null);
+
+  // Build the same ChatContext shape the full AI Assistant uses, so the
+  // Catalyst sidebar can fall back to read_document/search_documents for
+  // this course's materials.
+  useEffect(() => {
+    if (!user?.email) return;
+
+    buildChatContext(user.uid, user.email)
+      .then(setCatalystChatContext)
+      .catch((err) => {
+        console.error('Error building Catalyst chat context:', err);
+        setCatalystChatContext(null);
+      });
+  }, [user]);
 
   // Load a previously saved flashcard set (opened from the course sidebar)
   useEffect(() => {
@@ -256,6 +277,21 @@ export default function FlashcardsPage() {
     }
   };
 
+  const flashcardPageContext: FlashcardPageContext | null =
+    flashcards.length > 0
+      ? {
+          kind: 'flashcard',
+          courseId,
+          documentName: displayName,
+          cardIndex: currentIndex,
+          totalCards: flashcards.length,
+          question: flashcards[currentIndex]?.question || '',
+          answer: flashcards[currentIndex]?.answer || '',
+        }
+      : null;
+
+  const catalystSuggestions = flashcardPageContext ? buildFlashcardSuggestions(flashcardPageContext) : [];
+
   // Loading state
   if (loading) {
     return (
@@ -394,6 +430,21 @@ export default function FlashcardsPage() {
           </>
         )}
       </div>
+
+      {flashcardPageContext && catalystChatContext && (
+        <>
+          <CatalystLauncher onClick={() => setCatalystOpen(true)} visible={!catalystOpen} buttonRef={catalystBtnRef} />
+          <ContextualAiPanel
+            open={catalystOpen}
+            onClose={() => setCatalystOpen(false)}
+            contextLabel={`Card ${currentIndex + 1} of ${flashcards.length} — ${displayName}`}
+            suggestions={catalystSuggestions}
+            pageContext={flashcardPageContext}
+            chatContext={catalystChatContext}
+            launcherRef={catalystBtnRef}
+          />
+        </>
+      )}
     </div>
   );
 }
