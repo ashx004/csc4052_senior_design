@@ -14,6 +14,7 @@ import { warnIfSlowGeneration } from "@/src/library/ollamaHealthCheck";
 import { getStudentProfile, maybeUpdateStudentProfile, StudentProfile } from "@/src/library/studentProfile";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
+import {pageContextSchema,buildPageContextPrompt,type PageContext,} from "@/src/library/Contextual_AI/contextualAi";
 import { ChatContext, ChatClass, ChatDocument, PageAIContext, buildSystemPrompt } from "@/src/library/systemPrompt";
 
 const CHAT_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -847,12 +848,14 @@ export async function POST(request: NextRequest) {
     summary: incomingSummary,
     summarizedCount: incomingSummarizedCount,
     currentSessionId,
+    pageContext,
   } = (await request.json().catch(() => ({}))) as {
     messages?: ChatMessage[];
     context?: ChatContext;
     summary?: string;
     summarizedCount?: number;
     currentSessionId?: string;
+    pageContext?: unknown;
   };
 
   if (!Array.isArray(messages) || messages.length === 0) {
@@ -865,6 +868,28 @@ export async function POST(request: NextRequest) {
   // just editing the request body.
   if (context?.userId && context.userId !== auth.uid) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // pageContext (flashcard/quiz sidebar) is optional and only sent by the
+  // contextual Catalyst panel — validate its shape and confirm the course it
+  // references is actually one the authenticated user is enrolled in, same
+  // as the courseId inside `context` above.
+  let validatedPageContext: PageContext | undefined;
+  if (pageContext !== undefined) {
+    const parsed = pageContextSchema.safeParse(pageContext);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid pageContext", details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+
+    const enrolledCourseIds = (context?.classes || []).map((c) => c.classId);
+    if (!enrolledCourseIds.includes(parsed.data.courseId)) {
+      return NextResponse.json({ error: "pageContext.courseId not in user context" }, { status: 403 });
+    }
+
+    validatedPageContext = parsed.data;
   }
 
   // Server-side backstop behind the client's maxLength — the client can be
@@ -908,6 +933,7 @@ export async function POST(request: NextRequest) {
         const conversation: any[] = [
           { role: "system", content: buildSystemPrompt(context, studentProfile.summary, false, clarifiedIntent) },
           ...(summary ? [{ role: "system", content: `Summary of earlier conversation:\n${summary}` }] : []),
+          ...(validatedPageContext ? [{ role: "system", content: buildPageContextPrompt(validatedPageContext) }] : []),
           ...messages.slice(summarizedCount),
         ];
         const documentsRead: string[] = [];
