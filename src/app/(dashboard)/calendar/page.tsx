@@ -14,9 +14,23 @@ import MonthView from "@/src/components/calendar/MonthView";
 import WeekView from "@/src/components/calendar/WeekView";
 
 import type { CalendarView } from "@/src/components/calendar/calendarTypes";
+import { useSetPageContext } from "@/src/context/AIPageContext";
 
 export default function CalendarPage() {
   const [view, setView] = useState<CalendarView>("month");
+
+  // The calendar has no real event data wired up yet (static UI scaffolding
+  // — no backend model, confirmed no events exist anywhere in this
+  // component tree) — say so honestly rather than letting the model assume
+  // or invent a schedule if asked about it.
+  useSetPageContext(
+    {
+      page: "calendar",
+      label: "Calendar",
+      summary: `The student is viewing their calendar in ${view} view. No real event/schedule data is wired up on this page yet — don't assume or invent any events.`,
+    },
+    [view]
+  );
 
   function getViewButtonClass(buttonView: CalendarView) {
     const isActive = view === buttonView;
@@ -33,7 +47,7 @@ export default function CalendarPage() {
       <div className="mx-auto max-w-7xl">
         <header className="mb-7 flex items-start justify-between gap-6">
           <div>
-            <div className="mb-2 flex items-center gap-2 text-xs text-text-muted">
+            <div className="mb-2 mt-9 flex items-center gap-2 text-xs text-text-muted">
               <CalendarDays size={15} strokeWidth={1.8} />
               <span>Dashboard</span>
               <span>/</span>
@@ -48,56 +62,82 @@ export default function CalendarPage() {
           <div className="flex items-center gap-3">
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-lg border border-border-light bg-white px-4 py-2 text-sm font-medium text-text-main shadow-sm transition hover:bg-bg-warm"
-            >
+              className="
+                inline-flex items-center gap-2 rounded-lg
+                border border-border-light bg-bg-container
+                px-4 py-2 text-sm font-medium text-text-main
+                shadow-sm transition hover:bg-bg-warm" >
+
               <Filter size={15} strokeWidth={1.8} />
               Filter
             </button>
 
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-primary-hover"
-            >
+              className="
+                inline-flex items-center gap-2 rounded-lg
+                bg-primary px-4 py-2 text-sm font-medium
+                text-white shadow-sm transition hover:bg-primary-hover" >
               <Plus size={16} strokeWidth={2} />
               Add Event
             </button>
           </div>
         </header>
 
-        <div className="rounded-3xl border border-border-light bg-bg-container p-6 shadow-sm">
-          <div className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-border-light pb-4">
+        <div
+          className="
+            rounded-3xl border border-border-light
+            bg-bg-container p-6 shadow-sm" >
+          <div
+            className="
+              mb-6 flex flex-wrap items-center justify-between
+              gap-4 border-b border-border-light pb-4" >
+
             <div className="flex items-center gap-8">
               <h2 className="text-xl font-semibold text-text-main">
                 September 2026
               </h2>
 
-              <div className="flex items-center overflow-hidden rounded-lg border border-border-light bg-white">
+              <div
+                className="
+                  flex items-center overflow-hidden rounded-lg
+                  border border-border-light bg-bg-container" >
                 <button
                   type="button"
-                  className="flex h-9 w-10 items-center justify-center border-r border-border-light text-text-muted transition hover:bg-bg-warm"
-                  aria-label="Previous"
-                >
+                  className="
+                    flex h-9 w-10 items-center justify-center
+                    border-r border-border-light text-text-muted
+                    transition hover:bg-bg-warm"
+                  aria-label="Previous" >
+
                   <ChevronLeft size={17} strokeWidth={2} />
                 </button>
 
                 <button
                   type="button"
-                  className="h-9 px-4 text-sm font-medium text-text-main transition hover:bg-bg-warm"
-                >
+                  className="
+                    h-9 px-4 text-sm font-medium text-text-main
+                    transition hover:bg-bg-warm" >
                   Today
                 </button>
 
                 <button
                   type="button"
-                  className="flex h-9 w-10 items-center justify-center border-l border-border-light text-text-muted transition hover:bg-bg-warm"
-                  aria-label="Next"
-                >
+                  className="
+                    flex h-9 w-10 items-center justify-center
+                    border-l border-border-light text-text-muted
+                    transition hover:bg-bg-warm"
+                  aria-label="Next" >
+
                   <ChevronRight size={17} strokeWidth={2} />
                 </button>
               </div>
             </div>
 
-            <div className="flex overflow-hidden rounded-lg border border-border-light bg-white">
+            <div
+              className="
+                flex overflow-hidden rounded-lg
+                border border-border-light bg-bg-container" >
               <button
                 type="button"
                 onClick={() => setView("month")}
