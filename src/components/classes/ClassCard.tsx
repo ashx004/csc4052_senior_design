@@ -9,6 +9,7 @@ export interface ClassCardProps {
   classCode?: string;
   term?: string;
   color?: string;
+  variant?: "default" | "compact";
   status?: EnrollmentStatus;
 }
 
@@ -18,17 +19,22 @@ export default function ClassCard({
   classCode: classCode,
   term,
   color = "#0a2a3c",
+  variant = "default",
 }: ClassCardProps) {
+
+  const cardClassName = variant == "compact" ? "class-card class-card-compact" : "class-card";
 
 
   return (
-    <div className="class-card">
+    <div className={cardClassName}>
       {/* Banner */}
       <div className="class-card-banner" style={{ background: color }} />
 
       {/* Body */}
       <div className="class-card-body">
-        <Link href={`/courses/${classId}`} className="class-card-title">
+        <Link
+          href={`/courses/${classId}`}
+          className="class-card-title">
           {className}
         </Link>
         <p className="class-card-code">{classCode}</p>

@@ -4,8 +4,6 @@ import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { getMinioClient } from "@/src/library/minioClient";
 
-const s3Client = getMinioClient();
-
 export async function POST(req: NextRequest) {
     try {
         const bucketName = "studora";
@@ -27,6 +25,7 @@ export async function POST(req: NextRequest) {
         const arrayBuffer = await req.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
 
+        const s3Client = await getMinioClient();
         await s3Client.send(
             new PutObjectCommand({
                 Bucket: bucketName,

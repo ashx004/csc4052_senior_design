@@ -4,8 +4,6 @@ import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { deleteChunksForResource } from "@/src/library/vectorStore";
 import { getMinioClient } from "@/src/library/minioClient";
 
-const s3Client = getMinioClient();
-
 export async function DELETE(req: NextRequest) {
     const key = req.nextUrl.searchParams.get("key");
     if (!key) {
@@ -21,6 +19,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     try {
+        const s3Client = await getMinioClient();
         await s3Client.send(new DeleteObjectCommand({ Bucket: "studora", Key: key }));
 
         // Optional: clean up this resource's Qdrant vectors too (hygiene —

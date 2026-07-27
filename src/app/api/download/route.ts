@@ -4,8 +4,6 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { verifyRequestAuth, isInternalRequest } from "@/src/library/verifyAuth";
 import { getMinioClient } from "@/src/library/minioClient";
 
-const s3Client = getMinioClient();
-
 export async function GET(req: NextRequest) {
     const key = req.nextUrl.searchParams.get("key");
     if (!key) {
@@ -26,6 +24,7 @@ export async function GET(req: NextRequest) {
     }
 
     try {
+        const s3Client = await getMinioClient();
         const result = await s3Client.send(
             new GetObjectCommand({ Bucket: "studora", Key: key })
         );
