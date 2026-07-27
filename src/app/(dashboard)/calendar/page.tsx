@@ -18,6 +18,7 @@ import { useCalendarEvents } from "@/src/hooks/useCalendarEvents";
 import { getWeekStart } from "@/src/library/calendarHelpers";
 
 import type { CalendarView } from "@/src/components/calendar/calendarTypes";
+import { useSetPageContext } from "@/src/context/AIPageContext";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -106,6 +107,19 @@ export default function CalendarPage() {
 
   // ── Shared view button class ─────────────────────────────────────────────
 
+  // The calendar has no real event data wired up yet (static UI scaffolding
+  // — no backend model, confirmed no events exist anywhere in this
+  // component tree) — say so honestly rather than letting the model assume
+  // or invent a schedule if asked about it.
+  useSetPageContext(
+    {
+      page: "calendar",
+      label: "Calendar",
+      summary: `The student is viewing their calendar in ${view} view. No real event/schedule data is wired up on this page yet — don't assume or invent any events.`,
+    },
+    [view]
+  );
+
   function getViewButtonClass(buttonView: CalendarView) {
     const isActive = view === buttonView;
     return `px-4 py-2 text-sm font-medium transition ${
@@ -123,7 +137,7 @@ export default function CalendarPage() {
         {/* ── Page header ── */}
         <header className="mb-7 flex items-start justify-between gap-6">
           <div>
-            <div className="mb-2 flex items-center gap-2 text-xs text-text-muted">
+            <div className="mb-2 mt-9 flex items-center gap-2 text-xs text-text-muted">
               <CalendarDays size={15} strokeWidth={1.8} />
               <span>Dashboard</span>
               <span>/</span>
@@ -137,15 +151,21 @@ export default function CalendarPage() {
           <div className="flex items-center gap-3">
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-lg border border-border-light bg-white px-4 py-2 text-sm font-medium text-text-main shadow-sm transition hover:bg-bg-warm"
-            >
+              className="
+                inline-flex items-center gap-2 rounded-lg
+                border border-border-light bg-bg-container
+                px-4 py-2 text-sm font-medium text-text-main
+                shadow-sm transition hover:bg-bg-warm" >
+
               <Filter size={15} strokeWidth={1.8} />
               Filter
             </button>
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-primary-hover"
-            >
+              className="
+                inline-flex items-center gap-2 rounded-lg
+                bg-primary px-4 py-2 text-sm font-medium
+                text-white shadow-sm transition hover:bg-primary-hover" >
               <Plus size={16} strokeWidth={2} />
               Add Event
             </button>
@@ -161,7 +181,10 @@ export default function CalendarPage() {
                 {headerText}
               </h2>
 
-              <div className="flex items-center overflow-hidden rounded-lg border border-border-light bg-white">
+              <div
+                className="
+                  flex items-center overflow-hidden rounded-lg
+                  border border-border-light bg-bg-container" >
                 <button
                   type="button"
                   onClick={goToPrev}
@@ -188,7 +211,10 @@ export default function CalendarPage() {
               </div>
             </div>
 
-            <div className="flex overflow-hidden rounded-lg border border-border-light bg-white">
+            <div
+              className="
+                flex overflow-hidden rounded-lg
+                border border-border-light bg-bg-container" >
               <button
                 type="button"
                 onClick={() => setView("month")}
