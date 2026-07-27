@@ -12,7 +12,7 @@ import React, {
   type KeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Send, Sparkles, Loader2 } from "lucide-react";
+import { ChevronDown, Send, Sparkles, Loader2,Maximize2,Minimize2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import type { PageContext, SuggestionItem } from "@/src/library/Contextual_AI/contextualAi";
 
@@ -55,6 +55,7 @@ export default function ContextualAiPanel({
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [toolStatus, setToolStatus] = useState<string | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -78,9 +79,10 @@ export default function ContextualAiPanel({
     if (!open) return;
     const handler = (e: globalThis.KeyboardEvent) => {
       if (e.key === "Escape") {
+        setIsExpanded(false);
         onClose();
         launcherRef?.current?.focus();
-      }
+    }
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
@@ -234,10 +236,15 @@ export default function ContextualAiPanel({
     }
   };
 
-  const handleClose = () => {
-    onClose();
-    launcherRef?.current?.focus();
-  };
+  const handleToggleExpanded = () => {
+    setIsExpanded((previous) => !previous);
+};
+
+    const handleClose = () => {
+        setIsExpanded(false);
+        onClose();
+        launcherRef?.current?.focus();
+    };
 
   // ─── Render ─────────────────────────────────────────────────
 
@@ -253,14 +260,18 @@ export default function ContextualAiPanel({
         ref={panelRef}
         role="complementary"
         aria-label="Catalyst AI assistant"
-        className="
-          pointer-events-auto absolute top-0 right-0 bottom-0
-          w-full sm:w-[420px]
-          bg-[var(--background)] border-l border-[var(--border-color)]
-          flex flex-col
-          shadow-[-4px_0_24px_rgba(0,0,0,0.08)]
-          animate-slide-in-right
-        "
+        className={`
+            pointer-events-auto absolute inset-y-0 right-0
+            flex flex-col
+            bg-[var(--background)]
+            transition-[width] duration-300 ease-in-out
+            animate-slide-in-right
+            ${
+                isExpanded
+                ? "w-full border-l-0 shadow-none"
+                : "w-full border-l border-[var(--border-color)] shadow-[-4px_0_24px_rgba(0,0,0,0.08)] sm:w-[420px]"
+            }
+        `}
         style={{
           /* Fallback if CSS vars aren't set */
           backgroundColor: "var(--background, #FAF9F6)",
@@ -269,37 +280,79 @@ export default function ContextualAiPanel({
       >
         {/* ── Header ── */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-color)]">
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <Sparkles size={24} className="text-[var(--primary)]" />
-            <span className="font-semibold text-xl text-[var(--text-primary)]">
+            <span className="truncate text-xl font-semibold text-[var(--text-primary)]">
               C  a  t  a  l  y  s  t  A I .
             </span>
             <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-[var(--primary)] text-white opacity-80">
               Beta
             </span>
           </div>
-          <button
+          <div className="flex shrink-0 items-center gap-1">
+        <button
+            type="button"
+            onClick={handleToggleExpanded}
+            aria-label={
+            isExpanded
+                ? "Restore Catalyst panel"
+                : "Expand Catalyst panel"
+            }
+            aria-pressed={isExpanded}
+            title={
+            isExpanded
+                ? "Restore Catalyst panel"
+                : "Expand Catalyst panel"
+            }
+            className="
+            hidden items-center justify-center
+            rounded-lg p-1.5
+            text-[var(--text-secondary)]
+            transition-colors
+            hover:bg-[var(--hover-bg)]
+            sm:inline-flex
+            "
+        >
+            {isExpanded ? (
+            <Minimize2 size={20} />
+            ) : (
+            <Maximize2 size={20} />
+            )}
+        </button>
+
+        <button
+            type="button"
             onClick={handleClose}
             aria-label="Close Catalyst panel"
             className="
-              p-1.5 rounded-lg
-              hover:bg-[var(--hover-bg)] transition-colors
-              text-[var(--text-secondary)]
+            rounded-lg p-1.5
+            text-[var(--text-secondary)]
+            transition-colors
+            hover:bg-[var(--hover-bg)]
             "
-          >
+        >
             <ChevronDown size={20} />
-          </button>
+        </button>
+        </div>
         </div>
 
         {/* ── Context label ── */}
-        <div className="px-5 pt-3 pb-1">
+        <div
+            className={`mx-auto w-full px-5 pb-1 pt-3 ${
+                isExpanded ? "max-w-4xl" : ""
+            }`}
+        >
           <p className="text-xs text-[var(--text-secondary)] truncate">
             {contextLabel}
           </p>
         </div>
 
         {/* ── Scrollable body ── */}
-        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-4">
+        <div
+            className={`mx-auto w-full flex-1 space-y-4 overflow-y-auto px-5 py-3 ${
+                isExpanded ? "max-w-4xl" : ""
+            }`}
+        >
           {/* Initial state: heading + suggestions */}
           {messages.length === 0 && (
             <div className="flex flex-col items-center text-center pt-6 pb-2 space-y-5">
@@ -355,8 +408,8 @@ export default function ContextualAiPanel({
               className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
             >
               <div
-                className={`
-                  max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed
+                className={`${isExpanded ? "max-w-3xl": "max-w-[85%]"}
+                    rounded-2xl px-4 py-3 text-sm leading-relaxed
                   ${
                     msg.role === "user"
                       ? "bg-[var(--primary)] text-white rounded-br-md"
@@ -402,73 +455,94 @@ export default function ContextualAiPanel({
         </div>
 
         {/* ── Input bar ── */}
-        <div className="border-t border-[var(--border-color)] px-4 py-3">
-          <div
-            className="
-                flex items-end gap-2
-                rounded-2xl
-                border border-[var(--border-color)]
-                bg-[var(--card-bg)]
-                px-4 py-3
-                shadow-[0_8px_28px_rgba(0,0,0,0.12)]
-                transition-shadow duration-200
-                focus-within:shadow-[0_12px_36px_rgba(0,0,0,0.18)]
-                "
-            style={{
-              backgroundColor: "var(--card-bg, #FFFFFF)",
-              borderColor: "var(--border-color, #E5E2DB)",
-            }}
-          >
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Ask your study question here"
-              rows={1}
-              disabled={isStreaming}
-              className="
-                flex-1 resize-none bg-transparent outline-none
-                text-sm text-[var(--text-primary)]
-                placeholder:text-[var(--text-secondary)]
-                max-h-[120px] min-h-[24px]
-                disabled:opacity-50
-              "
-              style={{
-                height: "auto",
-                overflow: "hidden",
-              }}
-              onInput={(e) => {
-                const target = e.target as HTMLTextAreaElement;
-                target.style.height = "auto";
-                target.style.height = `${Math.min(target.scrollHeight, 120)}px`;
-              }}
-            />
-            <button
-              onClick={handleSubmit}
-              disabled={!input.trim() || isStreaming}
-              aria-label="Send message"
-              className="
-                p-2 rounded-full
-                bg-[var(--primary)] text-white
-                hover:opacity-90 transition-opacity
-                disabled:opacity-30 disabled:cursor-not-allowed
-                flex-shrink-0
-              "
-              style={{ backgroundColor: "var(--primary, #6B705C)" }}
-            >
-              <Send size={16} />
-            </button>
-          </div>
-          <p className="text-[10px] text-[var(--text-secondary)] text-center mt-2 opacity-60">
-            Enhanced by AI
-          </p>
-        </div>
-      </div>
-    </div>
-  );
+<div className="border-t border-[var(--border-color)] px-4 py-3">
+  <div
+    className={`mx-auto w-full ${
+      isExpanded ? "max-w-4xl" : ""
+    }`}
+  >
+    <div
+      className="
+        flex items-end gap-2
+        rounded-2xl
+        border border-[var(--border-color)]
+        bg-[var(--card-bg)]
+        px-4 py-3
+        shadow-[0_8px_28px_rgba(0,0,0,0.12)]
+        transition-shadow duration-200
+        focus-within:shadow-[0_12px_36px_rgba(0,0,0,0.18)]
+      "
+      style={{
+        backgroundColor: "var(--card-bg, #FFFFFF)",
+        borderColor: "var(--border-color, #E5E2DB)",
+      }}
+    >
+      <textarea
+        ref={inputRef}
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder="Ask your study question here"
+        rows={1}
+        disabled={isStreaming}
+        className="
+          min-h-[24px] max-h-[120px] flex-1
+          resize-none bg-transparent
+          text-sm text-[var(--text-primary)]
+          outline-none
+          placeholder:text-[var(--text-secondary)]
+          disabled:opacity-50
+        "
+        style={{
+          height: "auto",
+          overflow: "hidden",
+        }}
+        onInput={(e) => {
+          const target = e.target as HTMLTextAreaElement;
+          target.style.height = "auto";
+          target.style.height = `${Math.min(
+            target.scrollHeight,
+            120
+          )}px`;
+        }}
+      />
 
-  return createPortal(panel, document.body);
+      <button
+        type="button"
+        onClick={handleSubmit}
+        disabled={!input.trim() || isStreaming}
+        aria-label="Send message"
+        className="
+          shrink-0 rounded-full
+          bg-[var(--primary)] p-2
+          text-white
+          transition-opacity
+          hover:opacity-90
+          disabled:cursor-not-allowed
+          disabled:opacity-30
+        "
+        style={{
+          backgroundColor: "var(--primary, #6B705C)",
+        }}
+      >
+        <Send size={16} />
+      </button>
+    </div>
+
+    <p className="mt-2 text-center text-[10px] text-[var(--text-secondary)] opacity-60">
+      Enhanced by AI
+    </p>
+  </div>
+</div>
+
+{/* Close panel */}
+</div>
+
+{/* Close fixed portal container */}
+</div>
+);
+
+return createPortal(panel, document.body);
 }
 
 // ─── Floating Launcher Button ─────────────────────────────────
