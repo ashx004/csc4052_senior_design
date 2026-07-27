@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {Home,Briefcase,Calendar,MessageSquare,Users,User,} from "lucide-react";
+import {Home,Briefcase,Calendar,MessageSquare,Users,User,BookOpen,} from "lucide-react";
 import Sidebar from "./Sidebar";
 
 const links = [
   { label: "Home", href: "/dashboard", icon: Home },
   { label: "Classes", href: "/classes", icon: Briefcase },
+  { label: "Learning", href: "/learning", icon: BookOpen },
   { label: "Calendar", href: "/calendar", icon: Calendar },
   { label: "AI Assistant", href: "/ai-assistant", icon: MessageSquare },
   { label: "Advising", href: "/advising", icon: Users },
