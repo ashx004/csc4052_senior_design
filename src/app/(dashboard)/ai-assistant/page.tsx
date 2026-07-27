@@ -47,7 +47,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
           {message.text}
         </div>
       ) : isPending ? (
-        <div className="flex items-center gap-2 rounded-2xl bg-white px-5 py-4 shadow-sm ring-1 ring-border-light">
+        <div className="flex items-center gap-2 rounded-2xl bg-bg-container px-5 py-4 shadow-sm ring-1 ring-border-light">
           {toolStatus ? (
             <span className="text-sm text-text-muted">{toolStatus}</span>
           ) : (
@@ -67,7 +67,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
           )}
 
           <div className="flex items-start gap-3">
-            <div className="prose prose-sm max-w-none rounded-2xl bg-white px-5 py-4 leading-relaxed shadow-sm ring-1 ring-border-light prose-headings:mb-2 prose-headings:mt-3 prose-headings:text-text-main prose-p:my-1.5 prose-p:text-text-main prose-strong:text-text-main prose-a:text-primary prose-blockquote:border-primary prose-blockquote:text-text-muted prose-code:rounded prose-code:bg-bg-warm prose-code:px-1 prose-code:py-0.5 prose-code:text-text-main prose-code:before:content-none prose-code:after:content-none prose-pre:bg-bg-warm prose-pre:text-text-main prose-ol:text-text-main prose-ul:text-text-main prose-li:my-0.5 prose-table:text-text-main prose-th:text-text-main">
+            <div className="prose prose-sm max-w-none rounded-2xl bg-bg-container px-5 py-4 leading-relaxed shadow-sm ring-1 ring-border-light prose-headings:mb-2 prose-headings:mt-3 prose-headings:text-text-main prose-p:my-1.5 prose-p:text-text-main prose-strong:text-text-main prose-a:text-primary prose-blockquote:border-primary prose-blockquote:text-text-muted prose-code:rounded prose-code:bg-bg-warm prose-code:px-1 prose-code:py-0.5 prose-code:text-text-main prose-code:before:content-none prose-code:after:content-none prose-pre:bg-bg-warm prose-pre:text-text-main prose-ol:text-text-main prose-ul:text-text-main prose-li:my-0.5 prose-table:text-text-main prose-th:text-text-main">
               <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
                 {message.text}
               </ReactMarkdown>
@@ -76,7 +76,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
             <button
               type="button"
               onClick={() => onCopy(message.text)}
-              className="mt-2 rounded-md border border-border-light bg-white px-2 py-1 text-xs text-text-muted opacity-80 transition hover:bg-bg-warm group-hover:opacity-100"
+              className="mt-2 rounded-md border border-border-light bg-bg-container px-2 py-1 text-xs text-text-muted opacity-80 transition hover:bg-bg-warm group-hover:opacity-100"
               aria-label="Copy assistant message"
             >
               ⧉
@@ -90,7 +90,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
                   key={file.url}
                   href={file.url}
                   download={file.name}
-                  className="flex items-center gap-1.5 rounded-md border border-border-light bg-white px-3 py-1.5 text-xs font-medium text-primary shadow-sm transition hover:bg-bg-warm"
+                  className="flex items-center gap-1.5 rounded-md border border-border-light bg-bg-container px-3 py-1.5 text-xs font-medium text-primary shadow-sm transition hover:bg-bg-warm"
                 >
                   <FileDown size={14} />
                   {file.name}
@@ -282,6 +282,15 @@ export default function AIAssistantPage() {
     }
   }
 
+  // Distinct from chatContext itself (which is legitimately null both
+  // before loading AND after a failed load) — gates whether to show a
+  // skeleton or the real starter prompts. Without this, the page briefly
+  // showed generic starter prompts (context null) that then got visibly
+  // swapped for personalized ones a second or two later once
+  // buildChatContext resolved — confirmed distracting in practice, and this
+  // avoids ever rendering text that's about to be replaced.
+  const [contextLoaded, setContextLoaded] = useState(false);
+
   useEffect(() => {
     if (authLoading || !user?.email) return;
 
@@ -297,7 +306,8 @@ export default function AIAssistantPage() {
         console.error("Error building chat context:", error);
         setChatContext(null);
         return null;
-      });
+      })
+      .finally(() => setContextLoaded(true));
   }, [user, authLoading]);
 
   const starterPrompts = useMemo(() => getStarterPrompts(chatContext), [chatContext]);
@@ -559,7 +569,7 @@ export default function AIAssistantPage() {
         <div className="flex-1 overflow-y-auto px-6 pb-36 pt-10">
           {!hasStarted ? (
             <div className="mx-auto flex min-h-[55vh] max-w-3xl flex-col items-center justify-center text-center">
-              <div className="mb-8 flex h-16 w-16 items-center justify-center rounded-3xl border border-border-light bg-white shadow-sm">
+              <div className="mb-8 flex h-16 w-16 items-center justify-center rounded-3xl border border-border-light bg-bg-container shadow-sm">
                 <span className="text-3xl">✦</span>
               </div>
 
@@ -576,12 +586,19 @@ export default function AIAssistantPage() {
               </p>
 
               <div className="mt-10 grid w-full gap-3 md:grid-cols-3">
-                {starterPrompts.map((starter) => (
+                {!contextLoaded
+                  ? [0, 1, 2].map((i) => (
+                      <div
+                        key={i}
+                        className="h-[74px] animate-pulse rounded-2xl border border-border-light bg-bg-warm"
+                      />
+                    ))
+                  : starterPrompts.map((starter) => (
                   <button
                     key={starter.title}
                     type="button"
                     onClick={() => setInput(starter.prompt)}
-                    className="rounded-2xl border border-border-light bg-white p-4 text-left text-sm shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                    className="rounded-2xl border border-border-light bg-bg-container p-4 text-left text-sm shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
                   >
                     <span className="mb-2 block font-medium text-text-main">
                       {starter.title}
@@ -617,7 +634,7 @@ export default function AIAssistantPage() {
 
           <form
             onSubmit={handleSubmit}
-            className="mx-auto flex max-w-4xl items-center gap-3 rounded-2xl border border-border-light bg-white px-4 py-2 shadow-lg shadow-stone-200/70"
+            className="mx-auto flex max-w-4xl items-center gap-3 rounded-2xl border border-border-light bg-bg-container px-4 py-2 shadow-lg shadow-stone-200/70"
           >
             <button
               type="button"

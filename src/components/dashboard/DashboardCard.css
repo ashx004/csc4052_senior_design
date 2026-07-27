@@ -37,6 +37,13 @@
   object-fit: contain;
 }
 
+/* These icon assets are flat black line art with a transparent background,
+   so they nearly disappear against the dark theme's warm-brown icon
+   circle — inverting them turns black into a bright, readable near-white. */
+.dark .dashboard-card-icon-img {
+  filter: invert(1);
+}
+
 .dashboard-card-title {
   margin: 0 0 12px;
   font-size: 20px;

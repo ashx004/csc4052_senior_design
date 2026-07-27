@@ -1,5 +1,6 @@
 import { collection, doc, getDoc, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
+import { Term } from "./academicTerm";
 
 export type ChatDocument = {
   resourceId: string;
@@ -7,6 +8,13 @@ export type ChatDocument = {
   fileType: string;
   category: string;
   url: string;
+  // True once this document's chunks have been upserted into Qdrant
+  // (src/library/vectorStore.ts), set at index time in api/embed-document —
+  // lets searchDocuments (api/chat/route.ts) route straight to the fast
+  // Qdrant path instead of inferring it from "did a search happen to return
+  // anything," which would wrongly re-scan Firestore for every document a
+  // given query just didn't match.
+  vectorIndexed?: boolean;
 };
 
 export type ChatClass = {
@@ -22,6 +30,26 @@ export type ChatClass = {
   classRoom: string;
   classDescription: string;
   documents: ChatDocument[];
+  // Structured mirrors of classCode/term — present for enrollments added
+  // after src/library/academicTerm.ts existed, absent (and parseable via
+  // parseTermString/parseCourseCode) on older ones.
+  termSeason?: Term;
+  termYear?: number;
+  subject?: string;
+  courseNumber?: string;
+};
+
+// Describes what page the student is currently viewing, so the AI side
+// panel (src/components/aiPanel/AIPanel.tsx) can answer "what am I looking
+// at" style questions grounded in the real on-screen data instead of
+// guessing. Kept as one free-text `summary` block rather than a rigid
+// per-page schema, mirroring how the rest of this context gets turned into
+// prose for the system prompt anyway.
+export type PageAIContext = {
+  page: string;
+  label: string;
+  summary: string;
+  data?: Record<string, unknown>;
 };
 
 export type ChatContext = {
@@ -30,6 +58,7 @@ export type ChatContext = {
   name: string;
   college: string;
   classes: ChatClass[];
+  pageContext?: PageAIContext;
 };
 
 // Pulls together everything the AI assistant is allowed to know about the
@@ -77,6 +106,7 @@ export async function buildChatContext(userId: string, email: string): Promise<C
             fileType: resourceData.fileType ?? "",
             category: resourceData.category ?? "",
             url: resourceData.url ?? "",
+            vectorIndexed: resourceData.vectorIndexed === true,
           });
         });
       } catch (error) {
@@ -95,6 +125,10 @@ export async function buildChatContext(userId: string, email: string): Promise<C
         classSchedule: data.classSchedule ?? "",
         classRoom: data.classRoom ?? "",
         classDescription: data.classDescription ?? "",
+        termSeason: data.termSeason,
+        termYear: data.termYear,
+        subject: data.subject,
+        courseNumber: data.courseNumber,
         documents,
       });
     }
