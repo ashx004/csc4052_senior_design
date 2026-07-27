@@ -4,6 +4,9 @@ import { db } from "@/src/library/firebase";
 import { resolveInternalUrl } from "@/src/library/pdfExtract";
 import { extractDocumentText, SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
 import { embedTexts, cosineSimilarity } from "@/src/library/ollamaEmbeddings";
+import { searchChunks } from "@/src/library/vectorStore";
+import { resolveOllamaBaseUrl } from "@/src/library/ollamaClient";
+import { clarifyUserQuery } from "@/src/library/queryClarifier";
 import { searchWeb } from "@/src/library/webSearch";
 import { searchYoutube } from "@/src/library/youtubeSearch";
 import { generateAndUploadPdf } from "@/src/library/pdfGenerate";
@@ -12,6 +15,8 @@ import { getStudentProfile, maybeUpdateStudentProfile, StudentProfile } from "@/
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import {pageContextSchema,buildPageContextPrompt,type PageContext,} from "@/src/library/Contextual_AI/contextualAi";
+import { ChatContext, ChatClass, ChatDocument, PageAIContext, buildSystemPrompt } from "@/src/library/systemPrompt";
+
 const CHAT_RATE_LIMIT_WINDOW_MS = 60_000;
 const CHAT_RATE_LIMIT_MAX = 15; // per user per window — generous for real use, catches runaway/abusive callers
 
@@ -31,37 +36,6 @@ const MAX_CHAT_INPUT_CHARS = 4000; // mirrors the client's <input maxLength> in 
 // into a running summary instead of resending it verbatim every request.
 const COMPACTION_CHAR_THRESHOLD = 12000;
 const KEEP_RECENT_MESSAGES = 6;
-
-type ChatDocument = {
-  resourceId: string;
-  name: string;
-  fileType: string;
-  category: string;
-  url: string;
-};
-
-type ChatClass = {
-  classId: string;
-  className: string;
-  classCode: string;
-  term: string;
-  facultyName?: string;
-  facultyEmail?: string;
-  facultyPhoneNumber?: string;
-  facultyOfficeNumber?: string;
-  classSchedule?: string;
-  classRoom?: string;
-  classDescription?: string;
-  documents: ChatDocument[];
-};
-
-type ChatContext = {
-  userId: string;
-  email: string;
-  name?: string;
-  college?: string;
-  classes: ChatClass[];
-};
 
 type ChatMessage = { role: string; content: string };
 
@@ -179,128 +153,6 @@ const RECALL_PAST_CHAT_TOOL = {
   },
 };
 
-// Four-layer compositional prompt, following the architecture described in
-// Open TutorAI (arxiv 2602.07176) — a real academic AI-tutor project
-// deployed on Ollama on resource-constrained hardware — rather than one
-// monolithic string. Each layer is small and independently maintainable,
-// which is the actual point: a prior version of this function grew to
-// ~3,700 tokens of pure instructions through a night of incremental
-// patches, well past the ~3,000 token point where LLM instruction-following
-// measurably degrades. Layer 4 (post-tool) is the one deliberate exception
-// to "always include everything" — it's added only for rounds after a tool
-// has actually been called this turn, so the fabrication-prevention rules
-// that matter most right after a tool result comes back get undiluted
-// focus at exactly the moment they're needed, instead of being one of a
-// dozen unrelated rules present from turn one.
-
-function buildGlobalContextLayer(identity: string | undefined, nowLine: string): string {
-  const who = identity
-    ? `You are Catalyst, an AI study assistant embedded in ${identity}'s academic platform. You have real access to their identity, school, enrolled classes, and uploaded course materials — use it naturally to personalize answers instead of asking the student to repeat information you already have.`
-    : `You are Catalyst, an AI study assistant embedded in a student's academic platform.`;
-
-  return `${who} ${nowLine} — use it for anything date/time-relative.
-
-Guardrails & style: Stay on academic/learning topics; redirect off-topic or inappropriate requests briefly and warmly, no lecturing. Markdown only (CommonMark/GFM — this chat cannot render raw HTML like <br>/<b>, they'll show as literal text); real pipe tables for tabular data. Match response length to the question. Emojis sparingly. Use the student's first name and their real class/instructor names naturally.`;
-}
-
-function buildInstructionalLogicLayer(): string {
-  return `Tools:
-- list_enrolled_classes(): the student's exact classes/instructors/contact info/documents, verbatim. Use for requests about classes or documents AS A SET ("what classes am I in," "tell me about my classes") — never recite that data from memory. Not for one named document (use read_document). Present its actual output directly — it IS the complete answer, not a preliminary step to build on.
-- search_documents(query, courseId?): semantic search across indexed documents when you don't know which file has the answer.
-- read_document(courseId, documentName): read one document in full by its filename (not an internal ID) once you know exactly which one. Its result is the document's FULL content — don't also call search_documents on the same document afterward, and don't let an empty search_documents result override an already-successful read_document earlier this turn.
-- web_search(query, scholarly?): live web search. Use proactively, unprompted, whenever unsure of a fact or something could have changed since training — a confident unchecked guess is worse than a 5-second search. scholarly=true restricts to academic sources.
-- search_youtube(query): find real videos when watching something worked through genuinely helps (algorithms, proofs, hardware) or the student seems stuck after text. Call it and show the result in the same turn you decide it'd help — never end a response offering to look one up later; that's not a substitute for calling the tool.
-- create_pdf(title, markdown): generate a downloadable document (practice exam, study guide) when the student wants an artifact, not just a chat answer.
-- recall_past_chat(query): search past conversations. Every visit starts a brand-new session with no memory of earlier ones, so this is the only continuity mechanism — call it proactively whenever a request sounds like it continues earlier work ("that thing I was doing," "keep going on X"), before asking the student to re-explain from scratch.
-Only call a tool when it materially improves the answer. If a tool comes up empty or fails, say so plainly and report what actually happened — never fabricate a fallback and present it as if it came from their materials, never claim a PDF/search succeeded when the tool result says otherwise. You may then offer general knowledge, clearly labeled as general, not from their course.
-
-Baseline accuracy: never invent facts, class names, instructor names, or contact details beyond what's in the context or a tool result — copy them exactly rather than paraphrasing (e.g. don't turn "Intro to Computer Science" into "Introduction to Programming"). Never show internal courseId/resourceId values to the student.
-
-If a request is ambiguous, gibberish, or you can't tell what's being asked, ask a short clarifying question rather than guessing or defaulting to a tool call. Read phrasing in light of what was just said, not its most common standalone meaning — "what do you see" right after a data/access question means "what information do you have," not literal vision (you have no camera or image input at all).
-
-Code review: match depth to what's asked. "Tell me about this file" wants a structural overview (purpose, main pieces, how they fit), not a bug hunt. Only when actually asked to review/debug should you scan exhaustively and rank every issue by severity rather than stopping at the first one.
-
-Teaching approach: guide, don't dump. Ask what they've tried, point at the specific issue, explain the underlying mechanism — hand over complete corrected code only if asked directly or they're stuck after a real attempt. Never produce a complete deliverable meant to be submitted as the student's own graded work (a full essay, a finished assignment) even on direct request — offer to help them build it instead. If text looks pasted from a live quiz/exam, decline to answer it directly and explain the concept instead.`;
-}
-
-function buildAdaptiveVariableLayer(context: ChatContext | undefined, learnerProfile?: string): string {
-  const profileBlock = learnerProfile
-    ? `\n\nWhat you've learned about this student over time (use it to tailor explanations and stay aligned with their goals — don't recite it back verbatim or make them feel watched):\n${learnerProfile}`
-    : "";
-
-  if (!context) return profileBlock.trim();
-
-  const identityParts = [context.name, context.college].filter(Boolean).join(", ");
-  const identity = identityParts ? `${identityParts} (${context.email})` : context.email;
-
-  const classLines = context.classes.length
-    ? context.classes
-        .map((c) => {
-          const docLines = c.documents.length
-            ? c.documents
-                .map(
-                  (d) =>
-                    `      - [resourceId: ${d.resourceId}] ${d.name} — tag: ${d.category || "untagged"} (${d.fileType}${
-                      SUPPORTED_DOCUMENT_TYPES.includes(d.fileType) ? "" : ", not readable yet"
-                    })`
-                )
-                .join("\n")
-            : "      - No documents uploaded yet";
-
-          return `  - [courseId: ${c.classId}] ${c.classCode} — ${c.className} (${c.term})
-      Instructor: ${c.facultyName || "not listed"}${c.facultyEmail ? `, email: ${c.facultyEmail}` : ""}${
-            c.facultyPhoneNumber ? `, phone: ${c.facultyPhoneNumber}` : ""
-          }${c.facultyOfficeNumber ? `, office: ${c.facultyOfficeNumber}` : ""}
-      Schedule: ${c.classSchedule || "not listed"}${c.classRoom ? `, room: ${c.classRoom}` : ""}${
-            c.classDescription ? `\n      Description: ${c.classDescription}` : ""
-          }
-${docLines}`;
-        })
-        .join("\n")
-    : "  (Not enrolled in any classes yet)";
-
-  return `Student: ${identity}${profileBlock}
-
-Enrolled classes:
-${classLines}`;
-}
-
-// Only appended once a tool has actually been called this turn — see the
-// header comment above for why this is deliberately separated rather than
-// always-present.
-function buildPostToolLayer(): string {
-  return `You've used a tool this turn. Now: actually answer the student's question with what you found — don't just confirm you looked something up. Tool results are things YOU looked up yourself — never describe them as something the student "pasted" or "provided." Everything you state about the student's classes, documents, instructors, or contact info must come verbatim from the tool result, never from memory or a plausible-sounding guess — if a field (email, phone, syllabus) is blank in the result, say plainly it wasn't entered/uploaded, never construct a value that merely looks right. When quoting code, reproduce it character-for-character in its real language — never re-render Java as Python-style pseudocode.
-
-Do exactly what was asked with what you found, nothing more. If the request was to summarize, explain, or describe a document, give a summary — even if that document turns out to describe a programming assignment or problem set, do NOT start writing or solving it; a strong pull toward "I found a coding problem, let me solve it" is a known failure mode here and must be resisted unless the student specifically asked you to write or help write the code.`;
-}
-
-function buildSystemPrompt(context?: ChatContext, learnerProfile?: string, includePostToolLayer = false): string {
-  // Computed server-side per request (never client-supplied) so it's always
-  // real, current time — not something the model can be tricked about.
-  const now = new Date();
-  const nowLine = `Current date/time: ${now.toLocaleString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short",
-  })}`;
-
-  const identity = context ? [context.name, context.college].filter(Boolean).join(", ") || context.email : undefined;
-  const identityWithEmail = context && identity && !identity.includes(context.email) ? `${identity} (${context.email})` : identity;
-
-  const layers = [
-    buildGlobalContextLayer(identityWithEmail, nowLine),
-    buildInstructionalLogicLayer(),
-    buildAdaptiveVariableLayer(context, learnerProfile),
-  ];
-  if (includePostToolLayer) layers.push(buildPostToolLayer());
-
-  return layers.filter(Boolean).join("\n\n");
-}
-
 // Code-generated, not LLM-generated — the class listing is already fully
 // known from context, but reciting it from memory has repeatedly produced
 // fabricated course codes, instructor names, and invented contact emails
@@ -382,23 +234,57 @@ async function readDocument(
   }
 }
 
-// Simple sparse (keyword) signal to complement the dense (embedding) one —
-// catches exact terms like course codes or names that semantic similarity
-// alone sometimes misses.
-function keywordScore(query: string, text: string): number {
-  const queryTerms = Array.from(
-    new Set(
-      query
-        .toLowerCase()
-        .split(/[^a-z0-9]+/)
-        .filter((t) => t.length > 2)
-    )
-  );
-  if (queryTerms.length === 0) return 0;
+function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length > 2);
+}
 
-  const lowerText = text.toLowerCase();
-  const matched = queryTerms.filter((t) => lowerText.includes(t)).length;
-  return matched / queryTerms.length;
+// Real BM25 (k1=1.5, b=0.75 — standard defaults) as the sparse signal
+// complementing the dense (embedding) one — catches exact terms like course
+// codes or names that semantic similarity alone sometimes misses. Computed
+// over the candidate pool itself as the "corpus": the pool is small
+// (bounded by RERANK_CANDIDATE_POOL), so per-term document frequency and
+// average document length are cheap to compute inline, with no need for a
+// persistent text index. Replaces the previous naive "% of query terms
+// present" ratio, which ignored term frequency and document length
+// entirely (so a chunk mentioning a term once scored the same as one
+// mentioning it ten times, and a one-line chunk scored the same as a
+// thousand-word one for the same single match).
+function bm25Scores(query: string, texts: string[]): number[] {
+  const K1 = 1.5;
+  const B = 0.75;
+  const queryTerms = Array.from(new Set(tokenize(query)));
+  if (queryTerms.length === 0 || texts.length === 0) return texts.map(() => 0);
+
+  const docTermCounts = texts.map((text) => {
+    const counts = new Map<string, number>();
+    for (const term of tokenize(text)) counts.set(term, (counts.get(term) ?? 0) + 1);
+    return counts;
+  });
+  const docLengths = docTermCounts.map((counts) =>
+    Array.from(counts.values()).reduce((sum, n) => sum + n, 0)
+  );
+  const avgdl = docLengths.reduce((sum, n) => sum + n, 0) / texts.length || 1;
+
+  const N = texts.length;
+  const idf = new Map<string, number>();
+  for (const term of queryTerms) {
+    const docsWithTerm = docTermCounts.filter((counts) => counts.has(term)).length;
+    idf.set(term, Math.log((N - docsWithTerm + 0.5) / (docsWithTerm + 0.5) + 1));
+  }
+
+  return docTermCounts.map((counts, i) => {
+    let score = 0;
+    for (const term of queryTerms) {
+      const f = counts.get(term) ?? 0;
+      if (f === 0) continue;
+      const denom = f + K1 * (1 - B + (B * docLengths[i]) / avgdl);
+      score += (idf.get(term) ?? 0) * ((f * (K1 + 1)) / denom);
+    }
+    return score;
+  });
 }
 
 async function searchDocuments(
@@ -444,9 +330,48 @@ async function searchDocuments(
     return "Error: the search service is unavailable right now.";
   }
 
-  const scored: { text: string; docName: string; classCode: string; score: number }[] = [];
+  const scored: { text: string; docName: string; classCode: string; denseScore: number }[] = [];
+  const docsByResourceId = new Map(candidateDocs.map((d) => [d.resourceId, d]));
+  const scannedDocs = candidateDocs.slice(0, MAX_DOCS_SCANNED);
 
-  for (const doc of candidateDocs.slice(0, MAX_DOCS_SCANNED)) {
+  // Which resources actually got upserted into Qdrant is decided once, at
+  // index time (embed-document/route.ts sets vectorIndexed on success) —
+  // NOT inferred here from "did a search happen to return anything," which
+  // would wrongly re-scan Firestore for every document a given query simply
+  // didn't match, defeating the point of the migration. Old, pre-migration
+  // documents (vectorIndexed unset) go straight to the brute-force scan —
+  // see scripts/backfillQdrant.ts for a one-time way to migrate them.
+  const qdrantDocs = scannedDocs.filter((d) => d.vectorIndexed);
+  let firestoreOnlyDocs = scannedDocs.filter((d) => !d.vectorIndexed);
+
+  if (qdrantDocs.length > 0) {
+    try {
+      const results = await searchChunks(
+        queryEmbedding,
+        { userId: context.userId, resourceIds: qdrantDocs.map((d) => d.resourceId) },
+        RERANK_CANDIDATE_POOL * 3
+      );
+      for (const r of results) {
+        const doc = docsByResourceId.get(r.payload.resourceId);
+        if (!doc) continue; // defensive — shouldn't happen given the filter above
+        scored.push({
+          text: r.payload.text,
+          docName: doc.name,
+          classCode: doc.classCode,
+          denseScore: r.score, // Qdrant returns cosine similarity directly
+        });
+      }
+    } catch (error) {
+      console.error("Qdrant search failed, falling back to Firestore scan for its candidates:", error);
+      // Qdrant itself is down — those documents need the brute-force path
+      // too this time, on top of whatever was already routed there.
+      firestoreOnlyDocs = firestoreOnlyDocs.concat(qdrantDocs);
+    }
+  }
+
+  const fallbackDocs = firestoreOnlyDocs;
+
+  for (const doc of fallbackDocs) {
     try {
       const chunksSnap = await getDocs(
         collection(
@@ -463,16 +388,11 @@ async function searchDocuments(
       chunksSnap.forEach((chunkDoc) => {
         const data = chunkDoc.data();
         if (!Array.isArray(data.embedding)) return;
-        // Hybrid score: dense (embedding) similarity weighted primary, sparse
-        // (keyword overlap) as a secondary boost for exact-term recall.
-        const hybridScore =
-          0.75 * cosineSimilarity(queryEmbedding, data.embedding) +
-          0.25 * keywordScore(query, data.text);
         scored.push({
           text: data.text,
           docName: doc.name,
           classCode: doc.classCode,
-          score: hybridScore,
+          denseScore: cosineSimilarity(queryEmbedding, data.embedding),
         });
       });
     } catch (error) {
@@ -487,8 +407,22 @@ async function searchDocuments(
     );
   }
 
-  scored.sort((a, b) => b.score - a.score);
-  const candidates = scored.filter((r) => r.score >= SIMILARITY_THRESHOLD).slice(0, RERANK_CANDIDATE_POOL);
+  // BM25 needs corpus-wide stats (avg length, per-term document frequency),
+  // so it's computed once here over the whole candidate pool rather than
+  // per-chunk during collection above. Normalized against the pool's own
+  // top score so it combines on the same ~[0,1] scale as the dense
+  // (cosine) component below.
+  const bm25 = bm25Scores(query, scored.map((s) => s.text));
+  const maxBm25 = Math.max(0, ...bm25);
+  const withScore = scored.map((s, i) => ({
+    ...s,
+    // Hybrid score: dense (embedding) similarity weighted primary, sparse
+    // (BM25) as a secondary boost for exact-term recall.
+    score: 0.75 * s.denseScore + 0.25 * (maxBm25 > 0 ? bm25[i] / maxBm25 : 0),
+  }));
+
+  withScore.sort((a, b) => b.score - a.score);
+  const candidates = withScore.filter((r) => r.score >= SIMILARITY_THRESHOLD).slice(0, RERANK_CANDIDATE_POOL);
 
   if (candidates.length === 0) {
     return (
@@ -522,6 +456,7 @@ async function rerankChunks<T extends { text: string }>(
   const numbered = candidates.map((c, i) => `[${i + 1}] ${c.text.slice(0, 500)}`).join("\n\n");
 
   try {
+    const rerankBaseUrl = await resolveOllamaBaseUrl(process.env.OLLAMA_SECONDARY_URL, process.env.OLLAMA_SECONDARY_FALLBACK_URL);
     const response = await callOllama(
       [
         {
@@ -533,7 +468,7 @@ async function rerankChunks<T extends { text: string }>(
       undefined,
       0.1,
       {
-        baseUrl: process.env.OLLAMA_SECONDARY_URL,
+        baseUrl: rerankBaseUrl,
         model: process.env.OLLAMA_SUMMARY_MODEL || "qwen3:4b",
       }
     );
@@ -541,7 +476,7 @@ async function rerankChunks<T extends { text: string }>(
 
     const data = await response.json();
     warnIfSlowGeneration(
-      process.env.OLLAMA_SECONDARY_URL || "",
+      rerankBaseUrl,
       process.env.OLLAMA_SUMMARY_MODEL || "qwen3:4b",
       data?.eval_count,
       data?.eval_duration
@@ -671,8 +606,9 @@ async function recallPastChatTool(
       return "No other past conversations with enough content to search yet.";
     }
 
+    const bm25 = bm25Scores(searchQuery, candidates.map((c) => `${c.title} ${c.searchableText}`));
     const scored = candidates
-      .map((c) => ({ ...c, score: keywordScore(searchQuery, `${c.title} ${c.searchableText}`) }))
+      .map((c, i) => ({ ...c, score: bm25[i] }))
       .filter((c) => c.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, MAX_PAST_CHAT_MATCHES);
@@ -856,15 +792,23 @@ async function compactIfNeeded(
   ];
 
   try {
+    // Which target to use is a "is secondary even configured" choice
+    // (orthogonal to reachability, kept as the existing OR-chain); which URL
+    // to actually hit for that chosen target is then resolved LAN-vs-fallback.
+    const usingSecondary = Boolean(process.env.OLLAMA_SECONDARY_URL);
+    const configuredUrl = process.env.OLLAMA_SECONDARY_URL || process.env.OLLAMA_PRIMARY_URL || "";
+    const configuredFallback = usingSecondary ? process.env.OLLAMA_SECONDARY_FALLBACK_URL : process.env.OLLAMA_PRIMARY_FALLBACK_URL;
+    const compactionBaseUrl = configuredUrl ? await resolveOllamaBaseUrl(configuredUrl, configuredFallback) : "";
+
     const response = await callOllama(summarizeMessages, undefined, 0.2, {
-      baseUrl: process.env.OLLAMA_SECONDARY_URL || process.env.OLLAMA_PRIMARY_URL || "",
+      baseUrl: compactionBaseUrl,
       model: process.env.OLLAMA_SUMMARY_MODEL || process.env.OLLAMA_MODEL || "gpt-oss:20b",
     });
     if (!response.ok) throw new Error(`Summarization failed (${response.status})`);
 
     const data = await response.json();
     warnIfSlowGeneration(
-      process.env.OLLAMA_SECONDARY_URL || process.env.OLLAMA_PRIMARY_URL || "",
+      compactionBaseUrl,
       process.env.OLLAMA_SUMMARY_MODEL || process.env.OLLAMA_MODEL || "gpt-oss:20b",
       data?.eval_count,
       data?.eval_duration
@@ -964,7 +908,7 @@ export async function POST(request: NextRequest) {
 
   const encoder = new TextEncoder();
   const primaryTarget = {
-    baseUrl: process.env.OLLAMA_PRIMARY_URL,
+    baseUrl: await resolveOllamaBaseUrl(process.env.OLLAMA_PRIMARY_URL, process.env.OLLAMA_PRIMARY_FALLBACK_URL),
     model: process.env.OLLAMA_MODEL || "gpt-oss:20b",
   };
   const stream = new ReadableStream({
@@ -976,14 +920,18 @@ export async function POST(request: NextRequest) {
       let studentProfile: StudentProfile = { summary: "", messageCount: 0 };
 
       try {
-        const [{ summary, summarizedCount }, loadedProfile] = await Promise.all([
+        // Clarification runs alongside compaction/profile-loading (not
+        // after) so its round-trip is hidden behind theirs rather than
+        // adding its own serial latency in front of every response.
+        const [{ summary, summarizedCount }, loadedProfile, clarifiedIntent] = await Promise.all([
           compactIfNeeded(messages, incomingSummary ?? "", incomingSummarizedCount ?? 0),
           context?.userId ? getStudentProfile(context.userId) : Promise.resolve(studentProfile),
+          typeof latestMessage?.content === "string" ? clarifyUserQuery(latestMessage.content) : Promise.resolve(null),
         ]);
         studentProfile = loadedProfile;
 
         const conversation: any[] = [
-          { role: "system", content: buildSystemPrompt(context, studentProfile.summary) },
+          { role: "system", content: buildSystemPrompt(context, studentProfile.summary, false, clarifiedIntent) },
           ...(summary ? [{ role: "system", content: `Summary of earlier conversation:\n${summary}` }] : []),
           ...(validatedPageContext ? [{ role: "system", content: buildPageContextPrompt(validatedPageContext) }] : []),
           ...messages.slice(summarizedCount),
@@ -1020,7 +968,7 @@ export async function POST(request: NextRequest) {
               // Swap in the post-tool layer for every round from here on —
               // no extra request, just changes what this same next round
               // already sends. See buildPostToolLayer's comment for why.
-              conversation[0] = { role: "system", content: buildSystemPrompt(context, studentProfile.summary, true) };
+              conversation[0] = { role: "system", content: buildSystemPrompt(context, studentProfile.summary, true, clarifiedIntent) };
             }
             conversation.push(rawMessage);
 

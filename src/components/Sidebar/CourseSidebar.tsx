@@ -130,16 +130,16 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
         <div>
           {/* Course name */}
           <div className="mb-4">
-            <p className="px-2 text-sm font-bold text-gray-900">{displayName}</p>
+            <p className="px-2 text-sm font-bold text-text-main">{displayName}</p>
           </div>
 
-          {/* Overview */}
+          {/* Overview — standalone bold link, no icon */}
           <Link
             href={base}
             className={`block text-sm font-bold px-3 py-2.5 rounded-lg transition-colors ${
               pathname === base
-                ? "bg-[#F5F0EB] text-gray-900"
-                : "text-gray-900 hover:bg-[#F5F0EB]"
+                ? "bg-bg-warm text-text-main"
+                : "text-text-main hover:bg-bg-warm"
             }`}
           >
             Overview
@@ -157,12 +157,12 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
                     toggleSection(title);
                     router.push(href);
                   }}
-                  className="flex items-center justify-between w-full text-sm font-bold text-gray-900 px-3 py-2.5 rounded-lg hover:bg-[#F5F0EB] transition-colors"
+                  className="flex items-center justify-between w-full text-sm font-bold text-text-main px-3 py-2.5 rounded-lg hover:bg-bg-warm transition-colors"
                 >
                   <span>{title}</span>
                   <ChevronDown
                     size={16}
-                    className={`text-gray-500 transition-transform duration-200 ${
+                    className={`text-text-muted transition-transform duration-200 ${
                       isOpen ? "rotate-180" : ""
                     }`}
                   />
@@ -174,7 +174,7 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
                       <Link
                         key={item}
                         href={href}
-                        className="flex items-center gap-3 px-3 py-2 text-sm text-gray-600 hover:bg-[#F5F0EB] rounded-lg transition-colors"
+                        className="flex items-center gap-3 px-3 py-2 text-sm text-text-muted hover:bg-bg-warm rounded-lg transition-colors"
                       >
                         <Icon size={16} strokeWidth={1.5} className="shrink-0" />
                         <span>{item}</span>
@@ -191,8 +191,8 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
             onClick={() => router.push(`${base}/learning`)}
             className={`block w-full text-left text-sm font-bold px-3 py-2.5 mt-1 rounded-lg transition-colors ${
               pathname === `${base}/learning`
-                ? "bg-[#F5F0EB] text-gray-900"
-                : "text-gray-900 hover:bg-[#F5F0EB]"
+                ? "bg-bg-warm text-text-main"
+                : "text-text-main hover:bg-bg-warm"
             }`}
           >
             Learning
@@ -202,12 +202,12 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
           <div className="mt-1">
             <button
               onClick={() => toggleSection("Flashcard")}
-              className="flex items-center justify-between w-full text-sm font-bold text-gray-900 px-3 py-2.5 rounded-lg hover:bg-[#F5F0EB] transition-colors"
+              className="flex items-center justify-between w-full text-sm font-bold text-text-main px-3 py-2.5 rounded-lg hover:bg-bg-warm transition-colors"
             >
               <span>Flashcard</span>
               <ChevronDown
                 size={16}
-                className={`text-gray-500 transition-transform duration-200 ${
+                className={`text-text-muted transition-transform duration-200 ${
                   openSections["Flashcard"] ? "rotate-180" : ""
                 }`}
               />
@@ -219,11 +219,11 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
                   flashcardSets.map((set) => (
                     <div
                       key={set.id}
-                      className="group relative flex items-center rounded-lg hover:bg-[#F5F0EB] transition-colors"
+                      className="group relative flex items-center rounded-lg hover:bg-bg-warm transition-colors"
                     >
                       <Link
                         href={`${base}/flashcards?setId=${set.id}`}
-                        className="flex flex-1 min-w-0 items-center gap-3 px-3 py-2 text-sm text-gray-600"
+                        className="flex flex-1 min-w-0 items-center gap-3 px-3 py-2 text-sm text-text-muted"
                       >
                         <BookCopy size={19} />
                         <span className="truncate">{set.name}</span>
@@ -234,7 +234,7 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
                     </div>
                   ))
                 ) : (
-                  <p className="px-3 py-2 text-xs text-gray-400">No flashcards pinned</p>
+                  <p className="px-3 py-2 text-xs text-text-muted">No flashcards pinned</p>
                 )}
               </div>
             )}
@@ -244,12 +244,12 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
           <div className="mt-1">
             <button
               onClick={() => toggleSection("Quizzes")}
-              className="flex items-center justify-between w-full text-sm font-bold text-gray-900 px-3 py-2.5 rounded-lg hover:bg-[#F5F0EB] transition-colors"
+              className="flex items-center justify-between w-full text-sm font-bold text-text-main px-3 py-2.5 rounded-lg hover:bg-bg-warm transition-colors"
             >
               <span>Quizzes</span>
               <ChevronDown
                 size={16}
-                className={`text-gray-500 transition-transform duration-200 ${
+                className={`text-text-muted transition-transform duration-200 ${
                   openSections["Quizzes"] ? "rotate-180" : ""
                 }`}
               />
@@ -261,11 +261,11 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
                   quizSets.map((set) => (
                     <div
                       key={set.id}
-                      className="group relative flex items-center rounded-lg hover:bg-[#F5F0EB] transition-colors"
+                      className="group relative flex items-center rounded-lg hover:bg-bg-warm transition-colors"
                     >
                       <Link
                         href={`${base}/quizzes/${set.id}`}
-                        className="flex flex-1 min-w-0 items-center gap-3 px-3 py-2 text-sm text-gray-600"
+                        className="flex flex-1 min-w-0 items-center gap-3 px-3 py-2 text-sm text-text-muted"
                       >
                         <HelpCircle size={16} strokeWidth={1.5} className="shrink-0" />
                         <span className="truncate">{set.name}</span>
@@ -276,7 +276,7 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
                     </div>
                   ))
                 ) : (
-                  <p className="px-3 py-2 text-xs text-gray-400">No quizzes yet</p>
+                  <p className="px-3 py-2 text-xs text-text-muted">No quizzes yet</p>
                 )}
               </div>
             )}
@@ -294,12 +294,12 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
                     toggleSection(title);
                     router.push(href);
                   }}
-                  className="flex items-center justify-between w-full text-sm font-bold text-gray-900 px-3 py-2.5 rounded-lg hover:bg-[#F5F0EB] transition-colors"
+                  className="flex items-center justify-between w-full text-sm font-bold text-text-main px-3 py-2.5 rounded-lg hover:bg-bg-warm transition-colors"
                 >
                   <span>{title}</span>
                   <ChevronDown
                     size={16}
-                    className={`text-gray-500 transition-transform duration-200 ${
+                    className={`text-text-muted transition-transform duration-200 ${
                       isOpen ? "rotate-180" : ""
                     }`}
                   />
@@ -311,7 +311,7 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
                       <Link
                         key={item}
                         href={href}
-                        className="flex items-center gap-3 px-3 py-2 text-sm text-gray-600 hover:bg-[#F5F0EB] rounded-lg transition-colors"
+                        className="flex items-center gap-3 px-3 py-2 text-sm text-text-muted hover:bg-bg-warm rounded-lg transition-colors"
                       >
                         <Icon size={16} strokeWidth={1.5} className="shrink-0" />
                         <span>{item}</span>
@@ -328,8 +328,8 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
             href={`${base}/assignments`}
             className={`block text-sm font-bold px-3 py-2.5 mt-1 rounded-lg transition-colors ${
               pathname === `${base}/assignments`
-                ? "bg-[#F5F0EB] text-gray-900"
-                : "text-gray-900 hover:bg-[#F5F0EB]"
+                ? "bg-bg-warm text-text-main"
+                : "text-text-main hover:bg-bg-warm"
             }`}
           >
             Assignments
@@ -340,8 +340,8 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
             href={`${base}/due-dates`}
             className={`block text-sm font-bold px-3 py-2.5 mt-1 rounded-lg transition-colors ${
               pathname === `${base}/due-dates`
-                ? "bg-[#F5F0EB] text-gray-900"
-                : "text-gray-900 hover:bg-[#F5F0EB]"
+                ? "bg-bg-warm text-text-main"
+                : "text-text-main hover:bg-bg-warm"
             }`}
           >
             Due Dates
@@ -352,21 +352,21 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
         <div className="mt-auto pt-6">
           <Link
             href="/classes"
-            className="flex justify-end gap-2 text-xs text-gray-500 transition-colors hover:text-gray-900"
+            className="flex justify-end gap-2 text-xs text-text-muted transition-colors hover:text-text-main"
           >
             <ArrowLeft size={14} strokeWidth={1.5} />
             <span>Back to Classes</span>
           </Link>
 
-          <div className="my-4 border-t border-gray-200" />
+          <div className="my-4 border-t border-border-light" />
 
           <Link
             href="/dashboard"
             className="
               flex w-full items-center gap-3 rounded-lg
               px-3 py-2.5
-              text-sm font-bold text-gray-900
-              transition-colors hover:bg-[#F5F0EB]
+              text-sm font-bold text-text-main
+              transition-colors hover:bg-bg-warm
             "
           >
             <Home size={20} strokeWidth={1.5} />

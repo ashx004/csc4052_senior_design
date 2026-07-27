@@ -1,5 +1,6 @@
 import "@/src/components/classes/ClassCard.css";
 import Link from 'next/link';
+import { EnrollmentStatus } from "@/src/library/enrollmentStatus";
 
 // to hold props for class information for later user input
 export interface ClassCardProps {
@@ -8,6 +9,7 @@ export interface ClassCardProps {
   classCode?: string;
   term?: string;
   color?: string;
+  status?: EnrollmentStatus;
 }
 
 export default function ClassCard({
@@ -26,7 +28,7 @@ export default function ClassCard({
 
       {/* Body */}
       <div className="class-card-body">
-        <Link href={`/courses/${classId}`} className="class-card-title" style={{ color }}>
+        <Link href={`/courses/${classId}`} className="class-card-title">
           {className}
         </Link>
         <p className="class-card-code">{classCode}</p>

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import './global.css';
 import { AuthProvider } from "@/src/context/AuthContext";
+import ThemeInitializer from "@/src/components/ThemeInitializer";
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -18,8 +19,21 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={jakarta.variable}>
-      <body className="antialiased bg-bg-main">
-        <AuthProvider>{children}</AuthProvider>
+      <body 
+        className="
+          min-h-screen
+          bg-bg-main
+          text-text-main
+          antialiased
+          transition-colors
+          duration-300
+        "
+      >
+        <ThemeInitializer />
+
+        <AuthProvider>
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

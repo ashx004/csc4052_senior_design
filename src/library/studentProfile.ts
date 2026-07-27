@@ -1,5 +1,6 @@
 import { doc, getDoc, updateDoc, serverTimestamp, deleteField, Timestamp } from "firebase/firestore";
 import { db } from "./firebase";
+import { resolveOllamaBaseUrl } from "./ollamaClient";
 
 // The "Core memory" tier of a small, tiered memory system — a short,
 // always-loaded profile of durable facts about a student (academic/career
@@ -84,8 +85,9 @@ export async function maybeUpdateStudentProfile(
 
   try {
     const exchangeText = recentExchange.map((m) => `${m.role}: ${m.content}`).join("\n\n");
+    const baseUrl = await resolveOllamaBaseUrl(process.env.OLLAMA_SECONDARY_URL, process.env.OLLAMA_SECONDARY_FALLBACK_URL);
 
-    const response = await fetch(`${process.env.OLLAMA_SECONDARY_URL}/api/chat`, {
+    const response = await fetch(`${baseUrl}/api/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

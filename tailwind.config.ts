@@ -2,6 +2,9 @@ import type { Config } from "tailwindcss";
 import defaultTheme from "tailwindcss/defaultTheme";
 
 export default {
+
+  darkMode: "class",
+  
   content: [
     "./src/app/**/*.{ts,tsx}",
     "./src/components/**/*.{ts,tsx}",
@@ -25,6 +28,9 @@ export default {
         "alert-error": "var(--color-alert-error)",
         "alert-error-bg": "var(--color-alert-error-bg)",
         "alert-error-hover": "var(--color-alert-error-hover)",
+        "alert-success": "var(--color-alert-success)",
+        "alert-success-bg": "var(--color-alert-success-bg)",
+        "alert-success-hover": "var(--color-alert-success-hover)",
       },
     },
   },
