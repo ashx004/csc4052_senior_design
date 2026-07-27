@@ -99,21 +99,11 @@ a:hover {
     background-color: transparent !important;
 }
 
-/* .docx,
+.docx,
 .docx-render {
     background: #ffffff !important;
     background-color: #ffffff !important;
     border: none !important;
     margin-top: -40px !important; 
     margin-bottom: -10px !important; 
-} */
-
-.docx,
-.docx-render {
-  background: var(--color-bg-container) !important;
-  background-color: var(--color-bg-container) !important;
-  color: var(--color-text-main) !important;
-  border: none !important;
-  margin-top: -40px !important;
-  margin-bottom: -10px !important;
 }
