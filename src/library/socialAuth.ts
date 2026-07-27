@@ -23,6 +23,7 @@ export async function ensureUserProfile(user: User): Promise<void> {
 
 export async function signInWithGoogle(): Promise<User> {
   const provider = new GoogleAuthProvider();
+  provider.addScope("https://www.googleapis.com/auth/calendar");
   const result = await signInWithPopup(auth, provider);
   await ensureUserProfile(result.user);
   return result.user;

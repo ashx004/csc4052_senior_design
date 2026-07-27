@@ -31,6 +31,9 @@
   text-decoration: none;
   display: block;
   text-align: center;
+  /* Theme-driven, not the per-card banner accent color — that navy blue
+     accent is unreadable against the dark-brown card in dark mode. */
+  color: var(--color-text-main);
 }
 
 /* defines the animation when hovering over the title */

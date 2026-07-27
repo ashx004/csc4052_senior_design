@@ -257,6 +257,9 @@ function FileThumbnail({
     if (preview?.kind === "text") {
         return (
             <div className="h-full w-full overflow-hidden bg-white p-2 text-left">
+                {/* Deliberately always-white "paper" swatch, like the docx
+                    preview canvas below — the text color is fixed to match,
+                    not theme-driven. */}
                 <pre
                     className="whitespace-pre-wrap break-words text-left leading-tight text-[#5C5648]"
                     style={{ fontSize: `${fontSizePx}px` }}
@@ -698,14 +701,14 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             placeholder="Search files..."
-                            className="w-40 rounded-md border border-border-light py-1.5 pl-8 pr-3 text-sm text-text-main outline-none focus:border-primary sm:w-48"
+                            className="w-40 rounded-md border border-border-light bg-bg-container py-1.5 pl-8 pr-3 text-sm text-text-main outline-none focus:border-primary sm:w-48"
                         />
                     </div>
 
                     <select
                         value={categoryFilter}
                         onChange={(e) => setCategoryFilter(e.target.value as Category | "all")}
-                        className="rounded-md border border-border-light bg-white py-1.5 px-2 text-sm text-text-main outline-none focus:border-primary"
+                        className="rounded-md border border-border-light bg-bg-container py-1.5 px-2 text-sm text-text-main outline-none focus:border-primary"
                     >
                         <option value="all">All tags</option>
                         <option value="classDoc">Class Docs</option>
@@ -722,7 +725,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                             onClick={() => setShowFilterPopup((s) => !s)}
                         />
                         {showFilterPopup && (
-                            <div className="absolute left-0 top-full z-20 mt-2 w-48 rounded-lg bg-white p-3 shadow-lg ring-1 ring-border-light">
+                            <div className="absolute left-0 top-full z-20 mt-2 w-48 rounded-lg bg-bg-container p-3 shadow-lg ring-1 ring-border-light">
                                 <p className="mb-2 text-xs font-semibold text-text-muted">File type</p>
                                 <div className="max-h-40 space-y-1.5 overflow-y-auto pr-1">
                                     {presentFileTypes.map((type) => (
@@ -745,7 +748,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                         onChange={(e) =>
                                             setSortBy(e.target.value as "name" | "uploadedAt" | "lastViewedAt")
                                         }
-                                        className="w-full rounded-md border border-border-light bg-white py-1.5 px-2 text-sm text-text-main outline-none focus:border-primary"
+                                        className="w-full rounded-md border border-border-light bg-bg-container py-1.5 px-2 text-sm text-text-main outline-none focus:border-primary"
                                     >
                                         <option value="name">Name (A–Z)</option>
                                         <option value="uploadedAt">Upload date (newest)</option>
@@ -789,21 +792,21 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                     <span className="text-xs font-medium text-text-main">{selectedIds.size} selected</span>
                     <button
                         onClick={selectAll}
-                        className="rounded-md border border-border-light bg-white px-3 py-1 text-xs font-medium text-text-main hover:border-border-hover"
+                        className="rounded-md border border-border-light bg-bg-container px-3 py-1 text-xs font-medium text-text-main hover:border-border-hover"
                     >
                         Select all
                     </button>
                     <button
                         onClick={handleDownloadSelected}
                         disabled={selectedIds.size === 0}
-                        className="flex items-center gap-1 rounded-md border border-border-light bg-white px-3 py-1 text-xs font-medium text-text-main hover:border-border-hover disabled:cursor-not-allowed disabled:opacity-40"
+                        className="flex items-center gap-1 rounded-md border border-border-light bg-bg-container px-3 py-1 text-xs font-medium text-text-main hover:border-border-hover disabled:cursor-not-allowed disabled:opacity-40"
                     >
                         <Download size={12} /> Download selected
                     </button>
                     <button
                         onClick={() => setConfirmDeleteOpen(true)}
                         disabled={selectedIds.size === 0}
-                        className="flex items-center gap-1 rounded-md border border-border-light bg-white px-3 py-1 text-xs font-medium text-alert-error hover:bg-alert-error-bg disabled:cursor-not-allowed disabled:opacity-40"
+                        className="flex items-center gap-1 rounded-md border border-border-light bg-bg-container px-3 py-1 text-xs font-medium text-alert-error hover:bg-alert-error-bg disabled:cursor-not-allowed disabled:opacity-40"
                     >
                         <Trash2 size={12} /> Delete selected
                     </button>
@@ -886,7 +889,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                         className={`absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full border-2 shadow-sm ${
                                             selectedIds.has(resource.id)
                                                 ? "border-primary bg-primary"
-                                                : "border-border-hover bg-white"
+                                                : "border-border-hover bg-bg-container"
                                         }`}
                                     >
                                         {selectedIds.has(resource.id) && <CheckSquare size={12} className="text-white" />}
@@ -899,7 +902,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                         <div className="mt-4 flex justify-center">
                             <button
                                 onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
-                                className="rounded-md border border-border-light bg-white px-4 py-2 text-sm font-medium text-text-main hover:border-border-hover"
+                                className="rounded-md border border-border-light bg-bg-container px-4 py-2 text-sm font-medium text-text-main hover:border-border-hover"
                             >
                                 Show more ({sortedResources.length - visibleCount} remaining)
                             </button>
@@ -956,7 +959,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                         <div className="mt-4 flex justify-center">
                             <button
                                 onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
-                                className="rounded-md border border-border-light bg-white px-4 py-2 text-sm font-medium text-text-main hover:border-border-hover"
+                                className="rounded-md border border-border-light bg-bg-container px-4 py-2 text-sm font-medium text-text-main hover:border-border-hover"
                             >
                                 Show more ({sortedResources.length - visibleCount} remaining)
                             </button>
@@ -1029,7 +1032,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                     />
                                     {selectMode && distance === 0 && (
                                         <div className={`absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full border-2 shadow-sm ${
-                                            selectedIds.has(resource.id) ? "border-primary bg-primary" : "border-border-hover bg-white"
+                                            selectedIds.has(resource.id) ? "border-primary bg-primary" : "border-border-hover bg-bg-container"
                                         }`}>
                                             {selectedIds.has(resource.id) ? (
                                                 <CheckSquare size={12} className="text-white" />
@@ -1066,7 +1069,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
             {/* Preview modal */}
             {previewResource && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 sm:p-10" onClick={() => setPreviewResource(null)}>
-                    <div className="flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-bg-container shadow-xl" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-between border-b border-border-light px-4 py-3">
                             <p className="truncate text-sm font-semibold text-text-main">{previewResource.name}</p>
                             <CircleIconButton icon={<X size={16} />} ariaLabel="Close preview" size="sm" onClick={() => setPreviewResource(null)} />
@@ -1100,6 +1103,9 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
 							) : previewResource.fileType === "xlsx" ? (
                                 <>
                                     <style>{`
+                                        /* Fixed-white "paper" sheet, like the docx/text previews — the
+                                           source spreadsheet's own styling assumes a light page. */
+                                        .xlsx-render { background: #ffffff; color: #1f1712; }
                                         .xlsx-render table { border-collapse: collapse; font-size: 0.8rem; }
                                         .xlsx-render td, .xlsx-render th { border: 1px solid #ddd; padding: 4px 10px; white-space: nowrap; }
                                         .xlsx-render tr:first-child td { background: #E8D2AF; font-weight: 600; }
@@ -1134,7 +1140,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
 							        <div className="flex flex-col w-full h-[75vh] bg-bg-container rounded-xl overflow-hidden border border-border-light relative">
 							            
 							            {/* 🛠️ Floating Zoom Controller Bar Toolbar */}
-							            <div className="flex items-center justify-end gap-3 bg-white border-b border-border-light px-4 py-2 z-10 shadow-sm">
+							            <div className="flex items-center justify-end gap-3 bg-bg-container border-b border-border-light px-4 py-2 z-10 shadow-sm">
 							                <span className="text-xs font-medium text-text-muted">{Math.round(zoom * 100)}%</span>
 							                <button 
 							                    onClick={handleZoomOut} 
@@ -1169,7 +1175,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
 							                    className="w-full h-auto flex justify-center"
 							                >
 							                    {/* Your native hook point div containing its original formatting parameters */}
-							                    <div ref={docxContainerRef} className="docx-render-container mx-auto max-w-[850px] bg-white p-6 shadow-sm" />
+							                    <div ref={docxContainerRef} className="docx-render-container mx-auto max-w-[850px] bg-bg-container p-6 shadow-sm" />
 							                </div>
 							
 							            </div>
@@ -1216,7 +1222,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
             {/* Delete confirmation */}
             {confirmDeleteOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setConfirmDeleteOpen(false)}>
-                    <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+                    <div className="w-full max-w-sm rounded-xl bg-bg-container p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
                         <h3 className="mb-2 text-sm font-semibold text-text-main">
                             Delete {selectedIds.size} file{selectedIds.size !== 1 ? "s" : ""}?
                         </h3>
@@ -1242,7 +1248,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
             {/* Upload document modal */}
             {showAddModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => !isUploading && setShowAddModal(false)}>
-                    <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+                    <div className="w-full max-w-sm rounded-xl bg-bg-container p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
                         <div className="mb-4 flex items-center justify-between">
                             <h3 className="text-sm font-semibold text-text-main">Upload document</h3>
                             <CircleIconButton

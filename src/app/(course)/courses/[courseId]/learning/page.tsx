@@ -189,7 +189,7 @@ export default function CourseLearningPage() {
 
   const handleStartQuiz = async (config: {
     questionCount: number;
-    questionTypes: { multipleChoice: boolean; trueFalse: boolean };
+    questionTypes: { multipleChoice: boolean; trueFalse: boolean; matching: boolean };
   }) => {
     if (!user || !quizDocument) return;
     setQuizGenerating(true);
@@ -227,7 +227,7 @@ export default function CourseLearningPage() {
       });
 
       setQuizDocument(null);
-      router.push(`/courses/${courseId}/quizzes/${newDoc.id}`);
+      router.push(`/courses/${courseId}/quizzes/${newDoc.id}?mode=take`);
     } catch (err) {
       console.error('Error generating quiz:', err);
       setQuizError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');

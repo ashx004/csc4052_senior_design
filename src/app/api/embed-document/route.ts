@@ -6,6 +6,7 @@ import { extractDocumentText, SUPPORTED_DOCUMENT_TYPES } from "@/src/library/doc
 import { chunkText } from "@/src/library/chunking";
 import { addChunkContext } from "@/src/library/contextualChunking";
 import { embedTexts } from "@/src/library/ollamaEmbeddings";
+import { upsertChunks, chunkPointId } from "@/src/library/vectorStore";
 import { createTimeoutSignal } from "@/src/library/withTimeout";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
@@ -108,10 +109,32 @@ export async function POST(request: NextRequest) {
         )
       );
 
+      // Firestore above stays the source of truth for chunk existence/
+      // metadata (document-management UI reads it); Qdrant is the fast
+      // search index searchDocuments (api/chat/route.ts) actually queries.
+      // Best-effort: a Qdrant hiccup shouldn't fail an otherwise-successful
+      // indexing job — vectorIndexed stays false/unset so searchDocuments
+      // routes this resource to the old Firestore scan until a future
+      // successful index (or the one-time backfill script) picks it up.
+      let vectorIndexed = false;
+      try {
+        await upsertChunks(
+          chunks.contextualized.map((chunkValue, index) => ({
+            id: chunkPointId(resourceId, index),
+            vector: chunks.embeddings[index],
+            payload: { userId, courseId, resourceId, chunkIndex: index, text: chunkValue },
+          }))
+        );
+        vectorIndexed = true;
+      } catch (error) {
+        console.error(`Qdrant upsert failed for "${resource.name}" (falling back to Firestore search for it):`, error);
+      }
+
       await updateDoc(resourceRef, {
         indexed: true,
         indexedAt: serverTimestamp(),
         chunkCount: chunks.contextualized.length,
+        vectorIndexed,
       });
 
       return NextResponse.json({ success: true, chunkCount: chunks.contextualized.length });

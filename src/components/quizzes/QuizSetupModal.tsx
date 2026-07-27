@@ -6,6 +6,7 @@ import { FileText, X, Loader2 } from "lucide-react";
 interface QuestionTypes {
   multipleChoice: boolean;
   trueFalse: boolean;
+  matching: boolean;
 }
 
 interface QuizSetupModalProps {
@@ -57,18 +58,19 @@ export default function QuizSetupModal({
   const [questionCount, setQuestionCount] = useState(10);
   const [trueFalse, setTrueFalse] = useState(false);
   const [multipleChoice, setMultipleChoice] = useState(true);
+  const [matching, setMatching] = useState(false);
 
   if (!open) return null;
 
   const isCountValid = questionCount >= 1 && questionCount <= 20;
-  const hasTypeSelected = trueFalse || multipleChoice;
+  const hasTypeSelected = trueFalse || multipleChoice || matching;
   const canStart = isCountValid && hasTypeSelected && !loading;
 
   const handleStart = () => {
     if (!canStart) return;
     void onStart({
       questionCount,
-      questionTypes: { multipleChoice, trueFalse },
+      questionTypes: { multipleChoice, trueFalse, matching },
     });
   };
 
@@ -127,14 +129,9 @@ export default function QuizSetupModal({
             <span className="text-sm font-medium text-gray-700">Multiple choice</span>
             <ToggleSwitch checked={multipleChoice} onChange={setMultipleChoice} disabled={loading} />
           </div>
-          <div className="flex items-center justify-between" title="Coming soon">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-400">Matching</span>
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-300">
-                Coming soon
-              </span>
-            </div>
-            <ToggleSwitch checked={false} onChange={() => {}} disabled />
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-gray-700">Matching</span>
+            <ToggleSwitch checked={matching} onChange={setMatching} disabled={loading} />
           </div>
         </div>
 

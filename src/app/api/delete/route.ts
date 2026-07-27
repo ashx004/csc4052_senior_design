@@ -1,17 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
-
-const s3Client = new S3Client({
-    endpoint: process.env.MINIO_ENDPOINT,
-    region: "us-east-1",
-    credentials: {
-        accessKeyId: process.env.MINIO_ACCESS_KEY!,
-        secretAccessKey: process.env.MINIO_SECRET_KEY!,
-    },
-    forcePathStyle: true,
-    tls: true,
-});
+import { deleteChunksForResource } from "@/src/library/vectorStore";
+import { getMinioClient } from "@/src/library/minioClient";
 
 export async function DELETE(req: NextRequest) {
     const key = req.nextUrl.searchParams.get("key");
@@ -28,7 +19,21 @@ export async function DELETE(req: NextRequest) {
     }
 
     try {
+        const s3Client = await getMinioClient();
         await s3Client.send(new DeleteObjectCommand({ Bucket: "studora", Key: key }));
+
+        // Optional: clean up this resource's Qdrant vectors too (hygiene —
+        // orphaned points are otherwise harmless, never matched since
+        // search always filters to resourceIds pulled from live Firestore
+        // data, but cheap to remove properly). Client can't do this itself:
+        // vectorStore.ts needs server-only QDRANT_API_KEY.
+        const resourceId = req.nextUrl.searchParams.get("resourceId");
+        if (resourceId) {
+            await deleteChunksForResource(auth.uid, resourceId).catch((err) =>
+                console.error("Qdrant chunk cleanup failed (non-fatal):", err)
+            );
+        }
+
         return NextResponse.json({ success: true }, { status: 200 });
     } catch (err: any) {
         console.error("Delete error:", err.message);
