@@ -189,7 +189,7 @@ export default function CourseLearningPage() {
 
   const handleStartQuiz = async (config: {
     questionCount: number;
-    questionTypes: { multipleChoice: boolean; trueFalse: boolean };
+    questionTypes: { multipleChoice: boolean; trueFalse: boolean; matching: boolean };
   }) => {
     if (!user || !quizDocument) return;
     setQuizGenerating(true);
