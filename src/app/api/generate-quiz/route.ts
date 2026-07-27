@@ -17,7 +17,7 @@ const QuizResponseSchema = z.object({
     .describe('Short descriptive title for this quiz'),
   questions: z.array(
     z.object({
-      type: z.enum(['multiple_choice', 'true_false']),
+      type: z.enum(['multiple_choice', 'true_false', 'matching']),
       question: z.string(),
       options: z.array(z.string()),
       correctAnswer: z.string(),
@@ -26,10 +26,14 @@ const QuizResponseSchema = z.object({
 });
 
 type QuizResponse = z.infer<typeof QuizResponseSchema>;
+type ParsedQuestion = QuizResponse['questions'][number];
+
+const MAX_MATCHING_GROUP_SIZE = 5;
 
 interface QuestionTypes {
   multipleChoice?: boolean;
   trueFalse?: boolean;
+  matching?: boolean;
 }
 
 interface OllamaChatResponse {
@@ -56,7 +60,7 @@ function buildQuizJsonSchema(questionCount: number) {
           properties: {
             type: {
               type: 'string',
-              enum: ['multiple_choice', 'true_false'],
+              enum: ['multiple_choice', 'true_false', 'matching'],
             },
             question: {
               type: 'string',
@@ -245,7 +249,7 @@ export async function POST(request: NextRequest) {
 
     const types: QuestionTypes = questionTypes || {};
 
-    if (!types.multipleChoice && !types.trueFalse) {
+    if (!types.multipleChoice && !types.trueFalse && !types.matching) {
       return NextResponse.json(
         {
           error: 'Select at least one question type.',
@@ -345,30 +349,41 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let typeInstructions: string;
+    const enabledTypes: string[] = [];
+    if (types.multipleChoice) enabledTypes.push('multiple_choice');
+    if (types.trueFalse) enabledTypes.push('true_false');
+    if (types.matching) enabledTypes.push('matching');
 
-    if (types.multipleChoice && types.trueFalse) {
-      typeInstructions = `
-Use a roughly even mix of "multiple_choice" and "true_false" questions.
-
-For every "multiple_choice" question:
+    const typeBlocks: string[] = [];
+    if (types.multipleChoice) {
+      typeBlocks.push(`For every "multiple_choice" question:
 - Include exactly 4 options.
-- correctAnswer must exactly match one option.
-
-For every "true_false" question:
-- Use options exactly ["True", "False"] in that order.
-- correctAnswer must be exactly "True" or "False".`;
-    } else if (types.multipleChoice) {
-      typeInstructions = `
-Every question must have type "multiple_choice".
-Every question must include exactly 4 options.
-correctAnswer must exactly match one option.`;
-    } else {
-      typeInstructions = `
-Every question must have type "true_false".
-Every question must use options exactly ["True", "False"] in that order.
-correctAnswer must be exactly "True" or "False".`;
+- correctAnswer must exactly match one option.`);
     }
+    if (types.trueFalse) {
+      typeBlocks.push(`For every "true_false" question:
+- Use options exactly ["True", "False"] in that order.
+- correctAnswer must be exactly "True" or "False".`);
+    }
+    if (types.matching) {
+      typeBlocks.push(`For every "matching" question:
+- question is a short term or concept.
+- correctAnswer is that term's matching definition.
+- options may be an empty array — the server builds the option pool.
+- Terms and definitions must be unique across all matching questions.
+- Base it only on the supplied document.`);
+    }
+
+    const typeInstructions =
+      enabledTypes.length > 1
+        ? `Generate a reasonable mix of ${enabledTypes
+            .map((t) => `"${t}"`)
+            .join(', ')} questions totaling ${questionCount}. An exact even split is not required.
+
+${typeBlocks.join('\n\n')}`
+        : `Every question must have type "${enabledTypes[0]}".
+
+${typeBlocks.join('\n\n')}`;
 
     const prompt = `
 You are an expert academic tutor creating a quiz for a college student.
@@ -418,10 +433,14 @@ ${extractedText}
     }
 
     /*
-     * Preserve the existing post-generation checks.
+     * Preserve the existing post-generation checks for multiple_choice /
+     * true_false. Matching questions don't carry their own options from
+     * the model, so they're validated and normalized separately below.
      */
-    const validQuestions = parsed.questions.filter(
+    const validStandard = parsed.questions.filter(
       (question) => {
+        if (question.type === 'matching') return false;
+
         if (
           !question.options.includes(
             question.correctAnswer
@@ -463,6 +482,71 @@ ${extractedText}
         return true;
       }
     );
+
+    /*
+     * Matching — dedupe terms/definitions, split into groups of at most
+     * MAX_MATCHING_GROUP_SIZE, and build one shuffled shared options pool
+     * per group. Always builds fresh copies; never mutates parsed objects.
+     */
+    function shuffle<T>(items: T[]): T[] {
+      const copy = [...items];
+      for (let i = copy.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    }
+
+    const matchingRaw = parsed.questions.filter(
+      (q) => q.type === 'matching'
+    );
+    const seenTerms = new Set<string>();
+    const seenDefinitions = new Set<string>();
+    const dedupedMatching = matchingRaw.filter((q) => {
+      if (!q.question || !q.correctAnswer) return false;
+      if (
+        seenTerms.has(q.question) ||
+        seenDefinitions.has(q.correctAnswer)
+      ) {
+        console.warn(
+          'Dropping duplicate matching term/definition',
+          q
+        );
+        return false;
+      }
+      seenTerms.add(q.question);
+      seenDefinitions.add(q.correctAnswer);
+      return true;
+    });
+
+    const validMatching: (ParsedQuestion & {
+      matchingGroupId: string;
+    })[] = [];
+    for (
+      let i = 0;
+      i < dedupedMatching.length;
+      i += MAX_MATCHING_GROUP_SIZE
+    ) {
+      const group = dedupedMatching.slice(
+        i,
+        i + MAX_MATCHING_GROUP_SIZE
+      );
+      const groupId = randomUUID();
+      const sharedOptions = shuffle(
+        group.map((q) => q.correctAnswer)
+      );
+      for (const q of group) {
+        validMatching.push({
+          type: q.type,
+          question: q.question,
+          correctAnswer: q.correctAnswer,
+          options: sharedOptions,
+          matchingGroupId: groupId,
+        });
+      }
+    }
+
+    const validQuestions = [...validStandard, ...validMatching];
 
     if (validQuestions.length < 1) {
       return NextResponse.json(

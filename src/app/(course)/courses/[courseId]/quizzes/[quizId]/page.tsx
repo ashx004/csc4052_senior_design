@@ -18,6 +18,7 @@ import {
 import { db } from '@/src/library/firebase';
 import { ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
 import QuestionCard from '@/src/components/quizzes/QuestionCard';
+import MatchingQuestionGroup from '@/src/components/quizzes/MatchingQuestionGroup';
 import QuizResults from '@/src/components/quizzes/QuizResults';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
 import { buildQuizSuggestions, type QuizResultPageContext } from '@/src/library/Contextual_AI/contextualAi';
@@ -25,10 +26,11 @@ import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
 
 interface QuizQuestion {
   id: string;
-  type: 'multiple_choice' | 'true_false';
+  type: 'multiple_choice' | 'true_false' | 'matching';
   question: string;
   options: string[];
   correctAnswer: string;
+  matchingGroupId?: string;
 }
 
 interface PastAttempt {
@@ -372,6 +374,37 @@ export default function QuizTakingPage() {
 
   const catalystSuggestions = quizPageContext ? buildQuizSuggestions(quizPageContext) : [];
 
+  // Standard questions render one-per-QuestionCard; matching questions are
+  // grouped by matchingGroupId into one MatchingQuestionGroup each, ordered
+  // by the first appearance of that group in activeQuestions.
+  type RenderItem =
+    | { kind: 'standard'; question: QuizQuestion & { type: 'multiple_choice' | 'true_false' } }
+    | { kind: 'matching'; groupId: string; questions: QuizQuestion[] };
+
+  const renderItems = useMemo(() => {
+    const items: RenderItem[] = [];
+    const groupIndex = new Map<string, number>();
+
+    for (const q of activeQuestions) {
+      if (q.type === 'matching' && q.matchingGroupId) {
+        const idx = groupIndex.get(q.matchingGroupId);
+        if (idx === undefined) {
+          groupIndex.set(q.matchingGroupId, items.length);
+          items.push({ kind: 'matching', groupId: q.matchingGroupId, questions: [q] });
+        } else {
+          const item = items[idx];
+          if (item.kind === 'matching') item.questions.push(q);
+        }
+      } else if (q.type !== 'matching') {
+        items.push({
+          kind: 'standard',
+          question: q as QuizQuestion & { type: 'multiple_choice' | 'true_false' },
+        });
+      }
+    }
+    return items;
+  }, [activeQuestions]);
+
   if (authLoading || !user) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#FAFAF8]">
@@ -511,16 +544,26 @@ export default function QuizTakingPage() {
             )}
 
             <div key={attemptStartTime} className="flex flex-col gap-4">
-              {activeQuestions.map((question, index) => (
-                <QuestionCard
-                  key={question.id}
-                  question={question}
-                  questionNumber={index + 1}
-                  selectedAnswer={answers[question.id]}
-                  onSelect={(answer) => handleAnswerChange(question.id, answer)}
-                  mode={mode}
-                />
-              ))}
+              {renderItems.map((item, index) =>
+                item.kind === 'standard' ? (
+                  <QuestionCard
+                    key={item.question.id}
+                    question={item.question}
+                    questionNumber={index + 1}
+                    selectedAnswer={answers[item.question.id]}
+                    onSelect={(answer) => handleAnswerChange(item.question.id, answer)}
+                    mode={mode}
+                  />
+                ) : (
+                  <MatchingQuestionGroup
+                    key={item.groupId}
+                    questions={item.questions}
+                    answers={answers}
+                    onSelect={handleAnswerChange}
+                    mode={mode}
+                  />
+                )
+              )}
             </div>
 
             {mode === 'taking' ? (
