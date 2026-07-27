@@ -59,3 +59,50 @@
   height: 28px;
   object-fit: contain;
 }
+
+/* Compact class card used on the Profile page */
+.class-card-compact {
+  width: 225px;
+  min-height: 105px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px;
+  border-radius: 8px;
+}
+
+/* Changes the large banner into a circle */
+.class-card-compact .class-card-banner {
+  width: 55px;
+  height: 55px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+/* Removes the default body spacing */
+.class-card-compact .class-card-body {
+  min-width: 0;
+  padding: 0;
+}
+
+/* Aligns compact card text to the left */
+.class-card-compact .class-card-title {
+  overflow: hidden;
+  color: var(--color-text-main);
+  font-size: 14px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.class-card-compact .class-card-code {
+  margin-top: 5px;
+  font-size: 12px;
+  text-align: left;
+}
+
+.class-card-compact .class-card-term {
+  margin-top: 2px;
+  font-size: 10px;
+  text-align: left;
+}
