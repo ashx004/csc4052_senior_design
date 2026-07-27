@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Calendar } from "lucide-react";
 
 interface GoogleCalendarConnectProps {
@@ -9,6 +9,7 @@ interface GoogleCalendarConnectProps {
 
 export default function GoogleCalendarConnect({ onConnected }: GoogleCalendarConnectProps) {
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const script = document.createElement("script");
@@ -29,14 +30,35 @@ export default function GoogleCalendarConnect({ onConnected }: GoogleCalendarCon
       scope: "https://www.googleapis.com/auth/calendar.events.readonly",
       ux_mode: "popup",
       access_type: "offline",
-      callback: async (response: { code?: string }) => {
-        if (!response.code) return;
-        await fetch("/api/calendar/auth", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code: response.code }),
-        });
-        onConnected?.();
+      callback: async (response: { code?: string; error?: string }) => {
+        if (response.error) {
+          setError(`Google authorization failed: ${response.error}`);
+          return;
+        }
+        if (!response.code) {
+          setError("No authorization code received from Google.");
+          return;
+        }
+
+        setError(null);
+        try {
+          const res = await fetch("/api/calendar/auth", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code: response.code }),
+          });
+
+          const data = await res.json().catch(() => null);
+
+          if (!res.ok) {
+            setError(data?.error ?? `Auth failed (${res.status})`);
+            return;
+          }
+
+          onConnected?.();
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Failed to connect calendar.");
+        }
       },
     });
 
@@ -54,6 +76,9 @@ export default function GoogleCalendarConnect({ onConnected }: GoogleCalendarCon
       <p className="mt-2 max-w-sm text-sm text-text-muted">
         Link your Google Calendar to see your events alongside your schedule — all in one place.
       </p>
+      {error && (
+        <p className="mt-4 max-w-sm text-sm text-red-600">{error}</p>
+      )}
       <button
         ref={buttonRef}
         type="button"
