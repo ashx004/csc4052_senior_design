@@ -1,18 +1,8 @@
 // src/app/api/upload/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
-
-const s3Client = new S3Client({
-    endpoint: process.env.MINIO_ENDPOINT, // e.g. "http://192.168.1.11:9069"
-    region: "us-east-1",
-    credentials: {
-        accessKeyId: process.env.MINIO_ACCESS_KEY!,
-        secretAccessKey: process.env.MINIO_SECRET_KEY!,
-    },
-    forcePathStyle: true, // required for MinIO
-    tls: true,
-});
+import { getMinioClient } from "@/src/library/minioClient";
 
 export async function POST(req: NextRequest) {
     try {
@@ -35,6 +25,7 @@ export async function POST(req: NextRequest) {
         const arrayBuffer = await req.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
 
+        const s3Client = await getMinioClient();
         await s3Client.send(
             new PutObjectCommand({
                 Bucket: bucketName,

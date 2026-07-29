@@ -1,16 +1,6 @@
 import PDFDocument from "pdfkit";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-
-const s3Client = new S3Client({
-  endpoint: process.env.MINIO_ENDPOINT,
-  region: "us-east-1",
-  credentials: {
-    accessKeyId: process.env.MINIO_ACCESS_KEY!,
-    secretAccessKey: process.env.MINIO_SECRET_KEY!,
-  },
-  forcePathStyle: true,
-  tls: true,
-});
+import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { getMinioClient } from "@/src/library/minioClient";
 
 // Minimal inline-markdown renderer (bold only) — chains styled segments on
 // one pdfkit line via `continued`, since pdfkit has no rich-text markup input.
@@ -108,6 +98,7 @@ export async function generateAndUploadPdf(
   const fileName = `${sanitizeFilename(title)}.pdf`;
   const storagePath = `users/${userId}/generated/${Date.now()}_${fileName}`;
 
+  const s3Client = await getMinioClient();
   await s3Client.send(
     new PutObjectCommand({
       Bucket: "studora",

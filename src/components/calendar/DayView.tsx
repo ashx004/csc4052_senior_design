@@ -43,7 +43,7 @@ export default function DayView({ events, selectedDate }: DayViewProps) {
     selectedDate.toDateString() === new Date().toDateString();
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-border-light bg-white">
+    <div className="overflow-hidden rounded-2xl border border-border-light bg-bg-container">
       {/* ── Header ── */}
       <div className="border-b border-border-light bg-bg-warm px-6 py-5">
         <p className="text-sm font-medium text-text-muted">
