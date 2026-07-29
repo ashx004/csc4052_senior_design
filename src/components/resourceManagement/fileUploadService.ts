@@ -119,7 +119,7 @@ export const deleteUserResource = async (
     resourceId: string,
     storageKey: string
 ) => {
-    await fetch(`/api/delete?key=${encodeURIComponent(storageKey)}`, { method: "DELETE" });
+    await fetch(`/api/delete?key=${encodeURIComponent(storageKey)}&resourceId=${encodeURIComponent(resourceId)}`, { method: "DELETE" });
     const docRef = doc(db, "users", userId, "enrollment", classDocId, "resources", resourceId);
     await deleteDoc(docRef);
 };

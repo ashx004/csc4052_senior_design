@@ -147,10 +147,10 @@ export default function CourseOverview({
                         <div className="mt-3 h-8 w-72 rounded bg-border-light" />
                     </div>
                     <div className="grid gap-4 sm:grid-cols-2">
-                        <div className="h-40 rounded-xl bg-white shadow-sm ring-1 ring-border-light" />
-                        <div className="h-40 rounded-xl bg-white shadow-sm ring-1 ring-border-light" />
+                        <div className="h-40 rounded-xl bg-bg-container shadow-sm ring-1 ring-border-light" />
+                        <div className="h-40 rounded-xl bg-bg-container shadow-sm ring-1 ring-border-light" />
                     </div>
-                    <div className="mt-6 h-32 rounded-xl bg-white shadow-sm ring-1 ring-border-light" />
+                    <div className="mt-6 h-32 rounded-xl bg-bg-container shadow-sm ring-1 ring-border-light" />
                 </div>
             </div>
         );
@@ -196,7 +196,7 @@ export default function CourseOverview({
 
                 {/* Info cards */}
                 <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-border-light">
+                    <div className="rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light">
                         <div className="flex items-center justify-between">
                             <h2 className="text-sm font-semibold text-text-main">Class Details</h2>
                             <CircleIconButton
@@ -229,7 +229,7 @@ export default function CourseOverview({
                     </div>
 
                     {/* Instructor Card */}
-                    <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-border-light">
+                    <div className="rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light">
                         <div className="flex items-center justify-between">
                             <h2 className="text-sm font-semibold text-text-main">Instructor</h2>
                             <CircleIconButton
@@ -269,7 +269,7 @@ export default function CourseOverview({
                 </div>
 
                 {/* Course Resources */}
-                <div className="mt-6 rounded-xl bg-white p-6 shadow-sm ring-1 ring-border-light">
+                <div className="mt-6 rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light">
                     <h2 className="text-sm font-semibold text-text-main mb-4">Course Resources</h2>
                     {/* PASSING DOWN DYNAMIC CURRENT USER ID TO CLEANLY REROUTE CAROUSEL MINIO FETCHES */}
                     <ResourcePreview userId={user.uid} courseId={courseId} />
@@ -282,7 +282,7 @@ export default function CourseOverview({
                     className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
                     onClick={() => !savingEdit && setEditingSection(null)}
                 >
-                    <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+                    <div className="w-full max-w-sm rounded-xl bg-bg-container p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
                         <div className="mb-4 flex items-center justify-between">
                             <h3 className="text-sm font-semibold text-text-main">
                                 Edit {editingSection === "details" ? "class details" : "instructor info"}
@@ -309,7 +309,7 @@ export default function CourseOverview({
                                                 }
                                                 rows={3}
                                                 disabled={savingEdit}
-                                                className="w-full rounded-md border border-border-light px-3 py-2 text-sm text-text-main outline-none focus:border-primary"
+                                                className="w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main outline-none focus:border-primary"
                                             />
                                         ) : (
                                             <input
@@ -318,7 +318,7 @@ export default function CourseOverview({
                                                     setEditValues((prev) => ({ ...prev, [key]: e.target.value }))
                                                 }
                                                 disabled={savingEdit}
-                                                className="w-full rounded-md border border-border-light px-3 py-2 text-sm text-text-main outline-none focus:border-primary"
+                                                className="w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main outline-none focus:border-primary"
                                             />
                                         )}
                                     </div>
