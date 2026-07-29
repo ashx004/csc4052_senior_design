@@ -9,12 +9,14 @@ import {
   Plus,
 } from "lucide-react";
 
+import AddEventModal from "@/src/components/calendar/AddEventModal";
 import DayView from "@/src/components/calendar/DayView";
 import MonthView from "@/src/components/calendar/MonthView";
 import WeekView from "@/src/components/calendar/WeekView";
 import GoogleCalendarConnect from "@/src/components/calendar/GoogleCalendarConnect";
 import { useCalendarConnection } from "@/src/hooks/useCalendarConnection";
 import { useCalendarEvents } from "@/src/hooks/useCalendarEvents";
+import { useLocalCalendarEvents } from "@/src/hooks/useLocalCalendarEvents";
 import { getWeekStart } from "@/src/library/calendarHelpers";
 
 import type { CalendarView } from "@/src/components/calendar/calendarTypes";
@@ -29,6 +31,7 @@ export default function CalendarPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
 
+  const [showAddEvent, setShowAddEvent] = useState(false);
   const { status, refresh } = useCalendarConnection();
 
   // Compute the date range to fetch based on the current view.
@@ -60,7 +63,34 @@ export default function CalendarPage() {
     return { start, end };
   }, [currentDate, view, status]);
 
+  // Local events always fetch regardless of Google connection status.
+  const localDateRange = useMemo(() => {
+    const start = new Date(currentDate);
+    const end = new Date(currentDate);
+
+    if (view === "month") {
+      start.setDate(1);
+      start.setDate(start.getDate() - start.getDay());
+      end.setMonth(end.getMonth() + 1, 0);
+      end.setDate(end.getDate() + (6 - end.getDay()));
+    } else if (view === "week") {
+      const weekStart = getWeekStart(start);
+      start.setTime(weekStart.getTime());
+      end.setTime(weekStart.getTime());
+      end.setDate(end.getDate() + 6);
+      end.setHours(23, 59, 59, 999);
+    } else {
+      start.setHours(0, 0, 0, 0);
+      end.setHours(23, 59, 59, 999);
+    }
+
+    return { start, end };
+  }, [currentDate, view]);
+
   const { events, loading: eventsLoading, error: eventsError } = useCalendarEvents(dateRange);
+  const { events: localEvents, refetch: refetchLocal } = useLocalCalendarEvents(localDateRange);
+
+  const allEvents = useMemo(() => [...events, ...localEvents], [events, localEvents]);
 
   // ── Navigation handlers ──────────────────────────────────────────────────
 
@@ -144,6 +174,7 @@ export default function CalendarPage() {
             </button>
             <button
               type="button"
+              onClick={() => setShowAddEvent(true)}
               className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-primary-hover"
             >
               <Plus size={16} strokeWidth={2} />
@@ -220,12 +251,12 @@ export default function CalendarPage() {
             </p>
           )}
 
-          {/* ── Disconnected — show mock calendar + connect prompt ── */}
+          {/* ── Disconnected — show local events + connect prompt ── */}
           {status === "disconnected" && (
             <>
               {view === "month" && (
                 <MonthView
-                  events={[]}
+                  events={localEvents}
                   currentYear={currentDate.getFullYear()}
                   currentMonth={currentDate.getMonth()}
                   selectedDate={selectedDate}
@@ -234,13 +265,13 @@ export default function CalendarPage() {
               )}
               {view === "week" && (
                 <WeekView
-                  events={[]}
+                  events={localEvents}
                   selectedDate={selectedDate}
                   onSelectDate={handleSelectDate}
                 />
               )}
               {view === "day" && (
-                <DayView events={[]} selectedDate={selectedDate} />
+                <DayView events={localEvents} selectedDate={selectedDate} />
               )}
               <div className="mt-6">
                 <GoogleCalendarConnect onConnected={refresh} />
@@ -265,7 +296,7 @@ export default function CalendarPage() {
                 <>
                   {view === "month" && (
                     <MonthView
-                      events={events}
+                      events={allEvents}
                       currentYear={currentDate.getFullYear()}
                       currentMonth={currentDate.getMonth()}
                       selectedDate={selectedDate}
@@ -274,13 +305,13 @@ export default function CalendarPage() {
                   )}
                   {view === "week" && (
                     <WeekView
-                      events={events}
+                      events={allEvents}
                       selectedDate={selectedDate}
                       onSelectDate={handleSelectDate}
                     />
                   )}
                   {view === "day" && (
-                    <DayView events={events} selectedDate={selectedDate} />
+                    <DayView events={allEvents} selectedDate={selectedDate} />
                   )}
                 </>
               )}
@@ -288,6 +319,14 @@ export default function CalendarPage() {
           )}
         </div>
       </div>
+
+      <AddEventModal
+        isOpen={showAddEvent}
+        onClose={() => setShowAddEvent(false)}
+        onEventAdded={() => {
+          refetchLocal();
+        }}
+      />
     </section>
   );
 }
