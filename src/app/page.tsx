@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { signInWithGoogle, signInWithApple } from "@/src/library/socialAuth";
 import { useAuth } from "@/src/context/AuthContext";
 import { touchRememberCookie } from "@/src/library/session";
+import AppleLogo from "@/src/components/icons/AppleLogo";
+import AppLogo from "@/src/components/AppLogo";
 
 export default function Home() {
   const router = useRouter();
@@ -14,7 +16,10 @@ export default function Home() {
   const greeting: string = "C a t a l y s t .";
 
   // Same already-signed-in bounce-through as the login page — see its
-  // comment for why this doesn't race a stale cookie.
+  // comment for why this is the ONLY place that navigates after a fresh
+  // sign-in (the handlers below deliberately don't call router.push
+  // themselves — doing so raced ahead of AuthContext's cookie write and got
+  // stuck bounced back on this page with no way to retry).
   useEffect(() => {
     if (!authLoading && user) {
       router.push("/dashboard");
@@ -27,7 +32,6 @@ export default function Home() {
     try {
       touchRememberCookie();
       await signInWithGoogle();
-      router.push("/dashboard");
     } catch (error) {
       alert(error instanceof Error ? error.message : "Google sign-in failed.");
       console.log(error);
@@ -41,7 +45,6 @@ export default function Home() {
     try {
       touchRememberCookie();
       await signInWithApple();
-      router.push("/dashboard");
     } catch (error) {
       alert(error instanceof Error ? error.message : "Apple sign-in failed.");
       console.log(error);
@@ -53,7 +56,7 @@ export default function Home() {
   if (authLoading || user) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-bg-main">
-        <img src="/app-logo.webp" alt="catalyst logo" className="w-42 h-42 animate-pulse" />
+        <AppLogo className="w-32 h-32 animate-pulse" />
       </div>
     );
   }
@@ -62,11 +65,7 @@ export default function Home() {
     <div className="flex min-h-screen justify-center bg-bg-main">
       <div className="text-center">
 
-        <img
-          src="/app-logo.webp"
-          alt="catalyst logo"
-          className="w-85 h-85"
-        />
+        <AppLogo className="w-[340px] h-[340px]" />
 
         <h1 className="text-4xl font-bold text-text-main font-sans">
           {greeting}
@@ -103,7 +102,7 @@ export default function Home() {
           gap-2 disabled:opacity-50">
             <span> Sign in with Google </span>
             <img
-              src="/google-logo.webp"
+              src="/google-logo.svg"
               alt="Google Icon"
               className="w-6 h-6"
             />
@@ -118,11 +117,7 @@ export default function Home() {
           hover:bg-bg-warm active:bg-border-light flex items-center
           gap-2 disabled:opacity-50">
             <span> Sign in with Apple </span>
-            <img
-              src="/apple-logo.webp"
-              alt="Apple Icon"
-              className="w-5 h-5"
-            />
+            <AppleLogo className="w-5 h-5 text-text-main" />
           </button>
         </div>
       </div>

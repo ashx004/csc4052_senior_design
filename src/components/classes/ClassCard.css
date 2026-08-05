@@ -109,3 +109,90 @@
   font-size: 10px;
   text-align: left;
 }
+
+/* Color-edit pencil + swatch popup. Kept fully inside the banner's own
+   corner rather than spilling past the card edge — .class-card has
+   overflow: hidden (so the square banner respects the card's rounded
+   corners), which would silently clip anything positioned outside the
+   card's own rectangle. */
+.class-card-color-edit {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease-in-out;
+}
+
+.class-card-banner:hover .class-card-color-edit,
+.class-card-color-edit:focus-visible {
+  opacity: 1;
+}
+
+.class-card-color-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  cursor: default;
+}
+
+.class-card-color-popup {
+  position: absolute;
+  top: 8px;
+  right: 34px;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+  padding: 6px;
+  background: var(--color-bg-container);
+  border: 1px solid var(--color-border-light);
+  border-radius: 6px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+.class-card-color-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.1s ease-in-out;
+}
+
+.class-card-color-swatch:hover {
+  transform: scale(1.2);
+}
+
+/* The compact (Profile page) banner is a 55px circle — the pencil and
+   popup sit just outside it but still within the wider horizontal card,
+   rather than inside the circle where they wouldn't fit. */
+.class-card-compact .class-card-color-edit {
+  top: auto;
+  bottom: -2px;
+  right: -2px;
+  width: 16px;
+  height: 16px;
+  opacity: 1;
+}
+
+.class-card-compact .class-card-color-edit svg {
+  width: 9px;
+  height: 9px;
+}
+
+.class-card-compact .class-card-color-popup {
+  top: 0;
+  left: 62px;
+  right: auto;
+}

@@ -7,6 +7,8 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { signInWithGoogle, signInWithApple } from "@/src/library/socialAuth";
 import { useAuth } from "@/src/context/AuthContext";
 import { touchRememberCookie } from "@/src/library/session";
+import AppleLogo from "@/src/components/icons/AppleLogo";
+import AppLogo from "@/src/components/AppLogo";
 
 function LoginForm() {
   const router = useRouter();
@@ -17,21 +19,25 @@ function LoginForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const greeting: string = "C a t a l y s t .";
 
-  function goToDestination() {
-    router.push(searchParams.get("redirect") || "/dashboard");
-  }
-
   // Firebase Auth persists a signed-in session on this device indefinitely
   // by default — the middleware-facing fb_token cookie is what actually
   // expires (hourly), not the underlying session. So landing here with
   // Firebase already recognizing the device (e.g. redirected by middleware
   // over a stale cookie after the browser was closed a while) means the
   // user shouldn't have to re-enter credentials — bounce them straight
-  // through instead of showing the form. AuthContext writes the fresh
-  // cookie before `user` updates, so this redirect can't race a stale one.
+  // through instead of showing the form. This is also the ONLY place that
+  // navigates after a fresh sign-in (the handlers below deliberately don't
+  // call router.push themselves): AuthContext writes the fb_token cookie
+  // inside its own onIdTokenChanged listener, asynchronously, after its own
+  // await — a handler navigating immediately after signInWith... resolves
+  // can easily race ahead of that write, hit middleware with no cookie yet,
+  // and get bounced right back to /login with no way to retry (confirmed
+  // live: `user` doesn't change again afterward, so a dep-array effect
+  // never re-fires). Reacting to `user` here instead guarantees the cookie
+  // already exists by the time this runs.
   useEffect(() => {
     if (!authLoading && user) {
-      goToDestination();
+      router.push(searchParams.get("redirect") || "/dashboard");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, user]);
@@ -45,7 +51,6 @@ function LoginForm() {
       // run before this async function resumes past the await below.
       touchRememberCookie();
       await signInWithEmailAndPassword(auth, email, password);
-      goToDestination();
     } catch (error) {
       alert(error instanceof Error ? error.message : "Login failed.");
       console.log(error);
@@ -59,7 +64,6 @@ function LoginForm() {
     try {
       touchRememberCookie();
       await signInWithGoogle();
-      goToDestination();
     } catch (error) {
       alert(error instanceof Error ? error.message : "Google sign-in failed.");
       console.log(error);
@@ -73,7 +77,6 @@ function LoginForm() {
     try {
       touchRememberCookie();
       await signInWithApple();
-      goToDestination();
     } catch (error) {
       alert(error instanceof Error ? error.message : "Apple sign-in failed.");
       console.log(error);
@@ -88,7 +91,7 @@ function LoginForm() {
   if (authLoading || user) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-bg-main">
-        <img src="/app-logo.webp" alt="catalyst logo" className="w-42 h-42 animate-pulse" />
+        <AppLogo className="w-32 h-32 animate-pulse" />
       </div>
     );
   }
@@ -97,13 +100,9 @@ function LoginForm() {
     <div className="flex min-h-screen items-center justify-center
                     bg-bg-main">
       <div className="bg-bg-container rounded items-center shadow-md flex
-                      flex-col w-100 h-100 p-6">
+                      flex-col w-100 h-100 px-10 py-10 sm:px-16 lg:px-24">
 
-        <img
-          src="/app-logo.webp"
-          alt="catalyst logo"
-          className="w-42 h-42"
-        />
+        <AppLogo className="w-[168px] h-[168px]" />
 
         <h1 className="text-3xl font-extrabold text-text-main font-sans">
           {greeting}
@@ -152,7 +151,7 @@ function LoginForm() {
                       border-border-light bg-bg-container py-1.5 px-4 text-sm
                       text-text-main hover:bg-bg-warm disabled:opacity-50"
           >
-            <img src="/google-logo.webp" alt="" className="h-4 w-4" />
+            <img src="/google-logo.svg" alt="" className="h-4 w-4" />
             Continue with Google
           </button>
 
@@ -164,7 +163,7 @@ function LoginForm() {
                       border-border-light bg-bg-container py-1.5 px-4 text-sm
                       text-text-main hover:bg-bg-warm disabled:opacity-50"
           >
-            <img src="/apple-logo.webp" alt="" className="h-4 w-4" />
+            <AppleLogo className="h-4 w-4 text-text-main" />
             Continue with Apple
           </button>
         </div>
