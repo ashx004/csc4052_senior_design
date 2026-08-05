@@ -1,4 +1,5 @@
 import { SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
+import { EnrollmentStatus } from "@/src/library/enrollmentStatus";
 
 // Extracted from api/chat/route.ts so this is independently importable —
 // Next.js route handler files can only export HTTP method handlers
@@ -28,6 +29,9 @@ export type ChatClass = {
   classRoom?: string;
   classDescription?: string;
   documents: ChatDocument[];
+  // Absent on hand-built test fixtures; treated as currently enrolled
+  // (matches getEnrollmentStatus's own default for docs with no status).
+  status?: EnrollmentStatus;
 };
 
 export type PageAIContext = {
@@ -59,13 +63,25 @@ export type ChatContext = {
 // that matter most right after a tool result comes back get undiluted
 // focus at exactly the moment they're needed, instead of being one of a
 // dozen unrelated rules present from turn one.
+//
+// Ordering also matters for a second reason, separate from token count:
+// Ollama/llama.cpp reuse cached KV state for a request's prefix, but only up
+// to the first token that differs from a previously-processed prompt. This
+// entire prompt is rebuilt from scratch on every single POST /api/chat call
+// (every message in a conversation, not just every new session), so anything
+// guaranteed to change on every call — the current timestamp, the per-turn
+// query-clarification note — needs to sit at the END, after the layers that
+// stay byte-identical across turns (identity, tools, guardrails, the
+// student's class list). Put upfront, a changing timestamp would silently
+// force the entire prompt to be reprocessed from scratch every turn, even
+// when 95%+ of it didn't actually change.
 
-export function buildGlobalContextLayer(identity: string | undefined, nowLine: string): string {
+export function buildGlobalContextLayer(identity: string | undefined): string {
   const who = identity
     ? `You are Catalyst, an AI study assistant embedded in ${identity}'s academic platform. You have real access to their identity, school, enrolled classes, and uploaded course materials — use it naturally to personalize answers instead of asking the student to repeat information you already have.`
     : `You are Catalyst, an AI study assistant embedded in a student's academic platform.`;
 
-  return `${who} ${nowLine} — use it for anything date/time-relative.
+  return `${who}
 
 Guardrails & style: Stay on academic/learning topics; redirect off-topic or inappropriate requests briefly and warmly, no lecturing. Markdown only (CommonMark/GFM — this chat cannot render raw HTML like <br>/<b>, they'll show as literal text); real pipe tables for tabular data. Match response length to the question. Emojis sparingly. Use the student's first name and their real class/instructor names naturally.`;
 }
@@ -106,36 +122,49 @@ export function buildAdaptiveVariableLayer(context: ChatContext | undefined, lea
   const identityParts = [context.name, context.college].filter(Boolean).join(", ");
   const identity = identityParts ? `${identityParts} (${context.email})` : context.email;
 
-  const classLines = context.classes.length
-    ? context.classes
-        .map((c) => {
-          const docLines = c.documents.length
-            ? c.documents
-                .map(
-                  (d) =>
-                    `      - [resourceId: ${d.resourceId}] ${d.name} — tag: ${d.category || "untagged"} (${d.fileType}${
-                      SUPPORTED_DOCUMENT_TYPES.includes(d.fileType) ? "" : ", not readable yet"
-                    })`
-                )
-                .join("\n")
-            : "      - No documents uploaded yet";
+  const renderClass = (c: ChatClass) => {
+    const docLines = c.documents.length
+      ? c.documents
+          .map(
+            (d) =>
+              `      - [resourceId: ${d.resourceId}] ${d.name} — tag: ${d.category || "untagged"} (${d.fileType}${
+                SUPPORTED_DOCUMENT_TYPES.includes(d.fileType) ? "" : ", not readable yet"
+              })`
+          )
+          .join("\n")
+      : "      - No documents uploaded yet";
 
-          return `  - [courseId: ${c.classId}] ${c.classCode} — ${c.className} (${c.term})
+    return `  - [courseId: ${c.classId}] ${c.classCode} — ${c.className} (${c.term})
       Instructor: ${c.facultyName || "not listed"}${c.facultyEmail ? `, email: ${c.facultyEmail}` : ""}${
-            c.facultyPhoneNumber ? `, phone: ${c.facultyPhoneNumber}` : ""
-          }${c.facultyOfficeNumber ? `, office: ${c.facultyOfficeNumber}` : ""}
+      c.facultyPhoneNumber ? `, phone: ${c.facultyPhoneNumber}` : ""
+    }${c.facultyOfficeNumber ? `, office: ${c.facultyOfficeNumber}` : ""}
       Schedule: ${c.classSchedule || "not listed"}${c.classRoom ? `, room: ${c.classRoom}` : ""}${
-            c.classDescription ? `\n      Description: ${c.classDescription}` : ""
-          }
+      c.classDescription ? `\n      Description: ${c.classDescription}` : ""
+    }
 ${docLines}`;
-        })
-        .join("\n")
-    : "  (Not enrolled in any classes yet)";
+  };
+
+  // Completed classes must never be presented as ones the student is
+  // currently taking — kept in a clearly separate block rather than mixed
+  // into the same list (that mixing was a real bug: both this prompt and
+  // the profile page used to show a finished class as still in progress).
+  const activeClasses = context.classes.filter((c) => c.status !== "completed");
+  const completedClasses = context.classes.filter((c) => c.status === "completed");
+
+  const activeLines = activeClasses.length
+    ? activeClasses.map(renderClass).join("\n")
+    : "  (Not currently enrolled in any classes)";
+
+  const completedBlock = completedClasses.length
+    ? `\n\nCompleted classes (finished — the student is NOT currently taking these; use only for history/reference, e.g. a past instructor's contact info or old documents. Never say the student is "taking" or "currently enrolled in" one of these):\n${completedClasses
+        .map(renderClass)
+        .join("\n")}`
+    : "";
 
   return `Student: ${identity}${profileBlock}
 
-Enrolled classes:
-${classLines}`;
+Currently enrolled classes:
+${activeLines}${completedBlock}`;
 }
 
 // Present only when the caller supplies a pageContext (e.g. the AI side
@@ -157,6 +186,15 @@ export function buildPageContextLayer(pageContext?: PageAIContext): string {
 export function buildQueryClarificationLayer(clarifiedIntent?: string | null): string {
   if (!clarifiedIntent) return "";
   return `A quick internal note on what the student's latest message is specifically asking for (for your own understanding only — never mention receiving this, never quote it back, just use it to answer accurately): ${clarifiedIntent}`;
+}
+
+// Deliberately the LAST layer appended in buildSystemPrompt (see the header
+// comment above buildGlobalContextLayer) — a fresh timestamp every single
+// request means this is guaranteed to differ from the previous turn's
+// prompt, so it must follow the stable layers rather than precede them, or
+// Ollama's KV-cache can never reuse anything from this conversation.
+export function buildCurrentTimeLayer(nowLine: string): string {
+  return `${nowLine} — use it for anything date/time-relative.`;
 }
 
 // Only appended once a tool has actually been called this turn — see the
@@ -195,13 +233,17 @@ export function buildSystemPrompt(
   const identityWithEmail = context && identity && !identity.includes(context.email) ? `${identity} (${context.email})` : identity;
 
   const layers = [
-    buildGlobalContextLayer(identityWithEmail, nowLine),
+    buildGlobalContextLayer(identityWithEmail),
     buildInstructionalLogicLayer(),
     buildAdaptiveVariableLayer(context, learnerProfile),
     buildPageContextLayer(context?.pageContext),
-    buildQueryClarificationLayer(clarifiedIntent),
   ];
   if (includePostToolLayer) layers.push(buildPostToolLayer());
+
+  // Volatile, guaranteed-to-differ-every-request content goes last — see
+  // the header comment above buildGlobalContextLayer.
+  layers.push(buildQueryClarificationLayer(clarifiedIntent));
+  layers.push(buildCurrentTimeLayer(nowLine));
 
   return layers.filter(Boolean).join("\n\n");
 }

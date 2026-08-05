@@ -71,7 +71,7 @@ export default function MonthView({
               <div
                 className={`mb-3 text-xs ${
                   isToday
-                    ? "flex h-6 w-6 items-center justify-center rounded-full bg-primary text-white"
+                    ? "flex h-6 w-6 items-center justify-center rounded-full bg-primary text-text-inverse"
                     : cell.muted
                       ? "text-text-muted"
                       : "text-text-main"

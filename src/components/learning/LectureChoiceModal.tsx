@@ -26,19 +26,19 @@ export default function LectureChoiceModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl"
+        className="w-full max-w-sm rounded-2xl bg-bg-container p-6 shadow-xl"
       >
         <div className="flex items-center justify-between mb-1">
           <h2 className="text-base font-bold text-[#1a1a2e]">What do you want to make?</h2>
           <button
             onClick={onClose}
-            className="p-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+            className="p-1 rounded-md text-text-muted hover:text-text-main hover:bg-bg-warm transition-colors"
             aria-label="Close"
           >
             <X size={18} />
           </button>
         </div>
-        <p className="text-xs text-gray-400 mb-5 truncate">{documentName}</p>
+        <p className="text-xs text-text-muted mb-5 truncate">{documentName}</p>
 
         <div className="flex flex-col gap-3">
           <button
@@ -50,7 +50,7 @@ export default function LectureChoiceModal({
 
           <button
             onClick={onSelectQuiz}
-            className="w-full rounded-xl border border-gray-200 px-5 py-4 text-sm font-semibold text-[#1a1a2e] hover:bg-gray-50 transition-colors"
+            className="w-full rounded-xl border border-border-light px-5 py-4 text-sm font-semibold text-[#1a1a2e] hover:bg-bg-warm transition-colors"
           >
             Quizzes
           </button>

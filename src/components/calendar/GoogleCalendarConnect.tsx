@@ -82,7 +82,7 @@ export default function GoogleCalendarConnect({ onConnected }: GoogleCalendarCon
       <button
         ref={buttonRef}
         type="button"
-        className="mt-6 inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-primary-hover"
+        className="mt-6 inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-text-inverse shadow-sm transition hover:bg-primary-hover"
       >
         Connect Calendar
       </button>

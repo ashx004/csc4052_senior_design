@@ -173,7 +173,7 @@ export default function AddEnrollmentModal({
         <>
           <button
             onClick={() => setIsOpen(true)}
-            className="absolute top-4 right-4 flex h-8 w-8 items-center justify-center rounded-md bg-green-500 text-white shadow hover:bg-green-600"
+            className="absolute top-4 right-4 flex h-8 w-8 items-center justify-center rounded-md bg-green-500 text-text-inverse shadow hover:bg-green-600"
             aria-label="Add class"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -183,7 +183,7 @@ export default function AddEnrollmentModal({
           <button
             onClick={onToggleDeleteMode}
             className={`absolute top-4 right-16 flex h-8 w-8 items-center justify-center rounded-md shadow transition-colors ${
-                deleteMode ? "bg-red-500 text-white" : "bg-bg-container text-text-muted hover:bg-bg-warm"
+                deleteMode ? "bg-red-500 text-text-inverse" : "bg-bg-container text-text-muted hover:bg-bg-warm"
             }`}
             aria-label="Toggle delete mode"
         >
@@ -390,7 +390,7 @@ export default function AddEnrollmentModal({
                 </button>
                 <button
                   type="submit"
-                  className="rounded-md bg-green-500 px-4 py-2 text-sm font-medium text-white hover:bg-green-600 shadow-sm"
+                  className="rounded-md bg-green-500 px-4 py-2 text-sm font-medium text-text-inverse hover:bg-green-600 shadow-sm"
                 >
                   Save Class
                 </button>

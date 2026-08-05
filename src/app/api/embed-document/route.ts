@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { doc, getDoc, collection, addDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, collection, updateDoc, serverTimestamp, writeBatch } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
 import { resolveInternalUrl } from "@/src/library/pdfExtract";
 import { extractDocumentText, SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
@@ -98,16 +98,21 @@ export async function POST(request: NextRequest) {
       const chunks = { contextualized, embeddings };
       cancel();
 
+      // A single batch, not one addDoc() per chunk: fewer round trips, and
+      // atomic — a crash mid-write can no longer leave a resource with only
+      // some of its chunks persisted. Safe as one batch (Firestore's limit is
+      // 500 writes) given MAX_INDEXABLE_CHARS bounds a document to well
+      // under that many chunks at the default chunkText size.
       const chunksRef = collection(resourceRef, "chunks");
-      await Promise.all(
-        chunks.contextualized.map((chunkValue, index) =>
-          addDoc(chunksRef, {
-            text: chunkValue,
-            embedding: chunks.embeddings[index],
-            chunkIndex: index,
-          })
-        )
-      );
+      const chunksBatch = writeBatch(db);
+      chunks.contextualized.forEach((chunkValue, index) => {
+        chunksBatch.set(doc(chunksRef), {
+          text: chunkValue,
+          embedding: chunks.embeddings[index],
+          chunkIndex: index,
+        });
+      });
+      await chunksBatch.commit();
 
       // Firestore above stays the source of truth for chunk existence/
       // metadata (document-management UI reads it); Qdrant is the fast

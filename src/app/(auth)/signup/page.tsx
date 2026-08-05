@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/src/library/firebase";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { signInWithGoogle, signInWithApple } from "@/src/library/socialAuth";
+import { useAuth } from "@/src/context/AuthContext";
+import { touchRememberCookie } from "@/src/library/session";
 
 import {
   doc,
@@ -14,6 +16,7 @@ import {
 
 export default function Signup() {
   const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -23,10 +26,19 @@ export default function Signup() {
 
   const greeting: string = "C a t a l y s t .";
 
+  // Same already-signed-in bounce-through as the login page — see its
+  // comment for why this doesn't race a stale cookie.
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.push("/dashboard");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, user]);
 
   async function handleSignup() {
     setIsSubmitting(true);
     try {
+      touchRememberCookie();
       // create authentication account
       const userCredntial =
         await createUserWithEmailAndPassword(auth, email, password);
@@ -56,6 +68,7 @@ export default function Signup() {
   async function handleGoogleSignup() {
     setIsSubmitting(true);
     try {
+      touchRememberCookie();
       await signInWithGoogle();
       router.push("/dashboard");
     } catch (error) {
@@ -69,6 +82,7 @@ export default function Signup() {
   async function handleAppleSignup() {
     setIsSubmitting(true);
     try {
+      touchRememberCookie();
       await signInWithApple();
       router.push("/dashboard");
     } catch (error) {
@@ -79,10 +93,18 @@ export default function Signup() {
     }
   }
 
+  if (authLoading || user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-bg-main">
+        <img src="/app-logo.webp" alt="catalyst logo" className="w-42 h-42 animate-pulse" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center
                     bg-bg-main">
-      <div className="bg-white rounded items-center shadow-md flex
+      <div className="bg-bg-container rounded items-center shadow-md flex
                       flex-col w-100 h-100 p-6">
 
         <img
@@ -104,7 +126,7 @@ export default function Signup() {
           <input
             type="name"
             placeholder="name"
-            className="border px-3 py-2 rounded mt-8 font-mono text-sm"
+            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded mt-8 font-mono text-sm"
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
@@ -112,7 +134,7 @@ export default function Signup() {
           <input
             type="email"
             placeholder="email"
-            className="border px-3 py-2 rounded mt-2 font-mono text-sm"
+            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded mt-2 font-mono text-sm"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
@@ -120,7 +142,7 @@ export default function Signup() {
           <input
             type="password"
             placeholder="password"
-            className="border px-3 py-2 rounded mt-2 font-mono text-sm"
+            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded mt-2 font-mono text-sm"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
@@ -128,7 +150,7 @@ export default function Signup() {
           <input
             type="role"
             placeholder="role"
-            className="border px-3 py-2 rounded mt-2 font-mono text-sm"
+            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded mt-2 font-mono text-sm"
             value={role}
             onChange={(e) => setRole(e.target.value)}
           />
@@ -136,7 +158,7 @@ export default function Signup() {
           <input
             type="text"
             placeholder="college / university (optional)"
-            className="border px-3 py-2 rounded mt-2 font-mono text-sm"
+            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded mt-2 font-mono text-sm"
             value={college}
             onChange={(e) => setCollege(e.target.value)}
           />
@@ -144,7 +166,7 @@ export default function Signup() {
           <button
             onClick={handleSignup}
             disabled={isSubmitting}
-            className="bg-primary text-white py-1 px-4 rounded
+            className="bg-primary text-text-inverse py-1 px-4 rounded
                       hover:bg-primary-hover disabled:opacity-50" >
             Sign In
           </button>
@@ -160,7 +182,7 @@ export default function Signup() {
             onClick={handleGoogleSignup}
             disabled={isSubmitting}
             className="flex items-center justify-center gap-2 rounded border
-                      border-border-light bg-white py-1.5 px-4 text-sm
+                      border-border-light bg-bg-container py-1.5 px-4 text-sm
                       text-text-main hover:bg-bg-warm disabled:opacity-50"
           >
             <img src="/google-logo.webp" alt="" className="h-4 w-4" />
@@ -172,7 +194,7 @@ export default function Signup() {
             onClick={handleAppleSignup}
             disabled={isSubmitting}
             className="flex items-center justify-center gap-2 rounded border
-                      border-border-light bg-white py-1.5 px-4 text-sm
+                      border-border-light bg-bg-container py-1.5 px-4 text-sm
                       text-text-main hover:bg-bg-warm disabled:opacity-50"
           >
             <img src="/apple-logo.webp" alt="" className="h-4 w-4" />
