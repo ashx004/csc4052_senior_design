@@ -51,19 +51,27 @@ export function parseTermString(raw: string | undefined | null): TermInfo | null
   if (!text) return null;
 
   const seasonMatch = TERM_ORDER.find((t) => new RegExp(t, "i").test(text));
+
+  // Captures the year digits directly from the abbreviation match (e.g.
+  // "F26") rather than re-scanning the whole string for a standalone
+  // \d{2,4} token — the digits sit glued to the abbreviation letter with no
+  // word boundary between them, so an independent scan below would never
+  // find them.
   const abbrevMatch = !seasonMatch
-    ? (Object.entries({ F: "Fall", W: "Winter", Sp: "Spring", Su: "Summer" }).find(([abbrev]) =>
-        new RegExp(`\\b${abbrev}'?\\d{2,4}\\b`, "i").test(text)
-      ) as [string, Term] | undefined)
+    ? (Object.entries({ F: "Fall", W: "Winter", Sp: "Spring", Su: "Summer" })
+        .map(([abbrev, fullTerm]) => {
+          const match = text.match(new RegExp(`\\b${abbrev}'?(\\d{2,4})\\b`, "i"));
+          return match ? { term: fullTerm as Term, yearDigits: match[1] } : null;
+        })
+        .find((m) => m !== null))
     : undefined;
 
-  const term = seasonMatch ?? abbrevMatch?.[1];
+  const term = seasonMatch ?? abbrevMatch?.term;
   if (!term) return null;
 
-  const yearMatch = text.match(/\b(20\d{2})\b/) ?? text.match(/\b(\d{2})\b/);
-  if (!yearMatch) return null;
+  const rawYear = abbrevMatch?.yearDigits ?? (text.match(/\b(20\d{2})\b/) ?? text.match(/\b(\d{2})\b/))?.[1];
+  if (!rawYear) return null;
 
-  const rawYear = yearMatch[1];
   const year = rawYear.length === 2 ? 2000 + parseInt(rawYear, 10) : parseInt(rawYear, 10);
   if (!Number.isFinite(year)) return null;
 

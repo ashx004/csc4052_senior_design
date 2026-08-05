@@ -23,7 +23,7 @@ export default function CircleIconButton({
 
     const variantClasses = {
         default: "bg-bg-container text-text-muted ring-1 ring-border-light hover:text-text-main hover:bg-bg-main",
-        accent: "bg-primary text-white hover:bg-primary-hover",
+        accent: "bg-primary text-text-inverse hover:bg-primary-hover",
         danger: "bg-bg-container text-alert-error ring-1 ring-border-light hover:bg-alert-error-bg",
     }[variant];
 

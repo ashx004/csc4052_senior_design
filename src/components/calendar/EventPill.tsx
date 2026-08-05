@@ -35,7 +35,7 @@ function formatTimeRange(startTime: string, endTime: string): string {
 export default function EventPill({ event }: EventPillProps) {
   const toneClass = event.tone
     ? eventToneClasses[event.tone]
-    : "bg-gray-100 text-gray-700";
+    : "bg-bg-warm text-text-main";
 
   return (
     <div

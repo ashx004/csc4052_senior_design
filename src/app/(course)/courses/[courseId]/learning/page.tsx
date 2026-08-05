@@ -261,13 +261,13 @@ export default function CourseLearningPage() {
   return (
     <div className="min-h-screen bg-[#FAFAF8]">
       {/* Header */}
-      <div className="flex items-center justify-between px-14 py-7 border-b border-gray-100">
+      <div className="flex items-center justify-between px-14 py-7 border-b border-border-light">
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.back()}
             className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors"
           >
-            <ArrowLeft size={20} className="text-gray-700" />
+            <ArrowLeft size={20} className="text-text-main" />
           </button>
           <h1 className="text-xl font-bold text-[#1a1a2e]">
             {courseInfoLoading ? 'Loading...' : courseDisplayName}
@@ -276,10 +276,10 @@ export default function CourseLearningPage() {
 
         <div className="flex items-center gap-2">
           <button className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors">
-            <BookOpen size={20} className="text-gray-500" />
+            <BookOpen size={20} className="text-text-muted" />
           </button>
           <button className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors">
-            <Bookmark size={20} className="text-gray-500" />
+            <Bookmark size={20} className="text-text-muted" />
           </button>
         </div>
       </div>
@@ -292,7 +292,7 @@ export default function CourseLearningPage() {
 
         {/* Document grid */}
         {resources.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+          <div className="flex flex-col items-center justify-center py-20 text-text-muted">
             <BookOpen size={48} className="mb-4" />
             <p className="text-lg font-medium">No documents yet</p>
             <p className="text-sm mt-1">Upload resources to your course to start learning</p>
@@ -303,8 +303,8 @@ export default function CourseLearningPage() {
               <button
                 key={resource.id}
                 onClick={() => setSelectedResource(resource)}
-                className="text-left rounded-xl overflow-hidden border border-gray-100
-                           hover:shadow-md transition-shadow bg-white group"
+                className="text-left rounded-xl overflow-hidden border border-border-light
+                           hover:shadow-md transition-shadow bg-bg-container group"
               >
                 {/* Document preview */}
                 {resource.name?.toLowerCase().endsWith('.pdf') ? (
@@ -343,9 +343,9 @@ export default function CourseLearningPage() {
           </div>
 
           {sortedFlashcardSets.length === 0 ? (
-            <p className="px-1 py-6 text-sm text-gray-400">No flashcards yet</p>
+            <p className="px-1 py-6 text-sm text-text-muted">No flashcards yet</p>
           ) : (
-            <div className="flex flex-col divide-y divide-gray-100 rounded-xl border border-gray-100 bg-white">
+            <div className="flex flex-col divide-y divide-border-light rounded-xl border border-border-light bg-bg-container">
               {sortedFlashcardSets.map((set) => (
                 <RecentItemRow
                   key={set.id}
@@ -368,9 +368,9 @@ export default function CourseLearningPage() {
           </div>
 
           {sortedQuizSets.length === 0 ? (
-            <p className="px-1 py-6 text-sm text-gray-400">No quizzes yet</p>
+            <p className="px-1 py-6 text-sm text-text-muted">No quizzes yet</p>
           ) : (
-            <div className="flex flex-col divide-y divide-gray-100 rounded-xl border border-gray-100 bg-white">
+            <div className="flex flex-col divide-y divide-border-light rounded-xl border border-border-light bg-bg-container">
               {sortedQuizSets.map((set) => (
                 <RecentItemRow
                   key={set.id}

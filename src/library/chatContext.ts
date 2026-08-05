@@ -1,6 +1,7 @@
 import { collection, doc, getDoc, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
 import { Term } from "./academicTerm";
+import { EnrollmentStatus, getEnrollmentStatus } from "./enrollmentStatus";
 
 export type ChatDocument = {
   resourceId: string;
@@ -37,6 +38,9 @@ export type ChatClass = {
   termYear?: number;
   subject?: string;
   courseNumber?: string;
+  // The AI must never present a "completed" class as one the student is
+  // currently taking — see getEnrollmentStatus for how this is derived.
+  status: EnrollmentStatus;
 };
 
 // Describes what page the student is currently viewing, so the AI side
@@ -129,6 +133,7 @@ export async function buildChatContext(userId: string, email: string): Promise<C
         termYear: data.termYear,
         subject: data.subject,
         courseNumber: data.courseNumber,
+        status: getEnrollmentStatus(data),
         documents,
       });
     }

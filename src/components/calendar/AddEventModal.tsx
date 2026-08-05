@@ -121,7 +121,7 @@ export default function AddEventModal({ isOpen, onClose, onEventAdded }: AddEven
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
-      <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl transition-all max-h-[90vh] overflow-y-auto">
+      <div className="w-full max-w-lg rounded-lg bg-bg-container p-6 shadow-xl transition-all max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between border-b pb-3 mb-4">
           <h3 className="text-xl font-semibold text-text-main">Add New Event</h3>
           <button onClick={handleClose} className="text-text-muted hover:text-text-main">
@@ -152,11 +152,11 @@ export default function AddEventModal({ isOpen, onClose, onEventAdded }: AddEven
               type="button"
               onClick={() => setAllDay(!allDay)}
               className={`relative h-6 w-11 rounded-full transition-colors ${
-                allDay ? "bg-primary" : "bg-gray-300"
+                allDay ? "bg-primary" : "bg-border-hover"
               }`}
             >
               <span
-                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-bg-container shadow transition-transform ${
                   allDay ? "translate-x-5" : ""
                 }`}
               />
@@ -262,7 +262,7 @@ export default function AddEventModal({ isOpen, onClose, onEventAdded }: AddEven
             </button>
             <button
               type="submit"
-              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover shadow-sm"
+              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-text-inverse hover:bg-primary-hover shadow-sm"
             >
               Save Event
             </button>

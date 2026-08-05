@@ -199,14 +199,14 @@ export default function Classes() {
                             <button
                                 type="button"
                                 onClick={() => confirmingClass.classId && handleMarkCompletedOnDelete(confirmingClass.classId)}
-                                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"
+                                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-text-inverse hover:bg-primary-hover"
                             >
                                 Mark as completed
                             </button>
                             <button
                                 type="button"
                                 onClick={() => confirmingClass.classId && handlePermanentDelete(confirmingClass.classId)}
-                                className="rounded-md bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600"
+                                className="rounded-md bg-alert-error px-4 py-2 text-sm font-medium text-text-inverse hover:bg-alert-error-hover"
                             >
                                 Delete permanently
                             </button>
@@ -237,7 +237,7 @@ export default function Classes() {
                                 {deleteMode && (
                                     <button
                                         onClick={() => enrollment.classId && setConfirmingDeleteId(enrollment.classId)}
-                                        className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-red-500 text-white shadow-md hover:bg-red-600"
+                                        className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-alert-error text-text-inverse shadow-md hover:bg-alert-error-hover"
                                         aria-label={`Remove ${enrollment.className}`}
                                     >
                                         <Minus size={14} />

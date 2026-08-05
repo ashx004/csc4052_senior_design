@@ -1,14 +1,17 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { auth } from "@/src/library/firebase";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { signInWithGoogle, signInWithApple } from "@/src/library/socialAuth";
+import { useAuth } from "@/src/context/AuthContext";
+import { touchRememberCookie } from "@/src/library/session";
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { user, loading: authLoading } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -18,9 +21,29 @@ function LoginForm() {
     router.push(searchParams.get("redirect") || "/dashboard");
   }
 
+  // Firebase Auth persists a signed-in session on this device indefinitely
+  // by default — the middleware-facing fb_token cookie is what actually
+  // expires (hourly), not the underlying session. So landing here with
+  // Firebase already recognizing the device (e.g. redirected by middleware
+  // over a stale cookie after the browser was closed a while) means the
+  // user shouldn't have to re-enter credentials — bounce them straight
+  // through instead of showing the form. AuthContext writes the fresh
+  // cookie before `user` updates, so this redirect can't race a stale one.
+  useEffect(() => {
+    if (!authLoading && user) {
+      goToDestination();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, user]);
+
   async function handleLogin() {
     setIsSubmitting(true);
     try {
+      // Must happen before the actual sign-in call, not after — Firebase
+      // fires its internal auth-state listener (AuthContext's
+      // onIdTokenChanged) as part of processing the credential, which can
+      // run before this async function resumes past the await below.
+      touchRememberCookie();
       await signInWithEmailAndPassword(auth, email, password);
       goToDestination();
     } catch (error) {
@@ -34,6 +57,7 @@ function LoginForm() {
   async function handleGoogleLogin() {
     setIsSubmitting(true);
     try {
+      touchRememberCookie();
       await signInWithGoogle();
       goToDestination();
     } catch (error) {
@@ -47,6 +71,7 @@ function LoginForm() {
   async function handleAppleLogin() {
     setIsSubmitting(true);
     try {
+      touchRememberCookie();
       await signInWithApple();
       goToDestination();
     } catch (error) {
@@ -57,10 +82,21 @@ function LoginForm() {
     }
   }
 
+  // Either still checking the persisted session, or already found one and
+  // about to redirect — showing the form for a flash in either case would
+  // defeat the point of the silent bounce-through above.
+  if (authLoading || user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-bg-main">
+        <img src="/app-logo.webp" alt="catalyst logo" className="w-42 h-42 animate-pulse" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center
                     bg-bg-main">
-      <div className="bg-white rounded items-center shadow-md flex
+      <div className="bg-bg-container rounded items-center shadow-md flex
                       flex-col w-100 h-100 p-6">
 
         <img
@@ -81,7 +117,7 @@ function LoginForm() {
           <input
             type="email"
             placeholder="email"
-            className="border px-3 py-2 rounded mt-8 font-mono text-sm"
+            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded mt-8 font-mono text-sm"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
@@ -89,7 +125,7 @@ function LoginForm() {
           <input
             type="password"
             placeholder="password"
-            className="border px-3 py-2 rounded font-mono text-sm"
+            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded font-mono text-sm"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
@@ -97,7 +133,7 @@ function LoginForm() {
           <button
             onClick={handleLogin}
             disabled={isSubmitting}
-            className="bg-primary text-white py-1 px-4 rounded
+            className="bg-primary text-text-inverse py-1 px-4 rounded
                       hover:bg-primary-hover disabled:opacity-50" >
             Log In
           </button>
@@ -113,7 +149,7 @@ function LoginForm() {
             onClick={handleGoogleLogin}
             disabled={isSubmitting}
             className="flex items-center justify-center gap-2 rounded border
-                      border-border-light bg-white py-1.5 px-4 text-sm
+                      border-border-light bg-bg-container py-1.5 px-4 text-sm
                       text-text-main hover:bg-bg-warm disabled:opacity-50"
           >
             <img src="/google-logo.webp" alt="" className="h-4 w-4" />
@@ -125,7 +161,7 @@ function LoginForm() {
             onClick={handleAppleLogin}
             disabled={isSubmitting}
             className="flex items-center justify-center gap-2 rounded border
-                      border-border-light bg-white py-1.5 px-4 text-sm
+                      border-border-light bg-bg-container py-1.5 px-4 text-sm
                       text-text-main hover:bg-bg-warm disabled:opacity-50"
           >
             <img src="/apple-logo.webp" alt="" className="h-4 w-4" />

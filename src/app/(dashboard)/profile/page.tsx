@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, Pencil, Save, X, Loader2, Trash2 } from "lucide-react";
 
 import { useAuth } from "@/src/context/AuthContext";
@@ -127,6 +127,7 @@ export default function Profile() {
   const [enrollments, setEnrollments] = useState<ClassCardProps[]>([]);
   const [enrollmentsLoading, setEnrollmentsLoading] = useState(true);
   const [showClasses, setShowClasses] = useState(true);
+  const [showCompletedClasses, setShowCompletedClasses] = useState(false);
 
   // Load the Catalyst-generated learning summary
   useEffect(() => {
@@ -236,6 +237,19 @@ export default function Profile() {
       })
       .finally(() => setEnrollmentsLoading(false));
   }, [user]);
+
+  // Completed classes are a distinct category from what the student is
+  // currently taking — mixing them together here was the source of both
+  // this page and the AI (via chatContext.ts) treating a finished class as
+  // still in progress.
+  const currentEnrollments = useMemo(
+    () => enrollments.filter((e) => e.status !== "completed"),
+    [enrollments]
+  );
+  const completedEnrollments = useMemo(
+    () => enrollments.filter((e) => e.status === "completed"),
+    [enrollments]
+  );
 
   async function selectUniversity(suggestion: UniversitySuggestion) {
     if (!user) return;
@@ -447,7 +461,7 @@ export default function Profile() {
                       type="button"
                       onClick={handleClear}
                       disabled={clearing}
-                      className="rounded-md bg-alert-error px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-alert-error-hover disabled:opacity-50"
+                      className="rounded-md bg-alert-error px-3 py-1.5 text-xs font-medium text-text-inverse transition-colors hover:bg-alert-error-hover disabled:opacity-50"
                     >
                       {clearing ? "Clearing..." : "Yes, clear it"}
                     </button>
@@ -511,7 +525,7 @@ export default function Profile() {
                   disabled={profileSaving}
                   className="
                     flex items-center gap-2 rounded-md
-                    bg-primary px-3 py-2 text-sm text-white
+                    bg-primary px-3 py-2 text-sm text-text-inverse
                     hover:bg-primary-hover
                     disabled:cursor-not-allowed disabled:opacity-60
                   "
@@ -613,13 +627,13 @@ export default function Profile() {
             <p className="text-sm text-text-muted">Loading classes...</p>
           )}
 
-          {!enrollmentsLoading && showClasses && enrollments.length === 0 && (
+          {!enrollmentsLoading && showClasses && currentEnrollments.length === 0 && (
             <p className="text-sm text-text-muted">No current classes found.</p>
           )}
 
-          {!enrollmentsLoading && showClasses && enrollments.length > 0 && (
+          {!enrollmentsLoading && showClasses && currentEnrollments.length > 0 && (
             <div className="flex flex-wrap gap-5">
-              {enrollments.map((enrollment, index) => (
+              {currentEnrollments.map((enrollment, index) => (
                 <ClassCard
                   key={enrollment.classId}
                   {...enrollment}
@@ -632,6 +646,43 @@ export default function Profile() {
             </div>
           )}
         </section>
+
+        {/* Completed classes — kept as a separate category from current
+            classes so this page (and, via chatContext.ts, the AI) never
+            represents a finished class as one the student is still taking. */}
+        {!enrollmentsLoading && completedEnrollments.length > 0 && (
+          <section className="mt-10">
+            <button
+              type="button"
+              onClick={() => setShowCompletedClasses((currentValue) => !currentValue)}
+              className="mb-4 flex items-center gap-2 text-lg font-semibold"
+              aria-expanded={showCompletedClasses}
+            >
+              Completed Classes ({completedEnrollments.length})
+              <ChevronDown
+                size={20}
+                className={`transition-transform duration-200 ${
+                  showCompletedClasses ? "rotate-0" : "-rotate-90"
+                }`}
+              />
+            </button>
+
+            {showCompletedClasses && (
+              <div className="flex flex-wrap gap-5">
+                {completedEnrollments.map((enrollment, index) => (
+                  <ClassCard
+                    key={enrollment.classId}
+                    {...enrollment}
+                    variant="compact"
+                    color={
+                      enrollment.color ?? (index % 2 === 0 ? "#d8cbbb" : "#bdb4a9")
+                    }
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        )}
       </main>
     </section>
   );

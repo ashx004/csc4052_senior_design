@@ -154,7 +154,7 @@ export default function CalendarPage() {
     const isActive = view === buttonView;
     return `px-4 py-2 text-sm font-medium transition ${
       isActive
-        ? "bg-primary text-white"
+        ? "bg-primary text-text-inverse"
         : "text-text-main hover:bg-bg-warm"
     }`;
   }
@@ -193,7 +193,7 @@ export default function CalendarPage() {
             <button
               type="button"
               onClick={() => setShowAddEvent(true)}
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-primary-hover"
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-text-inverse shadow-sm transition hover:bg-primary-hover"
             >
               <Plus size={16} strokeWidth={2} />
               Add Event

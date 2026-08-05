@@ -27,7 +27,7 @@ export default function AnswerOption({
         className={`flex items-center justify-center rounded-xl border px-4 py-3 text-center text-sm font-medium transition-colors ${
           isSelected
             ? "border-[#1a1a2e] bg-[#1a1a2e]/5 text-[#1a1a2e]"
-            : "border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50"
+            : "border-border-light text-text-muted hover:border-border-hover hover:bg-bg-warm"
         }`}
       >
         {option}
@@ -40,18 +40,18 @@ export default function AnswerOption({
   const userPickedWrongly = isUserAnswer && !isCorrect;
   const correctButNotPicked = !isUserAnswer && isCorrect;
 
-  let stateClasses = "border-gray-200 bg-white text-gray-400";
+  let stateClasses = "border-border-light bg-bg-container text-text-muted";
   let icon: React.ReactNode = null;
 
   if (userPickedCorrectly) {
-    stateClasses = "border-emerald-500 bg-emerald-50 text-emerald-700";
-    icon = <Check size={16} className="shrink-0 text-emerald-600" />;
+    stateClasses = "border-emerald-500 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300";
+    icon = <Check size={16} className="shrink-0 text-emerald-600 dark:text-emerald-300" />;
   } else if (userPickedWrongly) {
-    stateClasses = "border-red-400 bg-red-50 text-red-600";
-    icon = <X size={16} className="shrink-0 text-red-500" />;
+    stateClasses = "border-red-400 bg-red-50 text-red-600 dark:border-red-700 dark:bg-red-900/30 dark:text-red-300";
+    icon = <X size={16} className="shrink-0 text-red-500 dark:text-red-300" />;
   } else if (correctButNotPicked) {
-    stateClasses = "border-dashed border-emerald-500 bg-white text-emerald-700";
-    icon = <Check size={16} className="shrink-0 text-emerald-600" />;
+    stateClasses = "border-dashed border-emerald-500 bg-bg-container text-emerald-700 dark:border-emerald-700 dark:text-emerald-300";
+    icon = <Check size={16} className="shrink-0 text-emerald-600 dark:text-emerald-300" />;
   }
 
   return (
