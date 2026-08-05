@@ -303,21 +303,25 @@ export default function CalendarPage() {
             </>
           )}
 
-          {/* ── Connected — show real calendar ── */}
+          {/* ── Connected — show real calendar ──
+              Only a genuinely empty first load (no cached/prior data at
+              all) blocks on a loading message — every subsequent
+              navigation (prev/next, view switch) keeps the grid mounted
+              and showing whatever's already known while it revalidates in
+              the background, instead of wiping the view on every fetch. */}
           {status === "connected" && (
             <>
-              {eventsLoading && (
+              {eventsLoading && allEvents.length === 0 ? (
                 <p className="py-12 text-center text-sm text-text-muted">
                   Loading events...
                 </p>
-              )}
-              {eventsError && (
-                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                  {eventsError}
-                </div>
-              )}
-              {!eventsLoading && (
+              ) : (
                 <>
+                  {eventsError && (
+                    <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                      {eventsError}
+                    </div>
+                  )}
                   {view === "month" && (
                     <MonthView
                       events={allEvents}

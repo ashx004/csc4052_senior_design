@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Menu, X, Plus, Search, Settings } from "lucide-react";
+import { Menu, X, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 interface SidebarProps {
@@ -9,7 +9,7 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ children }: SidebarProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(true);
   const router = useRouter();
 
   return (
@@ -34,7 +34,7 @@ export default function Sidebar({ children }: SidebarProps) {
         {/* Inner wrapper — fixed width prevents text from wrapping during the width animation */}
         <div className="min-w-[18rem] h-full flex flex-col">
           {/* Header: logo + close */}
-          <div className="flex items-center justify-between px-6 pt-6 pb-4">
+          <div className="flex items-center justify-between border-b border-border-light px-6 pb-4 pt-6">
             <h1 className="text-xl font-bold tracking-[0.15em] text-text-main">
               C a t a l y s t.
             </h1>
@@ -45,21 +45,6 @@ export default function Sidebar({ children }: SidebarProps) {
             >
               <X className="w-5 h-5" />
             </button>
-          </div>
-
-          {/* Icon row: menu, add, search */}
-          <div className="flex items-center justify-between px-3 pb-2 border-b border-border-light">
-            <button className="p-1 text-text-muted hover:text-text-main transition-colors">
-              <Menu className="w-5 h-5" />
-            </button>
-            <div className="flex items-center gap-4">
-              <button className="p-1 text-text-muted hover:text-text-main transition-colors">
-                <Plus className="w-5 h-5" />
-              </button>
-              <button className="p-1 text-text-muted hover:text-text-main transition-colors">
-                <Search className="w-5 h-5" />
-              </button>
-            </div>
           </div>
 
           {/* Navigation content (from GeneralSidebar or CourseSidebar) */}

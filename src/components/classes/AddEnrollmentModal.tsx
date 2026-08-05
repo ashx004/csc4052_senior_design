@@ -7,6 +7,7 @@ import { addDoc, collection } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
 import { Minus } from "lucide-react";
 import { Term, parseCourseCode, getCurrentTerm } from '@/src/library/academicTerm';
+import { randomClassColor } from '@/src/library/classColors';
 
 const TERM_OPTIONS: Term[] = ["Fall", "Winter", "Spring", "Summer"];
 const CLASS_CODE_DEBOUNCE_MS = 300;
@@ -147,6 +148,7 @@ export default function AddEnrollmentModal({
       term: `${termSeason} ${termYear}`,
       termSeason,
       termYear,
+      color: randomClassColor(),
       ...(parsedCode ? { subject: parsedCode.subject, courseNumber: parsedCode.number } : {}),
       ...(Number.isFinite(parsedCreditHours) ? { creditHours: parsedCreditHours } : {}),
     };

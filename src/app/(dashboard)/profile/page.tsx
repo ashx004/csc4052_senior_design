@@ -238,6 +238,18 @@ export default function Profile() {
       .finally(() => setEnrollmentsLoading(false));
   }, [user]);
 
+  async function handleColorChange(classId: string, color: string) {
+    if (!user) return;
+
+    try {
+      const docRef = doc(db, "users", user.uid, "enrollment", classId);
+      await updateDoc(docRef, { color });
+      setEnrollments((prev) => prev.map((e) => (e.classId === classId ? { ...e, color } : e)));
+    } catch (error) {
+      console.error("Error updating class color:", error);
+    }
+  }
+
   // Completed classes are a distinct category from what the student is
   // currently taking — mixing them together here was the source of both
   // this page and the AI (via chatContext.ts) treating a finished class as
@@ -641,6 +653,7 @@ export default function Profile() {
                   color={
                     enrollment.color ?? (index % 2 === 0 ? "#d8cbbb" : "#bdb4a9")
                   }
+                  onColorChange={(color) => enrollment.classId && handleColorChange(enrollment.classId, color)}
                 />
               ))}
             </div>
@@ -677,6 +690,7 @@ export default function Profile() {
                     color={
                       enrollment.color ?? (index % 2 === 0 ? "#d8cbbb" : "#bdb4a9")
                     }
+                    onColorChange={(color) => enrollment.classId && handleColorChange(enrollment.classId, color)}
                   />
                 ))}
               </div>

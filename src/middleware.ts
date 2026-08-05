@@ -54,6 +54,14 @@ function redirectToLogin(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+  // Anything that looks like a static file request (contains a dot — .svg,
+  // .webp, .ico, .css, .js, etc.) skips the auth gate entirely, alongside
+  // API routes and Next internals. Public pages (/, /login, /signup) load
+  // images — app-logo.svg, google-logo.svg — that an
+  // unauthenticated visitor must be able to fetch. Without this exemption,
+  // those <img> requests were themselves being redirected to the login
+  // page's HTML instead of returning the actual image, showing broken-image
+  // alt text in place of every logo.
+  matcher: ["/((?!api|_next/static|_next/image|.*\\..*).*)"],
 };
 

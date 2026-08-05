@@ -7,6 +7,8 @@ import { createUserWithEmailAndPassword } from "firebase/auth";
 import { signInWithGoogle, signInWithApple } from "@/src/library/socialAuth";
 import { useAuth } from "@/src/context/AuthContext";
 import { touchRememberCookie } from "@/src/library/session";
+import AppleLogo from "@/src/components/icons/AppleLogo";
+import AppLogo from "@/src/components/AppLogo";
 
 import {
   doc,
@@ -27,7 +29,10 @@ export default function Signup() {
   const greeting: string = "C a t a l y s t .";
 
   // Same already-signed-in bounce-through as the login page — see its
-  // comment for why this doesn't race a stale cookie.
+  // comment for why this is the ONLY place that navigates after a fresh
+  // sign-in (the handlers below deliberately don't call router.push
+  // themselves — doing so raced ahead of AuthContext's cookie write and got
+  // stuck bounced back on this page with no way to retry).
   useEffect(() => {
     if (!authLoading && user) {
       router.push("/dashboard");
@@ -54,9 +59,6 @@ export default function Signup() {
         college: college,
         joinedAt: serverTimestamp(),
       });
-
-      router.push("/dashboard");
-
     } catch (error) {
       alert(error instanceof Error ? error.message : "Account failed to be created.");
       console.log(error);
@@ -70,7 +72,6 @@ export default function Signup() {
     try {
       touchRememberCookie();
       await signInWithGoogle();
-      router.push("/dashboard");
     } catch (error) {
       alert(error instanceof Error ? error.message : "Google sign-up failed.");
       console.log(error);
@@ -84,7 +85,6 @@ export default function Signup() {
     try {
       touchRememberCookie();
       await signInWithApple();
-      router.push("/dashboard");
     } catch (error) {
       alert(error instanceof Error ? error.message : "Apple sign-up failed.");
       console.log(error);
@@ -96,7 +96,7 @@ export default function Signup() {
   if (authLoading || user) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-bg-main">
-        <img src="/app-logo.webp" alt="catalyst logo" className="w-42 h-42 animate-pulse" />
+        <AppLogo className="w-32 h-32 animate-pulse" />
       </div>
     );
   }
@@ -107,11 +107,7 @@ export default function Signup() {
       <div className="bg-bg-container rounded items-center shadow-md flex
                       flex-col w-100 h-100 p-6">
 
-        <img
-          src="/app-logo.webp"
-          alt="catalyst logo"
-          className="w-42 h-42"
-        />
+        <AppLogo className="w-[168px] h-[168px]" />
 
         <h1 className="text-3xl font-bold text-text-main font-sans">
           {greeting}
@@ -185,7 +181,7 @@ export default function Signup() {
                       border-border-light bg-bg-container py-1.5 px-4 text-sm
                       text-text-main hover:bg-bg-warm disabled:opacity-50"
           >
-            <img src="/google-logo.webp" alt="" className="h-4 w-4" />
+            <img src="/google-logo.svg" alt="" className="h-4 w-4" />
             Continue with Google
           </button>
 
@@ -197,7 +193,7 @@ export default function Signup() {
                       border-border-light bg-bg-container py-1.5 px-4 text-sm
                       text-text-main hover:bg-bg-warm disabled:opacity-50"
           >
-            <img src="/apple-logo.webp" alt="" className="h-4 w-4" />
+            <AppleLogo className="h-4 w-4 text-text-main" />
             Continue with Apple
           </button>
         </div>
