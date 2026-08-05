@@ -1,13 +1,11 @@
 "use client";
 
 import { useEffect } from "react";
+import { applyTheme, getStoredCoffee, getStoredThemeMode } from "@/src/library/theme";
 
 export default function ThemeInitializer() {
   useEffect(() => {
-    const selectedTheme = localStorage.getItem("theme");
-    const isDark = selectedTheme === "dark";
-
-    document.documentElement.classList.toggle("dark", isDark);
+    applyTheme(getStoredThemeMode(), getStoredCoffee());
   }, []);
 
   return null;

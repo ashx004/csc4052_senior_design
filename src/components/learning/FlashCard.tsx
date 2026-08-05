@@ -26,7 +26,7 @@ export default function FlashCard({ question, answer }: FlashCardProps) {
       >
         {/* Front — Question */}
         <div
-          className="absolute inset-0 bg-white rounded-2xl border border-border-light shadow-md
+          className="absolute inset-0 bg-bg-container rounded-2xl border border-border-light shadow-md
                      px-8 py-10 flex flex-col items-center justify-center"
           style={{ backfaceVisibility: 'hidden' }}
         >
@@ -41,7 +41,7 @@ export default function FlashCard({ question, answer }: FlashCardProps) {
 
         {/* Back — Answer */}
         <div
-          className="absolute inset-0 bg-white rounded-2xl border border-border-light shadow-md
+          className="absolute inset-0 bg-bg-container rounded-2xl border border-border-light shadow-md
                      px-8 py-10 flex flex-col items-center justify-center"
           style={{
             backfaceVisibility: 'hidden',

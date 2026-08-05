@@ -35,10 +35,76 @@
 }
 
 /* ==========================================================================
-   DARK THEME
+   DARK THEME (default — neutral, not coffee-tinted)
    ========================================================================== */
 
 .dark {
+  /* --- Brand & Accent Colorways --- */
+  --color-primary: #d3a566;
+  --color-primary-hover: #e2b87e;
+
+  /* --- Typography Colors --- */
+  --color-text-main: #eef0f2;
+  --color-text-muted: #9aa1ab;
+  --color-text-inverse: #14161a;
+
+  /* --- Backgrounds & Canvas Tones --- */
+  --color-bg-main: #14161a;
+  --color-bg-container: #1d2025;
+  --color-bg-warm: #262a31;
+
+  /* --- Borders & Separation Utilities --- */
+  --color-border-light: #33383f;
+  --color-border-hover: #4a505a;
+
+  /* --- System Feedback Tones --- */
+  --color-alert-error: #e0776a;
+  --color-alert-error-bg: #2c1f1e;
+  --color-alert-error-hover: #ec8c7f;
+  --color-alert-success: #7fae70;
+  --color-alert-success-bg: #1c2620;
+  --color-alert-success-hover: #93bf85;
+}
+
+/* ==========================================================================
+   COFFEE THEME (light — checkbox on top of light mode)
+   ========================================================================== */
+
+.coffee {
+  /* --- Brand & Accent Colorways --- */
+  --color-primary: #7a4f30;
+  --color-primary-hover: #5f3d25;
+
+  /* --- Typography Colors --- */
+  --color-text-main: #3a2a1e;
+  --color-text-muted: #8c7a67;
+  --color-text-inverse: #fbf6ec;
+
+  /* --- Backgrounds & Canvas Tones --- */
+  --color-bg-main: #f5ecdc;
+  --color-bg-container: #fbf6ec;
+  --color-bg-warm: #e8d2af;
+
+  /* --- Borders & Separation Utilities --- */
+  --color-border-light: #e1cca9;
+  --color-border-hover: #cdb187;
+
+  /* --- System Feedback Tones --- */
+  --color-alert-error: #b85c45;
+  --color-alert-error-bg: #f3ddd5;
+  --color-alert-error-hover: #9c4a36;
+  --color-alert-success: #7a9163;
+  --color-alert-success-bg: #e9e8d6;
+  --color-alert-success-hover: #61784b;
+}
+
+/* ==========================================================================
+   COFFEE DARK (checkbox on top of dark mode) — this is the original .dark
+   palette from before the light/dark toggle + coffee checkbox split; kept
+   exactly as it was so existing coffee-dark users see no visual change.
+   ========================================================================== */
+
+.dark.coffee {
   /* --- Brand & Accent Colorways --- */
   --color-primary: #c89b72;
   --color-primary-hover: #ddb58f;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import {
     EmailAuthProvider,
     reauthenticateWithCredential,
@@ -11,13 +11,21 @@ import { signOut } from "firebase/auth";
 import { FirebaseError } from "firebase/app";
 import { useRouter } from "next/navigation";
 import { auth } from "../../../library/firebase";
-
+import {
+    applyTheme,
+    getStoredCoffee,
+    getStoredThemeMode,
+    setCoffee,
+    setThemeMode,
+    ThemeMode,
+} from "@/src/library/theme";
 
 export default function Settings() {
 
     // const [notificationIsOn, setNotificationOn] = useState<boolean>(false);
     // const [studyRemIsOn, setstudyRemOn] = useState<boolean>(false);
-    const [appearanceIsOn, setAppearanceOn] = useState<boolean>(false);
+    const [themeMode, setThemeModeState] = useState<ThemeMode>("light");
+    const [coffee, setCoffeeState] = useState<boolean>(false);
     // const [focusIsOn, setFocusOn] = useState<boolean>(false);
 
     const [showPasswordForm, setShowPasswordForm] = useState<boolean>(false);
@@ -37,18 +45,23 @@ export default function Settings() {
 
 
     useEffect(() => {
-        const selectedTheme = localStorage.getItem("theme");
-        const isDark = selectedTheme == "dark";
-
-        document.documentElement.classList.toggle("dark", isDark);
-        setAppearanceOn(isDark);
+        const storedMode = getStoredThemeMode();
+        const storedCoffee = getStoredCoffee();
+        applyTheme(storedMode, storedCoffee);
+        setThemeModeState(storedMode);
+        setCoffeeState(storedCoffee);
     }, []);
 
-    function handleAppearanceChange(isOn: boolean) {
-        setAppearanceOn(isOn);
+    function handleThemeModeToggle() {
+        const next = themeMode === "dark" ? "light" : "dark";
+        setThemeModeState(next);
+        setThemeMode(next);
+    }
 
-        document.documentElement.classList.toggle("dark", isOn);
-        localStorage.setItem("theme", isOn ? "dark" : "light");
+    function handleCoffeeToggle(event: ChangeEvent<HTMLInputElement>) {
+        const next = event.target.checked;
+        setCoffeeState(next);
+        setCoffee(next);
     }
 
 
@@ -380,61 +393,55 @@ export default function Settings() {
                 shrink-0 border-b border-border-light px-6">
             </header>
 
-            <div className="mt-2 flex w-3/4 self-center justify-between py-3 px-2
+            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
                         bg-bg-main text-text-main hover:bg-bg-warm">
 
                 <span className="text-sm">
                     Appearance
                 </span>
 
-
-                <label className="inline-flex items-center cursor-pointer">
-
-                    <input
-                        type="checkbox"
-                        checked={appearanceIsOn}
-                        onChange={(event) => handleAppearanceChange(event.target.checked)}
-                        className="peer sr-only"
-                    />
-
-                    <div
-                        className="
-                            relative
-                            h-6
-                            w-11
-                            rounded-full
-                            bg-border-light
-                            transition-colors
-                            peer-checked:bg-primary
-
-                            peer-focus:outline-none
-                            peer-focus:ring-4
-                            peer-focus:ring-border-hover
-
-                            after:absolute
-                            after:left-[2px]
-                            after:top-[2px]
-                            after:h-5
-                            after:w-5
-                            after:rounded-full
-                            after:bg-white
-                            after:content-['']
-                            after:transition-transform
-
-                            peer-checked:after:translate-x-5
-                        "
-                    />
-
-                    <span className="ml-2 text-xs font-medium text-text-muted">
-                        {appearanceIsOn ? "Dark" : "Light"}
+                <div className="flex items-center gap-3">
+                    <button
+                        type="button"
+                        role="switch"
+                        aria-checked={themeMode === "dark"}
+                        aria-label="Toggle dark mode"
+                        onClick={handleThemeModeToggle}
+                        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                            themeMode === "dark" ? "bg-primary" : "bg-border-light"
+                        }`}
+                    >
+                        <span
+                            className={`absolute left-[2px] top-[2px] h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                                themeMode === "dark" ? "translate-x-5" : "translate-x-0"
+                            }`}
+                        />
+                    </button>
+                    <span className="w-8 text-xs text-text-muted">
+                        {themeMode === "dark" ? "Dark" : "Light"}
                     </span>
-
-                </label>
+                </div>
 
             </div>
 
+            <div className="flex w-3/4 self-center items-center justify-between py-3 px-2
+                        bg-bg-main text-text-main hover:bg-bg-warm">
+
+                <span className="text-sm">
+                    Coffee theme
+                </span>
+
+                <input
+                    type="checkbox"
+                    checked={coffee}
+                    onChange={handleCoffeeToggle}
+                    aria-label="Toggle coffee theme"
+                    className="h-4 w-4 cursor-pointer rounded border-border-light accent-primary"
+                />
+            </div>
+
             <div className="flex w-3/4 self-center px-2 py-1 text-xs text-text-muted">
-                Use Dark Theme
+                Toggle dark mode, and check Coffee for a warm variant of either theme
             </div>
 
 
@@ -605,7 +612,7 @@ export default function Settings() {
                             type="submit"
                             disabled={isUpdatingAccount}
                             className="rounded bg-primary px-4 py-2 text-sm
-                                    text-white hover:bg-primary-hover
+                                    text-text-inverse hover:bg-primary-hover
                                     disabled:cursor-not-allowed
                                     disabled:opacity-50"
                         >
@@ -705,7 +712,7 @@ export default function Settings() {
                             type="submit"
                             disabled={isUpdatingAccount}
                             className="rounded bg-primary px-4 py-2 text-sm
-                                    text-white hover:bg-primary-hover
+                                    text-text-inverse hover:bg-primary-hover
                                     disabled:cursor-not-allowed
                                     disabled:opacity-50"
                         >

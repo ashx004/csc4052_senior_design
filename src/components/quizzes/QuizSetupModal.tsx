@@ -35,7 +35,7 @@ function ToggleSwitch({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
-        disabled ? "bg-gray-200 cursor-not-allowed" : checked ? "bg-[#1a1a2e]" : "bg-gray-300"
+        disabled ? "bg-border-light cursor-not-allowed" : checked ? "bg-[#1a1a2e]" : "bg-border-hover"
       }`}
     >
       <span
@@ -81,7 +81,7 @@ export default function QuizSetupModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg rounded-2xl bg-white p-7 shadow-xl"
+        className="w-full max-w-lg rounded-2xl bg-bg-container p-7 shadow-xl"
       >
         {/* Header */}
         <div className="flex items-start justify-between mb-1">
@@ -92,17 +92,17 @@ export default function QuizSetupModal({
           <button
             onClick={onClose}
             disabled={loading}
-            className="p-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-50"
+            className="p-1 rounded-md text-text-muted hover:text-text-main hover:bg-bg-warm transition-colors disabled:opacity-50"
             aria-label="Close"
           >
             <X size={18} />
           </button>
         </div>
-        <p className="text-xs text-gray-400 mb-5">Set up your test</p>
+        <p className="text-xs text-text-muted mb-5">Set up your test</p>
 
         {/* Question count */}
         <div className="flex items-center justify-between">
-          <label className="block text-sm font-medium text-gray-700 mb-8">
+          <label className="block text-sm font-medium text-text-main mb-8">
             Questions (max 20)
           </label>
           <input
@@ -112,7 +112,7 @@ export default function QuizSetupModal({
             value={questionCount}
             onChange={(e) => setQuestionCount(Number(e.target.value))}
             disabled={loading}
-            className="w-15 rounded-lg border border-gray-200 px-4 py-2 text-sm focus:border-[#8B6914] focus:outline-none disabled:opacity-50"
+            className="w-15 rounded-lg border border-border-light px-4 py-2 text-sm focus:border-[#8B6914] focus:outline-none disabled:opacity-50"
           />
         </div>
         {!isCountValid && (
@@ -122,15 +122,15 @@ export default function QuizSetupModal({
         {/* Question types */}
         <div className="flex flex-col gap-3 mb-2">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-700">True/False</span>
+            <span className="text-sm font-medium text-text-main">True/False</span>
             <ToggleSwitch checked={trueFalse} onChange={setTrueFalse} disabled={loading} />
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-700">Multiple choice</span>
+            <span className="text-sm font-medium text-text-main">Multiple choice</span>
             <ToggleSwitch checked={multipleChoice} onChange={setMultipleChoice} disabled={loading} />
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-700">Matching</span>
+            <span className="text-sm font-medium text-text-main">Matching</span>
             <ToggleSwitch checked={matching} onChange={setMatching} disabled={loading} />
           </div>
         </div>

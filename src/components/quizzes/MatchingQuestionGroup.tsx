@@ -23,9 +23,9 @@ interface MatchingQuestionGroupProps {
  * and generate them.
  */
 const MATCH_COLORS = [
-  "border-blue-500 bg-blue-50 ring-1 ring-blue-200",
-  "border-violet-500 bg-violet-50 ring-1 ring-violet-200",
-  "border-amber-500 bg-amber-50 ring-1 ring-amber-200",
+  "border-blue-500 bg-blue-50 ring-1 ring-blue-200 dark:bg-blue-900/30 dark:border-blue-700 dark:ring-blue-700",
+  "border-violet-500 bg-violet-50 ring-1 ring-violet-200 dark:bg-violet-900/30 dark:border-violet-700 dark:ring-violet-700",
+  "border-amber-500 bg-amber-50 ring-1 ring-amber-200 dark:bg-amber-900/30 dark:border-amber-700 dark:ring-amber-700",
 ] as const;
 
 function getMatchColor(index: number): string {
@@ -71,8 +71,8 @@ export default function MatchingQuestionGroup({
   };
 
   return (
-    <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-      <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-gray-400">
+    <div className="rounded-2xl border border-border-light bg-bg-container p-5 shadow-sm">
+      <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-text-muted">
         Match each term to its definition
       </p>
 
@@ -88,7 +88,7 @@ export default function MatchingQuestionGroup({
             const pairColor = getMatchColor(questionIndex);
 
             let stateClasses =
-              "border-gray-200 bg-white hover:border-[#8B6914]";
+              "border-border-light bg-bg-container hover:border-[#8B6914]";
 
             /*
              * After a match is selected, keep the pair color visible.
@@ -110,7 +110,7 @@ export default function MatchingQuestionGroup({
                 "border-[#1a1a2e] bg-[#F5F0EB] ring-2 ring-[#1a1a2e]/20";
             } else if (isResults) {
               stateClasses =
-                "border-red-300 bg-red-50 outline outline-2 outline-red-400";
+                "border-red-300 bg-red-50 outline outline-2 outline-red-400 dark:border-red-700 dark:bg-red-900/30 dark:outline-red-700";
             }
 
             return (
@@ -141,23 +141,23 @@ export default function MatchingQuestionGroup({
                     (isCorrect ? (
                       <Check
                         size={18}
-                        className="shrink-0 text-emerald-600"
+                        className="shrink-0 text-emerald-600 dark:text-emerald-300"
                       />
                     ) : (
                       <X
                         size={18}
-                        className="shrink-0 text-red-500"
+                        className="shrink-0 text-red-500 dark:text-red-300"
                       />
                     ))}
                 </div>
 
-                <p className="mt-1 text-xs text-gray-600">
+                <p className="mt-1 text-xs text-text-muted">
                   {selectedAnswer ||
                     "Tap, then choose a definition"}
                 </p>
 
                 {isResults && !isCorrect && (
-                  <p className="mt-2 text-xs font-medium text-emerald-700">
+                  <p className="mt-2 text-xs font-medium text-emerald-700 dark:text-emerald-300">
                     Correct: {question.correctAnswer}
                   </p>
                 )}
@@ -188,7 +188,7 @@ export default function MatchingQuestionGroup({
               : false;
 
             let stateClasses =
-              "border-gray-200 bg-white text-gray-600 hover:border-[#8B6914]";
+              "border-border-light bg-bg-container text-text-muted hover:border-[#8B6914]";
 
             if (assignedTo && assignedIndex >= 0) {
               /*
@@ -201,8 +201,8 @@ export default function MatchingQuestionGroup({
 
               if (isResults) {
                 stateClasses += isCorrectAssignment
-                  ? " outline outline-2 outline-emerald-400"
-                  : " outline outline-2 outline-red-400";
+                  ? " outline outline-2 outline-emerald-400 dark:outline-emerald-500"
+                  : " outline outline-2 outline-red-400 dark:outline-red-500";
               }
             }
 
@@ -228,7 +228,7 @@ export default function MatchingQuestionGroup({
                 <span>{definition}</span>
 
                 {isUsed && assignedTo && (
-                  <span className="ml-2 text-xs text-gray-500">
+                  <span className="ml-2 text-xs text-text-muted">
                     → {assignedTo.question}
                   </span>
                 )}

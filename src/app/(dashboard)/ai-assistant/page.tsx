@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { FileDown, History, Mic, Paperclip } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -18,6 +19,8 @@ import {
 } from "@/src/library/chatMemory";
 import ChatUploadModal from "@/src/components/aiAssistant/ChatUploadModal";
 import ChatHistoryPanel from "@/src/components/aiAssistant/ChatHistoryPanel";
+import { readChatStream, TOOL_STATUS_LABELS } from "@/src/library/chatStream";
+import { useChatStatus } from "@/src/library/useChatStatus";
 
 type ChatMessage = StoredChatMessage;
 
@@ -43,7 +46,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
   return (
     <div className={`flex w-full ${isUser ? "justify-end" : "justify-start"}`}>
       {isUser ? (
-        <div className="max-w-xl rounded-2xl rounded-tr-md bg-primary px-5 py-3 text-sm leading-relaxed text-white shadow-sm">
+        <div className="max-w-xl rounded-2xl rounded-tr-md bg-primary px-5 py-3 text-sm leading-relaxed text-text-inverse shadow-sm">
           {message.text}
         </div>
       ) : isPending ? (
@@ -189,24 +192,30 @@ function getStarterPrompts(context: ChatContext | null): StarterPrompt[] {
   return suggestions.slice(0, 3);
 }
 
-const TOOL_STATUS_LABELS: Record<string, string> = {
-  search_documents: "Searching your documents...",
-  read_document: "Reading a document...",
-  web_search: "Searching the web...",
-  search_youtube: "Looking for videos...",
-  create_pdf: "Creating a PDF...",
-  recall_past_chat: "Checking past conversations...",
-};
-
 const MAX_CHAT_INPUT_CHARS = 4000;
 
+// useSearchParams (used below to resume a session from the URL on refresh)
+// requires a Suspense boundary around anything that calls it, or Next.js
+// bails out of static generation for the whole page at build time — see
+// https://nextjs.org/docs/messages/missing-suspense-with-csr-bailout.
 export default function AIAssistantPage() {
+  return (
+    <Suspense fallback={null}>
+      <AIAssistantPageContent />
+    </Suspense>
+  );
+}
+
+function AIAssistantPageContent() {
   const { user, loading: authLoading } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [input, setInput] = useState("");
   const [hasStarted, setHasStarted] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
-  const [toolStatus, setToolStatus] = useState<string | null>(null);
+  const chatStatus = useChatStatus();
   const [errorText, setErrorText] = useState<string | null>(null);
   const [chatContext, setChatContext] = useState<ChatContext | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -294,9 +303,13 @@ export default function AIAssistantPage() {
   useEffect(() => {
     if (authLoading || !user?.email) return;
 
-    // Deliberately does NOT resume the most recent session — every visit to
-    // this tab starts a fresh chat. Past chats are still reachable from the
-    // history panel (loadSession) for anyone who wants to pick one back up.
+    // Deliberately does NOT resume the most recent session on a plain visit
+    // — every fresh link into this tab starts a new chat. Past chats are
+    // still reachable from the history panel (loadSession) for anyone who
+    // wants to pick one back up. The one exception is a mid-conversation
+    // page *refresh*: the active session's id is mirrored into the URL
+    // (see updateSessionUrl below), so reloading the same URL below resumes
+    // it instead of losing the conversation.
     chatContextPromiseRef.current = buildChatContext(user.uid, user.email)
       .then((ctx) => {
         setChatContext(ctx);
@@ -308,6 +321,26 @@ export default function AIAssistantPage() {
         return null;
       })
       .finally(() => setContextLoaded(true));
+  }, [user, authLoading]);
+
+  // Keeps the URL in sync with whichever session is active, purely so a
+  // page refresh has something to resume from — not real navigation, so no
+  // history entry and no scroll reset.
+  function updateSessionUrl(id: string | null) {
+    router.replace(id ? `${pathname}?session=${id}` : pathname, { scroll: false });
+  }
+
+  // Runs once auth settles: if the URL already names a session (because
+  // this is a refresh of a URL updateSessionUrl previously wrote), resume
+  // it. A plain nav-link visit has no ?session= param and falls through to
+  // the fresh-chat behavior above, unchanged.
+  useEffect(() => {
+    if (authLoading || !user) return;
+    const urlSessionId = searchParams.get("session");
+    if (urlSessionId && urlSessionId !== sessionId.current) {
+      loadSession(urlSessionId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, authLoading]);
 
   const starterPrompts = useMemo(() => getStarterPrompts(chatContext), [chatContext]);
@@ -332,6 +365,7 @@ export default function AIAssistantPage() {
       nextId.current = session.messages.length ? Math.max(...session.messages.map((m) => m.id)) + 1 : 1;
       setInput("");
       setErrorText(null);
+      updateSessionUrl(session.id);
     } catch (error) {
       console.error("Error loading chat session:", error);
     } finally {
@@ -345,6 +379,7 @@ export default function AIAssistantPage() {
       if (!sessionId.current) {
         sessionId.current = await createChatSession(user.uid);
         setActiveSessionId(sessionId.current);
+        updateSessionUrl(sessionId.current);
       }
       await saveChatState(user.uid, sessionId.current, {
         messages: nextMessages,
@@ -385,7 +420,7 @@ export default function AIAssistantPage() {
     setInput("");
     setErrorText(null);
     setIsSending(true);
-    setToolStatus(null);
+    chatStatus.connecting();
 
     function updateAssistant(patch: Partial<ChatMessage>) {
       setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, ...patch } : m)));
@@ -418,47 +453,28 @@ export default function AIAssistantPage() {
         throw new Error(data.error || "Something went wrong.");
       }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
+      chatStatus.streaming();
       let text = "";
       let streamError: string | null = null;
       let documentsRead: string[] | undefined;
       let generatedFiles: { name: string; url: string }[] | undefined;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-
-          let event: any;
-          try {
-            event = JSON.parse(trimmed);
-          } catch {
-            continue;
-          }
-
-          if (event.type === "delta") {
-            text += event.text;
-            setToolStatus(null);
-            updateAssistant({ text });
-          } else if (event.type === "tool") {
-            setToolStatus(TOOL_STATUS_LABELS[event.name] || "Working on it...");
-          } else if (event.type === "done") {
-            if (event.documentsRead?.length) documentsRead = event.documentsRead;
-            if (event.generatedFiles?.length) generatedFiles = event.generatedFiles;
-            if (typeof event.summary === "string") summaryRef.current = event.summary;
-            if (typeof event.summarizedCount === "number") summarizedCountRef.current = event.summarizedCount;
-          } else if (event.type === "error") {
-            streamError = event.error;
-          }
+      for await (const event of readChatStream(response)) {
+        if (event.type === "delta") {
+          text += event.text;
+          chatStatus.clear();
+          updateAssistant({ text });
+        } else if (event.type === "tool") {
+          chatStatus.tool(TOOL_STATUS_LABELS[event.name] || "Working on it...");
+        } else if (event.type === "status") {
+          chatStatus.progress(event.label);
+        } else if (event.type === "done") {
+          if (event.documentsRead?.length) documentsRead = event.documentsRead;
+          if (event.generatedFiles?.length) generatedFiles = event.generatedFiles;
+          if (typeof event.summary === "string") summaryRef.current = event.summary;
+          if (typeof event.summarizedCount === "number") summarizedCountRef.current = event.summarizedCount;
+        } else if (event.type === "error") {
+          streamError = event.error;
         }
       }
 
@@ -487,7 +503,7 @@ export default function AIAssistantPage() {
       );
     } finally {
       setIsSending(false);
-      setToolStatus(null);
+      chatStatus.clear();
     }
   }
 
@@ -502,6 +518,7 @@ export default function AIAssistantPage() {
     summarizedCountRef.current = 0;
     titleRef.current = "";
     document.title = "Catalyst";
+    updateSessionUrl(null);
   }
 
   const handleCopy = useCallback(async (text: string) => {
@@ -617,7 +634,7 @@ export default function AIAssistantPage() {
                   key={message.id}
                   message={message}
                   isPending={message.text === "" && isSending}
-                  toolStatus={toolStatus}
+                  toolStatus={chatStatus.status}
                   onCopy={handleCopy}
                 />
               ))}
@@ -667,7 +684,7 @@ export default function AIAssistantPage() {
               }
               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-40 ${
                 isListening
-                  ? "animate-pulse bg-alert-error text-white"
+                  ? "animate-pulse bg-alert-error text-text-inverse"
                   : "text-primary hover:bg-bg-warm"
               }`}
               aria-label={isListening ? "Stop voice input" : "Start voice input"}
@@ -678,7 +695,7 @@ export default function AIAssistantPage() {
             <button
               type="submit"
               disabled={isSending || !input.trim()}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-xl text-white shadow-sm transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-xl text-text-inverse shadow-sm transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
               aria-label="Send message"
             >
               ➤

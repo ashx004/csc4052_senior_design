@@ -49,7 +49,13 @@ export function chunkText(text: string, chunkSize = 1400, overlap = 150): string
 
     chunks.push(current);
     const tail = current.slice(Math.max(0, current.length - overlap));
-    current = tail ? `${tail}\n\n${piece}` : piece;
+    const withTail = tail ? `${tail}\n\n${piece}` : piece;
+    // splitOversized guarantees `piece` alone is <= chunkSize, but
+    // tail + piece isn't checked — for a piece sized close to chunkSize,
+    // carrying the overlap tail in front of it can push the result over
+    // the limit. Drop the overlap for this boundary rather than violate
+    // the chunkSize contract.
+    current = withTail.length <= chunkSize ? withTail : piece;
   }
 
   if (current) chunks.push(current);

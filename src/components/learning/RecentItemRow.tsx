@@ -83,12 +83,12 @@ export default function RecentItemRow({ item, courseId, courseName, kind, onDele
             <Pin
               size={11}
               strokeWidth={2}
-              className="shrink-0 text-gray-400"
+              className="shrink-0 text-text-muted"
               aria-label="Pinned to sidebar"
             />
           )}
         </div>
-        <p className="truncate text-xs text-gray-400 mt-0.5">
+        <p className="truncate text-xs text-text-muted mt-0.5">
           {courseName} • {item.itemCount} {unitLabel} • {formatDate(item.createdAt)}
         </p>
       </div>
@@ -102,21 +102,21 @@ export default function RecentItemRow({ item, courseId, courseName, kind, onDele
             e.stopPropagation();
             setMenuOpen((prev) => !prev);
           }}
-          className="p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-colors"
+          className="p-1.5 rounded-md text-text-muted hover:text-text-main hover:bg-bg-warm transition-colors"
           aria-label="More options"
         >
           <MoreVertical size={16} />
         </button>
 
         {menuOpen && (
-          <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-lg border border-gray-100 bg-white py-1 shadow-lg">
+          <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-lg border border-border-light bg-bg-container py-1 shadow-lg">
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 setMenuOpen(false);
                 handleTogglePin();
               }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-600 hover:bg-[#F5F0EB] transition-colors"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text-muted hover:bg-[#F5F0EB] transition-colors"
             >
               {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
               {isPinned ? "Unpin from sidebar" : "Pin to sidebar"}
@@ -127,7 +127,7 @@ export default function RecentItemRow({ item, courseId, courseName, kind, onDele
                 setMenuOpen(false);
                 onDelete(item.id);
               }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-600 hover:bg-[#F5F0EB] transition-colors"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text-muted hover:bg-[#F5F0EB] transition-colors"
             >
               <Trash2 size={14} />
               Remove from folder
