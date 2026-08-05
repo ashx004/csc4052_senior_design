@@ -29,8 +29,8 @@ export default function QuestionCard({
   const isCorrect = selectedAnswer === question.correctAnswer;
 
   return (
-    <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">
+    <div className="rounded-2xl border border-border-light bg-bg-container p-5 shadow-sm">
+      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
         Question {questionNumber}
       </p>
       <h3 className="mb-4 text-base font-bold text-[#1a1a2e]">{question.question}</h3>
@@ -38,7 +38,7 @@ export default function QuestionCard({
       {isResults && (
         <p
           className={`mb-3 text-xs font-semibold ${
-            isCorrect ? "text-emerald-600" : "text-orange-500"
+            isCorrect ? "text-emerald-600 dark:text-emerald-300" : "text-orange-500 dark:text-orange-300"
           }`}
         >
           {isCorrect ? "You're doing great!" : "Not quite, you're still learning!"}

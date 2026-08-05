@@ -11,6 +11,12 @@ const JWKS = createRemoteJWKSet(
 
 const PUBLIC_PATHS = new Set(["/", "/login", "/signup"]);
 const SESSION_COOKIE = "fb_token";
+// Separate from SESSION_COOKIE (which just proves the ID token itself is
+// still fresh, on an hourly cycle) — this one enforces the 30-day "remember
+// this device" cap. It's set/slid-forward client-side in AuthContext.tsx
+// and session.ts; checked here too so an expired window is rejected at the
+// edge even on the very first request, before any client JS has run.
+const REMEMBER_COOKIE = "fb_remember";
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -20,7 +26,8 @@ export async function middleware(request: NextRequest) {
   }
 
   const token = request.cookies.get(SESSION_COOKIE)?.value;
-  if (!token) {
+  const remembered = request.cookies.get(REMEMBER_COOKIE)?.value;
+  if (!token || !remembered) {
     return redirectToLogin(request);
   }
 
@@ -39,11 +46,22 @@ function redirectToLogin(request: NextRequest) {
   const loginUrl = new URL("/login", request.url);
   loginUrl.searchParams.set("redirect", request.nextUrl.pathname);
   const response = NextResponse.redirect(loginUrl);
-  response.cookies.delete(SESSION_COOKIE); // clear a stale/expired cookie so we don't loop
+  // Clear both a stale/expired token and an elapsed remember-window cookie
+  // so we don't loop.
+  response.cookies.delete(SESSION_COOKIE);
+  response.cookies.delete(REMEMBER_COOKIE);
   return response;
 }
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+  // Anything that looks like a static file request (contains a dot — .svg,
+  // .webp, .ico, .css, .js, etc.) skips the auth gate entirely, alongside
+  // API routes and Next internals. Public pages (/, /login, /signup) load
+  // images — app-logo.svg, google-logo.svg — that an
+  // unauthenticated visitor must be able to fetch. Without this exemption,
+  // those <img> requests were themselves being redirected to the login
+  // page's HTML instead of returning the actual image, showing broken-image
+  // alt text in place of every logo.
+  matcher: ["/((?!api|_next/static|_next/image|.*\\..*).*)"],
 };
 

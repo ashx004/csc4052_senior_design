@@ -45,6 +45,9 @@ export interface EnrollmentFields {
     // validate against.
     creditHours?: number;
     prerequisites?: string;
+    // Random on creation (AddEnrollmentModal), editable afterward via the
+    // pencil icon on the class card — see src/library/classColors.ts.
+    color?: string;
 }
 
 async function getEnrollment(
@@ -86,6 +89,7 @@ async function getAllEnrollments(userId: string): Promise<ClassCardProps[]> {
             className: data.className,
             classCode: data.classCode,
             term: data.term,
+            color: data.color,
             status: getEnrollmentStatus(data),
         });
     });
@@ -133,6 +137,18 @@ export default function Classes() {
             alert("Failed to delete the class. Please try again.");
         } finally {
             setConfirmingDeleteId(null);
+        }
+    };
+
+    const handleColorChange = async (classId: string, color: string) => {
+        if (!user) return;
+
+        try {
+            const docRef = doc(db, "users", user.uid, "enrollment", classId);
+            await updateDoc(docRef, { color });
+            setEnrollments((prev) => prev.map((e) => (e.classId === classId ? { ...e, color } : e)));
+        } catch (error) {
+            console.error("Error updating class color: ", error);
         }
     };
 
@@ -199,14 +215,14 @@ export default function Classes() {
                             <button
                                 type="button"
                                 onClick={() => confirmingClass.classId && handleMarkCompletedOnDelete(confirmingClass.classId)}
-                                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"
+                                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-text-inverse hover:bg-primary-hover"
                             >
                                 Mark as completed
                             </button>
                             <button
                                 type="button"
                                 onClick={() => confirmingClass.classId && handlePermanentDelete(confirmingClass.classId)}
-                                className="rounded-md bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600"
+                                className="rounded-md bg-alert-error px-4 py-2 text-sm font-medium text-text-inverse hover:bg-alert-error-hover"
                             >
                                 Delete permanently
                             </button>
@@ -233,11 +249,14 @@ export default function Classes() {
                     <div className="flex flex-wrap justify-center gap-8">
                         {activeEnrollments.map((enrollment) => (
                             <div key={enrollment.classId} className="relative">
-                                <ClassCard {...enrollment} />
+                                <ClassCard
+                                    {...enrollment}
+                                    onColorChange={(color) => enrollment.classId && handleColorChange(enrollment.classId, color)}
+                                />
                                 {deleteMode && (
                                     <button
                                         onClick={() => enrollment.classId && setConfirmingDeleteId(enrollment.classId)}
-                                        className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-red-500 text-white shadow-md hover:bg-red-600"
+                                        className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-alert-error text-text-inverse shadow-md hover:bg-alert-error-hover"
                                         aria-label={`Remove ${enrollment.className}`}
                                     >
                                         <Minus size={14} />

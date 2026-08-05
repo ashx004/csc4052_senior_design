@@ -1,40 +1,13 @@
 import { S3Client } from "@aws-sdk/client-s3";
+import { probeUrl, resolveReachableUrl } from "./resolveReachableUrl";
 
 // Resolves which MinIO endpoint a call should actually use: LAN-direct when
 // reachable, falling back to the public tunneled URL (MINIO_ENDPOINT_FALLBACK)
 // for callers off the home/school LAN (e.g. a teammate developing remotely).
-// Mirrors the same primary/fallback probe pattern as ollamaClient.ts.
-const PROBE_TIMEOUT_MS = 2000;
-const CACHE_TTL_MS = 30_000;
-
-type ReachabilityEntry = { reachable: boolean; expiresAt: number };
-const reachabilityCache = new Map<string, ReachabilityEntry>();
-
-async function probe(endpoint: string): Promise<boolean> {
-  try {
-    const response = await fetch(`${endpoint}/minio/health/live`, {
-      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
 async function resolveMinioEndpoint(): Promise<string> {
   const endpoint = process.env.MINIO_ENDPOINT!;
   const fallbackEndpoint = process.env.MINIO_ENDPOINT_FALLBACK;
-  if (!fallbackEndpoint || fallbackEndpoint === endpoint) return endpoint;
-
-  const now = Date.now();
-  const cached = reachabilityCache.get(endpoint);
-  if (cached && cached.expiresAt > now) {
-    return cached.reachable ? endpoint : fallbackEndpoint;
-  }
-
-  const reachable = await probe(endpoint);
-  reachabilityCache.set(endpoint, { reachable, expiresAt: now + CACHE_TTL_MS });
-  return reachable ? endpoint : fallbackEndpoint;
+  return resolveReachableUrl(endpoint, fallbackEndpoint, (url) => probeUrl(url, "/minio/health/live"));
 }
 
 // Shared MinIO/S3 client — was previously duplicated with a hardcoded

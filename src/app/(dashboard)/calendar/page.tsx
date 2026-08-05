@@ -154,7 +154,7 @@ export default function CalendarPage() {
     const isActive = view === buttonView;
     return `px-4 py-2 text-sm font-medium transition ${
       isActive
-        ? "bg-primary text-white"
+        ? "bg-primary text-text-inverse"
         : "text-text-main hover:bg-bg-warm"
     }`;
   }
@@ -193,7 +193,7 @@ export default function CalendarPage() {
             <button
               type="button"
               onClick={() => setShowAddEvent(true)}
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-primary-hover"
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-text-inverse shadow-sm transition hover:bg-primary-hover"
             >
               <Plus size={16} strokeWidth={2} />
               Add Event
@@ -303,21 +303,25 @@ export default function CalendarPage() {
             </>
           )}
 
-          {/* ── Connected — show real calendar ── */}
+          {/* ── Connected — show real calendar ──
+              Only a genuinely empty first load (no cached/prior data at
+              all) blocks on a loading message — every subsequent
+              navigation (prev/next, view switch) keeps the grid mounted
+              and showing whatever's already known while it revalidates in
+              the background, instead of wiping the view on every fetch. */}
           {status === "connected" && (
             <>
-              {eventsLoading && (
+              {eventsLoading && allEvents.length === 0 ? (
                 <p className="py-12 text-center text-sm text-text-muted">
                   Loading events...
                 </p>
-              )}
-              {eventsError && (
-                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                  {eventsError}
-                </div>
-              )}
-              {!eventsLoading && (
+              ) : (
                 <>
+                  {eventsError && (
+                    <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                      {eventsError}
+                    </div>
+                  )}
                   {view === "month" && (
                     <MonthView
                       events={allEvents}

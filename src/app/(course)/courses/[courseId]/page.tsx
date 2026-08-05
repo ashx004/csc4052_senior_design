@@ -329,7 +329,7 @@ export default function CourseOverview({
                         <button
                             onClick={handleSaveEdit}
                             disabled={savingEdit}
-                            className="mt-6 flex w-full items-center justify-center gap-2 rounded-md bg-primary py-2 text-sm font-medium text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40"
+                            className="mt-6 flex w-full items-center justify-center gap-2 rounded-md bg-primary py-2 text-sm font-medium text-text-inverse transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40"
                         >
                             {savingEdit ? (
                                 <>
