@@ -12,6 +12,7 @@ const links = [
   { label: "Calendar", href: "/calendar", icon: Calendar },
   { label: "AI Assistant", href: "/ai-assistant", icon: MessageSquare },
   { label: "Advising", href: "/advising", icon: Users },
+  { label: "Advising New & Improved", href: "/advising_new", icon: Users },
   { label: "Profile", href: "/profile", icon: User },
 ];
 
