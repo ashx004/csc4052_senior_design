@@ -46,6 +46,7 @@ async function resolveMinioEndpoint(): Promise<string> {
 // derived from the endpoint's own protocol instead of hardcoded, so this
 // keeps working correctly whether MINIO_ENDPOINT is a LAN http:// address
 // or a public https:// one.
+
 export async function getMinioClient(): Promise<S3Client> {
   const endpoint = await resolveMinioEndpoint();
   return new S3Client({
