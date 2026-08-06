@@ -417,7 +417,7 @@ export default function QuizTakingPage() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[#FAFAF8]">
         <Loader2 size={32} className="animate-spin text-[#8B6914]" />
-        <p className="text-sm text-gray-500">Loading your quiz...</p>
+        <p className="text-sm text-text-muted">Loading your quiz...</p>
       </div>
     );
   }
@@ -426,7 +426,7 @@ export default function QuizTakingPage() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#FAFAF8] px-4">
         <AlertCircle size={36} className="text-red-400" />
-        <p className="max-w-md text-center text-sm text-gray-700">
+        <p className="max-w-md text-center text-sm text-text-main">
           Quiz not found. It may have been deleted.
         </p>
         <button
@@ -443,7 +443,7 @@ export default function QuizTakingPage() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#FAFAF8] px-4">
         <AlertCircle size={36} className="text-red-400" />
-        <p className="max-w-md text-center text-sm text-gray-700">
+        <p className="max-w-md text-center text-sm text-text-main">
           Attempt not found. It may have been deleted.
         </p>
         <button
@@ -467,16 +467,16 @@ export default function QuizTakingPage() {
   return (
     <div className="min-h-screen bg-[#FAFAF8]">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-100 px-6 py-7 md:px-14">
+      <div className="flex items-center justify-between border-b border-border-light px-6 py-7 md:px-14">
         <div className="flex min-w-0 items-center gap-3">
           <button
             onClick={() => router.push(`/courses/${courseId}/learning`)}
             className="shrink-0 rounded-md p-1.5 transition-colors hover:bg-[#F5F0EB]"
           >
-            <ArrowLeft size={20} className="text-gray-700" />
+            <ArrowLeft size={20} className="text-text-main" />
           </button>
           <div className="min-w-0">
-            <p className="truncate text-xs text-gray-400">{courseDisplayName}</p>
+            <p className="truncate text-xs text-text-muted">{courseDisplayName}</p>
             <h1 className="truncate text-xl font-bold text-[#1a1a2e]">{quizName}</h1>
           </div>
         </div>
@@ -488,14 +488,14 @@ export default function QuizTakingPage() {
             <div className="flex flex-wrap items-center gap-3">
               <button
                 onClick={handleResetToFullQuiz}
-                className="rounded-xl bg-[#1a1a2e] px-8 py-4 text-base font-semibold text-white transition-colors hover:bg-[#2a2a3e]"
+                className="rounded-xl bg-[#1a1a2e] px-8 py-4 text-base font-semibold text-text-inverse transition-colors hover:bg-[#2a2a3e]"
               >
                 Take again
               </button>
               {pastAttempts.length > 0 && (
                 <button
                   onClick={handleViewLastResult}
-                  className="rounded-xl border border-gray-200 px-6 py-3.5 text-sm font-semibold text-[#1a1a2e] transition-colors hover:bg-gray-50"
+                  className="rounded-xl border border-border-light px-6 py-3.5 text-sm font-semibold text-[#1a1a2e] transition-colors hover:bg-bg-warm"
                 >
                   View last result
                 </button>
@@ -505,7 +505,7 @@ export default function QuizTakingPage() {
             {pastAttempts.length > 0 ? (
               <div>
                 <h2 className="mb-3 text-sm font-bold text-[#1a1a2e]">Past Attempts</h2>
-                <div className="flex flex-col divide-y divide-gray-100 rounded-2xl border border-gray-100 bg-white">
+                <div className="flex flex-col divide-y divide-border-light rounded-2xl border border-border-light bg-bg-container">
                   {pastAttempts.map((attempt) => (
                     <button
                       key={attempt.id}
@@ -518,10 +518,10 @@ export default function QuizTakingPage() {
                         <p className="text-sm font-semibold text-[#1a1a2e]">
                           {attempt.score} out of {attempt.total} correct
                         </p>
-                        <p className="text-xs text-gray-400">{formatAttemptDate(attempt.completedAt)}</p>
+                        <p className="text-xs text-text-muted">{formatAttemptDate(attempt.completedAt)}</p>
                       </div>
                       {attempt.total < allQuestions.length && (
-                        <span className="shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                        <span className="shrink-0 rounded-full bg-bg-warm px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
                           Partial retest
                         </span>
                       )}
@@ -530,7 +530,7 @@ export default function QuizTakingPage() {
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-gray-400">No attempts yet</p>
+              <p className="text-sm text-text-muted">No attempts yet</p>
             )}
           </div>
         )}
@@ -568,13 +568,13 @@ export default function QuizTakingPage() {
 
             {mode === 'taking' ? (
               <div className="mt-8 flex flex-col items-end gap-2 pb-10">
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-text-muted">
                   {answeredCount} of {activeQuestions.length} answered
                 </p>
                 <button
                   onClick={handleSubmit}
                   disabled={!allAnswered || submitting}
-                  className="flex items-center gap-2 rounded-xl bg-[#1a1a2e] px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#2a2a3e] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex items-center gap-2 rounded-xl bg-[#1a1a2e] px-6 py-3 text-sm font-semibold text-text-inverse transition-colors hover:bg-[#2a2a3e] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {submitting ? (
                     <>
@@ -591,13 +591,13 @@ export default function QuizTakingPage() {
                 <button
                   onClick={handleRetestMissed}
                   disabled={missedCount === 0}
-                  className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-[#1a1a2e] transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-xl border border-border-light px-5 py-2.5 text-sm font-semibold text-[#1a1a2e] transition-colors hover:bg-bg-warm disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Retest missed terms
                 </button>
                 <button
                   onClick={handleResetToFullQuiz}
-                  className="rounded-xl bg-[#1a1a2e] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#2a2a3e]"
+                  className="rounded-xl bg-[#1a1a2e] px-5 py-2.5 text-sm font-semibold text-text-inverse transition-colors hover:bg-[#2a2a3e]"
                 >
                   Do it again
                 </button>

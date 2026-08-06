@@ -58,7 +58,7 @@ export default function AIPanel() {
       {!isOpen && (
         <button
           onClick={() => toggleOpen(true)}
-          className="fixed bottom-6 right-6 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-white shadow-lg transition hover:bg-primary-hover"
+          className="fixed bottom-6 right-6 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-text-inverse shadow-lg transition hover:bg-primary-hover"
           aria-label="Open AI assistant panel"
         >
           <MessageSquare className="h-5 w-5" />
@@ -92,7 +92,7 @@ export default function AIPanel() {
             {messages.map((message) => (
               <div key={message.id} className={`flex w-full ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                 {message.role === "user" ? (
-                  <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-primary px-4 py-2.5 text-sm leading-relaxed text-white shadow-sm">
+                  <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-primary px-4 py-2.5 text-sm leading-relaxed text-text-inverse shadow-sm">
                     {message.text}
                   </div>
                 ) : message.text ? (
@@ -137,7 +137,7 @@ export default function AIPanel() {
             <button
               type="submit"
               disabled={isSending || !input.trim()}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-white transition hover:bg-primary-hover disabled:opacity-50"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-text-inverse transition hover:bg-primary-hover disabled:opacity-50"
               aria-label="Send message"
             >
               <Send className="h-4 w-4" />
