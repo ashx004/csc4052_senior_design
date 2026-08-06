@@ -199,6 +199,8 @@ export default function Advising() {
   const [department, setDepartment] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
 
+  const [showCompletedCourses, setShowCompletedCourses] = useState(false);
+
   const [view, setView] = useState<"grid" | "list">("grid");
   useEffect(() => {
     const stored = typeof window !== "undefined" ? window.localStorage.getItem(VIEW_STORAGE_KEY) : null;
@@ -342,20 +344,49 @@ export default function Advising() {
           )}
 
           {data && data.progress.completedCount > 0 && (
-            <div className="flex flex-wrap items-center gap-6 rounded-2xl bg-bg-container p-5 shadow-sm ring-1 ring-border-light">
-              <div>
-                <p className="text-2xl font-bold text-text-main">{data.progress.completedCount}</p>
-                <p className="text-xs uppercase tracking-wide text-text-muted">Courses completed</p>
-              </div>
-              {data.progress.totalCreditsCompleted > 0 && (
+            <div className="rounded-2xl bg-bg-container p-5 shadow-sm ring-1 ring-border-light">
+              <div className="flex flex-wrap items-center gap-6">
                 <div>
-                  <p className="text-2xl font-bold text-text-main">{data.progress.totalCreditsCompleted}</p>
-                  <p className="text-xs uppercase tracking-wide text-text-muted">Credit hours completed</p>
+                  <p className="text-2xl font-bold text-text-main">{data.progress.completedCount}</p>
+                  <p className="text-xs uppercase tracking-wide text-text-muted">Courses completed</p>
+                </div>
+                {data.progress.totalCreditsCompleted > 0 && (
+                  <div>
+                    <p className="text-2xl font-bold text-text-main">{data.progress.totalCreditsCompleted}</p>
+                    <p className="text-xs uppercase tracking-wide text-text-muted">Credit hours completed</p>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowCompletedCourses((v) => !v)}
+                  aria-expanded={showCompletedCourses}
+                  className="rounded-md border border-border-light px-3 py-1.5 text-xs font-medium text-text-main hover:bg-bg-warm"
+                >
+                  {showCompletedCourses ? "Hide completed courses" : "See completed courses"}
+                </button>
+                <p className="ml-auto text-xs text-text-muted">
+                  Credit hours are self-reported when adding a class — no external catalog has this data.
+                </p>
+              </div>
+
+              {showCompletedCourses && (
+                <div className="mt-5 grid grid-cols-1 gap-4 border-t border-border-light pt-5 sm:grid-cols-2 lg:grid-cols-3">
+                  {data.completedCourses.map((course) => (
+                    <Link
+                      key={`${course.classCode}-${course.term}`}
+                      href={`/courses/${course.classId}`}
+                      className="block rounded-xl bg-bg-warm p-4 transition hover:-translate-y-0.5 hover:shadow-md"
+                    >
+                      <p className="font-semibold text-text-main">{course.classCode}</p>
+                      <p className="mt-0.5 text-sm text-text-muted">{course.className}</p>
+                      <p className="mt-2 text-xs text-text-muted">
+                        {course.term}
+                        {course.creditHours ? ` · ${course.creditHours} credit hours` : ""}
+                      </p>
+                    </Link>
+                  ))}
                 </div>
               )}
-              <p className="ml-auto text-xs text-text-muted">
-                Credit hours are self-reported when adding a class — no external catalog has this data.
-              </p>
             </div>
           )}
 
@@ -496,29 +527,6 @@ export default function Advising() {
             </>
           )}
 
-          {data && data.completedCourses.length > 0 && (
-            <details className="rounded-2xl bg-bg-container shadow-sm ring-1 ring-border-light">
-              <summary className="cursor-pointer select-none p-5 text-sm font-semibold uppercase tracking-wide text-text-muted">
-                Completed courses ({data.completedCourses.length})
-              </summary>
-              <div className="grid grid-cols-1 gap-4 border-t border-border-light p-5 sm:grid-cols-2 lg:grid-cols-3">
-                {data.completedCourses.map((course) => (
-                  <Link
-                    key={`${course.classCode}-${course.term}`}
-                    href={`/courses/${course.classId}`}
-                    className="block rounded-xl bg-bg-warm p-4 transition hover:-translate-y-0.5 hover:shadow-md"
-                  >
-                    <p className="font-semibold text-text-main">{course.classCode}</p>
-                    <p className="mt-0.5 text-sm text-text-muted">{course.className}</p>
-                    <p className="mt-2 text-xs text-text-muted">
-                      {course.term}
-                      {course.creditHours ? ` · ${course.creditHours} credit hours` : ""}
-                    </p>
-                  </Link>
-                ))}
-              </div>
-            </details>
-          )}
         </div>
       </div>
 

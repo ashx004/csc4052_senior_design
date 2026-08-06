@@ -254,8 +254,6 @@ export function toCalendarEvent(gcal: calendar_v3.Schema$Event): CalendarEvent {
   const hash = (gcal.id ?? "").split("").reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 0);
   const tone = TONE_POOL[Math.abs(hash) % TONE_POOL.length];
 
-  console.log("RAW startTime from Google:", gcal.start?.dateTime, gcal.start?.timeZone);
-
   return {
     id: gcal.id ?? crypto.randomUUID(),
     title: gcal.summary ?? "(No title)",

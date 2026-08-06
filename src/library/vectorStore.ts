@@ -13,6 +13,7 @@
 // api/chat/route.ts, which maps results back to docName/classCode via its
 // own already-loaded candidateDocs list).
 import { createHash } from "crypto";
+import { probeUrl, resolveReachableUrl } from "./resolveReachableUrl";
 
 const COLLECTION = "catalyst_chunks";
 
@@ -50,9 +51,15 @@ export type ChunkSearchResult = {
   payload: ChunkPoint["payload"];
 };
 
-function baseUrl(): string {
+// LAN-direct when reachable, falling back to the public tunneled URL
+// (QDRANT_FALLBACK_URL) for callers off the home/school LAN — same
+// primary/fallback pattern as ollamaClient.ts and minioClient.ts.
+async function baseUrl(): Promise<string> {
   if (!process.env.QDRANT_URL) throw new Error("QDRANT_URL is not configured.");
-  return process.env.QDRANT_URL;
+  const headers = process.env.QDRANT_API_KEY ? { "api-key": process.env.QDRANT_API_KEY } : undefined;
+  return resolveReachableUrl(process.env.QDRANT_URL, process.env.QDRANT_FALLBACK_URL, (url) =>
+    probeUrl(url, "/", headers)
+  );
 }
 
 function headers(): HeadersInit {
@@ -65,7 +72,7 @@ function headers(): HeadersInit {
 export async function upsertChunks(points: ChunkPoint[]): Promise<void> {
   if (points.length === 0) return;
 
-  const response = await fetch(`${baseUrl()}/collections/${COLLECTION}/points`, {
+  const response = await fetch(`${await baseUrl()}/collections/${COLLECTION}/points`, {
     method: "PUT",
     headers: headers(),
     body: JSON.stringify({ points }),
@@ -84,7 +91,7 @@ export async function searchChunks(
 ): Promise<ChunkSearchResult[]> {
   if (filter.resourceIds.length === 0) return [];
 
-  const response = await fetch(`${baseUrl()}/collections/${COLLECTION}/points/search`, {
+  const response = await fetch(`${await baseUrl()}/collections/${COLLECTION}/points/search`, {
     method: "POST",
     headers: headers(),
     body: JSON.stringify({
@@ -110,7 +117,7 @@ export async function searchChunks(
 }
 
 export async function deleteChunksForResource(userId: string, resourceId: string): Promise<void> {
-  const response = await fetch(`${baseUrl()}/collections/${COLLECTION}/points/delete`, {
+  const response = await fetch(`${await baseUrl()}/collections/${COLLECTION}/points/delete`, {
     method: "POST",
     headers: headers(),
     body: JSON.stringify({

@@ -892,7 +892,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                                 : "border-border-hover bg-bg-container"
                                         }`}
                                     >
-                                        {selectedIds.has(resource.id) && <CheckSquare size={12} className="text-white" />}
+                                        {selectedIds.has(resource.id) && <CheckSquare size={12} className="text-text-inverse" />}
                                     </div>
                                 )}
                             </div>
@@ -1035,7 +1035,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                             selectedIds.has(resource.id) ? "border-primary bg-primary" : "border-border-hover bg-bg-container"
                                         }`}>
                                             {selectedIds.has(resource.id) ? (
-                                                <CheckSquare size={12} className="text-white" />
+                                                <CheckSquare size={12} className="text-text-inverse" />
                                             ) : (
                                                 <Square size={12} className="text-text-muted" />
                                             )}
@@ -1094,7 +1094,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                     <a
                                         href={previewResource.url}
                                         download
-                                        className="mt-2 flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-hover"
+                                        className="mt-2 flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-text-inverse transition-colors hover:bg-primary-hover"
                                     >
                                         <Download size={15} />
                                         Download
@@ -1236,7 +1236,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                             </button>
                             <button
                                 onClick={handleDeleteSelected}
-                                className="flex-1 rounded-md bg-alert-error py-2 text-sm font-medium text-white hover:bg-alert-error-hover"
+                                className="flex-1 rounded-md bg-alert-error py-2 text-sm font-medium text-text-inverse hover:bg-alert-error-hover"
                             >
                                 Delete
                             </button>
@@ -1325,7 +1325,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                 !selectedFiles.every((f) => getFileType(f.name)) || 
                                 isUploading
                             }
-                            className="flex w-full items-center justify-center gap-2 rounded-md bg-primary py-2 text-sm font-medium text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40"
+                            className="flex w-full items-center justify-center gap-2 rounded-md bg-primary py-2 text-sm font-medium text-text-inverse transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40"
                         >
                             {isUploading ? (
                                 <>

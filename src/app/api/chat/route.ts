@@ -16,6 +16,7 @@ import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import {pageContextSchema,buildPageContextPrompt,type PageContext,} from "@/src/library/Contextual_AI/contextualAi";
 import { ChatContext, ChatClass, ChatDocument, PageAIContext, buildSystemPrompt } from "@/src/library/systemPrompt";
+import { describeChatError } from "@/src/library/chatErrors";
 
 const CHAT_RATE_LIMIT_WINDOW_MS = 60_000;
 const CHAT_RATE_LIMIT_MAX = 15; // per user per window — generous for real use, catches runaway/abusive callers
@@ -44,7 +45,7 @@ const LIST_CLASSES_TOOL = {
   function: {
     name: "list_enrolled_classes",
     description:
-      "Returns the student's exact enrolled classes, instructors, contact info, and document lists, verbatim. Call this ONLY for requests about classes/documents AS A SET — 'what classes am I in', 'tell me about my classes', 'what documents do I have overall'. Do NOT call this when the student names or asks about ONE SPECIFIC document (use read_document or search_documents instead) — this tool is for the roster/overview level only. The tool's result is the complete, final answer to give the student — present its actual contents in your reply immediately; do not treat it as needing further clarification before you can answer, and do not describe it as something the student shared or provided (you looked it up yourself).",
+      "Returns the student's exact enrolled classes, instructors, contact info, and document lists, verbatim. Currently-enrolled classes and completed (finished) classes are returned in clearly separate sections — never describe a completed class as one the student is currently taking. Call this ONLY for requests about classes/documents AS A SET — 'what classes am I in', 'tell me about my classes', 'what documents do I have overall'. Do NOT call this when the student names or asks about ONE SPECIFIC document (use read_document or search_documents instead) — this tool is for the roster/overview level only. The tool's result is the complete, final answer to give the student — present its actual contents in your reply immediately; do not treat it as needing further clarification before you can answer, and do not describe it as something the student shared or provided (you looked it up yourself).",
     parameters: { type: "object", properties: {}, required: [] },
   },
 };
@@ -159,27 +160,42 @@ const RECALL_PAST_CHAT_TOOL = {
 // (confirmed live 2026-07-21, even with correct context present and even
 // on plain, non-compound requests). Returning the exact real text removes
 // the model's opportunity to get it wrong.
+function renderEnrolledClass(c: ChatClass): string {
+  const contactParts = [
+    c.facultyName ? `Instructor: ${c.facultyName}` : "Instructor: not listed",
+    c.facultyEmail ? `Email: ${c.facultyEmail}` : "Email: not entered",
+    c.facultyPhoneNumber ? `Phone: ${c.facultyPhoneNumber}` : "Phone: not entered",
+    c.facultyOfficeNumber ? `Office: ${c.facultyOfficeNumber}` : "Office: not entered",
+  ].join(", ");
+
+  const docLines = c.documents.length
+    ? c.documents.map((d) => `  - ${d.name} (${d.fileType}, tag: ${d.category || "untagged"})`).join("\n")
+    : "  (no documents uploaded)";
+
+  return `${c.classCode} — ${c.className} (${c.term})\n${contactParts}\nSchedule: ${c.classSchedule || "not listed"}\nDocuments:\n${docLines}`;
+}
+
+// Completed classes are kept in their own labeled block rather than mixed
+// in — the AI must never present a finished class as one the student is
+// currently taking (see systemPrompt.ts's buildAdaptiveVariableLayer for
+// the same split applied to the always-present system prompt context).
 function listEnrolledClasses(context: ChatContext | undefined): string {
   if (!context?.classes.length) {
     return "The student is not enrolled in any classes yet.";
   }
 
-  return context.classes
-    .map((c) => {
-      const contactParts = [
-        c.facultyName ? `Instructor: ${c.facultyName}` : "Instructor: not listed",
-        c.facultyEmail ? `Email: ${c.facultyEmail}` : "Email: not entered",
-        c.facultyPhoneNumber ? `Phone: ${c.facultyPhoneNumber}` : "Phone: not entered",
-        c.facultyOfficeNumber ? `Office: ${c.facultyOfficeNumber}` : "Office: not entered",
-      ].join(", ");
+  const active = context.classes.filter((c) => c.status !== "completed");
+  const completed = context.classes.filter((c) => c.status === "completed");
 
-      const docLines = c.documents.length
-        ? c.documents.map((d) => `  - ${d.name} (${d.fileType}, tag: ${d.category || "untagged"})`).join("\n")
-        : "  (no documents uploaded)";
+  const activeText = active.length
+    ? active.map(renderEnrolledClass).join("\n\n")
+    : "(Not currently enrolled in any classes)";
 
-      return `${c.classCode} — ${c.className} (${c.term})\n${contactParts}\nSchedule: ${c.classSchedule || "not listed"}\nDocuments:\n${docLines}`;
-    })
-    .join("\n\n");
+  if (!completed.length) return activeText;
+
+  return `${activeText}\n\n--- Completed classes (finished — NOT currently enrolled in these) ---\n\n${completed
+    .map(renderEnrolledClass)
+    .join("\n\n")}`;
 }
 
 async function readDocument(
@@ -920,6 +936,13 @@ export async function POST(request: NextRequest) {
       let studentProfile: StudentProfile = { summary: "", messageCount: 0 };
 
       try {
+        // Sent before any of the (potentially slow) work below starts —
+        // this is what actually ends the client's "Connecting..." state,
+        // since a streamed Response's headers don't reach the client until
+        // the first chunk is enqueued. Without this, everything from here
+        // through the model's first token happened in total silence.
+        send({ type: "status", label: "Loading your classes and profile..." });
+
         // Clarification runs alongside compaction/profile-loading (not
         // after) so its round-trip is hidden behind theirs rather than
         // adding its own serial latency in front of every response.
@@ -952,6 +975,12 @@ export async function POST(request: NextRequest) {
         let emptyRoundRetries = 0;
         let anyToolCalled = false;
         const documentsReadThisTurn: { courseId: string; resourceId: string; name: string }[] = [];
+
+        // The model's first token can legitimately take a while (cold model
+        // load after idle — see OLLAMA_TIMEOUT_MS), so this is the last
+        // status update before either a real answer or a tool call starts
+        // streaming in on its own.
+        send({ type: "status", label: "Sending your question to the AI model..." });
 
         for (let round = 0; round < MAX_TOOL_ROUNDS && !finished; round++) {
           const { content, toolCalls, rawMessage } = await streamOllamaRound(
@@ -1010,6 +1039,7 @@ export async function POST(request: NextRequest) {
               conversation.push({ role: "tool", tool_call_id: toolCall.id, content: result });
             }
 
+            send({ type: "status", label: "Reviewing what it found..." });
             continue;
           }
 
@@ -1045,6 +1075,7 @@ export async function POST(request: NextRequest) {
               "You've used up your tool calls for this turn. Answer now using only what you've already found. If you genuinely don't have enough to answer, say so plainly.",
           });
 
+          send({ type: "status", label: "Wrapping up an answer..." });
           const { content } = await streamOllamaRound(conversation, [], CHAT_TEMPERATURE, primaryTarget, (delta) =>
             send({ type: "delta", text: delta })
           );
@@ -1060,13 +1091,7 @@ export async function POST(request: NextRequest) {
         }
       } catch (error: any) {
         console.error("Chat route error:", error);
-        send({
-          type: "error",
-          error:
-            error?.name === "AbortError"
-              ? "The assistant took too long to respond. Please try again."
-              : "Couldn't reach the assistant. Please try again.",
-        });
+        send({ type: "error", error: describeChatError(error) });
       } finally {
         // Fire-and-forget — never awaited, must not add latency to a
         // response the student is already looking at. Errors are handled

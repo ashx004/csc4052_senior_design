@@ -2,6 +2,8 @@
 
 import { useRef, useState } from "react";
 import { buildChatContext, PageAIContext } from "@/src/library/chatContext";
+import { readChatStream, TOOL_STATUS_LABELS } from "@/src/library/chatStream";
+import { useChatStatus } from "@/src/library/useChatStatus";
 
 export type PanelMessage = {
   id: number;
@@ -9,24 +11,10 @@ export type PanelMessage = {
   text: string;
 };
 
-const TOOL_STATUS_LABELS: Record<string, string> = {
-  search_documents: "Searching your documents...",
-  read_document: "Reading a document...",
-  web_search: "Searching the web...",
-  search_youtube: "Looking for videos...",
-  create_pdf: "Creating a PDF...",
-  recall_past_chat: "Checking past conversations...",
-};
-
-// A small, deliberately separate duplicate of ai-assistant/page.tsx's
-// stream-reading loop rather than an immediate shared refactor — this panel
-// and the full assistant page need to each work independently first before
-// extracting a shared utility, to avoid regression risk to the
-// already-tuned main page (see plan's "polish" phase).
 export function useAIPanelChat(userId: string | undefined, email: string | undefined) {
   const [messages, setMessages] = useState<PanelMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
-  const [toolStatus, setToolStatus] = useState<string | null>(null);
+  const chatStatus = useChatStatus();
   const [errorText, setErrorText] = useState<string | null>(null);
   const nextId = useRef(1);
   const summaryRef = useRef("");
@@ -43,7 +31,7 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
     setMessages([...nextMessages, assistantMessage]);
     setErrorText(null);
     setIsSending(true);
-    setToolStatus(null);
+    chatStatus.connecting();
 
     function updateAssistant(patch: Partial<PanelMessage>) {
       setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, ...patch } : m)));
@@ -69,43 +57,24 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
         throw new Error(data.error || "Something went wrong.");
       }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
+      chatStatus.streaming();
       let fullText = "";
       let streamError: string | null = null;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-
-          let event: any;
-          try {
-            event = JSON.parse(trimmed);
-          } catch {
-            continue;
-          }
-
-          if (event.type === "delta") {
-            fullText += event.text;
-            setToolStatus(null);
-            updateAssistant({ text: fullText });
-          } else if (event.type === "tool") {
-            setToolStatus(TOOL_STATUS_LABELS[event.name] || "Working on it...");
-          } else if (event.type === "done") {
-            if (typeof event.summary === "string") summaryRef.current = event.summary;
-            if (typeof event.summarizedCount === "number") summarizedCountRef.current = event.summarizedCount;
-          } else if (event.type === "error") {
-            streamError = event.error;
-          }
+      for await (const event of readChatStream(response)) {
+        if (event.type === "delta") {
+          fullText += event.text;
+          chatStatus.clear();
+          updateAssistant({ text: fullText });
+        } else if (event.type === "tool") {
+          chatStatus.tool(TOOL_STATUS_LABELS[event.name] || "Working on it...");
+        } else if (event.type === "status") {
+          chatStatus.progress(event.label);
+        } else if (event.type === "done") {
+          if (typeof event.summary === "string") summaryRef.current = event.summary;
+          if (typeof event.summarizedCount === "number") summarizedCountRef.current = event.summarizedCount;
+        } else if (event.type === "error") {
+          streamError = event.error;
         }
       }
 
@@ -119,9 +88,9 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
       setErrorText(error instanceof Error ? error.message : "Couldn't reach the assistant. Please try again.");
     } finally {
       setIsSending(false);
-      setToolStatus(null);
+      chatStatus.clear();
     }
   }
 
-  return { messages, isSending, toolStatus, errorText, sendMessage };
+  return { messages, isSending, toolStatus: chatStatus.status, errorText, sendMessage };
 }

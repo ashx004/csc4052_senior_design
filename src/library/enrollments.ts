@@ -1,6 +1,7 @@
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
 import { ClassCardProps } from "@/src/components/classes/ClassCard";
+import { getEnrollmentStatus } from "@/src/library/enrollmentStatus";
 
 export async function getAllEnrollments(
   userId: string
@@ -25,6 +26,7 @@ export async function getAllEnrollments(
       classCode: data.classCode,
       term: data.term,
       color: data.color,
+      status: getEnrollmentStatus(data),
     });
   });
 

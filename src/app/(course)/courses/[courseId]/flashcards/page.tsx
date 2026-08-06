@@ -297,10 +297,10 @@ export default function FlashcardsPage() {
     return (
       <div className="min-h-screen bg-[#FAFAF8] flex flex-col items-center justify-center gap-4">
         <Loader2 size={36} className="animate-spin text-[#8B6914]" />
-        <p className="text-gray-500 text-sm">
+        <p className="text-text-muted text-sm">
           {setId ? 'Loading your saved flashcards...' : 'Reading your document and generating flashcards...'}
         </p>
-        {!setId && <p className="text-gray-400 text-xs">This may take a few seconds</p>}
+        {!setId && <p className="text-text-muted text-xs">This may take a few seconds</p>}
       </div>
     );
   }
@@ -310,7 +310,7 @@ export default function FlashcardsPage() {
     return (
       <div className="min-h-screen bg-[#FAFAF8] flex flex-col items-center justify-center gap-4 px-4">
         <AlertCircle size={36} className="text-red-400" />
-        <p className="text-gray-700 text-sm text-center max-w-md">{error}</p>
+        <p className="text-text-main text-sm text-center max-w-md">{error}</p>
         <button
           onClick={() => router.push(`/courses/${courseId}/learning`)}
           className="mt-2 px-4 py-2 text-sm text-[#8B6914] border border-[#8B6914] rounded-lg hover:bg-[#F5F0EB] transition-colors"
@@ -324,13 +324,13 @@ export default function FlashcardsPage() {
   return (
     <div className="min-h-screen bg-[#FAFAF8] flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border-light">
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.push(`/courses/${courseId}/learning`)}
             className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors"
           >
-            <ArrowLeft size={20} className="text-gray-700" />
+            <ArrowLeft size={20} className="text-text-main" />
           </button>
           <h1 className="text-xl font-bold text-[#1a1a2e]">
             {displayName}
@@ -339,10 +339,10 @@ export default function FlashcardsPage() {
 
         <div className="flex items-center gap-2">
           <button className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors">
-            <BookOpen size={20} className="text-gray-500" />
+            <BookOpen size={20} className="text-text-muted" />
           </button>
           <button className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors">
-            <Bookmark size={20} className="text-gray-500" />
+            <Bookmark size={20} className="text-text-muted" />
           </button>
         </div>
       </div>
@@ -364,14 +364,14 @@ export default function FlashcardsPage() {
                 disabled={isFirstCard}
                 className={`p-2 rounded-md transition-colors ${
                   isFirstCard
-                    ? 'text-gray-300 cursor-not-allowed'
-                    : 'text-gray-600 hover:bg-[#F5F0EB]'
+                    ? 'text-text-muted cursor-not-allowed opacity-50'
+                    : 'text-text-muted hover:bg-[#F5F0EB]'
                 }`}
               >
                 <ChevronLeft size={24} />
               </button>
 
-              <span className="text-sm font-medium text-gray-600 min-w-[40px] text-center">
+              <span className="text-sm font-medium text-text-muted min-w-[40px] text-center">
                 {currentIndex + 1}/{totalCards}
               </span>
 
@@ -380,8 +380,8 @@ export default function FlashcardsPage() {
                 disabled={isLastCard}
                 className={`p-2 rounded-md transition-colors ${
                   isLastCard
-                    ? 'text-gray-300 cursor-not-allowed'
-                    : 'text-gray-600 hover:bg-[#F5F0EB]'
+                    ? 'text-text-muted cursor-not-allowed opacity-50'
+                    : 'text-text-muted hover:bg-[#F5F0EB]'
                 }`}
               >
                 <ChevronRight size={24} />
@@ -392,7 +392,7 @@ export default function FlashcardsPage() {
                 className={`p-2 rounded-md transition-colors ${
                   isShuffled
                     ? 'text-[#8B6914] bg-[#F5F0EB]'
-                    : 'text-gray-400 hover:bg-[#F5F0EB] hover:text-gray-600'
+                    : 'text-text-muted hover:bg-[#F5F0EB] hover:text-text-main'
                 }`}
                 title={isShuffled ? 'Unshuffle' : 'Shuffle'}
               >
@@ -410,7 +410,7 @@ export default function FlashcardsPage() {
               <button
                 onClick={handleGenerateMore}
                 disabled={generating}
-                className="mt-6 flex items-center gap-2 px-5 py-2.5 bg-[#1a1a2e] text-white
+                className="mt-6 flex items-center gap-2 px-5 py-2.5 bg-[#1a1a2e] text-text-inverse
                            text-sm font-medium rounded-lg hover:bg-[#2a2a3e] transition-colors
                            disabled:opacity-50 disabled:cursor-not-allowed"
               >
