@@ -900,9 +900,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const enrolledCourseIds = (context?.classes || []).map((c) => c.classId);
-    if (!enrolledCourseIds.includes(parsed.data.courseId)) {
-      return NextResponse.json({ error: "pageContext.courseId not in user context" }, { status: 403 });
+    // learn_questions has no single courseId (a session spans every active
+    // course), so the enrollment check only applies to the flashcard/quiz
+    // kinds, which are always scoped to one course.
+    if (parsed.data.kind !== "learn_questions") {
+      const enrolledCourseIds = (context?.classes || []).map((c) => c.classId);
+      if (!enrolledCourseIds.includes(parsed.data.courseId)) {
+        return NextResponse.json({ error: "pageContext.courseId not in user context" }, { status: 403 });
+      }
     }
 
     validatedPageContext = parsed.data;

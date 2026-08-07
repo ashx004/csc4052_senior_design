@@ -96,6 +96,11 @@ export default function RecentItemRow({
     >
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
+          {isPublic ? (
+            <Globe size={14} className="shrink-0 text-gray-400" aria-label="Public" />
+          ) : (
+            <Lock size={14} className="shrink-0 text-gray-400" aria-label="Private" />
+          )}
           <p className="truncate text-sm font-semibold text-[#1a1a2e]">{item.name}</p>
           {isPinned && (
             <Pin
