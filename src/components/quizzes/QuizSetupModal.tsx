@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { FileText, X, Loader2 } from "lucide-react";
+import VisibilitySelector from "@/src/components/discover/VisibilitySelector";
+import type { StudySetVisibility } from "@/src/library/discover/types";
 
 interface QuestionTypes {
   multipleChoice: boolean;
@@ -13,7 +15,11 @@ interface QuizSetupModalProps {
   open: boolean;
   onClose: () => void;
   documentName: string;
-  onStart: (config: { questionCount: number; questionTypes: QuestionTypes }) => Promise<void>;
+  onStart: (config: {
+    questionCount: number;
+    questionTypes: QuestionTypes;
+    visibility: StudySetVisibility;
+  }) => Promise<void>;
   loading?: boolean;
   error?: string | null;
 }
@@ -59,6 +65,7 @@ export default function QuizSetupModal({
   const [trueFalse, setTrueFalse] = useState(false);
   const [multipleChoice, setMultipleChoice] = useState(true);
   const [matching, setMatching] = useState(false);
+  const [visibility, setVisibility] = useState<StudySetVisibility>("public");
 
   if (!open) return null;
 
@@ -71,6 +78,7 @@ export default function QuizSetupModal({
     void onStart({
       questionCount,
       questionTypes: { multipleChoice, trueFalse, matching },
+      visibility,
     });
   };
 
@@ -138,6 +146,11 @@ export default function QuizSetupModal({
         {!hasTypeSelected && (
           <p className="mt-2 text-xs text-red-400">Select at least one question type.</p>
         )}
+
+        {/* Visibility */}
+        <div className="mt-5">
+          <VisibilitySelector value={visibility} onChange={setVisibility} disabled={loading} />
+        </div>
 
         {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
 

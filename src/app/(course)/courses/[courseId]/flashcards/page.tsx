@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
+import { useCourseInfo } from '@/src/hooks/useCourseInfo';
 import { getCourseResources } from '@/src/components/resourceManagement/fileUploadService';
 import {
   doc,
@@ -22,10 +23,19 @@ import FlashCard from '@/src/components/learning/FlashCard';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
 import { buildFlashcardSuggestions, type FlashcardPageContext } from '@/src/library/Contextual_AI/contextualAi';
 import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
+import FlashcardSetupModal from '@/src/components/discover/FlashcardSetupModal';
+import { publishStudySet } from '@/src/library/discover/publishStudySet';
+import type { StudySetVisibility } from '@/src/library/discover/types';
 
 interface Flashcard {
   question: string;
   answer: string;
+}
+
+interface PendingResource {
+  id: string;
+  url: string;
+  name: string;
 }
 
 function extractStorageKey(url: string): string {
@@ -54,12 +64,15 @@ async function requestFlashcards(
 
 // Creates a new flashcardSets doc for this source document, or appends cards
 // to the existing one if a set for this sourceDocKey already exists.
+// `visibility` is only ever written on the create branch — appending cards
+// to an already-existing set never changes its visibility.
 async function persistFlashcardSet(
   userId: string,
   courseId: string,
   sourceDocKey: string,
   topicName: string,
-  cards: Flashcard[]
+  cards: Flashcard[],
+  visibility: StudySetVisibility
 ): Promise<string> {
   const setsRef = collection(db, 'users', userId, 'enrollment', courseId, 'flashcardSets');
   const existing = await getDocs(query(setsRef, where('sourceDocKey', '==', sourceDocKey)));
@@ -78,6 +91,7 @@ async function persistFlashcardSet(
     sourceDocKey,
     cards,
     pinned: true,
+    visibility,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -91,6 +105,7 @@ export default function FlashcardsPage() {
   const { user } = useAuth();
 
   const courseId = params.courseId as string;
+  const { courseCode } = useCourseInfo(courseId);
   const docId = searchParams.get('docId') || '';
   const docNameParam = searchParams.get('docName') || '';
   const setId = searchParams.get('setId') || '';
@@ -109,6 +124,10 @@ export default function FlashcardsPage() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // The resolved source document, waiting on the user's visibility choice
+  // in FlashcardSetupModal before generation actually starts.
+  const [pendingResource, setPendingResource] = useState<PendingResource | null>(null);
 
   const [catalystOpen, setCatalystOpen] = useState(false);
   const catalystBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -165,18 +184,22 @@ export default function FlashcardsPage() {
     loadSavedSet();
   }, [user, setId, courseId]);
 
-  // Generate a brand-new set of flashcards from a source document
+  // Resolve the source document for a brand-new set, then hand off to
+  // FlashcardSetupModal — generation only starts once the user confirms a
+  // visibility choice there and clicks "Generate".
   useEffect(() => {
     if (!user || !docId || setId) return;
 
-    const generateInitialFlashcards = async () => {
+    let cancelled = false;
+
+    const resolveResource = async () => {
       setLoading(true);
       setError(null);
 
       try {
-        // Get the resource to find its download URL
         const resources = await getCourseResources(user.uid, courseId);
         const resource = resources.find((r: { id: string }) => r.id === docId);
+        if (cancelled) return;
 
         if (!resource) {
           setError('Document not found. It may have been deleted.');
@@ -184,26 +207,78 @@ export default function FlashcardsPage() {
           return;
         }
 
-        const key = extractStorageKey(resource.url);
-        const { topicName, questions } = await requestFlashcards(resource.url, resource.name);
-
-        setFlashcards(questions);
-        setOriginalCards(questions);
-        setAllPreviousQuestions(questions.map((f) => f.question));
-        setDisplayName(topicName || resource.name);
-        setSourceDocKey(key);
-
-        await persistFlashcardSet(user.uid, courseId, key, topicName, questions);
+        setPendingResource(resource);
       } catch (err) {
-        console.error('Error generating flashcards:', err);
+        if (cancelled) return;
+        console.error('Error resolving document for flashcards:', err);
         setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
-    generateInitialFlashcards();
+    resolveResource();
+    return () => {
+      cancelled = true;
+    };
   }, [user, docId, setId, courseId]);
+
+  const handleGenerateFromModal = async (visibility: StudySetVisibility) => {
+    if (!user || !pendingResource) return;
+    // Capture and clear pendingResource up front so the modal closes
+    // immediately (its `open` prop is driven by pendingResource) and the
+    // full-page "generating" state renders in its place, rather than the
+    // modal staying open — or an empty page showing behind it — for the
+    // whole duration of generation.
+    const resource = pendingResource;
+    setPendingResource(null);
+    setGenerating(true);
+    setError(null);
+
+    try {
+      const key = extractStorageKey(resource.url);
+      const { topicName, questions } = await requestFlashcards(resource.url, resource.name);
+
+      setFlashcards(questions);
+      setOriginalCards(questions);
+      setAllPreviousQuestions(questions.map((f) => f.question));
+      setDisplayName(topicName || resource.name);
+      setSourceDocKey(key);
+
+      const setDocId = await persistFlashcardSet(user.uid, courseId, key, topicName, questions, visibility);
+
+      // Publishing is best-effort — a failure here shouldn't block the
+      // student from reaching their newly created (already-private-until-
+      // this-succeeds) flashcard set. Logged, not surfaced as a blocking error.
+      if (visibility === 'public' && courseCode) {
+        try {
+          const publicSetId = await publishStudySet({
+            type: 'flashcard',
+            setData: { name: topicName, cards: questions },
+            courseCode,
+            ownerUid: user.uid,
+            originalPath: `users/${user.uid}/enrollment/${courseId}/flashcardSets/${setDocId}`,
+          });
+          await updateDoc(
+            doc(db, 'users', user.uid, 'enrollment', courseId, 'flashcardSets', setDocId),
+            { publicSetId }
+          );
+        } catch (publishError) {
+          console.error('Error publishing flashcard set to Discover:', publishError);
+        }
+      }
+    } catch (err) {
+      console.error('Error generating flashcards:', err);
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleCloseSetupModal = () => {
+    setPendingResource(null);
+    router.push(`/courses/${courseId}/learning`);
+  };
 
   const totalCards = flashcards.length;
   const isFirstCard = currentIndex === 0;
@@ -267,7 +342,12 @@ export default function FlashcardsPage() {
       setAllPreviousQuestions((prev) => [...prev, ...questions.map((f) => f.question)]);
 
       if (sourceDocKey) {
-        await persistFlashcardSet(user.uid, courseId, sourceDocKey, '', questions);
+        // "Generate more" always appends to an already-existing set (the one
+        // created by the initial generation), so this visibility value is
+        // inert in practice — persistFlashcardSet only writes it on the
+        // create branch. Kept conservative ("private") in case that
+        // assumption is ever wrong for an edge case not covered here.
+        await persistFlashcardSet(user.uid, courseId, sourceDocKey, '', questions, 'private');
       }
     } catch (err) {
       console.error('Error generating more flashcards:', err);
@@ -292,21 +372,22 @@ export default function FlashcardsPage() {
 
   const catalystSuggestions = flashcardPageContext ? buildFlashcardSuggestions(flashcardPageContext) : [];
 
-  // Loading state
+  // Loading state — resolving a saved set, or resolving the source document
+  // before FlashcardSetupModal opens (brief; actual generation happens
+  // after the user confirms visibility there, see the state below).
   if (loading) {
     return (
       <div className="min-h-screen bg-[#FAFAF8] flex flex-col items-center justify-center gap-4">
         <Loader2 size={36} className="animate-spin text-[#8B6914]" />
         <p className="text-text-muted text-sm">
-          {setId ? 'Loading your saved flashcards...' : 'Reading your document and generating flashcards...'}
+          {setId ? 'Loading your saved flashcards...' : 'Preparing your document...'}
         </p>
-        {!setId && <p className="text-text-muted text-xs">This may take a few seconds</p>}
       </div>
     );
   }
 
   // Error state
-  if (error && flashcards.length === 0) {
+  if (error && flashcards.length === 0 && !pendingResource) {
     return (
       <div className="min-h-screen bg-[#FAFAF8] flex flex-col items-center justify-center gap-4 px-4">
         <AlertCircle size={36} className="text-red-400" />
@@ -317,6 +398,19 @@ export default function FlashcardsPage() {
         >
           Back to documents
         </button>
+      </div>
+    );
+  }
+
+  // Generating the very first set from FlashcardSetupModal — the modal
+  // itself is already closed by this point (see handleGenerateFromModal),
+  // so show a full-page spinner rather than an empty page underneath it.
+  if (generating && flashcards.length === 0 && !pendingResource) {
+    return (
+      <div className="min-h-screen bg-[#FAFAF8] flex flex-col items-center justify-center gap-4">
+        <Loader2 size={36} className="animate-spin text-[#8B6914]" />
+        <p className="text-text-muted text-sm">Reading your document and generating flashcards...</p>
+        <p className="text-text-muted text-xs">This may take a few seconds</p>
       </div>
     );
   }
@@ -445,6 +539,14 @@ export default function FlashcardsPage() {
           />
         </>
       )}
+
+      <FlashcardSetupModal
+        open={!!pendingResource}
+        documentName={pendingResource?.name ?? ''}
+        onClose={handleCloseSetupModal}
+        onGenerate={handleGenerateFromModal}
+        loading={generating}
+      />
     </div>
   );
 }

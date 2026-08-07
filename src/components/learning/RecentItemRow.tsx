@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { MoreVertical, Trash2, Pin, PinOff } from "lucide-react";
+import { MoreVertical, Trash2, Pin, PinOff, Globe, Lock } from "lucide-react";
 import { doc, Timestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
 import { useAuth } from "@/src/context/AuthContext";
+import type { StudySetVisibility } from "@/src/library/discover/types";
 
 export interface RecentItem {
   id: string;
@@ -13,6 +14,10 @@ export interface RecentItem {
   itemCount: number;
   createdAt: Timestamp | null;
   pinned?: boolean;
+  // Missing/undefined is treated as "private" — see requirement C (existing
+  // records must not be retroactively treated as public).
+  visibility?: StudySetVisibility;
+  publicSetId?: string;
 }
 
 interface RecentItemRowProps {
@@ -21,6 +26,8 @@ interface RecentItemRowProps {
   courseName: string;
   kind: "flashcard" | "quiz";
   onDelete: (id: string) => void;
+  onToggleVisibility: (id: string) => void;
+  togglingVisibility?: boolean;
 }
 
 function formatDate(timestamp: Timestamp | null): string {
@@ -29,7 +36,15 @@ function formatDate(timestamp: Timestamp | null): string {
   return `${date.toLocaleString("en-US", { month: "short" })} ${date.getDate()} ${date.getFullYear()}`;
 }
 
-export default function RecentItemRow({ item, courseId, courseName, kind, onDelete }: RecentItemRowProps) {
+export default function RecentItemRow({
+  item,
+  courseId,
+  courseName,
+  kind,
+  onDelete,
+  onToggleVisibility,
+  togglingVisibility = false,
+}: RecentItemRowProps) {
   const router = useRouter();
   const { user } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -58,6 +73,9 @@ export default function RecentItemRow({ item, courseId, courseName, kind, onDele
 
   // Missing `pinned` is treated as pinned, matching the sidebar's default-pinned convention
   const isPinned = item.pinned !== false;
+  // Missing `visibility` is treated as private — existing sets are never
+  // retroactively made public.
+  const isPublic = item.visibility === "public";
   const unitLabel = kind === "quiz" ? "quizzes" : "flashcards";
   const collectionName = kind === "quiz" ? "quizSets" : "flashcardSets";
 
@@ -120,6 +138,18 @@ export default function RecentItemRow({ item, courseId, courseName, kind, onDele
             >
               {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
               {isPinned ? "Unpin from sidebar" : "Pin to sidebar"}
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenuOpen(false);
+                onToggleVisibility(item.id);
+              }}
+              disabled={togglingVisibility}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text-muted hover:bg-[#F5F0EB] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isPublic ? <Lock size={14} /> : <Globe size={14} />}
+              {isPublic ? "Make private" : "Share with classmates"}
             </button>
             <button
               onClick={(e) => {

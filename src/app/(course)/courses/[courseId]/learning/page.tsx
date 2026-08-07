@@ -9,11 +9,13 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   Timestamp,
+  updateDoc,
 } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
 import { ArrowLeft, FileEdit, BookOpen, Bookmark, Loader2 } from 'lucide-react';
@@ -24,6 +26,9 @@ import SortDropdown, { SortOption } from '@/src/components/learning/SortDropdown
 import LectureChoiceModal from '@/src/components/learning/LectureChoiceModal';
 import ConfirmDeleteModal from '@/src/components/learning/ConfirmDeleteModal';
 import QuizSetupModal from '@/src/components/quizzes/QuizSetupModal';
+import { publishStudySet } from '@/src/library/discover/publishStudySet';
+import { unpublishStudySet } from '@/src/library/discover/unpublishStudySet';
+import type { StudySetVisibility } from '@/src/library/discover/types';
 
 interface Resource {
   id: string;
@@ -55,7 +60,11 @@ export default function CourseLearningPage() {
   const { user, loading: authLoading } = useAuth();
 
   const courseId = params.courseId as string;
-  const { displayName: courseDisplayName, loading: courseInfoLoading } = useCourseInfo(courseId);
+  const {
+    displayName: courseDisplayName,
+    courseCode,
+    loading: courseInfoLoading,
+  } = useCourseInfo(courseId);
 
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,6 +82,8 @@ export default function CourseLearningPage() {
   const [quizDocument, setQuizDocument] = useState<Resource | null>(null);
   const [quizGenerating, setQuizGenerating] = useState(false);
   const [quizError, setQuizError] = useState<string | null>(null);
+
+  const [togglingVisibilityId, setTogglingVisibilityId] = useState<string | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -117,6 +128,8 @@ export default function CourseLearningPage() {
               itemCount: Array.isArray(data.cards) ? data.cards.length : 0,
               createdAt: (data.createdAt as Timestamp) ?? null,
               pinned: data.pinned as boolean | undefined,
+              visibility: data.visibility as StudySetVisibility | undefined,
+              publicSetId: data.publicSetId as string | undefined,
             };
           })
         );
@@ -152,6 +165,8 @@ export default function CourseLearningPage() {
               itemCount: Array.isArray(data.questions) ? data.questions.length : 0,
               createdAt: (data.createdAt as Timestamp) ?? null,
               pinned: data.pinned as boolean | undefined,
+              visibility: data.visibility as StudySetVisibility | undefined,
+              publicSetId: data.publicSetId as string | undefined,
             };
           })
         );
@@ -190,6 +205,7 @@ export default function CourseLearningPage() {
   const handleStartQuiz = async (config: {
     questionCount: number;
     questionTypes: { multipleChoice: boolean; trueFalse: boolean; matching: boolean };
+    visibility: StudySetVisibility;
   }) => {
     if (!user || !quizDocument) return;
     setQuizGenerating(true);
@@ -215,16 +231,36 @@ export default function CourseLearningPage() {
 
       const sourceDocKey = extractStorageKey(quizDocument.url);
       const setsRef = collection(db, 'users', user.uid, 'enrollment', courseId, 'quizSets');
-      const newDoc = await addDoc(setsRef, {
+      const setPayload = {
         name: data.topicName,
         sourceDocKey,
         questions: data.questions,
         questionTypes: config.questionTypes,
         questionCount: data.questions.length,
         pinned: true,
+        visibility: config.visibility,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-      });
+      };
+      const newDoc = await addDoc(setsRef, setPayload);
+
+      // Publishing is best-effort: a failure here shouldn't block the
+      // student from reaching their newly created (private-by-default-until-
+      // this-succeeds) quiz. It's logged, not surfaced as a blocking error.
+      if (config.visibility === 'public' && courseCode) {
+        try {
+          const publicSetId = await publishStudySet({
+            type: 'quiz',
+            setData: { name: data.topicName, questions: data.questions },
+            courseCode,
+            ownerUid: user.uid,
+            originalPath: `users/${user.uid}/enrollment/${courseId}/quizSets/${newDoc.id}`,
+          });
+          await updateDocPublicRef(newDoc, publicSetId);
+        } catch (publishError) {
+          console.error('Error publishing quiz set to Discover:', publishError);
+        }
+      }
 
       setQuizDocument(null);
       router.push(`/courses/${courseId}/quizzes/${newDoc.id}?mode=take`);
@@ -233,6 +269,69 @@ export default function CourseLearningPage() {
       setQuizError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
     } finally {
       setQuizGenerating(false);
+    }
+  };
+
+  // Stamps the newly created public set's ID back onto the owner's private
+  // doc, so a later unpublish/re-publish knows which public doc to touch.
+  const updateDocPublicRef = async (
+    newDoc: { id: string },
+    publicSetId: string
+  ) => {
+    if (!user) return;
+    await updateDoc(
+      doc(db, 'users', user.uid, 'enrollment', courseId, 'quizSets', newDoc.id),
+      { publicSetId }
+    );
+  };
+
+  // Toggles a quiz or flashcard set between Public and Private after
+  // creation. Mirrors the same publish/unpublish calls used at creation
+  // time (2C/2D), just triggered from the RecentItemRow menu instead.
+  const handleToggleVisibility = async (kind: 'flashcard' | 'quiz', id: string) => {
+    if (!user) return;
+    setTogglingVisibilityId(id);
+
+    try {
+      const collectionName = kind === 'flashcard' ? 'flashcardSets' : 'quizSets';
+      const setRef = doc(db, 'users', user.uid, 'enrollment', courseId, collectionName, id);
+      const current = kind === 'flashcard' ? flashcardSets : quizSets;
+      const item = current.find((set) => set.id === id);
+      const isCurrentlyPublic = item?.visibility === 'public';
+
+      if (isCurrentlyPublic) {
+        if (item?.publicSetId) {
+          await unpublishStudySet(item.publicSetId);
+        }
+        await updateDoc(setRef, { visibility: 'private' });
+        return;
+      }
+
+      if (!courseCode) {
+        console.error('Cannot publish study set: course code not loaded yet.');
+        return;
+      }
+
+      const setSnap = await getDoc(setRef);
+      if (!setSnap.exists()) return;
+      const setData = setSnap.data();
+
+      const publicSetId = await publishStudySet({
+        type: kind === 'flashcard' ? 'flashcard' : 'quiz',
+        setData:
+          kind === 'flashcard'
+            ? { name: setData.name, cards: setData.cards }
+            : { name: setData.name, questions: setData.questions },
+        courseCode,
+        ownerUid: user.uid,
+        originalPath: `users/${user.uid}/enrollment/${courseId}/${collectionName}/${id}`,
+      });
+
+      await updateDoc(setRef, { visibility: 'public', publicSetId });
+    } catch (error) {
+      console.error('Error toggling study set visibility:', error);
+    } finally {
+      setTogglingVisibilityId(null);
     }
   };
 
@@ -354,6 +453,8 @@ export default function CourseLearningPage() {
                   courseName={courseDisplayName}
                   kind="flashcard"
                   onDelete={(id) => setDeleteTarget({ id, kind: 'flashcard' })}
+                  onToggleVisibility={(id) => handleToggleVisibility('flashcard', id)}
+                  togglingVisibility={togglingVisibilityId === set.id}
                 />
               ))}
             </div>
@@ -379,6 +480,8 @@ export default function CourseLearningPage() {
                   courseName={courseDisplayName}
                   kind="quiz"
                   onDelete={(id) => setDeleteTarget({ id, kind: 'quiz' })}
+                  onToggleVisibility={(id) => handleToggleVisibility('quiz', id)}
+                  togglingVisibility={togglingVisibilityId === set.id}
                 />
               ))}
             </div>
