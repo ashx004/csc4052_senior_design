@@ -3,12 +3,13 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowLeft, ChevronDown, FileText, List, HelpCircle, BookCopy, Home } from "lucide-react";
+import { ArrowLeft, ChevronDown, List, HelpCircle, BookCopy, Home, Globe, Lock } from "lucide-react";
 import Sidebar from "./Sidebar";
 import SidebarItemMenu from "./SidebarItemMenu";
 import { useAuth } from "@/src/context/AuthContext";
 import { collection, doc, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
+import type { StudySetVisibility } from "@/src/library/discover/types";
 
 interface CourseSidebarProps {
   courseId: string;
@@ -18,10 +19,14 @@ interface CourseSidebarProps {
 interface FlashcardSetSummary {
   id: string;
   name: string;
+  // Missing/undefined is treated as "private", matching RecentItemRow's convention.
+  visibility?: StudySetVisibility;
 }
 
+// Notes' entry was removed from here — Discover replaced it as a direct
+// link below, not a dropdown. Summaries stays a hardcoded dropdown
+// placeholder, untouched.
 const PLACEHOLDER_SECTIONS = [
-  { title: "Notes", icon: FileText, items: ["Note 1", "Note 2", "Note 3"] },
   { title: "Summaries", icon: List, items: ["Summary 1", "Summary 2", "Summary 3"] },
 ];
 
@@ -61,6 +66,7 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
             .map((docSnap) => ({
               id: docSnap.id,
               name: (docSnap.data().name as string) || "Untitled",
+              visibility: docSnap.data().visibility as StudySetVisibility | undefined,
             }))
         );
       },
@@ -91,6 +97,7 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
             .map((docSnap) => ({
               id: docSnap.id,
               name: (docSnap.data().name as string) || "Untitled",
+              visibility: docSnap.data().visibility as StudySetVisibility | undefined,
             }))
         );
       },
@@ -145,46 +152,17 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
             Overview
           </Link>
 
-          {/* Notes — hardcoded dropdown placeholder */}
-          {PLACEHOLDER_SECTIONS.slice(0, 1).map(({ title, icon: Icon, items }) => {
-            const isOpen = openSections[title] || false;
-            const href = `${base}/notes`;
-
-            return (
-              <div key={title} className="mt-1">
-                <button
-                  onClick={() => {
-                    toggleSection(title);
-                    router.push(href);
-                  }}
-                  className="flex items-center justify-between w-full text-sm font-bold text-text-main px-3 py-2.5 rounded-lg hover:bg-bg-warm transition-colors"
-                >
-                  <span>{title}</span>
-                  <ChevronDown
-                    size={16}
-                    className={`text-text-muted transition-transform duration-200 ${
-                      isOpen ? "rotate-180" : ""
-                    }`}
-                  />
-                </button>
-
-                {isOpen && (
-                  <div className="ml-2 mt-0.5 space-y-0.5">
-                    {items.map((item) => (
-                      <Link
-                        key={item}
-                        href={href}
-                        className="flex items-center gap-3 px-3 py-2 text-sm text-text-muted hover:bg-bg-warm rounded-lg transition-colors"
-                      >
-                        <Icon size={16} strokeWidth={1.5} className="shrink-0" />
-                        <span>{item}</span>
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {/* Discover — standalone direct link, same pattern as Overview/Learning */}
+          <Link
+            href={`${base}/discover`}
+            className={`flex items-center gap-3 text-sm font-bold px-3 py-2.5 mt-1 rounded-lg transition-colors ${
+              pathname === `${base}/discover`
+                ? "bg-bg-warm text-text-main"
+                : "text-text-main hover:bg-bg-warm"
+            }`}
+          >
+            <span>Discover</span>
+          </Link>
 
           {/* Learning — plain button, no dropdown */}
           <button
@@ -223,10 +201,15 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
                     >
                       <Link
                         href={`${base}/flashcards?setId=${set.id}`}
-                        className="flex flex-1 min-w-0 items-center gap-3 px-3 py-2 text-sm text-text-muted"
+                        className="flex flex-1 min-w-0 items-center gap-1.5 px-3 py-2 text-sm text-text-muted"
                       >
-                        <BookCopy size={19} />
+                        <BookCopy size={19} className="shrink-0" />
                         <span className="truncate">{set.name}</span>
+                        {set.visibility === "public" ? (
+                          <Globe size={14} className="shrink-0 text-text-muted" aria-label="Public" />
+                        ) : (
+                          <Lock size={14} className="shrink-0 text-text-muted" aria-label="Private" />
+                        )}
                       </Link>
                       <div className="pr-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <SidebarItemMenu onUnpin={() => handleUnpinFlashcard(set.id)} />
@@ -265,10 +248,15 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
                     >
                       <Link
                         href={`${base}/quizzes/${set.id}`}
-                        className="flex flex-1 min-w-0 items-center gap-3 px-3 py-2 text-sm text-text-muted"
+                        className="flex flex-1 min-w-0 items-center gap-1.5 px-3 py-2 text-sm text-text-muted"
                       >
                         <HelpCircle size={16} strokeWidth={1.5} className="shrink-0" />
                         <span className="truncate">{set.name}</span>
+                        {set.visibility === "public" ? (
+                          <Globe size={14} className="shrink-0 text-text-muted" aria-label="Public" />
+                        ) : (
+                          <Lock size={14} className="shrink-0 text-text-muted" aria-label="Private" />
+                        )}
                       </Link>
                       <div className="pr-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <SidebarItemMenu onUnpin={() => handleUnpinQuiz(set.id)} />
@@ -283,7 +271,7 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
           </div>
 
           {/* Summaries — hardcoded dropdown placeholder */}
-          {PLACEHOLDER_SECTIONS.slice(1, 2).map(({ title, icon: Icon, items }) => {
+          {PLACEHOLDER_SECTIONS.slice(0, 1).map(({ title, icon: Icon, items }) => {
             const isOpen = openSections[title] || false;
             const href = `${base}/summaries`;
 
