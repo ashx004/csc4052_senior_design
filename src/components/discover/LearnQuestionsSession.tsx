@@ -1,11 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, X, RotateCcw } from "lucide-react";
 import type { LearnQuestion } from "@/src/library/discover/types";
 
 interface LearnQuestionsSessionProps {
   questions: LearnQuestion[];
+  onStateChange?: (state: {
+    currentQuestion: LearnQuestion;
+    currentIndex: number;
+    totalQuestions: number;
+    selectedAnswer: string | null;
+    isCorrect: boolean | null;
+    sessionScore: { answered: number; correct: number };
+  }) => void;
 }
 
 function shuffle<T>(items: T[]): T[] {
@@ -21,7 +29,7 @@ function shuffle<T>(items: T[]): T[] {
 // questions it receives were either reused from the student's own existing
 // quiz sets, or generated session-only by Ollama; either way nothing here
 // is saved, published, indexed, or added to Recent Quizzes.
-export default function LearnQuestionsSession({ questions }: LearnQuestionsSessionProps) {
+export default function LearnQuestionsSession({ questions, onStateChange }: LearnQuestionsSessionProps) {
   const [order, setOrder] = useState<LearnQuestion[]>(() => shuffle(questions));
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, { selected: string; correct: boolean }>>({});
@@ -41,6 +49,23 @@ export default function LearnQuestionsSession({ questions }: LearnQuestionsSessi
     const correctCount = order.reduce((count, q) => (answers[q.id]?.correct ? count + 1 : count), 0);
     return { correctCount, total: order.length };
   }, [order, answers]);
+
+  // Reports the currently visible question's state to the parent (e.g. the
+  // Discover page's Catalyst AI panel) — mirrors what's on screen, so a
+  // revisited-via-Previous question reports as unanswered even though its
+  // stored answer survives for the results summary.
+  useEffect(() => {
+    if (!onStateChange || !current) return;
+    onStateChange({
+      currentQuestion: current,
+      currentIndex,
+      totalQuestions: order.length,
+      selectedAnswer: isRevealed ? currentAnswer?.selected ?? null : null,
+      isCorrect: isRevealed ? currentAnswer?.correct ?? null : null,
+      sessionScore: { answered: Object.keys(answers).length, correct: results.correctCount },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIndex, answers, revealedQuestions]);
 
   const handleSelect = (answer: string) => {
     if (!current) return;

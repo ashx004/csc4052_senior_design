@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
@@ -12,6 +12,9 @@ import { Compass, ThumbsUp, Loader2, AlertCircle, Sparkles } from 'lucide-react'
 import LearnQuestionsSession from '@/src/components/discover/LearnQuestionsSession';
 import { buildLearnQuestionsSession } from '@/src/library/discover/learnQuestions';
 import type { LearnQuestion } from '@/src/library/discover/types';
+import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
+import { buildLearnQuestionSuggestions, type LearnQuestionsPageContext } from '@/src/library/Contextual_AI/contextualAi';
+import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
 
 interface PublicStudySetWithId extends PublicStudySet {
   id: string;
@@ -35,12 +38,38 @@ export default function DiscoverPage() {
   const [learnQuestionsError, setLearnQuestionsError] = useState<string | null>(null);
   const [learnQuestions, setLearnQuestions] = useState<LearnQuestion[]>([]);
 
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [chatContext, setChatContext] = useState<ChatContext | null>(null);
+  const [learnQuestionsState, setLearnQuestionsState] = useState<{
+    currentQuestion: LearnQuestion;
+    currentIndex: number;
+    totalQuestions: number;
+    selectedAnswer: string | null;
+    isCorrect: boolean | null;
+    sessionScore: { answered: number; correct: number };
+  } | null>(null);
+  const launcherRef = useRef<HTMLButtonElement | null>(null);
+
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
       router.push('/login');
     }
   }, [authLoading, user, router]);
+
+  // Build the same ChatContext shape the full AI Assistant uses, so the
+  // Catalyst sidebar can fall back to read_document/search_documents for
+  // this course's materials.
+  useEffect(() => {
+    if (!user?.email) return;
+
+    buildChatContext(user.uid, user.email)
+      .then(setChatContext)
+      .catch((err) => {
+        console.error('Error building Catalyst chat context:', err);
+        setChatContext(null);
+      });
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -114,6 +143,25 @@ export default function DiscoverPage() {
       cancelled = true;
     };
   }, [user, courseInfoLoading, courseCode]);
+
+  const learnQuestionsPageContext: LearnQuestionsPageContext | null = learnQuestionsState
+    ? {
+        kind: 'learn_questions',
+        currentQuestion: learnQuestionsState.currentQuestion.question,
+        currentOptions: learnQuestionsState.currentQuestion.options,
+        correctAnswer: learnQuestionsState.currentQuestion.correctAnswer,
+        selectedAnswer: learnQuestionsState.selectedAnswer,
+        isCorrect: learnQuestionsState.isCorrect,
+        questionIndex: learnQuestionsState.currentIndex,
+        totalQuestions: learnQuestionsState.totalQuestions,
+        sourceCourse: learnQuestionsState.currentQuestion.sourceCourse,
+        sessionScore: learnQuestionsState.sessionScore,
+      }
+    : null;
+
+  const catalystSuggestions = learnQuestionsPageContext
+    ? buildLearnQuestionSuggestions(learnQuestionsPageContext)
+    : [];
 
   if (authLoading || !user) {
     return (
@@ -204,10 +252,25 @@ export default function DiscoverPage() {
               <p className="text-sm text-text-muted">Complete some quizzes first to unlock practice questions.</p>
             </div>
           ) : (
-            <LearnQuestionsSession questions={learnQuestions} />
+            <LearnQuestionsSession questions={learnQuestions} onStateChange={setLearnQuestionsState} />
           )}
         </section>
       </div>
+
+      {learnQuestions.length > 0 && learnQuestionsPageContext && chatContext && (
+        <>
+          <CatalystLauncher onClick={() => setAiPanelOpen(true)} visible={!aiPanelOpen} buttonRef={launcherRef} />
+          <ContextualAiPanel
+            open={aiPanelOpen}
+            onClose={() => setAiPanelOpen(false)}
+            contextLabel={`Question ${learnQuestionsPageContext.questionIndex + 1} of ${learnQuestionsPageContext.totalQuestions} — ${learnQuestionsPageContext.sourceCourse}`}
+            suggestions={catalystSuggestions}
+            pageContext={learnQuestionsPageContext}
+            chatContext={chatContext}
+            launcherRef={launcherRef}
+          />
+        </>
+      )}
     </div>
   );
 }
