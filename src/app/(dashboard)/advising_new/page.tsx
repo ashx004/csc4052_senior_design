@@ -89,6 +89,42 @@ export default function AdvisingPage() {
     );
   }
 
+  async function testDocumentExtraction() {
+    if (!user) {
+      return;
+    }
+
+    try {
+      setErrorMessage("");
+
+      const response = await fetch("/api/advising/extract", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId: user.uid,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error ?? "The documents could not be read."
+        );
+      }
+
+      console.log("Extracted advising data:", data.extractedData);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "The documents could not be read."
+      );
+    }
+  }
+
   return (
     <div
       className="min-h-screen bg-[#f7f5f1] text-[#1f2933] dark:bg-[#171717] 
@@ -106,8 +142,10 @@ export default function AdvisingPage() {
       
         {errorMessage && (
           <div
-            className="rounded-lg border border-red-300 bg-red-50 px-4 py-3
-            text-sm text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300" >
+            className="
+              w-full max-w-full overflow-hidden break-words whitespace-pre-wrap
+              rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700
+              dark:border-red-800 dark:bg-red-950/30 dark:text-red-300" >
             {errorMessage}
           </div>
         )}
@@ -137,11 +175,13 @@ export default function AdvisingPage() {
 
      <ExistingDocumentsModal
         isOpen={showExistingModal}
-        onUseExisting={() => {
+        onUseExisting={async () => {
             setShowExistingModal(false);
             setUsingExistingDocuments(true);
             setUploadSuccess(false);
             setErrorMessage("");
+
+            await testDocumentExtraction();
         }}
         onReplace={() => {
             setShowExistingModal(false);
@@ -158,11 +198,13 @@ export default function AdvisingPage() {
             userId={user.uid}
             isOpen={showUploadModal}
             onClose={() => setShowUploadModal(false)}
-            onUploaded={() => {
+            onUploaded={async () => {
                 setShowUploadModal(false);
                 setUploadSuccess(true);
                 setUsingExistingDocuments(false);
                 setErrorMessage("");
+
+                await testDocumentExtraction();
           }}
         />
       )}
