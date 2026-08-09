@@ -8,8 +8,9 @@ import { useAuth } from '@/src/context/AuthContext';
 import { useCourseInfo } from '@/src/hooks/useCourseInfo';
 import { normalizeCourseCode } from '@/src/library/discover/normalizeCourseCode';
 import type { PublicStudySet } from '@/src/library/discover/types';
-import { Compass, ThumbsUp, Loader2, AlertCircle, Sparkles } from 'lucide-react';
+import { Compass, Loader2, AlertCircle, Sparkles } from 'lucide-react';
 import LearnQuestionsSession from '@/src/components/discover/LearnQuestionsSession';
+import StudySetCarousel from '@/src/components/discover/StudySetCarousel';
 import { buildLearnQuestionsSession } from '@/src/library/discover/learnQuestions';
 import type { LearnQuestion } from '@/src/library/discover/types';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
@@ -174,9 +175,11 @@ export default function DiscoverPage() {
   return (
     <div className="min-h-screen bg-[#FAFAF8]">
       {/* Header */}
-      <div className="flex items-center gap-3 border-b border-border-light px-6 py-7 md:px-14">
-        <Compass size={22} className="text-[#8B6914]" />
-        <h1 className="text-xl font-bold text-[#1a1a2e]">Discover</h1>
+      <div className="flex h-[60px] items-center border-b border-border-light px-6 md:px-14">
+        <div className="ml-4 flex translate-y-3 items-center gap-3">
+          <Compass size={22} className="text-[#8B6914]" />
+          <h1 className="ml-1 text-xl font-bold text-[#1a1a2e]">Discover</h1>
+        </div>
       </div>
 
       <div className="px-6 py-8 md:px-14">
@@ -204,28 +207,10 @@ export default function DiscoverPage() {
               No shared study sets for this course yet. Be the first to share!
             </p>
           ) : (
-            <div className="mt-4 flex gap-4 overflow-x-auto pb-2">
-              {recommendedSets.map((set) => (
-                <button
-                  key={set.id}
-                  onClick={() => router.push(`/courses/${courseId}/discover/${set.id}`)}
-                  className="flex w-64 shrink-0 flex-col rounded-2xl border border-border-light bg-bg-container p-5 text-left shadow-sm transition-shadow hover:shadow-md"
-                >
-                  <h3 className="text-sm font-bold text-[#1a1a2e] line-clamp-2">{set.title}</h3>
-                  <p className="mt-1 text-xs text-text-muted">
-                    {set.itemCount} {set.type === 'quiz' ? 'question' : 'card'}
-                    {set.itemCount !== 1 ? 's' : ''}
-                  </p>
-                  <div className="mt-4 flex items-center justify-between text-xs text-text-muted">
-                    <span className="truncate">{set.creatorDisplayName}</span>
-                    <span className="flex items-center gap-1 shrink-0">
-                      <ThumbsUp size={12} />
-                      {set.positiveVotes}
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
+            <StudySetCarousel
+              sets={recommendedSets}
+              onSelect={(setId) => router.push(`/courses/${courseId}/discover/${setId}`)}
+            />
           )}
         </section>
 

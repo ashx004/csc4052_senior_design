@@ -360,15 +360,15 @@ export default function CourseLearningPage() {
   return (
     <div className="min-h-screen bg-[#FAFAF8]">
       {/* Header */}
-      <div className="flex items-center justify-between px-14 py-7 border-b border-border-light">
-        <div className="flex items-center gap-3">
+      <div className="flex h-[60px] items-center justify-between border-b border-border-light px-14">
+        <div className="flex translate-y-3 items-center gap-3">
           <button
             onClick={() => router.back()}
             className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors"
           >
             <ArrowLeft size={20} className="text-text-main" />
           </button>
-          <h1 className="text-xl font-bold text-[#1a1a2e]">
+          <h1 className="ml-1 text-xl font-bold text-[#1a1a2e]">
             {courseInfoLoading ? 'Loading...' : courseDisplayName}
           </h1>
         </div>

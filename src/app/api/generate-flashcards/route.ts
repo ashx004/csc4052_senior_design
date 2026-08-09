@@ -5,6 +5,7 @@ import {
   fetchInternal,
   resolveInternalUrl,
 } from '@/src/library/pdfExtract';
+import { resolveOllamaBaseUrl } from '@/src/library/ollamaClient';
 
 const FlashcardResponseSchema = z.object({
   topicName: z
@@ -75,12 +76,12 @@ Rules:
 // endpoint, non-streaming, AbortController-backed timeout. Structured output
 // is enforced via Ollama's `format` field (a JSON schema) instead of relying
 // on prompt instructions alone.
-async function callOllamaForFlashcards(messages: unknown[]): Promise<Response> {
+async function callOllamaForFlashcards(messages: unknown[], baseUrl: string): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
 
   try {
-    return await fetch(`${process.env.OLLAMA_PRIMARY_URL}/api/chat`, {
+    return await fetch(`${baseUrl}/api/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -104,13 +105,14 @@ async function callOllamaForFlashcards(messages: unknown[]): Promise<Response> {
 // once if the model's output isn't valid/parseable JSON — a small model can
 // occasionally wrap the JSON in prose or drop a field even with `format` set.
 async function generateFlashcardsWithRetry(
-  messages: unknown[]
+  messages: unknown[],
+  baseUrl: string
 ): Promise<{ topicName: string; questions: { question: string; answer: string }[] }> {
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const response = await callOllamaForFlashcards(messages);
+      const response = await callOllamaForFlashcards(messages, baseUrl);
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => '');
@@ -204,10 +206,11 @@ export async function POST(request: NextRequest) {
 
     // 3. Build the prompt and call Ollama with structured output, retrying once on bad JSON
     const messages = buildFlashcardMessages(extractedText, previousQuestions);
+    const baseUrl = await resolveOllamaBaseUrl(process.env.OLLAMA_PRIMARY_URL, process.env.OLLAMA_PRIMARY_FALLBACK_URL);
 
     let parsed;
     try {
-      parsed = await generateFlashcardsWithRetry(messages);
+      parsed = await generateFlashcardsWithRetry(messages, baseUrl);
     } catch (error) {
       console.error('Flashcard generation failed after retry:', error);
       return NextResponse.json(
