@@ -193,3 +193,14 @@ a:hover {
 .animate-slide-in-right {
   animation: slide-in-right 0.25s ease-out;
 }
+
+/* Hides the scrollbar on carousel-style horizontal scroll rows while
+   leaving native scrolling (mouse, trackpad, touch, keyboard) untouched. */
+.no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge/IE */
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, other WebKit browsers */
+}
