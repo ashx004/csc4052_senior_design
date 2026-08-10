@@ -4,6 +4,7 @@
 // The client keeps them in React state only.
 
 import { NextRequest, NextResponse } from "next/server";
+import { resolveOllamaBaseUrl } from "@/src/library/ollamaClient";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { z } from "zod";
 
@@ -65,27 +66,47 @@ const RequestBodySchema = z.object({
       courseCode: z.string(),
       courseName: z.string(),
       existingTopics: z.array(z.string()).optional().default([]),
+      // Optional — when present, the model is told to base questions
+      // specifically on this flashcard content instead of just the course
+      // name/topics. Used by the Blocks game's flashcard-to-MC/TF pipeline;
+      // absent (undefined) for every existing Learn Questions call site, so
+      // this is a purely additive change.
+      cardsToTest: z.array(z.object({ question: z.string(), answer: z.string() })).optional(),
     })
   ).min(1),
   count: z.number().int().min(1).max(10),
 });
 
 // --- Ollama call ---
+// Must send Bearer auth and resolve LAN/public URL the same way as
+// generate-quiz / chat — the Caddy proxy in front of Ollama rejects
+// unauthenticated requests with 502 Bad Gateway.
 async function callOllama(prompt: string, count: number): Promise<string> {
-  const baseUrl = process.env.OLLAMA_PRIMARY_URL;
+  const configuredUrl = process.env.OLLAMA_PRIMARY_URL;
+  const token = process.env.OLLAMA_AUTH_TOKEN;
   const model = process.env.OLLAMA_MODEL;
 
-  if (!baseUrl || !model) {
-    throw new Error("Ollama is not configured. Set OLLAMA_PRIMARY_URL and OLLAMA_MODEL.");
+  if (!configuredUrl || !token || !model) {
+    throw new Error(
+      "Ollama is not configured. Set OLLAMA_PRIMARY_URL, OLLAMA_AUTH_TOKEN, and OLLAMA_MODEL."
+    );
   }
+
+  const baseUrl = await resolveOllamaBaseUrl(
+    configuredUrl,
+    process.env.OLLAMA_PRIMARY_FALLBACK_URL
+  );
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
 
   try {
-    const res = await fetch(`${baseUrl}/api/chat`, {
+    const res = await fetch(`${baseUrl.replace(/\/$/, "")}/api/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       signal: controller.signal,
       body: JSON.stringify({
         model,
@@ -161,7 +182,13 @@ export async function POST(req: NextRequest) {
         c.existingTopics.length > 0
           ? `Topics already covered: ${c.existingTopics.join(", ")}.`
           : "";
-      return `Course: ${c.courseCode} — ${c.courseName}. ${topics}`;
+      const cardsNote =
+        c.cardsToTest && c.cardsToTest.length > 0
+          ? ` Base the questions specifically on this flashcard content: ${c.cardsToTest
+              .map((card) => `"${card.question}" → "${card.answer}"`)
+              .join("; ")}.`
+          : "";
+      return `Course: ${c.courseCode} — ${c.courseName}. ${topics}${cardsNote}`;
     })
     .join("\n");
 

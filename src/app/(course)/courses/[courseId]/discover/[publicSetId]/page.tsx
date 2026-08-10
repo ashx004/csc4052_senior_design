@@ -253,8 +253,8 @@ export default function DiscoverSetPreviewPage() {
   return (
     <div className="min-h-screen bg-[#FAFAF8]">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border-light px-6 py-7 md:px-14">
-        <div className="flex min-w-0 items-center gap-3">
+      <div className="flex h-[60px] items-center justify-between border-b border-border-light px-6 md:px-14">
+        <div className="ml-4 flex min-w-0 translate-y-1 items-center gap-3">
           <button
             onClick={() => router.push(`/courses/${courseId}/discover`)}
             className="shrink-0 rounded-md p-1.5 transition-colors hover:bg-[#F5F0EB]"

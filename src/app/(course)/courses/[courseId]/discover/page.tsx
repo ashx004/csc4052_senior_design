@@ -8,7 +8,7 @@ import { useAuth } from '@/src/context/AuthContext';
 import { useCourseInfo } from '@/src/hooks/useCourseInfo';
 import { normalizeCourseCode } from '@/src/library/discover/normalizeCourseCode';
 import type { PublicStudySet } from '@/src/library/discover/types';
-import { Compass, Loader2, AlertCircle, Sparkles } from 'lucide-react';
+import { Compass, Loader2, AlertCircle, Sparkles, Gamepad2 } from 'lucide-react';
 import LearnQuestionsSession from '@/src/components/discover/LearnQuestionsSession';
 import StudySetCarousel from '@/src/components/discover/StudySetCarousel';
 import { buildLearnQuestionsSession } from '@/src/library/discover/learnQuestions';
@@ -239,6 +239,30 @@ export default function DiscoverPage() {
           ) : (
             <LearnQuestionsSession questions={learnQuestions} onStateChange={setLearnQuestionsState} />
           )}
+        </section>
+
+        {/* Switch It Up With a Game */}
+        <section className="mt-8">
+          <h2 className="text-lg font-bold text-[#1a1a2e] mb-1">Switch It Up With a Game</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Answer questions, build with blocks, and make studying fun.
+          </p>
+
+          <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white p-5">
+            <div>
+              <p className="text-sm font-semibold text-[#1a1a2e]">Blocks</p>
+              <p className="text-xs text-gray-500">
+                Place pieces on the board, answer questions to keep them coming.
+              </p>
+            </div>
+            <button
+              onClick={() => router.push(`/courses/${courseId}/discover/blocks`)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#1a1a2e] px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-[#2a2a3e]"
+            >
+              <Gamepad2 size={14} />
+              Play Blocks
+            </button>
+          </div>
         </section>
       </div>
 
