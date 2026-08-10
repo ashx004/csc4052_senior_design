@@ -1,6 +1,15 @@
 // src/library/discover/blocksLogic.test.ts
 import { describe, expect, it } from "vitest";
-import { canPlace, clearLines, createEmptyBoard, getFullLines, hasAnyValidPlacement, placeShape } from "./blocksLogic";
+import {
+  canPlace,
+  clearLines,
+  createEmptyBoard,
+  getFullLines,
+  hasAnyValidPlacement,
+  placeShape,
+  resolveDropAnchor,
+  type RectLike,
+} from "./blocksLogic";
 import type { Board, HandPiece, PieceShape } from "./blocksTypes";
 
 const single: PieceShape = { id: "single", cells: [[0, 0]] };
@@ -152,5 +161,124 @@ describe("hasAnyValidPlacement", () => {
 
   it("is false for an empty hand", () => {
     expect(hasAnyValidPlacement([], createEmptyBoard())).toBe(false);
+  });
+});
+
+describe("resolveDropAnchor", () => {
+  const CELL = 50;
+
+  function boardRect(row: number, col: number): RectLike {
+    return { left: col * CELL, top: row * CELL, right: col * CELL + CELL, bottom: row * CELL + CELL };
+  }
+
+  function pieceRect(dr: number, dc: number, anchorRow: number, anchorCol: number, offsetX = 0, offsetY = 0): RectLike {
+    const left = (anchorCol + dc) * CELL + offsetX;
+    const top = (anchorRow + dr) * CELL + offsetY;
+    return { left, top, right: left + CELL, bottom: top + CELL };
+  }
+
+  it("returns the anchor when every cell fully overlaps its target board cell", () => {
+    const board = createEmptyBoard();
+    const anchorRow = 2;
+    const anchorCol = 3;
+    const getPieceCellRect = (dr: number, dc: number) => pieceRect(dr, dc, anchorRow, anchorCol);
+    const getBoardCellRect = (row: number, col: number) => boardRect(row, col);
+
+    expect(resolveDropAnchor(dominoH, getPieceCellRect, getBoardCellRect, board)).toEqual({
+      row: anchorRow,
+      col: anchorCol,
+    });
+  });
+
+  it("still resolves the anchor when a non-reference cell's rect is misaligned, since only the reference cell's overlap matters", () => {
+    const board = createEmptyBoard();
+    const anchorRow = 2;
+    const anchorCol = 3;
+    // dominoH's reference cell [0,0] is perfectly aligned; its second cell [0,1] is shifted 10px (80% overlap) — no longer checked.
+    const getPieceCellRect = (dr: number, dc: number) =>
+      dc === 1 ? pieceRect(dr, dc, anchorRow, anchorCol, 10, 0) : pieceRect(dr, dc, anchorRow, anchorCol);
+    const getBoardCellRect = (row: number, col: number) => boardRect(row, col);
+
+    expect(resolveDropAnchor(dominoH, getPieceCellRect, getBoardCellRect, board)).toEqual({
+      row: anchorRow,
+      col: anchorCol,
+    });
+  });
+
+  it("resolves the anchor even when the reference cell only partially overlaps its nearest board cell (no overlap threshold)", () => {
+    const board = createEmptyBoard();
+    const anchorRow = 2;
+    const anchorCol = 3;
+    const [dr0, dc0] = dominoH.cells[0]; // [0, 0] — the reference cell, shifted 20px: only 60% overlap with its nearest cell, well below the old 90% threshold.
+    const getPieceCellRect = (dr: number, dc: number) =>
+      dr === dr0 && dc === dc0 ? pieceRect(dr, dc, anchorRow, anchorCol, 20, 0) : pieceRect(dr, dc, anchorRow, anchorCol);
+    const getBoardCellRect = (row: number, col: number) => boardRect(row, col);
+
+    expect(resolveDropAnchor(dominoH, getPieceCellRect, getBoardCellRect, board)).toEqual({
+      row: anchorRow,
+      col: anchorCol,
+    });
+  });
+
+  it("rejects when the resolved anchor would place a cell out of bounds", () => {
+    const board = createEmptyBoard();
+    const anchorRow = 2;
+    const anchorCol = 7; // dominoH's second cell (dc=1) would need col 8 — out of an 8-wide board.
+    const getPieceCellRect = (dr: number, dc: number) => pieceRect(dr, dc, anchorRow, anchorCol);
+    const getBoardCellRect = (row: number, col: number) => boardRect(row, col);
+
+    expect(resolveDropAnchor(dominoH, getPieceCellRect, getBoardCellRect, board)).toBeNull();
+  });
+
+  it("rejects when the resolved anchor would overlap an already-filled board cell", () => {
+    const board = fillCell(createEmptyBoard(), 2, 4);
+    const anchorRow = 2;
+    const anchorCol = 3; // dominoH would cover (2,3) and (2,4) — (2,4) is filled.
+    const getPieceCellRect = (dr: number, dc: number) => pieceRect(dr, dc, anchorRow, anchorCol);
+    const getBoardCellRect = (row: number, col: number) => boardRect(row, col);
+
+    expect(resolveDropAnchor(dominoH, getPieceCellRect, getBoardCellRect, board)).toBeNull();
+  });
+
+  it("returns null when the reference cell's rect can't be measured", () => {
+    const board = createEmptyBoard();
+    expect(resolveDropAnchor(dominoH, () => null, () => boardRect(0, 0), board)).toBeNull();
+  });
+
+  it("still resolves the anchor when a non-reference cell has zero area, since only the reference cell's area matters", () => {
+    const board = createEmptyBoard();
+    const anchorRow = 2;
+    const anchorCol = 3;
+    // dominoH's second cell (dc=1) has zero width (left === right) — no longer checked.
+    const getPieceCellRect = (dr: number, dc: number) => {
+      if (dc === 1) {
+        const left = (anchorCol + dc) * CELL;
+        return { left, top: anchorRow * CELL, right: left, bottom: anchorRow * CELL + CELL };
+      }
+      return pieceRect(dr, dc, anchorRow, anchorCol);
+    };
+    const getBoardCellRect = (row: number, col: number) => boardRect(row, col);
+
+    expect(resolveDropAnchor(dominoH, getPieceCellRect, getBoardCellRect, board)).toEqual({
+      row: anchorRow,
+      col: anchorCol,
+    });
+  });
+
+  it("rejects when the reference cell has zero area", () => {
+    const board = createEmptyBoard();
+    const anchorRow = 2;
+    const anchorCol = 3;
+    const [dr0, dc0] = dominoH.cells[0]; // [0, 0] — the reference cell, given zero width (left === right).
+    const getPieceCellRect = (dr: number, dc: number) => {
+      if (dr === dr0 && dc === dc0) {
+        const left = (anchorCol + dc) * CELL;
+        return { left, top: anchorRow * CELL, right: left, bottom: anchorRow * CELL + CELL };
+      }
+      return pieceRect(dr, dc, anchorRow, anchorCol);
+    };
+    const getBoardCellRect = (row: number, col: number) => boardRect(row, col);
+
+    expect(resolveDropAnchor(dominoH, getPieceCellRect, getBoardCellRect, board)).toBeNull();
   });
 });

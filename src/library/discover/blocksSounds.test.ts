@@ -55,6 +55,16 @@ describe("playSound (browser-like environment)", () => {
     expect(constructedSrcs).toEqual(["/sounds/blocks/correct.mp3"]);
   });
 
+  it("constructs and plays the clear sound file", async () => {
+    const { playSpy, constructedSrcs } = stubAudio();
+    const { playClear } = await import("./blocksSounds");
+
+    playClear();
+
+    expect(constructedSrcs).toEqual(["/sounds/blocks/clear.mp3"]);
+    expect(playSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("does not throw when play() rejects (e.g. autoplay blocked)", async () => {
     vi.stubGlobal("window", {});
     const rejectingPlay = vi.fn().mockRejectedValue(new Error("autoplay blocked"));

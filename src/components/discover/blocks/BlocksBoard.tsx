@@ -35,7 +35,6 @@ interface BoardCellViewProps {
 }
 
 function BoardCellView({ row, col, board, dragPreview }: BoardCellViewProps) {
-  const { setNodeRef } = useDroppable({ id: `cell-${row}-${col}`, data: { row, col } });
   const cell = board[row][col];
   const inPreview = isCellInPreview(row, col, dragPreview);
 
@@ -48,12 +47,15 @@ function BoardCellView({ row, col, board, dragPreview }: BoardCellViewProps) {
     className += " border border-dashed border-border-light bg-bg-container";
   }
 
-  return <div ref={setNodeRef} data-row={row} data-col={col} className={className} />;
+  return <div data-row={row} data-col={col} className={className} />;
 }
 
 export default function BlocksBoard({ board, dragPreview }: BlocksBoardProps) {
+  const { setNodeRef } = useDroppable({ id: "blocks-board" });
+
   return (
     <div
+      ref={setNodeRef}
       className="grid gap-1 rounded-xl border border-border-light bg-bg-warm p-2"
       style={{ gridTemplateColumns: `repeat(${board.length}, minmax(0, 1fr))`, width: "min(100%, 560px)" }}
     >
