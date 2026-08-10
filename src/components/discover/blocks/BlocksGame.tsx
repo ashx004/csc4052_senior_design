@@ -30,7 +30,6 @@ import {
   type BlocksQuestion,
   type DragPreview,
   type HandPiece,
-  type PieceShape,
 } from "@/src/library/discover/blocksTypes";
 import BlocksBoard from "./BlocksBoard";
 import BlocksPieceTray from "./BlocksPieceTray";
@@ -47,18 +46,6 @@ type Phase = "loading" | "placing" | "answering" | "ending";
 interface CellDropData {
   row: number;
   col: number;
-}
-
-/**
- * `closestCenter` matches the piece's whole bounding-box center to the nearest
- * board cell, but PieceShape anchors are the shape's top-left cell — so the
- * raw match needs to be shifted back by the shape's own half-extent to land
- * where the piece is actually being held.
- */
-function shapeCenterOffset(shape: PieceShape): { row: number; col: number } {
-  const maxRow = Math.max(...shape.cells.map(([r]) => r)) + 1;
-  const maxCol = Math.max(...shape.cells.map(([, c]) => c)) + 1;
-  return { row: Math.floor((maxRow - 1) / 2), col: Math.floor((maxCol - 1) / 2) };
 }
 
 export default function BlocksGame({ uid, onGameOver, isMuted = false }: BlocksGameProps) {
@@ -161,14 +148,14 @@ export default function BlocksGame({ uid, onGameOver, isMuted = false }: BlocksG
       setDragPreview(null);
       return;
     }
-    const offset = shapeCenterOffset(piece.shape);
-    const anchorRow = cellData.row - offset.row;
-    const anchorCol = cellData.col - offset.col;
+    if (!canPlace(piece.shape, cellData.row, cellData.col, board)) {
+      setDragPreview(null);
+      return;
+    }
     setDragPreview({
       shape: piece.shape,
-      anchorRow,
-      anchorCol,
-      valid: canPlace(piece.shape, anchorRow, anchorCol, board),
+      anchorRow: cellData.row,
+      anchorCol: cellData.col,
     });
   };
 
@@ -180,13 +167,10 @@ export default function BlocksGame({ uid, onGameOver, isMuted = false }: BlocksG
     const piece = hand.find((p) => `piece-${p.instanceId}` === active.id);
     const cellData = over.data.current as CellDropData | undefined;
     if (!piece || !cellData) return;
-    const offset = shapeCenterOffset(piece.shape);
-    const anchorRow = cellData.row - offset.row;
-    const anchorCol = cellData.col - offset.col;
-    if (!canPlace(piece.shape, anchorRow, anchorCol, board)) return; // invalid drop — piece just stays in hand
+    if (!canPlace(piece.shape, cellData.row, cellData.col, board)) return; // invalid drop — piece just stays in hand
 
     if (!isMuted) playPlace();
-    let nextBoard = placeShape(piece.shape, anchorRow, anchorCol, board, piece.color);
+    let nextBoard = placeShape(piece.shape, cellData.row, cellData.col, board, piece.color);
     const newScore = score + piece.shape.cells.length;
     setScore(newScore);
 

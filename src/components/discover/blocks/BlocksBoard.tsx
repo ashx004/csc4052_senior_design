@@ -43,9 +43,7 @@ function BoardCellView({ row, col, board, dragPreview }: BoardCellViewProps) {
   if (cell.filled) {
     className += ` border border-white/30 shadow-inner ${CELL_COLOR_CLASSES[cell.color as PieceColor]}`;
   } else if (inPreview) {
-    className += dragPreview?.valid
-      ? " border border-border-light bg-emerald-300/60 ring-2 ring-emerald-400"
-      : " border border-border-light bg-red-300/60 ring-2 ring-red-400";
+    className += " border border-border-light bg-emerald-300/60 ring-2 ring-emerald-400";
   } else {
     className += " border border-dashed border-border-light bg-bg-container";
   }
