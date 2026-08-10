@@ -30,12 +30,11 @@ export interface HandPiece {
   color: PieceColor;
 }
 
-/** Live drag state, used by BlocksBoard to render a valid/invalid placement preview. */
+/** Live drag state, used by BlocksBoard to render a placement preview. */
 export interface DragPreview {
   shape: PieceShape;
   anchorRow: number;
   anchorCol: number;
-  valid: boolean;
 }
 
 // --- Question pool (spec §3.1) ---
