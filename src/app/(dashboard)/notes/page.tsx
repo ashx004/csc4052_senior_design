@@ -11,6 +11,7 @@ import {
   FileSpreadsheet,
   Presentation,
   BookOpen,
+  FileImage,
   Loader2,
   X,
   Download,
@@ -18,7 +19,7 @@ import {
   GraduationCap,
 } from "lucide-react";
 import Link from "next/link";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, doc as firestoreDoc, getDoc, getDocs } from "firebase/firestore";
 import { renderAsync } from "docx-preview";
 import { db } from "@/src/library/firebase";
 import { useAuth } from "@/src/context/AuthContext";
@@ -51,6 +52,10 @@ const VALID_EXTENSIONS = [
   "zip",
   "pptx",
   "one",
+  "png",
+  "jpg",
+  "jpeg",
+  "webp",
   "txt",
   "py",
   "js",
@@ -73,6 +78,8 @@ const VALID_EXTENSIONS = [
   "sh",
   "asm",
 ];
+
+const IMAGE_TYPES = ["png", "jpg", "jpeg", "webp"];
 
 const ACCEPT_ATTR = VALID_EXTENSIONS.map((ext) => `.${ext}`).join(",");
 
@@ -114,6 +121,7 @@ function typeIcon(type: string) {
     case "docx":
       return <FileText size={16} />;
     default:
+      if (IMAGE_TYPES.includes(type)) return <FileImage size={16} />;
       return <FileCode size={16} />;
   }
 }
@@ -135,10 +143,19 @@ interface NoteDoc {
   uploadedAt: Date;
 }
 
-function DocumentPreviewModal({ doc, onClose }: { doc: NoteDoc; onClose: () => void }) {
+function DocumentPreviewModal({
+  doc,
+  userId,
+  onClose,
+}: {
+  doc: NoteDoc;
+  userId: string;
+  onClose: () => void;
+}) {
   const isPdf = doc.fileType === "pdf";
   const isDocx = doc.fileType === "docx";
   const isXlsx = doc.fileType === "xlsx";
+  const isImage = IMAGE_TYPES.includes(doc.fileType);
   const isDownloadOnly = doc.fileType === "zip" || doc.fileType === "pptx" || doc.fileType === "one";
 
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -147,8 +164,12 @@ function DocumentPreviewModal({ doc, onClose }: { doc: NoteDoc; onClose: () => v
   const [excelHtml, setExcelHtml] = useState<string | null>(null);
   const docxRef = useRef<HTMLDivElement>(null);
 
+  const [transcript, setTranscript] = useState<string | null>(null);
+  const [transcriptLoading, setTranscriptLoading] = useState(false);
+  const [transcriptError, setTranscriptError] = useState(false);
+
   useEffect(() => {
-    if (isPdf || isDownloadOnly) {
+    if (isPdf || isImage || isDownloadOnly) {
       setStatus("ready");
       return;
     }
@@ -202,7 +223,44 @@ function DocumentPreviewModal({ doc, onClose }: { doc: NoteDoc; onClose: () => v
     return () => {
       cancelled = true;
     };
-  }, [doc, isPdf, isDocx, isDownloadOnly, isXlsx]);
+  }, [doc, isPdf, isDocx, isDownloadOnly, isXlsx, isImage]);
+
+  // Images have no embedded text — pull the OCR transcription that
+  // /api/embed-document stored on the resource doc once indexing finished.
+  useEffect(() => {
+    if (!isImage) return;
+
+    let cancelled = false;
+    setTranscriptLoading(true);
+    setTranscriptError(false);
+
+    const fetchTranscript = async () => {
+      try {
+        const resourceSnap = await getDoc(
+          firestoreDoc(db, "users", userId, "enrollment", doc.classId, "resources", doc.id)
+        );
+        if (cancelled) return;
+        const transcriptValue = resourceSnap.exists()
+          ? (resourceSnap.data().transcript as string | undefined)
+          : undefined;
+        if (transcriptValue) {
+          setTranscript(transcriptValue);
+        } else {
+          setTranscriptError(true);
+        }
+      } catch (err) {
+        console.error("Transcript load error:", err);
+        if (!cancelled) setTranscriptError(true);
+      } finally {
+        if (!cancelled) setTranscriptLoading(false);
+      }
+    };
+
+    fetchTranscript();
+    return () => {
+      cancelled = true;
+    };
+  }, [doc, isImage, userId]);
 
   return (
     <div
@@ -240,6 +298,41 @@ function DocumentPreviewModal({ doc, onClose }: { doc: NoteDoc; onClose: () => v
         <div className="relative flex-1 overflow-auto bg-bg-container">
           {isPdf ? (
             <iframe src={doc.url} title={doc.name} className="h-full w-full" />
+          ) : isImage ? (
+            <div className="flex h-full flex-col gap-4 p-4">
+              <img
+                src={doc.url}
+                alt={doc.name}
+                className="mx-auto max-h-[45vh] max-w-full rounded-lg border border-border-light object-contain shadow-sm"
+              />
+              <div className="flex-1 overflow-auto rounded-lg border border-border-light bg-bg-main">
+                <div className="flex items-center justify-between border-b border-border-light px-4 py-2.5">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+                    OCR transcription
+                  </h3>
+                  {transcript && (
+                    <span className="rounded-full bg-bg-warm px-2 py-0.5 text-[10px] font-medium text-primary">
+                      scanned
+                    </span>
+                  )}
+                </div>
+                {transcriptLoading ? (
+                  <div className="flex items-center justify-center gap-2 p-6 text-sm text-text-muted">
+                    <Loader2 size={16} className="animate-spin" />
+                    Loading transcription...
+                  </div>
+                ) : transcriptError ? (
+                  <p className="p-6 text-sm text-text-muted">
+                    No transcription available yet. It&apos;s generated in the background shortly
+                    after upload — close and reopen this document in a minute to see it.
+                  </p>
+                ) : (
+                  <pre className="whitespace-pre-wrap break-words p-4 text-sm leading-relaxed text-text-main">
+                    {transcript}
+                  </pre>
+                )}
+              </div>
+            </div>
           ) : isDownloadOnly ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
               <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-bg-warm text-text-muted">
@@ -784,7 +877,13 @@ export default function Notes() {
         </div>
       </div>
 
-      {previewDoc && <DocumentPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} />}
+      {previewDoc && (
+        <DocumentPreviewModal
+          doc={previewDoc}
+          userId={user.uid}
+          onClose={() => setPreviewDoc(null)}
+        />
+      )}
 
       {deleteTarget && (
         <div

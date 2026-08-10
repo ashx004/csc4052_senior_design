@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { doc, getDoc, collection, updateDoc, serverTimestamp, writeBatch } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
 import { resolveInternalUrl } from "@/src/library/pdfExtract";
-import { extractDocumentText, SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
+import { extractDocumentText, IMAGE_FILE_TYPES, SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
 import { chunkText } from "@/src/library/chunking";
 import { addChunkContext } from "@/src/library/contextualChunking";
 import { embedTexts } from "@/src/library/ollamaEmbeddings";
@@ -140,6 +140,11 @@ export async function POST(request: NextRequest) {
         indexedAt: serverTimestamp(),
         chunkCount: chunks.contextualized.length,
         vectorIndexed,
+        // Images have no embedded text — this is the OCR transcription the
+        // notes page preview surfaces. Store it so the client can show the
+        // transcript without re-running the (slow) vision model. Only set for
+        // images to avoid duplicating large extracted text on text-based docs.
+        ...(IMAGE_FILE_TYPES.includes(resource.fileType) ? { transcript: text } : {}),
       });
 
       return NextResponse.json({ success: true, chunkCount: chunks.contextualized.length });
