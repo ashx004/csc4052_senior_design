@@ -9,16 +9,17 @@ const PLAIN_TEXT_TYPES = [
   "cs", "rs", "html", "css", "php", "rb", "kt", "swift", "sh", "asm",
 ];
 
-// File types the AI assistant can actually read/index. Kept in sync with the
-// extraction dispatch below — anything not listed here degrades to a clear
-// "not supported yet" message instead of silently failing.
-export const SUPPORTED_DOCUMENT_TYPES = ["pdf", "docx", "xlsx", "xls", ...PLAIN_TEXT_TYPES];
-
 // Images of handwritten/printed notes: no embedded text to parse, so they're
 // sent to the OCR vision model (src/library/ocrClient.ts) and the returned
 // transcription is treated as the document's text. Kept in sync with the
 // image extensions accepted by the upload UIs (notes page + ResourcePreview).
 export const IMAGE_FILE_TYPES = ["png", "jpg", "jpeg", "webp"];
+
+// File types the AI assistant can actually read/index. Kept in sync with the
+// extraction dispatch below — anything not listed here degrades to a clear
+// "not supported yet" message instead of silently failing.
+export const SUPPORTED_DOCUMENT_TYPES = ["pdf", "docx", "xlsx", "xls", ...PLAIN_TEXT_TYPES, ...IMAGE_FILE_TYPES];
+
 
 async function extractDocxText(fullUrl: string): Promise<string> {
   const mammoth = (await import("mammoth")).default;
