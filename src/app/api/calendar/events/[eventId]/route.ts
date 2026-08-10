@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import { getUidFromRequest, updateEvent, deleteEvent } from "@/src/library/googleCalendar";
+import { getUidFromRequest } from "@/src/library/firestoreRest";
+import { updateEvent, deleteEvent } from "@/src/library/googleCalendar";
 
 export async function PATCH(
   req: NextRequest,

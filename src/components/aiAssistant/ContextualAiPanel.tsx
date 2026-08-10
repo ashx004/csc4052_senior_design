@@ -15,6 +15,7 @@ import { createPortal } from "react-dom";
 import { ChevronDown, Send, Sparkles, Loader2,Maximize2,Minimize2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import type { PageContext, SuggestionItem } from "@/src/library/Contextual_AI/contextualAi";
+import { getPanelChatSession, subscribeToPanelChatSession } from "@/src/library/chatMemory";
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -36,6 +37,14 @@ type Props = {
   pageContext: PageContext;
   /** Chat context object (same shape the full AI Assistant sends) */
   chatContext: Record<string, unknown>;
+  /**
+   * Stable identity for "the conversation about this piece of content"
+   * (e.g. `quiz:${quizId}`, `flashcard:${documentId}`) — lets the server
+   * persist and later re-serve this conversation under
+   * users/{uid}/panelChatSessions/{panelContextKey}, so it survives the
+   * user closing the drawer or leaving the page before a reply finishes.
+   */
+  panelContextKey: string;
   /** Ref to the launcher button, for returning focus on close */
   launcherRef?: React.RefObject<HTMLButtonElement | null>;
 };
@@ -49,6 +58,7 @@ export default function ContextualAiPanel({
   suggestions,
   pageContext,
   chatContext,
+  panelContextKey,
   launcherRef,
 }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -61,6 +71,42 @@ export default function ContextualAiPanel({
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // Which panelContextKey `messages` currently reflects — avoids re-seeding
+  // from Firestore (clobbering an in-progress local conversation) every
+  // time the drawer is reopened for the same content.
+  const loadedKeyRef = useRef<string | null>(null);
+  const generatingWatchRef = useRef<(() => void) | null>(null);
+
+  const userId = typeof chatContext.userId === "string" ? chatContext.userId : undefined;
+
+  // Seed prior messages for this piece of content the first time the
+  // drawer opens for it, and watch live if the server's still generating
+  // a reply from before the user last left (e.g. closed the drawer or
+  // navigated away mid-answer).
+  useEffect(() => {
+    if (!open || !userId || !panelContextKey || loadedKeyRef.current === panelContextKey) return;
+    loadedKeyRef.current = panelContextKey;
+
+    getPanelChatSession(userId, panelContextKey)
+      .then((session) => {
+        if (!session || loadedKeyRef.current !== panelContextKey) return;
+        setMessages(session.messages.map((m) => ({ role: m.role, content: m.text })));
+        if (session.generating) {
+          generatingWatchRef.current = subscribeToPanelChatSession(userId, panelContextKey, (updated) => {
+            setMessages(updated.messages.map((m) => ({ role: m.role, content: m.text })));
+            if (!updated.generating) {
+              generatingWatchRef.current?.();
+              generatingWatchRef.current = null;
+            }
+          });
+        }
+      })
+      .catch((error) => console.error("Error loading panel chat session:", error));
+  }, [open, userId, panelContextKey]);
+
+  useEffect(() => {
+    return () => generatingWatchRef.current?.();
+  }, []);
 
   // Auto-scroll on new content
   useEffect(() => {
@@ -95,6 +141,12 @@ export default function ContextualAiPanel({
       const trimmed = text.trim();
       if (!trimmed || isStreaming) return;
 
+      // A message the user is actively sending makes this stream
+      // authoritative — stop watching a previous resumed-live generation
+      // so it can't race the local updates below.
+      generatingWatchRef.current?.();
+      generatingWatchRef.current = null;
+
       const userMsg: ChatMessage = { role: "user", content: trimmed };
       const assistantMsg: ChatMessage = { role: "assistant", content: "" };
 
@@ -123,6 +175,7 @@ export default function ContextualAiPanel({
             messages: allMessages,
             context: chatContext,
             pageContext,
+            panelContextKey,
           }),
           signal: controller.signal,
         });
@@ -226,7 +279,7 @@ export default function ContextualAiPanel({
         abortRef.current = null;
       }
     },
-    [messages, isStreaming, chatContext, pageContext]
+    [messages, isStreaming, chatContext, pageContext, panelContextKey]
   );
 
   // ─── Handlers ───────────────────────────────────────────────
