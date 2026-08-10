@@ -1,4 +1,5 @@
 import { extractPdfTextFromUrl, fetchInternal } from "./pdfExtract";
+import { ocrImage } from "./ocrClient";
 
 // Plain-text/code types — same set the upload/preview flow already accepts
 // (see CODE_TYPES in ResourcePreview.tsx), just read as raw text, no parser
@@ -12,6 +13,12 @@ const PLAIN_TEXT_TYPES = [
 // extraction dispatch below — anything not listed here degrades to a clear
 // "not supported yet" message instead of silently failing.
 export const SUPPORTED_DOCUMENT_TYPES = ["pdf", "docx", "xlsx", "xls", ...PLAIN_TEXT_TYPES];
+
+// Images of handwritten/printed notes: no embedded text to parse, so they're
+// sent to the OCR vision model (src/library/ocrClient.ts) and the returned
+// transcription is treated as the document's text. Kept in sync with the
+// image extensions accepted by the upload UIs (notes page + ResourcePreview).
+export const IMAGE_FILE_TYPES = ["png", "jpg", "jpeg", "webp"];
 
 async function extractDocxText(fullUrl: string): Promise<string> {
   const mammoth = (await import("mammoth")).default;
@@ -48,11 +55,20 @@ async function extractPlainText(fullUrl: string): Promise<string> {
   return (await fileResponse.text()).trim();
 }
 
+async function extractImageText(fullUrl: string): Promise<string> {
+  const fileResponse = await fetchInternal(fullUrl);
+  if (!fileResponse.ok) {
+    throw new Error(`Failed to download image (${fileResponse.status})`);
+  }
+  const imageBuffer = Buffer.from(await fileResponse.arrayBuffer());
+  return ocrImage(imageBuffer);
+}
+
 // Dispatches to the right extractor by file type — pdf-parse for PDFs
 // (already used elsewhere), mammoth for Word docs, SheetJS for spreadsheets,
-// plain-text read for code/txt files. Same libraries the resource viewer
-// already uses client-side, just run server-side here so the AI can
-// read/search/index the same file types.
+// plain-text read for code/txt files, and the OCR vision model for images.
+// Same libraries the resource viewer already uses client-side, just run
+// server-side here so the AI can read/search/index the same file types.
 export async function extractDocumentText(fullUrl: string, fileType: string): Promise<string> {
   switch (fileType) {
     case "pdf":
@@ -63,6 +79,9 @@ export async function extractDocumentText(fullUrl: string, fileType: string): Pr
     case "xls":
       return extractXlsxText(fullUrl);
     default:
+      if (IMAGE_FILE_TYPES.includes(fileType)) {
+        return extractImageText(fullUrl);
+      }
       if (PLAIN_TEXT_TYPES.includes(fileType)) {
         return extractPlainText(fullUrl);
       }

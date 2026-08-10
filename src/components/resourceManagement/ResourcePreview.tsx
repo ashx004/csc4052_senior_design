@@ -21,6 +21,7 @@ import { // import symbols
     FileCode,
     FileArchive,
     FileSpreadsheet,
+    FileImage,
     Presentation,
     BookOpen,
     Loader2,
@@ -96,16 +97,18 @@ const CODE_TYPES = {
 type CodeType = keyof typeof CODE_TYPES;
 
 // other supported file types
-export type FileType = CodeType | "pdf" | "docx" | "zip" | "pptx" | "one" | "xlsx";
+export type FileType = CodeType | "pdf" | "docx" | "zip" | "pptx" | "one" | "xlsx" | "image";
 // "download only" formats — no in-browser rendering attempted, since there's
 const DOWNLOAD_ONLY_TYPES: FileType[] = ["zip", "pptx", "one"];
-const NON_CODE_META: Record<"pdf" | "docx" | "zip" | "pptx" | "one" | "xlsx", { label: string; color: string; bg: string }> = {
+const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp"];
+const NON_CODE_META: Record<"pdf" | "docx" | "zip" | "pptx" | "one" | "xlsx" | "image", { label: string; color: string; bg: string }> = {
     pdf: { label: "PDF", color: "#B85C45", bg: "#FBEAE7" },
     docx: { label: "DOCX", color: "#4A6FA5", bg: "#E8EEF9" },
     zip: { label: "ZIP", color: "#8A6D3B", bg: "#F5EEDC" },
     pptx: { label: "PPTX", color: "#C1440E", bg: "#FBE9E1" },
     one: { label: "ONE", color: "#7C3F00", bg: "#F5E9DC" },
     xlsx: { label: "XLSX", color: "#1D6F42", bg: "#E5F3EA" },
+    image: { label: "IMG", color: "#5B7A99", bg: "#E8F0F7" },
 };
 
 const TYPE_META: Record<FileType, { label: string; color: string; bg: string }> = {
@@ -123,9 +126,17 @@ const VALID_FILE_TYPES: FileType[] = [
     "pptx",
     "one",
     "xlsx",
+    "image",
 ];
 
-const ACCEPT_ATTR = VALID_FILE_TYPES.map((t) => `.${t}`).join(",");
+// The `image` FileType maps to several real extensions, so the picker's
+// accept attribute can't just prefix VALID_FILE_TYPES with dots.
+const ACCEPT_ATTR = [
+    ...VALID_FILE_TYPES.filter((t) => t !== "image"),
+    ...IMAGE_EXTENSIONS,
+]
+    .map((t) => `.${t}`)
+    .join(",");
 const PAGE_SIZE = 9;
 
 export interface Resource {
@@ -150,6 +161,7 @@ function getFileType(fileName: string): FileType | null {
     if (ext in CODE_TYPES) return ext as CodeType;
     if (ext === "pdf" || ext === "docx" || ext === "zip" || ext === "pptx" || ext === "one") return ext;
     if (ext === "xlsx" || ext === "xls") return "xlsx";
+    if (IMAGE_EXTENSIONS.includes(ext)) return "image";
     return null;
 }
 
@@ -162,6 +174,19 @@ type ThumbnailData = { kind: "image" | "text"; content: string };
 
 async function generateThumbnail(resource: Resource): Promise<ThumbnailData | null> {
     try {
+        if (resource.fileType === "image") {
+            const res = await fetch(resource.url);
+            if (!res.ok) return null;
+            const blob = await res.blob();
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result as string);
+                reader.onerror = () => reject(new Error("Failed to read image"));
+                reader.readAsDataURL(blob);
+            });
+            return { kind: "image", content: dataUrl };
+        }
+
         if (resource.fileType === "pdf") {
             const pdfjsLib = await import("pdfjs-dist");
             pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
@@ -280,6 +305,8 @@ function FileThumbnail({
             <BookOpen size={20} />
         ) : fileType === "xlsx" ? (
             <FileSpreadsheet size={20} />
+        ) : fileType === "image" ? (
+            <FileImage size={20} />
         ) : fileType === "pdf" || fileType === "docx" ? (
             <FileText size={20} />
         ) : (
@@ -473,7 +500,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
 
         const type = previewResource.fileType;
 
-        if (type === "pdf" || DOWNLOAD_ONLY_TYPES.includes(type)) {
+        if (type === "pdf" || DOWNLOAD_ONLY_TYPES.includes(type) || type === "image") {
             setPreviewLoading(false);
             setPreviewError(null);
             return;
@@ -1078,6 +1105,14 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                         <div className="relative flex-1 overflow-auto bg-bg-container">
                             {previewResource.fileType === "pdf" ? (
                                 <iframe src={previewResource.url} title={previewResource.name} className="h-full w-full" />
+                            ) : previewResource.fileType === "image" ? (
+                                <div className="flex h-full items-center justify-center bg-bg-main p-6">
+                                    <img
+                                        src={previewResource.url}
+                                        alt={previewResource.name}
+                                        className="max-h-full max-w-full rounded-lg object-contain shadow-sm"
+                                    />
+                                </div>
                             ) : DOWNLOAD_ONLY_TYPES.includes(previewResource.fileType) ? (
                                 <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
                                     {previewResource.fileType === "pptx" ? (
