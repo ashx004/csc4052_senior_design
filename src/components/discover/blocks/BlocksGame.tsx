@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   closestCenter,
   DndContext,
   PointerSensor,
+  pointerWithin,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
   type DragOverEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import { Loader2, Trophy } from "lucide-react";
 import {
@@ -19,6 +22,14 @@ import {
   hasAnyValidPlacement,
   placeShape,
 } from "@/src/library/discover/blocksLogic";
+import {
+  grabCellFromPointer,
+  PIECE_GLYPH_PADDING_PX,
+  placementAnchor,
+  shapeGridSize,
+  snapGrabToNearestFilledCell,
+  type CellOffset,
+} from "@/src/library/discover/blocksDragAnchor";
 import { getRandomHand } from "@/src/library/discover/blocksShapes";
 import { playCorrect, playMove, playPlace } from "@/src/library/discover/blocksSounds";
 import { buildBlocksPool, needsTopUp, pickNextQuestion, topUpPool } from "@/src/library/discover/blocksPool";
@@ -48,6 +59,24 @@ interface CellDropData {
   col: number;
 }
 
+/**
+ * Prefer the cell under the pointer so the hover cell matches the grab point;
+ * fall back to closestCenter when the pointer isn't inside any cell yet.
+ */
+const blocksCollisionDetection: CollisionDetection = (args) => {
+  const pointerHits = pointerWithin(args);
+  if (pointerHits.length > 0) return pointerHits;
+  return closestCenter(args);
+};
+
+function clientPointFromEvent(event: Event): { x: number; y: number } | null {
+  if ("clientX" in event && "clientY" in event) {
+    const { clientX, clientY } = event as PointerEvent;
+    if (typeof clientX === "number" && typeof clientY === "number") return { x: clientX, y: clientY };
+  }
+  return null;
+}
+
 export default function BlocksGame({ uid, onGameOver, isMuted = false }: BlocksGameProps) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [board, setBoard] = useState<Board>(() => createEmptyBoard());
@@ -59,6 +88,7 @@ export default function BlocksGame({ uid, onGameOver, isMuted = false }: BlocksG
   const [servedIds, setServedIds] = useState<Set<string>>(new Set());
   const [currentQuestion, setCurrentQuestion] = useState<BlocksQuestion | null>(null);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
+  const grabOffsetRef = useRef<CellOffset>({ row: 0, col: 0 });
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
@@ -132,8 +162,30 @@ export default function BlocksGame({ uid, onGameOver, isMuted = false }: BlocksG
     maybeTopUp(currentPool, servedForNext);
   };
 
-  const handleDragStart = () => {
+  const handleDragStart = (event: DragStartEvent) => {
     if (!isMuted) playMove();
+
+    const piece = hand.find((p) => `piece-${p.instanceId}` === event.active.id);
+    const initial = event.active.rect.current.initial;
+    const point = clientPointFromEvent(event.activatorEvent);
+    if (!piece || !initial || !point) {
+      grabOffsetRef.current = { row: 0, col: 0 };
+      return;
+    }
+
+    const { rows, cols } = shapeGridSize(piece.shape);
+    const rawGrab = grabCellFromPointer({
+      pointerX: point.x,
+      pointerY: point.y,
+      left: initial.left,
+      top: initial.top,
+      width: initial.width,
+      height: initial.height,
+      paddingPx: PIECE_GLYPH_PADDING_PX,
+      rows,
+      cols,
+    });
+    grabOffsetRef.current = snapGrabToNearestFilledCell(rawGrab, piece.shape);
   };
 
   const handleDragOver = (event: DragOverEvent) => {
@@ -148,14 +200,12 @@ export default function BlocksGame({ uid, onGameOver, isMuted = false }: BlocksG
       setDragPreview(null);
       return;
     }
-    if (!canPlace(piece.shape, cellData.row, cellData.col, board)) {
-      setDragPreview(null);
-      return;
-    }
+    const { anchorRow, anchorCol } = placementAnchor(cellData.row, cellData.col, grabOffsetRef.current);
     setDragPreview({
       shape: piece.shape,
-      anchorRow: cellData.row,
-      anchorCol: cellData.col,
+      anchorRow,
+      anchorCol,
+      valid: canPlace(piece.shape, anchorRow, anchorCol, board),
     });
   };
 
@@ -167,10 +217,11 @@ export default function BlocksGame({ uid, onGameOver, isMuted = false }: BlocksG
     const piece = hand.find((p) => `piece-${p.instanceId}` === active.id);
     const cellData = over.data.current as CellDropData | undefined;
     if (!piece || !cellData) return;
-    if (!canPlace(piece.shape, cellData.row, cellData.col, board)) return; // invalid drop — piece just stays in hand
+    const { anchorRow, anchorCol } = placementAnchor(cellData.row, cellData.col, grabOffsetRef.current);
+    if (!canPlace(piece.shape, anchorRow, anchorCol, board)) return; // invalid drop — piece just stays in hand
 
     if (!isMuted) playPlace();
-    let nextBoard = placeShape(piece.shape, cellData.row, cellData.col, board, piece.color);
+    let nextBoard = placeShape(piece.shape, anchorRow, anchorCol, board, piece.color);
     const newScore = score + piece.shape.cells.length;
     setScore(newScore);
 
@@ -240,7 +291,7 @@ export default function BlocksGame({ uid, onGameOver, isMuted = false }: BlocksG
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCenter}
+      collisionDetection={blocksCollisionDetection}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
