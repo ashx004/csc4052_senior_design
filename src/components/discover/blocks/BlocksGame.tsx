@@ -1,26 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  closestCenter,
   DndContext,
+  DragOverlay,
+  pointerWithin,
   PointerSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
-  type DragOverEvent,
+  type DragMoveEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import { Loader2, Trophy } from "lucide-react";
 import {
-  canPlace,
   clearLines,
   createEmptyBoard,
   getFullLines,
   hasAnyValidPlacement,
+  measureBoardCellMetrics,
   placeShape,
+  resolveDropAnchor,
+  type RectLike,
 } from "@/src/library/discover/blocksLogic";
 import { getRandomHand } from "@/src/library/discover/blocksShapes";
-import { playCorrect, playMove, playPlace } from "@/src/library/discover/blocksSounds";
+import { playClear, playCorrect, playMove, playPlace } from "@/src/library/discover/blocksSounds";
 import { buildBlocksPool, needsTopUp, pickNextQuestion, topUpPool } from "@/src/library/discover/blocksPool";
 import { getBlocksHighScore, setBlocksHighScoreIfBeaten } from "@/src/library/gameStats";
 import {
@@ -32,6 +36,7 @@ import {
   type HandPiece,
 } from "@/src/library/discover/blocksTypes";
 import BlocksBoard from "./BlocksBoard";
+import BlocksDragOverlayPiece from "./BlocksDragOverlayPiece";
 import BlocksPieceTray from "./BlocksPieceTray";
 import BlocksQuestionPanel from "./BlocksQuestionPanel";
 
@@ -43,9 +48,14 @@ interface BlocksGameProps {
 
 type Phase = "loading" | "placing" | "answering" | "ending";
 
-interface CellDropData {
-  row: number;
-  col: number;
+function getPieceCellRect(dr: number, dc: number): RectLike | null {
+  const el = document.querySelector(`#blocks-drag-overlay [data-cell-row="${dr}"][data-cell-col="${dc}"]`);
+  return el ? el.getBoundingClientRect() : null;
+}
+
+function getBoardCellRect(row: number, col: number): RectLike | null {
+  const el = document.querySelector(`[data-row="${row}"][data-col="${col}"]`);
+  return el ? el.getBoundingClientRect() : null;
 }
 
 export default function BlocksGame({ uid, onGameOver, isMuted = false }: BlocksGameProps) {
@@ -59,6 +69,9 @@ export default function BlocksGame({ uid, onGameOver, isMuted = false }: BlocksG
   const [servedIds, setServedIds] = useState<Set<string>>(new Set());
   const [currentQuestion, setCurrentQuestion] = useState<BlocksQuestion | null>(null);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
+  const [activePiece, setActivePiece] = useState<HandPiece | null>(null);
+  const [boardCellMetrics, setBoardCellMetrics] = useState<{ size: number; gap: number } | null>(null);
+  const latestAnchorRef = useRef<{ row: number; col: number } | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
@@ -132,51 +145,61 @@ export default function BlocksGame({ uid, onGameOver, isMuted = false }: BlocksG
     maybeTopUp(currentPool, servedForNext);
   };
 
-  const handleDragStart = () => {
+  const handleDragStart = (event: DragStartEvent) => {
     if (!isMuted) playMove();
+    const piece = hand.find((p) => `piece-${p.instanceId}` === event.active.id);
+    setActivePiece(piece ?? null);
+    setBoardCellMetrics(measureBoardCellMetrics());
   };
 
-  const handleDragOver = (event: DragOverEvent) => {
+  const handleDragCancel = () => {
+    setDragPreview(null);
+    setActivePiece(null);
+    setBoardCellMetrics(null);
+    latestAnchorRef.current = null;
+  };
+
+  const handleDragMove = (event: DragMoveEvent) => {
     const { active, over } = event;
     if (!over) {
+      latestAnchorRef.current = null;
       setDragPreview(null);
       return;
     }
     const piece = hand.find((p) => `piece-${p.instanceId}` === active.id);
-    const cellData = over.data.current as CellDropData | undefined;
-    if (!piece || !cellData) {
+    if (!piece) {
+      latestAnchorRef.current = null;
       setDragPreview(null);
       return;
     }
-    if (!canPlace(piece.shape, cellData.row, cellData.col, board)) {
+    const anchor = resolveDropAnchor(piece.shape, getPieceCellRect, getBoardCellRect, board);
+    latestAnchorRef.current = anchor;
+    if (!anchor) {
       setDragPreview(null);
       return;
     }
-    setDragPreview({
-      shape: piece.shape,
-      anchorRow: cellData.row,
-      anchorCol: cellData.col,
-    });
+    setDragPreview({ shape: piece.shape, anchorRow: anchor.row, anchorCol: anchor.col });
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
+    const anchor = latestAnchorRef.current;
     setDragPreview(null);
-    const { active, over } = event;
-    if (!over) return;
+    setActivePiece(null);
+    setBoardCellMetrics(null);
+    latestAnchorRef.current = null;
 
-    const piece = hand.find((p) => `piece-${p.instanceId}` === active.id);
-    const cellData = over.data.current as CellDropData | undefined;
-    if (!piece || !cellData) return;
-    if (!canPlace(piece.shape, cellData.row, cellData.col, board)) return; // invalid drop — piece just stays in hand
+    const piece = hand.find((p) => `piece-${p.instanceId}` === event.active.id);
+    if (!piece || !anchor) return; // invalid drop — piece just stays in hand
 
     if (!isMuted) playPlace();
-    let nextBoard = placeShape(piece.shape, cellData.row, cellData.col, board, piece.color);
+    let nextBoard = placeShape(piece.shape, anchor.row, anchor.col, board, piece.color);
     const newScore = score + piece.shape.cells.length;
     setScore(newScore);
 
     const { rows, cols } = getFullLines(nextBoard);
     if (rows.length > 0 || cols.length > 0) {
       nextBoard = clearLines(nextBoard, rows, cols);
+      if (!isMuted) playClear();
     }
     setBoard(nextBoard);
 
@@ -240,10 +263,11 @@ export default function BlocksGame({ uid, onGameOver, isMuted = false }: BlocksG
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCenter}
+      collisionDetection={pointerWithin}
       onDragStart={handleDragStart}
-      onDragOver={handleDragOver}
+      onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
     >
       <div className="flex min-h-[calc(100vh-120px)] items-start justify-center pt-8 md:pt-12">
         <div className="mx-auto flex max-w-4xl flex-col gap-6 md:flex-row md:items-start">
@@ -272,6 +296,11 @@ export default function BlocksGame({ uid, onGameOver, isMuted = false }: BlocksG
           </div>
         </div>
       </div>
+      <DragOverlay>
+        {activePiece && boardCellMetrics ? (
+          <BlocksDragOverlayPiece piece={activePiece} cellSize={boardCellMetrics.size} gap={boardCellMetrics.gap} />
+        ) : null}
+      </DragOverlay>
     </DndContext>
   );
 }
