@@ -11,12 +11,12 @@ import "katex/dist/katex.min.css";
 import { useAuth } from "@/src/context/AuthContext";
 import { buildChatContext, ChatContext } from "@/src/library/chatContext";
 import {
-  createChatSession,
-  deriveChatTitle,
+  addLocalMessage,
   getChatSession,
-  saveChatState,
+  subscribeToChatSession,
   StoredChatMessage,
 } from "@/src/library/chatMemory";
+import { deriveChatTitle } from "@/src/library/chatTitle";
 import ChatUploadModal from "@/src/components/aiAssistant/ChatUploadModal";
 import ChatHistoryPanel from "@/src/components/aiAssistant/ChatHistoryPanel";
 import { readChatStream, TOOL_STATUS_LABELS } from "@/src/library/chatStream";
@@ -234,6 +234,13 @@ function AIAssistantPageContent() {
   const summaryRef = useRef("");
   const summarizedCountRef = useRef(0);
   const titleRef = useRef("");
+  // Watches a still-generating session live after loadSession resumes it —
+  // see the generating-flag handling there. Only ever one at a time.
+  const generatingWatchRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => generatingWatchRef.current?.();
+  }, []);
 
   useEffect(() => {
     const SpeechRecognition =
@@ -350,6 +357,8 @@ function AIAssistantPageContent() {
       setShowHistoryPanel(false);
       return;
     }
+    generatingWatchRef.current?.();
+    generatingWatchRef.current = null;
     try {
       const session = await getChatSession(user.uid, id);
       if (!session) return;
@@ -366,29 +375,24 @@ function AIAssistantPageContent() {
       setInput("");
       setErrorText(null);
       updateSessionUrl(session.id);
+
+      // Reopened a session while the server was still generating its
+      // latest reply in the background (e.g. the user left mid-answer) —
+      // watch it live instead of leaving a stale empty bubble until a
+      // manual refresh.
+      if (session.generating) {
+        generatingWatchRef.current = subscribeToChatSession(user.uid, session.id, (updated) => {
+          setMessages(updated.messages);
+          if (!updated.generating) {
+            generatingWatchRef.current?.();
+            generatingWatchRef.current = null;
+          }
+        });
+      }
     } catch (error) {
       console.error("Error loading chat session:", error);
     } finally {
       setShowHistoryPanel(false);
-    }
-  }
-
-  async function persist(nextMessages: ChatMessage[]) {
-    if (!user) return;
-    try {
-      if (!sessionId.current) {
-        sessionId.current = await createChatSession(user.uid);
-        setActiveSessionId(sessionId.current);
-        updateSessionUrl(sessionId.current);
-      }
-      await saveChatState(user.uid, sessionId.current, {
-        messages: nextMessages,
-        summary: summaryRef.current,
-        summarizedCount: summarizedCountRef.current,
-        title: titleRef.current,
-      });
-    } catch (error) {
-      console.error("Error saving chat session:", error);
     }
   }
 
@@ -399,6 +403,12 @@ function AIAssistantPageContent() {
     if (!trimmed || isSending) {
       return;
     }
+
+    // Sending a new message makes the just-submitted stream authoritative
+    // for this session's state — stop watching a previous resumed-live
+    // generation so it can't race the local updates below.
+    generatingWatchRef.current?.();
+    generatingWatchRef.current = null;
 
     const userMessage: ChatMessage = {
       id: nextId.current++,
@@ -468,6 +478,13 @@ function AIAssistantPageContent() {
           chatStatus.tool(TOOL_STATUS_LABELS[event.name] || "Working on it...");
         } else if (event.type === "status") {
           chatStatus.progress(event.label);
+        } else if (event.type === "session") {
+          // Brand-new session — the server already created its Firestore
+          // doc (see startChatPersistence in api/chat/route.ts), so just
+          // adopt the ID rather than creating one ourselves.
+          sessionId.current = event.id;
+          setActiveSessionId(event.id);
+          updateSessionUrl(event.id);
         } else if (event.type === "done") {
           if (event.documentsRead?.length) documentsRead = event.documentsRead;
           if (event.generatedFiles?.length) generatedFiles = event.generatedFiles;
@@ -485,13 +502,13 @@ function AIAssistantPageContent() {
         throw new Error(streamError || "The assistant didn't generate a response. Please try again.");
       }
 
+      // The server already persisted the finished reply (see the route's
+      // finally block) — this just reflects it locally for whoever's still
+      // watching this tab.
       const finalMessage: ChatMessage = { id: assistantId, role: "assistant", text };
       if (documentsRead) finalMessage.documentsRead = documentsRead;
       if (generatedFiles) finalMessage.generatedFiles = generatedFiles;
-
-      const withReply = [...nextMessages, finalMessage];
-      setMessages(withReply);
-      persist(withReply);
+      setMessages([...nextMessages, finalMessage]);
 
       if (streamError) setErrorText(streamError);
     } catch (error) {
@@ -508,6 +525,8 @@ function AIAssistantPageContent() {
   }
 
   function handleNewChat() {
+    generatingWatchRef.current?.();
+    generatingWatchRef.current = null;
     setHasStarted(false);
     setInput("");
     setMessages([]);
@@ -542,7 +561,22 @@ function AIAssistantPageContent() {
     const nextMessages = [...messages, notice];
     setMessages(nextMessages);
     setHasStarted(true);
-    persist(nextMessages);
+
+    if (user) {
+      addLocalMessage(user.uid, sessionId.current, nextMessages, {
+        summary: summaryRef.current,
+        summarizedCount: summarizedCountRef.current,
+        title: titleRef.current,
+      })
+        .then((id) => {
+          if (!sessionId.current) {
+            sessionId.current = id;
+            setActiveSessionId(id);
+            updateSessionUrl(id);
+          }
+        })
+        .catch((error) => console.error("Error saving upload notice:", error));
+    }
 
     if (user?.email) {
       chatContextPromiseRef.current = buildChatContext(user.uid, user.email)

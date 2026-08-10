@@ -5,6 +5,7 @@ import {
   fetchInternal,
   resolveInternalUrl,
 } from '@/src/library/pdfExtract';
+import { resolveOllamaBaseUrl } from '@/src/library/ollamaClient';
 
 const FlashcardResponseSchema = z.object({
   topicName: z
@@ -76,11 +77,16 @@ Rules:
 // is enforced via Ollama's `format` field (a JSON schema) instead of relying
 // on prompt instructions alone.
 async function callOllamaForFlashcards(messages: unknown[]): Promise<Response> {
+  const baseUrl = await resolveOllamaBaseUrl(
+    process.env.OLLAMA_PRIMARY_URL!,
+    process.env.OLLAMA_PRIMARY_FALLBACK_URL
+  );
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
 
   try {
-    return await fetch(`${process.env.OLLAMA_PRIMARY_URL}/api/chat`, {
+    return await fetch(`${baseUrl}/api/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
