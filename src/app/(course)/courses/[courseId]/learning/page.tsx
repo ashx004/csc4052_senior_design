@@ -361,7 +361,7 @@ export default function CourseLearningPage() {
     <div className="min-h-screen bg-[#FAFAF8]">
       {/* Header */}
       <div className="flex h-[60px] items-center justify-between border-b border-border-light px-14">
-        <div className="flex translate-y-3 items-center gap-3">
+        <div className="ml-4 flex translate-y-3 items-center gap-3">
           <button
             onClick={() => router.back()}
             className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors"
