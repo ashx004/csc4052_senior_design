@@ -17,7 +17,7 @@ export async function embedTexts(texts: string[], signal?: AbortSignal): Promise
     },
     signal,
     body: JSON.stringify({
-      model: process.env.OLLAMA_EMBED_MODEL || "qwen3-embedding:latest",
+      model: process.env.OLLAMA_EMBED_MODEL || "nomic-embed-text:latest",
       input: texts,
     }),
   });

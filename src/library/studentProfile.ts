@@ -1,6 +1,7 @@
 import { doc, getDoc, updateDoc, serverTimestamp, deleteField, Timestamp } from "firebase/firestore";
 import { db } from "./firebase";
 import { resolveOllamaBaseUrl } from "./ollamaClient";
+import { stripThinkLeak } from "./stripThinkLeak";
 
 // The "Core memory" tier of a small, tiered memory system — a short,
 // always-loaded profile of durable facts about a student (academic/career
@@ -97,6 +98,11 @@ export async function maybeUpdateStudentProfile(
       body: JSON.stringify({
         model: process.env.OLLAMA_SUMMARY_MODEL || "qwen3:4b",
         stream: false,
+        // qwen3:4b ignores this at the model-weights level (confirmed via
+        // direct testing) - stripThinkLeak below is the real fix; setting
+        // this explicitly still costs nothing and helps any future model
+        // swapped into OLLAMA_SUMMARY_MODEL that does respect it.
+        think: false,
         options: { temperature: 0.2 },
         messages: [
           {
@@ -115,7 +121,7 @@ export async function maybeUpdateStudentProfile(
     if (!response.ok) throw new Error(`Profile update request failed (${response.status})`);
 
     const data = await response.json();
-    const newSummary = (data?.message?.content || "").trim();
+    const newSummary = stripThinkLeak(data?.message?.content || "").trim();
 
     if (newSummary) {
       await updateDoc(doc(db, "users", userId), {

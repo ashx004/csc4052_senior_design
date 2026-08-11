@@ -79,10 +79,12 @@ export async function POST(request: NextRequest) {
       text = text.slice(0, MAX_INDEXABLE_CHARS);
     }
 
-    const rawChunks = chunkText(text);
-    if (rawChunks.length === 0) {
+    const rawChunkObjs = chunkText(text);
+    if (rawChunkObjs.length === 0) {
       return NextResponse.json({ skipped: true, reason: "No extractable text." });
     }
+    const rawChunks = rawChunkObjs.map((c) => c.text);
+    const pages = rawChunkObjs.map((c) => c.page);
 
     const { signal, cancel } = createTimeoutSignal(INDEXING_TIMEOUT_MS, `Indexing "${resource.name}"`);
     try {
@@ -110,6 +112,10 @@ export async function POST(request: NextRequest) {
           text: chunkValue,
           embedding: chunks.embeddings[index],
           chunkIndex: index,
+          // Firestore rejects `undefined` field values outright, unlike
+          // Qdrant below — null is the correct "no page" representation
+          // here for non-PDF sources.
+          page: pages[index] ?? null,
         });
       });
       await chunksBatch.commit();
@@ -127,7 +133,14 @@ export async function POST(request: NextRequest) {
           chunks.contextualized.map((chunkValue, index) => ({
             id: chunkPointId(resourceId, index),
             vector: chunks.embeddings[index],
-            payload: { userId, courseId, resourceId, chunkIndex: index, text: chunkValue },
+            payload: {
+              userId,
+              courseId,
+              resourceId,
+              chunkIndex: index,
+              text: chunkValue,
+              ...(pages[index] !== undefined ? { page: pages[index] } : {}),
+            },
           }))
         );
         vectorIndexed = true;
