@@ -442,6 +442,7 @@ export default function FlashcardsPage() {
             suggestions={catalystSuggestions}
             pageContext={flashcardPageContext}
             chatContext={catalystChatContext}
+            panelContextKey={`flashcard:${setId || docId}`}
             launcherRef={catalystBtnRef}
           />
         </>

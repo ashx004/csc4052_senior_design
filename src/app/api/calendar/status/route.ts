@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getUidFromRequest, firestoreGet } from "@/src/library/googleCalendar";
+import { getUidFromRequest, firestoreGet } from "@/src/library/firestoreRest";
 
 export async function GET(req: NextRequest) {
   const uid = await getUidFromRequest(req);

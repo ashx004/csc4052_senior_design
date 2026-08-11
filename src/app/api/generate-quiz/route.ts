@@ -6,6 +6,7 @@ import {
   fetchInternal,
   resolveInternalUrl,
 } from '@/src/library/pdfExtract';
+import { resolveOllamaBaseUrl } from '@/src/library/ollamaClient';
 import { verifyRequestAuth } from '@/src/library/verifyAuth';
 import { stripThinkLeak } from '@/src/library/stripThinkLeak';
 
@@ -109,6 +110,11 @@ async function callOllama(
     );
   }
 
+  const baseUrl = await resolveOllamaBaseUrl(
+    ollamaUrl,
+    process.env.OLLAMA_PRIMARY_FALLBACK_URL
+  );
+
   const controller = new AbortController();
   const timeoutId = setTimeout(
     () => controller.abort(),
@@ -117,7 +123,7 @@ async function callOllama(
 
   try {
     const response = await fetch(
-      `${ollamaUrl.replace(/\/$/, '')}/api/chat`,
+      `${baseUrl.replace(/\/$/, '')}/api/chat`,
       {
         method: 'POST',
         headers: {
