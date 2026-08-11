@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PutObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
+import { PutObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { getMinioClient } from "@/src/library/minioClient";
 
 /* Basically in here the transcript and curriculum sheet are being received.
@@ -50,12 +50,12 @@ async function uploadPdf(
   return storagePath;
 }
 
-async function objectExists(storagePath: string): Promise<boolean> {
+/* async function objectExists(storagePath: string): Promise<boolean> {
   try {
     const minioClient = await getMinioClient();
 
     await minioClient.send(
-      new HeadObjectCommand({
+      new ListObjectsV2Command({
         Bucket: BUCKET_NAME,
         Key: storagePath,
       })
@@ -63,6 +63,9 @@ async function objectExists(storagePath: string): Promise<boolean> {
 
     return true;
   } catch (error: any) {
+
+    console.log("HeadObject error:", error);
+
     if (
       error?.name === "NotFound" ||
       error?.$metadata?.httpStatusCode === 404
@@ -72,6 +75,21 @@ async function objectExists(storagePath: string): Promise<boolean> {
 
     throw error;
   }
+} */
+
+async function objectExists(storagePath: string): Promise<boolean> {
+  const minioClient = await getMinioClient();
+
+  const result = await minioClient.send(
+    new ListObjectsV2Command({
+      Bucket: BUCKET_NAME,
+      Prefix: storagePath,
+    })
+  );
+
+  return result.Contents?.some(
+    (object) => object.Key === storagePath
+  ) ?? false;
 }
 
 // receive docs, validates them, & upload or replace them in MinIO

@@ -15,6 +15,7 @@ export default function AdvisingPage() {
   const [isCheckingDocuments, setIsCheckingDocuments] = useState<boolean>(true);
   const [usingExistingDocuments, setUsingExistingDocuments] = useState<boolean>(false);
   const { user, loading } = useAuth();
+  const [documentsReady, setDocumentsReady] = useState<boolean>(false);
 
   useEffect(() => {
   if (loading || !user) {
@@ -89,6 +90,83 @@ export default function AdvisingPage() {
     );
   }
 
+  if (documentsReady) {
+  return (
+    <main
+      className="min-h-screen bg-[#f7f5f1] text-[#1f2933] dark:bg-[#171717] dark:text-gray-100 px-6 py-12" >
+      <div className="mx-auto w-full max-w-4xl py-8">
+
+        {/* Welcome Section */}
+        <section
+          className="rounded-2xl border border-[#d8d3ca] bg-white p-8 shadow-sm 
+          dark:border-gray-700 dark:bg-[#202020]" >
+          <h1 className="text-3xl font-semibold">
+            Welcome to Advising
+          </h1>
+
+          <p className="mt-4 text-sm leading-6 text-gray-600 dark:text-gray-300">
+            Studora's advising feature helps you understand your academic progress and plan
+            the courses you may need to take next.
+          </p>
+
+          <p className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-300">
+            Using your transcript and curriculum sheet, Catalyst can review the courses you
+            have already taken and the courses that remain in your degree requirements to
+            create a suggested schedule for your remaining time at the university.
+          </p>
+
+          <button
+            type="button"
+            className="mt-8 rounded-lg bg-[#b08957] px-6 py-3 text-sm 
+            font-medium text-white transition hover:bg-[#9c7849]" >
+            Generate Schedule
+          </button>
+        </section>
+
+        {/* Previous Schedule Section */}
+        <section 
+          className="mt-8 rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light">
+          <div className="flex items-center justify-between gap-4">
+
+            <div>
+              <h2 className="text-xl font-semibold">
+                Previous Schedule
+              </h2>
+
+              <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                View your most recently generated advising schedule.
+              </p>
+            </div>
+
+            <div className="flex gap-4 py-4">
+              <button
+                type="button"
+                className="rounded-lg border border-[#d8d3ca] px-4 py-2 text-sm
+                  hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700" >
+                View Schedule
+              </button>
+
+              <button
+                type="button"
+                className="rounded-lg bg-[#b08957] px-4 py-2 text-sm text-white hover:bg-[#9c7849]" >
+                Regenerate Schedule
+              </button>
+            </div>
+          </div>
+
+            {/* Schedule preview area */}
+          <div
+            className="min-h-[320px] rounded-lg border border-border-light bg-bg-main px-3 py-3" >
+            <p className="text-sm text-text-muted">
+              Your generated schedule will appear here.
+            </p>
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
+
   async function testDocumentExtraction() {
     if (!user) {
       return;
@@ -97,14 +175,14 @@ export default function AdvisingPage() {
     try {
       setErrorMessage("");
 
+      const token = await user.getIdToken();
+
       const response = await fetch("/api/advising/extract", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          userId: user.uid,
-        }),
       });
 
       const data = await response.json();
@@ -115,7 +193,10 @@ export default function AdvisingPage() {
         );
       }
 
-      console.log("Extracted advising data:", data.extractedData);
+      //console.log("Extracted advising data:", data.extractedData);
+
+      console.log("Transcript:", data.transcript);
+      console.log("Curriculum:", data.curriculum);
     } catch (error) {
       setErrorMessage(
         error instanceof Error
@@ -180,7 +261,7 @@ export default function AdvisingPage() {
             setUsingExistingDocuments(true);
             setUploadSuccess(false);
             setErrorMessage("");
-
+            setDocumentsReady(true);
             await testDocumentExtraction();
         }}
         onReplace={() => {
@@ -203,7 +284,7 @@ export default function AdvisingPage() {
                 setUploadSuccess(true);
                 setUsingExistingDocuments(false);
                 setErrorMessage("");
-
+                setDocumentsReady(true);
                 await testDocumentExtraction();
           }}
         />
