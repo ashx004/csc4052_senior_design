@@ -7,8 +7,8 @@ import {
 
 // prompt im sending gemini about the pdfs //
 
-const EXTRACTION_PROMPT = `
-You are extracting structured university advising information
+const EXTRACTION_PROMPT = 
+`You are extracting structured university advising information
 from two PDF documents.
 
 DOCUMENT ORDER:
@@ -53,48 +53,64 @@ ACCURACY:
   whole page.
 `;
 
+const TRANSCIPT_PROMPT = 
+`For every course attempt, extract:
+- course code
+- course title
+- term and year
+- attempted credit hours
+- earned credit hours, when shown
+- grade
+- course status
+- transfer indicator, when shown
+- repeat indicator, when shown
+
+Ignore:
+- academic standing
+- probation
+- honors
+- cumulative standing statements
+
+Do not combine repeated attempts.
+Do not invent missing values.
+Return valid JSON only.`
+
+const CURRICULUM_PROMPT = 
+`Extract:
+- program name
+- degree name
+- catalog year
+- total degree credits
+- every required course
+- prerequisites
+- corequisites
+- choose-from-list requirements
+- every explicitly listed course option
+- how many courses or credits must be selected
+- open elective requirements
+- all concentrations
+- concentration descriptions
+- concentration required courses
+- concentration choice groups
+- concentration prerequisites
+- concentration total credits
+
+Do not invent course options that are not shown.
+Return valid JSON only.`
+
 export async function extractAdvisingDocuments(
-  transcriptBuffer: Buffer,
+  transcriptBuffer: Buffer, 
   curriculumBuffer: Buffer
-): Promise<AdvisingExtraction> {
-  const apiKey = process.env.GEMINI_API_KEY;
+) {
+  const transcriptText = await extractTextFromPdf(transcriptBuffer);
+  const curriculumText = await extractTextFromPdf(curriculumBuffer);
+  const transcriptResult = await extractTranscriptWithOllama(transcriptText);
+  const curriculumResult = await extractCurriculumWithOllama(curriculumText);
 
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is missing from the server environment.");
-  }
-
-  // const ai = new GoogleGenAI({ apiKey });
-
-  /* const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-
-    contents: [
-      {
-        inlineData: {
-          mimeType: "application/pdf",
-          data: transcriptBuffer.toString("base64"),
-        },
-      },
-      {
-        inlineData: {
-          mimeType: "application/pdf",
-          data: curriculumBuffer.toString("base64"),
-        },
-      },
-      { text: EXTRACTION_PROMPT, },
+  return advisingExtractionSchema.parse({
+    transcript: transcriptResult,
+    curriculum: curriculumResult,
+    warnings: [ ...transcriptResult.warnings, ...curriculumResult.warnings,
     ],
-
-    config: {
-      responseMimeType: "application/json",
-      responseJsonSchema: z.toJSONSchema(advisingExtractionSchema),
-    },
-  }); */
-
-  if (!response.text) {
-    throw new Error("Gemini did not return extracted advising information.");
-  }
-
-  const parsedJson: unknown = JSON.parse(response.text);
-
-  return advisingExtractionSchema.parse(parsedJson);
+  });
 }
