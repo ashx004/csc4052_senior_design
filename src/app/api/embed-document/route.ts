@@ -10,6 +10,7 @@ import { upsertChunks, chunkPointId } from "@/src/library/vectorStore";
 import { createTimeoutSignal } from "@/src/library/withTimeout";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
+import { generateCourseSummary } from "@/src/library/courseSummary";
 
 const EMBED_RATE_LIMIT_WINDOW_MS = 60_000;
 const EMBED_RATE_LIMIT_MAX = 10; // per user per window — uploads aren't normally rapid-fire
@@ -154,6 +155,13 @@ export async function POST(request: NextRequest) {
         chunkCount: chunks.contextualized.length,
         vectorIndexed,
       });
+
+      // Fire-and-forget — regenerates the course's AI summary from all its
+      // current documents, not just this one. Must never delay or fail the
+      // upload response the student is waiting on.
+      generateCourseSummary(request, userId, courseId).catch((error) =>
+        console.error("Unhandled course summary generation error:", error)
+      );
 
       return NextResponse.json({ success: true, chunkCount: chunks.contextualized.length });
     } catch (error: any) {

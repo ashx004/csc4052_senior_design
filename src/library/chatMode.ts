@@ -14,9 +14,9 @@ export type ChatMode = "fast" | "quality";
 const MODE_KEY = "chat-mode";
 
 export function getStoredChatMode(): ChatMode {
-  if (typeof localStorage === "undefined") return "fast";
+  if (typeof localStorage === "undefined") return "quality";
   const stored = localStorage.getItem(MODE_KEY);
-  return stored === "quality" ? "quality" : "fast";
+  return stored === "fast" ? "fast" : "quality";
 }
 
 export function setStoredChatMode(mode: ChatMode): void {

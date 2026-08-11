@@ -5,6 +5,7 @@ import { buildChatContext, PageAIContext } from "@/src/library/chatContext";
 import { readChatStream, TOOL_STATUS_LABELS } from "@/src/library/chatStream";
 import { useChatStatus } from "@/src/library/useChatStatus";
 import { getStoredChatMode } from "@/src/library/chatMode";
+import type { PageTextPageContext } from "@/src/library/Contextual_AI/contextualAi";
 
 export type PanelMessage = {
   id: number;
@@ -39,7 +40,18 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
     }
 
     try {
-      const context = userId && email ? { ...(await buildChatContext(userId, email)), pageContext: pageContext ?? undefined } : undefined;
+      const context = userId && email ? await buildChatContext(userId, email) : undefined;
+
+      // Converted to the same PageTextPageContext shape ContextualAiPanel's
+      // course/flashcard/quiz-result contexts use — one mechanism for
+      // turning page context into prompt text (buildPageContextPrompt in
+      // contextualAi.ts) instead of two. ambient:true preserves the old
+      // buildPageContextLayer's behavior: never volunteer this unprompted,
+      // since it's present in the background on every dashboard page
+      // regardless of what the student actually asked about.
+      const requestPageContext: PageTextPageContext | undefined = pageContext?.summary
+        ? { kind: "page_text", pageTitle: pageContext.label, pageText: pageContext.summary, ambient: true }
+        : undefined;
 
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -47,6 +59,7 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
         body: JSON.stringify({
           messages: nextMessages.map((m) => ({ role: m.role, content: m.text })),
           context,
+          pageContext: requestPageContext,
           summary: summaryRef.current,
           summarizedCount: summarizedCountRef.current,
           currentSessionId: null, // panel conversations are ephemeral, never persisted as a chatMemory session

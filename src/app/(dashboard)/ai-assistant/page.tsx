@@ -2,7 +2,7 @@
 
 import { FormEvent, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { FileDown, Globe, History, Mic, Paperclip, Zap } from "lucide-react";
+import { FileDown, Globe, History, Loader2, Mic, Paperclip, Zap } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -53,7 +53,10 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
       ) : isPending ? (
         <div className="flex items-center gap-2 rounded-2xl bg-bg-container px-5 py-4 shadow-sm ring-1 ring-border-light">
           {toolStatus ? (
-            <span className="text-sm text-text-muted">{toolStatus}</span>
+            <>
+              <Loader2 size={14} className="shrink-0 animate-spin text-text-muted" />
+              <span className="text-sm text-text-muted">{toolStatus}</span>
+            </>
           ) : (
             <>
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-muted [animation-delay:-0.3s]" />
@@ -195,6 +198,20 @@ function getStarterPrompts(context: ChatContext | null): StarterPrompt[] {
 
 const MAX_CHAT_INPUT_CHARS = 4000;
 
+// Resuming a long-running session renders only the most recent messages up
+// front — roughly the last 20 exchanges, generous enough to keep real
+// context on screen without dumping months of history into the DOM at
+// once. The full transcript is already in memory either way (the session
+// doc is fetched whole), so this is purely a render cap with a "show
+// earlier messages" escape hatch, not a data-fetching limit.
+const INITIAL_VISIBLE_MESSAGES = 40;
+
+// sessionStorage (not cookies/localStorage) so this only survives in-tab
+// navigation — closing the tab or opening the site fresh elsewhere starts a
+// new session with a clean slate, but swapping to Settings and back within
+// the same tab keeps the active conversation instead of losing it.
+const ACTIVE_CHAT_SESSION_KEY = "catalyst:activeChatSessionId";
+
 // useSearchParams (used below to resume a session from the URL on refresh)
 // requires a Suspense boundary around anything that calls it, or Next.js
 // bails out of static generation for the whole page at build time — see
@@ -227,6 +244,12 @@ function AIAssistantPageContent() {
   const [extraTools, setExtraTools] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Non-null right after resuming a session long enough to cap (see
+  // INITIAL_VISIBLE_MESSAGES) — null means "show everything," which is also
+  // the state for a brand-new/short chat and for a resumed one once the
+  // student reveals the rest or sends a new message (see handleSubmit).
+  const [visibleMessageCount, setVisibleMessageCount] = useState<number | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const [isSending, setIsSending] = useState(false);
   const chatStatus = useChatStatus();
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -236,6 +259,12 @@ function AIAssistantPageContent() {
   const [isListening, setIsListening] = useState(false);
   const [micSupported, setMicSupported] = useState(true);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  // Only set for a session resumed mid-generation via loadSession (see
+  // generatingWatchRef below) — isSending/chatStatus alone can't tell the
+  // pending bubble to render, since those only ever get set by THIS
+  // component instance's own handleSubmit call, not by a generation that
+  // was already running server-side before this instance mounted.
+  const [isResuming, setIsResuming] = useState(false);
   const sessionId = useRef<string | null>(null);
   // Tracks the in-flight buildChatContext call so handleSubmit can wait for
   // it even if the student sends a message before the state update lands —
@@ -323,13 +352,6 @@ function AIAssistantPageContent() {
   useEffect(() => {
     if (authLoading || !user?.email) return;
 
-    // Deliberately does NOT resume the most recent session on a plain visit
-    // — every fresh link into this tab starts a new chat. Past chats are
-    // still reachable from the history panel (loadSession) for anyone who
-    // wants to pick one back up. The one exception is a mid-conversation
-    // page *refresh*: the active session's id is mirrored into the URL
-    // (see updateSessionUrl below), so reloading the same URL below resumes
-    // it instead of losing the conversation.
     chatContextPromiseRef.current = buildChatContext(user.uid, user.email)
       .then((ctx) => {
         setChatContext(ctx);
@@ -343,20 +365,33 @@ function AIAssistantPageContent() {
       .finally(() => setContextLoaded(true));
   }, [user, authLoading]);
 
-  // Keeps the URL in sync with whichever session is active, purely so a
-  // page refresh has something to resume from — not real navigation, so no
-  // history entry and no scroll reset.
+  // Keeps the URL in sync with whichever session is active (so a page
+  // refresh has something to resume from — not real navigation, so no
+  // history entry and no scroll reset) and mirrors it into sessionStorage,
+  // which is what makes resuming survive actual in-app navigation (e.g. to
+  // Settings and back) without also surviving leaving the site entirely —
+  // sessionStorage clears when the tab/site session ends, unlike cookies or
+  // localStorage.
   function updateSessionUrl(id: string | null) {
     router.replace(id ? `${pathname}?session=${id}` : pathname, { scroll: false });
+    if (id) {
+      sessionStorage.setItem(ACTIVE_CHAT_SESSION_KEY, id);
+    } else {
+      sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY);
+    }
   }
 
-  // Runs once auth settles: if the URL already names a session (because
-  // this is a refresh of a URL updateSessionUrl previously wrote), resume
-  // it. A plain nav-link visit has no ?session= param and falls through to
-  // the fresh-chat behavior above, unchanged.
+  // Runs once auth settles: resumes whichever session was last active in
+  // this tab, checking the URL first (a refresh of a URL updateSessionUrl
+  // previously wrote) and falling back to sessionStorage (a plain in-app
+  // nav-link visit, e.g. returning from Settings, which carries no
+  // ?session= param but should still land back on the same conversation).
+  // sessionStorage is per-tab/session-scoped, not a cookie — leaving the
+  // site entirely (closing the tab, or opening it fresh elsewhere) starts a
+  // new session with nothing to resume, by design.
   useEffect(() => {
     if (authLoading || !user) return;
-    const urlSessionId = searchParams.get("session");
+    const urlSessionId = searchParams.get("session") || sessionStorage.getItem(ACTIVE_CHAT_SESSION_KEY);
     if (urlSessionId && urlSessionId !== sessionId.current) {
       loadSession(urlSessionId);
     }
@@ -365,6 +400,23 @@ function AIAssistantPageContent() {
 
   const starterPrompts = useMemo(() => getStarterPrompts(chatContext), [chatContext]);
 
+  const displayedMessages = useMemo(
+    () => (visibleMessageCount != null ? messages.slice(-visibleMessageCount) : messages),
+    [messages, visibleMessageCount]
+  );
+  const hiddenMessageCount =
+    visibleMessageCount != null ? Math.max(0, messages.length - visibleMessageCount) : 0;
+
+  // Jumps to the newest message whenever the visible set actually changes
+  // content — a session resuming (messages replaced wholesale), a new
+  // token streaming in, or a live-watched reply updating. Deliberately NOT
+  // keyed on visibleMessageCount alone: revealing older messages via the
+  // "show earlier" button below must not yank the student back down away
+  // from the history they just asked to see.
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+  }, [messages]);
+
   async function loadSession(id: string) {
     if (!user || id === sessionId.current) {
       setShowHistoryPanel(false);
@@ -372,6 +424,7 @@ function AIAssistantPageContent() {
     }
     generatingWatchRef.current?.();
     generatingWatchRef.current = null;
+    setIsResuming(false);
     try {
       const session = await getChatSession(user.uid, id);
       if (!session) return;
@@ -383,6 +436,9 @@ function AIAssistantPageContent() {
       titleRef.current = session.title;
       document.title = session.title ? `Catalyst — ${session.title}` : "Catalyst";
       setMessages(session.messages);
+      setVisibleMessageCount(
+        session.messages.length > INITIAL_VISIBLE_MESSAGES ? INITIAL_VISIBLE_MESSAGES : null
+      );
       setHasStarted(session.messages.length > 0);
       nextId.current = session.messages.length ? Math.max(...session.messages.map((m) => m.id)) + 1 : 1;
       setInput("");
@@ -392,10 +448,24 @@ function AIAssistantPageContent() {
       // Reopened a session while the server was still generating its
       // latest reply in the background (e.g. the user left mid-answer) —
       // watch it live instead of leaving a stale empty bubble until a
-      // manual refresh.
+      // manual refresh. isResuming stands in for isSending (which only
+      // this instance's own handleSubmit ever sets) so the placeholder
+      // renders as pending instead of a blank finished bubble.
       if (session.generating) {
+        setIsResuming(true);
+        chatStatus.progress("Catching up on this reply...");
         generatingWatchRef.current = subscribeToChatSession(user.uid, session.id, (updated) => {
           setMessages(updated.messages);
+          // The server now writes the reply's text periodically while it's
+          // still generating (see persistPartialReply in api/chat/route.ts),
+          // not just once at the end — as soon as the placeholder has real
+          // text, the bubble itself switches from pending to rendering that
+          // text (see isPending below), so the status label is redundant.
+          const last = updated.messages[updated.messages.length - 1];
+          if (!updated.generating || last?.text) {
+            setIsResuming(false);
+            chatStatus.clear();
+          }
           if (!updated.generating) {
             generatingWatchRef.current?.();
             generatingWatchRef.current = null;
@@ -422,6 +492,12 @@ function AIAssistantPageContent() {
     // generation so it can't race the local updates below.
     generatingWatchRef.current?.();
     generatingWatchRef.current = null;
+    setIsResuming(false);
+    // Actively chatting again — show the full transcript rather than
+    // keeping an old resume-time cap that would otherwise start hiding the
+    // student's own new messages once enough of them push the window past
+    // INITIAL_VISIBLE_MESSAGES.
+    setVisibleMessageCount(null);
 
     const userMessage: ChatMessage = {
       id: nextId.current++,
@@ -543,9 +619,11 @@ function AIAssistantPageContent() {
   function handleNewChat() {
     generatingWatchRef.current?.();
     generatingWatchRef.current = null;
+    setIsResuming(false);
     setHasStarted(false);
     setInput("");
     setMessages([]);
+    setVisibleMessageCount(null);
     setErrorText(null);
     sessionId.current = null;
     setActiveSessionId(null);
@@ -679,15 +757,27 @@ function AIAssistantPageContent() {
             </div>
           ) : (
             <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-              {messages.map((message) => (
+              {hiddenMessageCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setVisibleMessageCount(null)}
+                  className="mx-auto rounded-full border border-border-light bg-bg-container px-4 py-1.5 text-xs text-text-muted shadow-sm transition hover:bg-bg-warm"
+                >
+                  Show {hiddenMessageCount} earlier {hiddenMessageCount === 1 ? "message" : "messages"}
+                </button>
+              )}
+
+              {displayedMessages.map((message) => (
                 <ChatMessageBubble
                   key={message.id}
                   message={message}
-                  isPending={message.text === "" && isSending}
+                  isPending={message.text === "" && (isSending || isResuming)}
                   toolStatus={chatStatus.status}
                   onCopy={handleCopy}
                 />
               ))}
+
+              <div ref={messagesEndRef} />
             </div>
           )}
         </div>

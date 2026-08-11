@@ -48,6 +48,11 @@ export interface EnrollmentFields {
     // Random on creation (AddEnrollmentModal), editable afterward via the
     // pencil icon on the class card — see src/library/classColors.ts.
     color?: string;
+    // AI-generated from the course's uploaded documents, regenerated on
+    // every upload — see src/library/courseSummary.ts. Empty/absent until
+    // at least one supported document has been uploaded and indexed.
+    courseSummary?: string;
+    courseSummaryUpdatedAt?: unknown;
 }
 
 async function getEnrollment(
