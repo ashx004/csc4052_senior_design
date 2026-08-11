@@ -2,7 +2,7 @@
 
 import { FormEvent, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { FileDown, History, Mic, Paperclip } from "lucide-react";
+import { FileDown, Globe, History, Mic, Paperclip, Zap } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -21,6 +21,7 @@ import ChatUploadModal from "@/src/components/aiAssistant/ChatUploadModal";
 import ChatHistoryPanel from "@/src/components/aiAssistant/ChatHistoryPanel";
 import { readChatStream, TOOL_STATUS_LABELS } from "@/src/library/chatStream";
 import { useChatStatus } from "@/src/library/useChatStatus";
+import { getStoredChatMode } from "@/src/library/chatMode";
 
 type ChatMessage = StoredChatMessage;
 
@@ -212,6 +213,18 @@ function AIAssistantPageContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [input, setInput] = useState("");
+  // Overrides the student's saved chat-mode default (see settings) to the
+  // quality model for messages sent while this is on - a per-conversation
+  // "actually, think harder about this one" escalation rather than a
+  // permanent preference change. Stays on until the student turns it back
+  // off themselves, same interaction shape as the mic toggle below.
+  const [boost, setBoost] = useState(false);
+  // Off by default - web/YouTube search reach outside the student's own
+  // course materials and aren't needed for most questions, so they're kept
+  // out of the tool schema entirely unless explicitly turned on, rather
+  // than always being one of the options the model has to weigh. Same
+  // sticky-toggle interaction as boost above.
+  const [extraTools, setExtraTools] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
@@ -455,6 +468,9 @@ function AIAssistantPageContent() {
           summary: summaryRef.current,
           summarizedCount: summarizedCountRef.current,
           currentSessionId: sessionId.current,
+          chatMode: getStoredChatMode(),
+          boost,
+          extraTools,
         }),
       });
 
@@ -687,6 +703,40 @@ function AIAssistantPageContent() {
             onSubmit={handleSubmit}
             className="mx-auto flex max-w-4xl items-center gap-3 rounded-2xl border border-border-light bg-bg-container px-4 py-2 shadow-lg shadow-stone-200/70"
           >
+            <button
+              type="button"
+              onClick={() => setBoost((prev) => !prev)}
+              title={
+                boost
+                  ? "Boost on — using the higher-quality model for messages you send"
+                  : "Boost — use the higher-quality model for this conversation"
+              }
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition ${
+                boost ? "bg-primary text-text-inverse" : "text-primary hover:bg-bg-warm"
+              }`}
+              aria-label={boost ? "Turn off boost mode" : "Turn on boost mode"}
+              aria-pressed={boost}
+            >
+              <Zap size={18} strokeWidth={2} fill={boost ? "currentColor" : "none"} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setExtraTools((prev) => !prev)}
+              title={
+                extraTools
+                  ? "Web & video search on — the assistant can search the internet"
+                  : "Web & video search off — turn on to let the assistant search beyond your course materials"
+              }
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition ${
+                extraTools ? "bg-primary text-text-inverse" : "text-primary hover:bg-bg-warm"
+              }`}
+              aria-label={extraTools ? "Turn off web and video search" : "Turn on web and video search"}
+              aria-pressed={extraTools}
+            >
+              <Globe size={18} strokeWidth={2} />
+            </button>
+
             <button
               type="button"
               onClick={() => setShowUploadModal(true)}

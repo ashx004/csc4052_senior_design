@@ -5,9 +5,24 @@
 // implementation could do. Chunks are packed greedily up to chunkSize, with
 // the last `overlap` characters of each chunk carried into the start of the
 // next so content sitting right on a boundary isn't lost to either side.
-// Same signature as before — no caller changes needed.
 const PARAGRAPH_SPLIT = /\n\s*\n+/;
 const SENTENCE_SPLIT = /(?<=[.!?])\s+(?=[A-Z0-9"'])/;
+
+// Producers that know page boundaries (currently just pdfExtract.ts) embed
+// this between pages so chunking can attribute each chunk back to a page
+// for citations. Delimited with U+E000 (start of the Unicode Private Use
+// Area, reserved for exactly this kind of private/internal sentinel use)
+// rather than e.g. "\n\n---\n\n" because real extracted text can't contain
+// it and, critically, it isn't matched by \s, so it survives the
+// whitespace-collapse below instead of silently disappearing into a
+// paragraph break. A plain NUL byte would work too but makes git (and some
+// other tooling) treat the file as binary — this avoids that for free.
+// Chunks never span a page boundary — the packer flushes at each marker —
+// trading a little cross-page overlap for every chunk having one
+// unambiguous page to cite.
+export const PAGE_BREAK_MARKER = "PAGE_BREAK";
+
+export type TextChunk = { text: string; page?: number };
 
 function splitOversized(piece: string, chunkSize: number): string[] {
   if (piece.length <= chunkSize) return [piece];
@@ -26,7 +41,7 @@ function splitOversized(piece: string, chunkSize: number): string[] {
   return parts;
 }
 
-export function chunkText(text: string, chunkSize = 1400, overlap = 150): string[] {
+function chunkSinglePage(text: string, chunkSize: number, overlap: number): string[] {
   const trimmed = text.trim();
   if (!trimmed) return [];
 
@@ -60,4 +75,21 @@ export function chunkText(text: string, chunkSize = 1400, overlap = 150): string
 
   if (current) chunks.push(current);
   return chunks;
+}
+
+// Same signature as before plus an optional `page` on each result — callers
+// that don't care (or whose source has no page markers, e.g. docx/plain
+// text) can keep destructuring just `.text`. When PAGE_BREAK_MARKER is
+// present, each page is chunked independently (see the marker's comment
+// above for why chunks don't span pages); when it isn't, this degrades to
+// exactly the old single-pass behavior with `page` left undefined.
+export function chunkText(text: string, chunkSize = 1400, overlap = 150): TextChunk[] {
+  const pages = text.split(PAGE_BREAK_MARKER);
+  if (pages.length === 1) {
+    return chunkSinglePage(text, chunkSize, overlap).map((t) => ({ text: t }));
+  }
+
+  return pages.flatMap((pageText, i) =>
+    chunkSinglePage(pageText, chunkSize, overlap).map((t) => ({ text: t, page: i + 1 }))
+  );
 }
