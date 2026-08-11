@@ -17,6 +17,9 @@ import { checkRateLimit } from "@/src/library/rateLimit";
 import {pageContextSchema,buildPageContextPrompt,type PageContext,} from "@/src/library/Contextual_AI/contextualAi";
 import { ChatContext, ChatClass, ChatDocument, PageAIContext, buildSystemPrompt } from "@/src/library/systemPrompt";
 import { describeChatError } from "@/src/library/chatErrors";
+import { getIdToken, firestoreCreate, firestoreGet, firestoreUpdate } from "@/src/library/firestoreRest";
+import { deriveChatTitle } from "@/src/library/chatTitle";
+import type { StoredChatMessage } from "@/src/library/chatMemory";
 import { THINK_CLOSE_TAG, stripThinkLeak } from "@/src/library/stripThinkLeak";
 
 const CHAT_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -848,11 +851,133 @@ async function compactIfNeeded(
   }
 }
 
+// ── Server-side chat persistence ──────────────────────────────────────────
+// A reply must survive the user navigating away or closing the tab before
+// it finishes, so this route (not the browser) owns saving the transcript.
+// It writes at the start of a turn (so the question isn't lost even if
+// generation never finishes) and again at the end (in the stream's
+// `finally`, which — unlike the response stream itself — keeps running
+// even after the client has disconnected; see the Ollama calls above,
+// which are never tied to the incoming request's abort signal either).
+const CHAT_SESSION_RETENTION_DAYS = 30;
+
+type PersistTarget = {
+  idToken: string;
+  collectionPath: string;
+  docId: string;
+  isNewMainSession: boolean;
+  messages: StoredChatMessage[];
+};
+
+function nextMessageId(existing: StoredChatMessage[]): number {
+  return existing.reduce((max, m) => Math.max(max, m.id), 0) + 1;
+}
+
+// Creates/updates the doc with the new user turn + an empty assistant
+// placeholder, generating:true. Returns null (persistence skipped, never
+// blocks generation) if there's no usable ID token — e.g. the session
+// cookie is present but not forwardable for some reason.
+async function startChatPersistence(params: {
+  request: NextRequest;
+  uid: string;
+  panelContextKey?: string;
+  currentSessionId?: string;
+  latestUserContent: string;
+  summary: string;
+  summarizedCount: number;
+}): Promise<PersistTarget | null> {
+  const idToken = getIdToken(params.request);
+  if (!idToken) return null;
+
+  const userMsg = (id: number): StoredChatMessage => ({ id, role: "user", text: params.latestUserContent });
+  const placeholder = (id: number): StoredChatMessage => ({ id, role: "assistant", text: "" });
+
+  if (params.panelContextKey) {
+    const collectionPath = `users/${params.uid}/panelChatSessions`;
+    const docId = params.panelContextKey;
+    const existing = await firestoreGet(idToken, collectionPath, docId);
+    const priorMessages = Array.isArray(existing?.messages) ? (existing!.messages as StoredChatMessage[]) : [];
+    const id = nextMessageId(priorMessages);
+    const messages = [...priorMessages, userMsg(id), placeholder(id + 1)];
+    await firestoreUpdate(idToken, collectionPath, docId, { messages, generating: true, updatedAt: new Date() });
+    return { idToken, collectionPath, docId, isNewMainSession: false, messages };
+  }
+
+  const collectionPath = `users/${params.uid}/chatSessions`;
+
+  if (params.currentSessionId) {
+    const docId = params.currentSessionId;
+    const existing = await firestoreGet(idToken, collectionPath, docId);
+    const priorMessages = Array.isArray(existing?.messages) ? (existing!.messages as StoredChatMessage[]) : [];
+    const id = nextMessageId(priorMessages);
+    const messages = [...priorMessages, userMsg(id), placeholder(id + 1)];
+    await firestoreUpdate(idToken, collectionPath, docId, {
+      messages,
+      summary: params.summary,
+      summarizedCount: params.summarizedCount,
+      generating: true,
+      updatedAt: new Date(),
+    });
+    return { idToken, collectionPath, docId, isNewMainSession: false, messages };
+  }
+
+  const messages = [userMsg(1), placeholder(2)];
+  const expireAt = new Date();
+  expireAt.setDate(expireAt.getDate() + CHAT_SESSION_RETENTION_DAYS);
+  const docId = await firestoreCreate(idToken, collectionPath, {
+    messages,
+    summary: params.summary,
+    summarizedCount: params.summarizedCount,
+    title: deriveChatTitle(params.latestUserContent),
+    pinned: false,
+    generating: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    expireAt,
+  });
+  if (!docId) return null;
+  return { idToken, collectionPath, docId, isNewMainSession: true, messages };
+}
+
+// Fills in the placeholder assistant message with the finished (or errored)
+// reply and clears generating. Never throws — a persistence failure must
+// not surface as a chat error to whatever client might still be attached.
+async function finishChatPersistence(
+  target: PersistTarget,
+  final: {
+    text: string;
+    documentsRead?: string[];
+    generatedFiles?: { name: string; url: string }[];
+    summary?: string;
+    summarizedCount?: number;
+  }
+): Promise<void> {
+  try {
+    const messages = [...target.messages];
+    const last = messages[messages.length - 1];
+    messages[messages.length - 1] = {
+      ...last,
+      text: final.text,
+      ...(final.documentsRead?.length ? { documentsRead: final.documentsRead } : {}),
+      ...(final.generatedFiles?.length ? { generatedFiles: final.generatedFiles } : {}),
+    };
+
+    const fields: Record<string, unknown> = { messages, generating: false, updatedAt: new Date() };
+    if (final.summary !== undefined) fields.summary = final.summary;
+    if (final.summarizedCount !== undefined) fields.summarizedCount = final.summarizedCount;
+
+    await firestoreUpdate(target.idToken, target.collectionPath, target.docId, fields);
+  } catch (error) {
+    console.error("Failed to persist finished chat turn:", error);
+  }
+}
+
 // Response protocol (newline-delimited JSON, one object per line):
 //   {"type":"delta","text":"..."}                                — append to the reply
 //   {"type":"tool","name":"search_documents"}                    — a tool started running
 //   {"type":"done","documentsRead":[...],"generatedFiles":[...],"summary":"...","summarizedCount":N}
 //   {"type":"error","error":"..."}
+//   {"type":"session","id":"..."}                                 — new session's ID (first turn only)
 export async function POST(request: NextRequest) {
   const auth = await verifyRequestAuth(request);
   if (!auth) {
@@ -874,6 +999,7 @@ export async function POST(request: NextRequest) {
     summarizedCount: incomingSummarizedCount,
     currentSessionId,
     pageContext,
+    panelContextKey,
     chatMode,
     boost,
     extraTools,
@@ -884,6 +1010,7 @@ export async function POST(request: NextRequest) {
     summarizedCount?: number;
     currentSessionId?: string;
     pageContext?: unknown;
+    panelContextKey?: string;
     // Client-stored preference (see src/library/chatMode.ts), sent with
     // every request - the server has no independent copy of this, it just
     // trusts whatever the client sends per-request, same as summary/context.
@@ -964,8 +1091,16 @@ export async function POST(request: NextRequest) {
   };
   const stream = new ReadableStream({
     async start(controller) {
+      // Swallows enqueue failures (e.g. the client already disconnected) so
+      // a dead connection doesn't abort generation partway through — the
+      // model keeps producing tokens and finishChatPersistence below still
+      // gets the complete answer, even though nobody's listening anymore.
       function send(obj: unknown) {
-        controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+        try {
+          controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+        } catch {
+          // client gone — ignore, generation continues regardless
+        }
       }
 
       // Fresh buffer state per round (each call site invokes this once per
@@ -976,6 +1111,16 @@ export async function POST(request: NextRequest) {
       };
 
       let studentProfile: StudentProfile = { summary: "", messageCount: 0 };
+      const documentsRead: string[] = [];
+      const generatedFiles: { name: string; url: string }[] = [];
+      let persistTarget: PersistTarget | null = null;
+      let finalAnswerText: string | null = null;
+      // Persisted alongside the finished reply below; defaults to the raw
+      // incoming values and is refreshed once compactionPromise resolves
+      // (see the "done" sends below) so an error before that point still
+      // persists something sane rather than nothing.
+      let persistedSummary = incomingSummary ?? "";
+      let persistedSummarizedCount = incomingSummarizedCount ?? 0;
 
       try {
         // Sent before any of the (potentially slow) work below starts —
@@ -994,26 +1139,46 @@ export async function POST(request: NextRequest) {
         // means the raw tail folds in one turn later than it could have,
         // which only affects context size, not correctness. The refreshed
         // values are awaited later, right before they're reported in the
-        // "done" event, by which point the primary model's own (often
-        // longer) response has usually already absorbed the wait.
+        // "done" event (and used for persistence), by which point the
+        // primary model's own (often longer) response has usually already
+        // absorbed the wait.
         const compactionPromise = compactIfNeeded(messages, incomingSummary ?? "", incomingSummarizedCount ?? 0);
 
-        // Clarification runs alongside profile-loading (not after) so its
-        // round-trip is hidden behind theirs rather than adding its own
-        // serial latency in front of every response. Skipped outright in
-        // Fast mode: it's designed fail-open/additive (see
+        // Clarification and persisting this turn's user message run
+        // alongside profile-loading (not after) so their round-trips are
+        // hidden behind that rather than adding their own serial latency in
+        // front of every response. Clarification itself is skipped outright
+        // in Fast mode: it's designed fail-open/additive (see
         // queryClarifier.ts), so "off" here just means the raw message goes
         // to the primary model unclarified, same as any other message this
         // feature declines to touch - a real (if now modest, since the
         // llama3.2:3b swap) latency + one fewer network round trip saved
         // for students who've explicitly opted into Fast over Quality.
-        const [loadedProfile, clarifiedIntent] = await Promise.all([
+        const [loadedProfile, clarifiedIntent, startedPersist] = await Promise.all([
           context?.userId ? getStudentProfile(context.userId) : Promise.resolve(studentProfile),
           useQualityModel && typeof latestMessage?.content === "string"
             ? clarifyUserQuery(latestMessage.content)
             : Promise.resolve(null),
+          typeof latestMessage?.content === "string"
+            ? startChatPersistence({
+                request,
+                uid: auth.uid,
+                panelContextKey,
+                currentSessionId,
+                latestUserContent: latestMessage.content,
+                summary: incomingSummary ?? "",
+                summarizedCount: incomingSummarizedCount ?? 0,
+              }).catch((error) => {
+                console.error("Failed to persist chat turn start:", error);
+                return null;
+              })
+            : Promise.resolve(null),
         ]);
         studentProfile = loadedProfile;
+        persistTarget = startedPersist;
+        if (persistTarget?.isNewMainSession) {
+          send({ type: "session", id: persistTarget.docId });
+        }
 
         const summary = incomingSummary ?? "";
         const summarizedCount = incomingSummarizedCount ?? 0;
@@ -1023,8 +1188,6 @@ export async function POST(request: NextRequest) {
           ...(validatedPageContext ? [{ role: "system", content: buildPageContextPrompt(validatedPageContext) }] : []),
           ...messages.slice(summarizedCount),
         ];
-        const documentsRead: string[] = [];
-        const generatedFiles: { name: string; url: string }[] = [];
         const tools = [
           LIST_CLASSES_TOOL,
           SEARCH_DOCUMENTS_TOOL,
@@ -1119,16 +1282,17 @@ export async function POST(request: NextRequest) {
               emptyRoundRetries++;
               continue;
             }
-            send({
-              type: "error",
-              error: "The assistant didn't generate a response. Please try asking again.",
-            });
+            finalAnswerText = "The assistant didn't generate a response. Please try asking again.";
+            send({ type: "error", error: finalAnswerText });
             finished = true;
             break;
           }
 
           finished = true;
+          finalAnswerText = content;
           const finalCompaction = await compactionPromise;
+          persistedSummary = finalCompaction.summary;
+          persistedSummarizedCount = finalCompaction.summarizedCount;
           send({
             type: "done",
             documentsRead,
@@ -1152,7 +1316,10 @@ export async function POST(request: NextRequest) {
           const { content } = await streamOllamaRound(conversation, [], CHAT_TEMPERATURE, primaryTarget, makeDeltaHandler());
 
           if (content) {
+            finalAnswerText = content;
             const finalCompaction = await compactionPromise;
+            persistedSummary = finalCompaction.summary;
+            persistedSummarizedCount = finalCompaction.summarizedCount;
             send({
               type: "done",
               documentsRead,
@@ -1161,15 +1328,14 @@ export async function POST(request: NextRequest) {
               summarizedCount: finalCompaction.summarizedCount,
             });
           } else {
-            send({
-              type: "error",
-              error: "The assistant needed too many steps to answer. Please try rephrasing your question.",
-            });
+            finalAnswerText = "The assistant needed too many steps to answer. Please try rephrasing your question.";
+            send({ type: "error", error: finalAnswerText });
           }
         }
       } catch (error: any) {
         console.error("Chat route error:", error);
-        send({ type: "error", error: describeChatError(error) });
+        finalAnswerText = describeChatError(error);
+        send({ type: "error", error: finalAnswerText });
       } finally {
         // Fire-and-forget — never awaited, must not add latency to a
         // response the student is already looking at. Errors are handled
@@ -1179,7 +1345,23 @@ export async function POST(request: NextRequest) {
             console.error("Unhandled student profile update error:", error)
           );
         }
-        controller.close();
+        // Runs regardless of whether a client is still attached (see the
+        // send() comment above) — this is what makes a reply durable even
+        // when the user has already navigated away or closed the tab.
+        if (persistTarget) {
+          await finishChatPersistence(persistTarget, {
+            text: finalAnswerText ?? "Something went wrong generating this reply. Please try again.",
+            documentsRead,
+            generatedFiles,
+            summary: persistedSummary,
+            summarizedCount: persistedSummarizedCount,
+          });
+        }
+        try {
+          controller.close();
+        } catch {
+          // client already gone — nothing left to close for
+        }
       }
     },
   });
