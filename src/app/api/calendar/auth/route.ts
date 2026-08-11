@@ -1,6 +1,6 @@
 import { google } from "googleapis";
 import { NextRequest } from "next/server";
-import { getUidFromRequest, firestoreUpdate } from "@/src/library/googleCalendar";
+import { getUidFromRequest, firestoreUpdate } from "@/src/library/firestoreRest";
 
 export async function POST(req: NextRequest) {
   try {
