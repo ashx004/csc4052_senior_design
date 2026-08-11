@@ -19,7 +19,12 @@ export type ChatStreamEvent =
       summary?: string;
       summarizedCount?: number;
     }
-  | { type: "error"; error: string };
+  | { type: "error"; error: string }
+  // Sent once, only for a brand-new main-assistant session, as soon as the
+  // server creates its Firestore doc — lets the client learn the session ID
+  // immediately instead of waiting for the reply to finish (see
+  // startChatPersistence in api/chat/route.ts).
+  | { type: "session"; id: string };
 
 export const TOOL_STATUS_LABELS: Record<string, string> = {
   search_documents: "Searching your documents...",

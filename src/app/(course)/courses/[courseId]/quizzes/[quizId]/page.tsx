@@ -617,6 +617,7 @@ export default function QuizTakingPage() {
             suggestions={catalystSuggestions}
             pageContext={quizPageContext}
             chatContext={catalystChatContext}
+            panelContextKey={`quiz:${quizId}`}
             launcherRef={catalystBtnRef}
           />
         </>

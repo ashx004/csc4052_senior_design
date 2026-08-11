@@ -7,11 +7,13 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   query,
   orderBy,
   limit,
   Timestamp,
   serverTimestamp,
+  type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "./firebase";
 
@@ -33,6 +35,10 @@ export type ChatSessionState = {
   summarizedCount: number;
   title: string;
   pinned: boolean;
+  // True while /api/chat is still generating this session's latest reply
+  // server-side (see route.ts) — lets the UI show "Generating..." and pick
+  // the answer up live via onSnapshot if the user navigated away mid-reply.
+  generating: boolean;
 };
 
 export type ChatSessionSummary = {
@@ -40,6 +46,7 @@ export type ChatSessionSummary = {
   title: string;
   updatedAt: Date | null;
   pinned: boolean;
+  generating: boolean;
 };
 
 const RETENTION_DAYS = 30;
@@ -62,37 +69,47 @@ function expiryTimestamp(): Timestamp {
   return Timestamp.fromDate(expires);
 }
 
-export async function createChatSession(userId: string): Promise<string> {
-  const newDoc = await addDoc(sessionsRef(userId), {
-    messages: [],
-    summary: "",
-    summarizedCount: 0,
-    title: "",
-    pinned: false,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-    expireAt: expiryTimestamp(),
-  });
-  return newDoc.id;
-}
+// Every LLM-generated reply is saved server-side, in /api/chat/route.ts (via
+// the Firestore REST helpers in firestoreRest.ts) — that's what lets a
+// reply keep being saved even if the user has already navigated away or
+// closed the tab before it finishes. addLocalMessage below is the one
+// exception: for messages that never go through /api/chat at all (e.g. the
+// "file uploaded" notice in ai-assistant/page.tsx), the client is the only
+// place that ever knows about them, so it still has to write them itself.
 
-export async function saveChatState(
+export async function addLocalMessage(
   userId: string,
-  sessionId: string,
-  state: { messages: StoredChatMessage[]; summary: string; summarizedCount: number; title: string }
-): Promise<void> {
-  const sessionDoc = doc(db, "users", userId, "chatSessions", sessionId);
-  await updateDoc(sessionDoc, {
-    messages: state.messages,
+  sessionId: string | null,
+  nextMessages: StoredChatMessage[],
+  state: { summary: string; summarizedCount: number; title: string }
+): Promise<string> {
+  let id = sessionId;
+  if (!id) {
+    const newDoc = await addDoc(sessionsRef(userId), {
+      messages: [],
+      summary: "",
+      summarizedCount: 0,
+      title: "",
+      pinned: false,
+      generating: false,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      expireAt: expiryTimestamp(),
+    });
+    id = newDoc.id;
+  }
+
+  await updateDoc(doc(db, "users", userId, "chatSessions", id), {
+    messages: nextMessages,
     summary: state.summary,
     summarizedCount: state.summarizedCount,
     title: state.title,
     updatedAt: serverTimestamp(),
-    // expireAt intentionally untouched here — see setChatPinned for how
-    // pin/unpin manage it. Leaving it alone keeps a pinned chat's exemption
-    // intact and keeps unpinned chats on their original 30-day-from-creation
-    // window rather than resetting on every message.
+    // expireAt intentionally untouched — see setChatPinned for how pin/
+    // unpin manage it.
   });
+
+  return id;
 }
 
 function toSessionState(id: string, data: any): ChatSessionState {
@@ -103,6 +120,7 @@ function toSessionState(id: string, data: any): ChatSessionState {
     summarizedCount: typeof data.summarizedCount === "number" ? data.summarizedCount : 0,
     title: typeof data.title === "string" ? data.title : "",
     pinned: Boolean(data.pinned),
+    generating: Boolean(data.generating),
   };
 }
 
@@ -119,6 +137,19 @@ export async function getChatSession(userId: string, sessionId: string): Promise
   return toSessionState(snap.id, snap.data());
 }
 
+// Live updates for a session while it's still generating server-side — lets
+// a user who reopens a session mid-reply watch it finish instead of needing
+// to manually refresh. Callers should unsubscribe once generating is false.
+export function subscribeToChatSession(
+  userId: string,
+  sessionId: string,
+  onChange: (state: ChatSessionState) => void
+): Unsubscribe {
+  return onSnapshot(doc(db, "users", userId, "chatSessions", sessionId), (snap) => {
+    if (snap.exists()) onChange(toSessionState(snap.id, snap.data()));
+  });
+}
+
 // For the "previous chats" list — lighter than fetching every session's full
 // message history, pinned chats first, then most-recently-updated.
 export async function listChatSessions(userId: string): Promise<ChatSessionSummary[]> {
@@ -132,6 +163,7 @@ export async function listChatSessions(userId: string): Promise<ChatSessionSumma
       title: typeof data.title === "string" && data.title ? data.title : "New chat",
       updatedAt: data.updatedAt?.toDate?.() ?? null,
       pinned: Boolean(data.pinned),
+      generating: Boolean(data.generating),
     };
   });
 
@@ -156,12 +188,40 @@ export async function deleteChatSession(userId: string, sessionId: string): Prom
   await deleteDoc(doc(db, "users", userId, "chatSessions", sessionId));
 }
 
-// Zero-latency title: truncate the opening message at a word boundary rather
-// than spending an extra model round-trip on naming a chat.
-export function deriveChatTitle(firstMessage: string): string {
-  const clean = firstMessage.trim().replace(/\s+/g, " ");
-  if (clean.length <= 48) return clean;
-  const truncated = clean.slice(0, 48);
-  const lastSpace = truncated.lastIndexOf(" ");
-  return (lastSpace > 20 ? truncated.slice(0, lastSpace) : truncated) + "…";
+// ── Contextual AI panel sessions ──────────────────────────────────────────
+// The flashcards/quiz-result drawer isn't a growing list of past chats like
+// the main assistant — it's one conversation per piece of content. Rather
+// than an auto-ID collection, each context (e.g. "quiz:{quizId}") gets a
+// single deterministic doc at users/{uid}/panelChatSessions/{contextKey},
+// upserted server-side the same way as chatSessions (see route.ts).
+
+export type PanelChatSessionState = {
+  messages: StoredChatMessage[];
+  generating: boolean;
+};
+
+function toPanelSessionState(data: any): PanelChatSessionState {
+  return {
+    messages: Array.isArray(data.messages) ? data.messages : [],
+    generating: Boolean(data.generating),
+  };
+}
+
+export async function getPanelChatSession(
+  userId: string,
+  contextKey: string
+): Promise<PanelChatSessionState | null> {
+  const snap = await getDoc(doc(db, "users", userId, "panelChatSessions", contextKey));
+  if (!snap.exists()) return null;
+  return toPanelSessionState(snap.data());
+}
+
+export function subscribeToPanelChatSession(
+  userId: string,
+  contextKey: string,
+  onChange: (state: PanelChatSessionState) => void
+): Unsubscribe {
+  return onSnapshot(doc(db, "users", userId, "panelChatSessions", contextKey), (snap) => {
+    if (snap.exists()) onChange(toPanelSessionState(snap.data()));
+  });
 }

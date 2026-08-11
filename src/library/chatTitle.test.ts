@@ -1,13 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-
-// deriveChatTitle is pure, but this file also imports ./firebase at module
-// scope for its Firestore-backed exports — and firebase.tsx calls getAuth()
-// at import time, which throws synchronously without a real
-// NEXT_PUBLIC_FIREBASE_API_KEY. Mocked out so the pure function under test
-// doesn't require live Firebase config just to import.
-vi.mock("./firebase", () => ({ db: {} }));
-
-const { deriveChatTitle } = await import("./chatMemory");
+import { describe, expect, it } from "vitest";
+import { deriveChatTitle } from "./chatTitle";
 
 describe("deriveChatTitle", () => {
   it("returns short messages unchanged, whitespace-collapsed", () => {
