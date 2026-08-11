@@ -17,6 +17,7 @@ import { checkRateLimit } from "@/src/library/rateLimit";
 import {pageContextSchema,buildPageContextPrompt,type PageContext,} from "@/src/library/Contextual_AI/contextualAi";
 import { ChatContext, ChatClass, ChatDocument, PageAIContext, buildSystemPrompt } from "@/src/library/systemPrompt";
 import { describeChatError } from "@/src/library/chatErrors";
+import { THINK_CLOSE_TAG, stripThinkLeak } from "@/src/library/stripThinkLeak";
 
 const CHAT_RATE_LIMIT_WINDOW_MS = 60_000;
 const CHAT_RATE_LIMIT_MAX = 15; // per user per window — generous for real use, catches runaway/abusive callers
@@ -26,7 +27,7 @@ const MAX_TOOL_ROUNDS = 5;
 const MAX_DOCUMENT_CHARS = 30000;
 const MAX_DOCS_SCANNED = 25;
 const TOP_K_CHUNKS = 5;
-const RERANK_CANDIDATE_POOL = 15; // widen hybrid-score recall, then rerank down to TOP_K_CHUNKS
+const HYBRID_CANDIDATE_POOL = 15; // widen recall for the hybrid dense+sparse score before taking the top TOP_K_CHUNKS
 const SIMILARITY_THRESHOLD = 0.3; // below this, a chunk is treated as "not actually relevant"
 const CHAT_TEMPERATURE = 0.3; // lower than Ollama's default (~0.8) — favors grounded answers over creative ones
 const WEB_SEARCH_MAX_RESULTS = 5;
@@ -35,8 +36,14 @@ const MAX_CHAT_INPUT_CHARS = 4000; // mirrors the client's <input maxLength> in 
 // Conversation compaction: once the "unsummarized" tail of a conversation
 // gets this long, fold everything except the last KEEP_RECENT_MESSAGES turns
 // into a running summary instead of resending it verbatim every request.
-const COMPACTION_CHAR_THRESHOLD = 12000;
-const KEEP_RECENT_MESSAGES = 6;
+// Raised from the original 12000/6 - that was conservative even for
+// qwen3:14b's real 40960-token context, and both current models (Fast:
+// gpt-oss:20b, Quality: qwen3:30b-a3b) have substantially larger real
+// context windows, so there's real headroom to keep more actual
+// conversation verbatim (better continuity, no lossy summarization) before
+// compaction needs to kick in at all.
+const COMPACTION_CHAR_THRESHOLD = 45000;
+const KEEP_RECENT_MESSAGES = 10;
 
 type ChatMessage = { role: string; content: string };
 
@@ -261,7 +268,7 @@ function tokenize(text: string): string[] {
 // complementing the dense (embedding) one — catches exact terms like course
 // codes or names that semantic similarity alone sometimes misses. Computed
 // over the candidate pool itself as the "corpus": the pool is small
-// (bounded by RERANK_CANDIDATE_POOL), so per-term document frequency and
+// (bounded by HYBRID_CANDIDATE_POOL), so per-term document frequency and
 // average document length are cheap to compute inline, with no need for a
 // persistent text index. Replaces the previous naive "% of query terms
 // present" ratio, which ignored term frequency and document length
@@ -346,7 +353,7 @@ async function searchDocuments(
     return "Error: the search service is unavailable right now.";
   }
 
-  const scored: { text: string; docName: string; classCode: string; denseScore: number }[] = [];
+  const scored: { text: string; docName: string; classCode: string; page?: number; denseScore: number }[] = [];
   const docsByResourceId = new Map(candidateDocs.map((d) => [d.resourceId, d]));
   const scannedDocs = candidateDocs.slice(0, MAX_DOCS_SCANNED);
 
@@ -365,7 +372,7 @@ async function searchDocuments(
       const results = await searchChunks(
         queryEmbedding,
         { userId: context.userId, resourceIds: qdrantDocs.map((d) => d.resourceId) },
-        RERANK_CANDIDATE_POOL * 3
+        HYBRID_CANDIDATE_POOL * 3
       );
       for (const r of results) {
         const doc = docsByResourceId.get(r.payload.resourceId);
@@ -374,6 +381,7 @@ async function searchDocuments(
           text: r.payload.text,
           docName: doc.name,
           classCode: doc.classCode,
+          page: r.payload.page,
           denseScore: r.score, // Qdrant returns cosine similarity directly
         });
       }
@@ -408,6 +416,7 @@ async function searchDocuments(
           text: data.text,
           docName: doc.name,
           classCode: doc.classCode,
+          page: typeof data.page === "number" ? data.page : undefined,
           denseScore: cosineSimilarity(queryEmbedding, data.embedding),
         });
       });
@@ -438,7 +447,7 @@ async function searchDocuments(
   }));
 
   withScore.sort((a, b) => b.score - a.score);
-  const candidates = withScore.filter((r) => r.score >= SIMILARITY_THRESHOLD).slice(0, RERANK_CANDIDATE_POOL);
+  const candidates = withScore.filter((r) => r.score >= SIMILARITY_THRESHOLD).slice(0, HYBRID_CANDIDATE_POOL);
 
   if (candidates.length === 0) {
     return (
@@ -447,77 +456,24 @@ async function searchDocuments(
     );
   }
 
-  const relevant = await rerankChunks(query, candidates, TOP_K_CHUNKS);
+  // `candidates` is already sorted by hybrid score (dense+sparse) descending
+  // from the .sort() above - this used to hand off to an LLM reranker
+  // (qwen3:4b) for a second pass, but that call was pure overhead on every
+  // single document search: the hybrid score is already a real relevance
+  // signal, not a rough pre-filter, and the LLM pass added a full secondary-
+  // box round trip (plus, confirmed separately, that specific model ignores
+  // think:false at the weights level, so it was an unavoidably slow round
+  // trip) for a reordering that empirically wasn't earning its cost. Straight
+  // deterministic top-K slice now - faster, and one less network hop that
+  // can fail.
+  const relevant = candidates.slice(0, TOP_K_CHUNKS);
 
   return relevant
-    .map((r, i) => `[${i + 1}] From "${r.docName}" (${r.classCode}):\n${r.text}`)
+    .map((r, i) => {
+      const pageNote = typeof r.page === "number" ? `, p.${r.page}` : "";
+      return `[${i + 1}] From "${r.docName}" (${r.classCode}${pageNote}):\n${r.text}`;
+    })
     .join("\n\n");
-}
-
-// Two-stage retrieval: hybrid dense+sparse score gets a wide candidate pool
-// (recall), then a cross-encoder-style LLM pass reranks it down to the few
-// chunks actually worth sending to the primary model (precision). Runs on
-// the secondary box's small model — fails open to hybrid-score order if the
-// call fails, since a worse-ranked result set beats no result set.
-async function rerankChunks<T extends { text: string }>(
-  query: string,
-  candidates: T[],
-  topK: number
-): Promise<T[]> {
-  if (candidates.length <= topK) return candidates;
-  if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN) {
-    return candidates.slice(0, topK);
-  }
-
-  const numbered = candidates.map((c, i) => `[${i + 1}] ${c.text.slice(0, 500)}`).join("\n\n");
-
-  try {
-    const rerankBaseUrl = await resolveOllamaBaseUrl(process.env.OLLAMA_SECONDARY_URL, process.env.OLLAMA_SECONDARY_FALLBACK_URL);
-    const response = await callOllama(
-      [
-        {
-          role: "system",
-          content: `You are a search relevance reranker. Given a query and numbered passages, reply with ONLY a comma-separated list of the ${topK} passage numbers most relevant to the query, best first — nothing else. Example: 3,1,7`,
-        },
-        { role: "user", content: `Query: ${query}\n\nPassages:\n${numbered}` },
-      ],
-      undefined,
-      0.1,
-      {
-        baseUrl: rerankBaseUrl,
-        model: process.env.OLLAMA_SUMMARY_MODEL || "qwen3:4b",
-      }
-    );
-    if (!response.ok) return candidates.slice(0, topK);
-
-    const data = await response.json();
-    warnIfSlowGeneration(
-      rerankBaseUrl,
-      process.env.OLLAMA_SUMMARY_MODEL || "qwen3:4b",
-      data?.eval_count,
-      data?.eval_duration
-    );
-    const raw = (data?.message?.content || "").trim();
-    const indices = raw
-      .split(",")
-      .map((s: string) => parseInt(s.trim(), 10) - 1)
-      .filter((i: number) => Number.isInteger(i) && i >= 0 && i < candidates.length);
-
-    if (indices.length === 0) return candidates.slice(0, topK);
-
-    const seen = new Set<number>();
-    const reranked: T[] = [];
-    for (const i of indices) {
-      if (seen.has(i)) continue;
-      seen.add(i);
-      reranked.push(candidates[i]);
-      if (reranked.length >= topK) break;
-    }
-    return reranked.length > 0 ? reranked : candidates.slice(0, topK);
-  } catch (error) {
-    console.error("Reranking failed, using hybrid-score order:", error);
-    return candidates.slice(0, topK);
-  }
 }
 
 async function webSearchTool(query: string, scholarly?: boolean): Promise<string> {
@@ -649,6 +605,48 @@ async function recallPastChatTool(
   }
 }
 
+// qwen3:30b-a3b (the "quality" model) has a known bug: even with
+// think:false, it sometimes still emits its raw chain-of-thought as plain
+// content, ending in a stray closing </think> tag with no matching opening
+// tag - confirmed live, reproduced 4/4 tries during model research. This
+// buffers a round's output until either that tag shows up (then discards
+// everything up to and including it, streaming only the real answer from
+// there on) or a generous cap is hit without ever seeing it (then just
+// flushes the buffer as-is - a model that isn't leaking this round
+// shouldn't be held back indefinitely). Only applied to the quality
+// model's rounds; the fast model has never shown this bug, so its rounds
+// stream directly with no added buffering/latency. Non-streaming routes
+// (flashcards, quiz) use the simpler stripThinkLeak() from the same file
+// this constant now lives in, since they get the whole response at once.
+const THINK_STRIP_BUFFER_CAP = 8000;
+
+function wrapDeltaForThinkStripping(onDelta: (text: string) => void): (text: string) => void {
+  let buffer = "";
+  let resolved = false;
+
+  return (text: string) => {
+    if (resolved) {
+      onDelta(text);
+      return;
+    }
+
+    buffer += text;
+    const closeIndex = buffer.indexOf(THINK_CLOSE_TAG);
+
+    if (closeIndex !== -1) {
+      resolved = true;
+      const remainder = buffer.slice(closeIndex + THINK_CLOSE_TAG.length);
+      if (remainder) onDelta(remainder);
+      return;
+    }
+
+    if (buffer.length >= THINK_STRIP_BUFFER_CAP) {
+      resolved = true;
+      onDelta(buffer);
+    }
+  };
+}
+
 async function callOllama(
   messages: unknown[],
   tools?: unknown[],
@@ -673,6 +671,7 @@ async function callOllama(
         messages,
         ...(tools ? { tools } : {}),
         stream: false,
+        think: false,
         options: { temperature },
       }),
       signal: controller.signal,
@@ -710,6 +709,16 @@ async function streamOllamaRound(
         messages,
         tools,
         stream: true,
+        // Explicit, not omitted - this app previously never set this field
+        // anywhere, relying entirely on Ollama's implicit per-model default.
+        // Most models here (gpt-oss:20b, qwen3-vl) correctly suppress
+        // thinking once this is actually set; qwen3:30b-a3b still leaks
+        // sometimes even with this set (see wrapDeltaForThinkStripping,
+        // still needed as a safety net regardless); qwen3:4b ignores it
+        // entirely at the model-weights level, confirmed via direct
+        // testing - not fixable from here, see stripThinkLeak call sites
+        // for the actual mitigation used for that one.
+        think: false,
         options: { temperature },
       }),
       signal: controller.signal,
@@ -829,7 +838,7 @@ async function compactIfNeeded(
       data?.eval_count,
       data?.eval_duration
     );
-    const newSummary = data?.message?.content;
+    const newSummary = stripThinkLeak(data?.message?.content ?? "");
     if (!newSummary) throw new Error("Summarization returned no content");
 
     return { summary: newSummary, summarizedCount: summarizedCount + toFold.length };
@@ -865,6 +874,9 @@ export async function POST(request: NextRequest) {
     summarizedCount: incomingSummarizedCount,
     currentSessionId,
     pageContext,
+    chatMode,
+    boost,
+    extraTools,
   } = (await request.json().catch(() => ({}))) as {
     messages?: ChatMessage[];
     context?: ChatContext;
@@ -872,6 +884,19 @@ export async function POST(request: NextRequest) {
     summarizedCount?: number;
     currentSessionId?: string;
     pageContext?: unknown;
+    // Client-stored preference (see src/library/chatMode.ts), sent with
+    // every request - the server has no independent copy of this, it just
+    // trusts whatever the client sends per-request, same as summary/context.
+    chatMode?: "fast" | "quality";
+    // Per-message override: uses the quality model for just this one
+    // message regardless of the student's saved default mode.
+    boost?: boolean;
+    // Opt-in for tools that aren't always necessary (web/YouTube search) -
+    // off by default. Fewer tools in the schema on every request means less
+    // for the model to choose between (real tool-selection accuracy cost,
+    // not just prompt size) and less latency, for the common case where a
+    // student's question is answerable from their own course materials.
+    extraTools?: boolean;
   };
 
   if (!Array.isArray(messages) || messages.length === 0) {
@@ -923,15 +948,32 @@ export async function POST(request: NextRequest) {
   }
 
   const encoder = new TextEncoder();
+  // Fast = a smaller model kept always-resident on Primary alongside the
+  // vision model, zero cold-boot swaps ever, including for OCR. Quality =
+  // a larger model that's both faster and noticeably better for plain
+  // chat/quiz/advising text, but has to evict the vision model (and vice
+  // versa) whenever OCR is actually needed - see the gatekeeper proxy in
+  // front of Ollama for the eviction mechanics. `boost` overrides the
+  // student's saved default for just this one message.
+  const useQualityModel = boost === true || chatMode === "quality";
   const primaryTarget = {
     baseUrl: await resolveOllamaBaseUrl(process.env.OLLAMA_PRIMARY_URL, process.env.OLLAMA_PRIMARY_FALLBACK_URL),
-    model: process.env.OLLAMA_MODEL || "gpt-oss:20b",
+    model: useQualityModel
+      ? process.env.OLLAMA_MODEL_QUALITY || process.env.OLLAMA_MODEL || "qwen3:30b-a3b"
+      : process.env.OLLAMA_MODEL_FAST || process.env.OLLAMA_MODEL || "gpt-oss:20b",
   };
   const stream = new ReadableStream({
     async start(controller) {
       function send(obj: unknown) {
         controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
       }
+
+      // Fresh buffer state per round (each call site invokes this once per
+      // streamOllamaRound call) - see wrapDeltaForThinkStripping above.
+      const makeDeltaHandler = () => {
+        const base = (delta: string) => send({ type: "delta", text: delta });
+        return useQualityModel ? wrapDeltaForThinkStripping(base) : base;
+      };
 
       let studentProfile: StudentProfile = { summary: "", messageCount: 0 };
 
@@ -943,16 +985,38 @@ export async function POST(request: NextRequest) {
         // through the model's first token happened in total silence.
         send({ type: "status", label: "Loading your classes and profile..." });
 
-        // Clarification runs alongside compaction/profile-loading (not
-        // after) so its round-trip is hidden behind theirs rather than
-        // adding its own serial latency in front of every response.
-        const [{ summary, summarizedCount }, loadedProfile, clarifiedIntent] = await Promise.all([
-          compactIfNeeded(messages, incomingSummary ?? "", incomingSummarizedCount ?? 0),
+        // Compaction runs in the background rather than gating this turn:
+        // qwen3:4b's own thinking preamble (~5s, see stripThinkLeak's
+        // comment) made every compaction-triggering turn sit in total
+        // silence before the primary model even started streaming. Nothing
+        // this turn actually needs the NEW summary — using last turn's
+        // summary/summarizedCount to build the conversation below just
+        // means the raw tail folds in one turn later than it could have,
+        // which only affects context size, not correctness. The refreshed
+        // values are awaited later, right before they're reported in the
+        // "done" event, by which point the primary model's own (often
+        // longer) response has usually already absorbed the wait.
+        const compactionPromise = compactIfNeeded(messages, incomingSummary ?? "", incomingSummarizedCount ?? 0);
+
+        // Clarification runs alongside profile-loading (not after) so its
+        // round-trip is hidden behind theirs rather than adding its own
+        // serial latency in front of every response. Skipped outright in
+        // Fast mode: it's designed fail-open/additive (see
+        // queryClarifier.ts), so "off" here just means the raw message goes
+        // to the primary model unclarified, same as any other message this
+        // feature declines to touch - a real (if now modest, since the
+        // llama3.2:3b swap) latency + one fewer network round trip saved
+        // for students who've explicitly opted into Fast over Quality.
+        const [loadedProfile, clarifiedIntent] = await Promise.all([
           context?.userId ? getStudentProfile(context.userId) : Promise.resolve(studentProfile),
-          typeof latestMessage?.content === "string" ? clarifyUserQuery(latestMessage.content) : Promise.resolve(null),
+          useQualityModel && typeof latestMessage?.content === "string"
+            ? clarifyUserQuery(latestMessage.content)
+            : Promise.resolve(null),
         ]);
         studentProfile = loadedProfile;
 
+        const summary = incomingSummary ?? "";
+        const summarizedCount = incomingSummarizedCount ?? 0;
         const conversation: any[] = [
           { role: "system", content: buildSystemPrompt(context, studentProfile.summary, false, clarifiedIntent) },
           ...(summary ? [{ role: "system", content: `Summary of earlier conversation:\n${summary}` }] : []),
@@ -965,10 +1029,12 @@ export async function POST(request: NextRequest) {
           LIST_CLASSES_TOOL,
           SEARCH_DOCUMENTS_TOOL,
           READ_DOCUMENT_TOOL,
-          WEB_SEARCH_TOOL,
-          YOUTUBE_SEARCH_TOOL,
           CREATE_PDF_TOOL,
           RECALL_PAST_CHAT_TOOL,
+          // Opt-in only (see extraTools in the request body type above) -
+          // these two are the only tools that reach outside the student's
+          // own course materials, and aren't needed for most questions.
+          ...(extraTools ? [WEB_SEARCH_TOOL, YOUTUBE_SEARCH_TOOL] : []),
         ];
 
         let finished = false;
@@ -988,7 +1054,7 @@ export async function POST(request: NextRequest) {
             tools,
             CHAT_TEMPERATURE,
             primaryTarget,
-            (delta) => send({ type: "delta", text: delta })
+            makeDeltaHandler()
           );
 
           if (toolCalls && toolCalls.length > 0) {
@@ -1062,7 +1128,14 @@ export async function POST(request: NextRequest) {
           }
 
           finished = true;
-          send({ type: "done", documentsRead, generatedFiles, summary, summarizedCount });
+          const finalCompaction = await compactionPromise;
+          send({
+            type: "done",
+            documentsRead,
+            generatedFiles,
+            summary: finalCompaction.summary,
+            summarizedCount: finalCompaction.summarizedCount,
+          });
         }
 
         if (!finished) {
@@ -1076,12 +1149,17 @@ export async function POST(request: NextRequest) {
           });
 
           send({ type: "status", label: "Wrapping up an answer..." });
-          const { content } = await streamOllamaRound(conversation, [], CHAT_TEMPERATURE, primaryTarget, (delta) =>
-            send({ type: "delta", text: delta })
-          );
+          const { content } = await streamOllamaRound(conversation, [], CHAT_TEMPERATURE, primaryTarget, makeDeltaHandler());
 
           if (content) {
-            send({ type: "done", documentsRead, generatedFiles, summary, summarizedCount });
+            const finalCompaction = await compactionPromise;
+            send({
+              type: "done",
+              documentsRead,
+              generatedFiles,
+              summary: finalCompaction.summary,
+              summarizedCount: finalCompaction.summarizedCount,
+            });
           } else {
             send({
               type: "error",

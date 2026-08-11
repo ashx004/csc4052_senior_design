@@ -15,6 +15,7 @@ import { createPortal } from "react-dom";
 import { ChevronDown, Send, Sparkles, Loader2,Maximize2,Minimize2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import type { PageContext, SuggestionItem } from "@/src/library/Contextual_AI/contextualAi";
+import { getStoredChatMode } from "@/src/library/chatMode";
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -123,6 +124,7 @@ export default function ContextualAiPanel({
             messages: allMessages,
             context: chatContext,
             pageContext,
+            chatMode: getStoredChatMode(),
           }),
           signal: controller.signal,
         });
