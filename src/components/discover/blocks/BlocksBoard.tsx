@@ -1,11 +1,13 @@
 "use client";
 
 import { useDroppable } from "@dnd-kit/core";
-import type { Board, DragPreview, PieceColor } from "@/src/library/discover/blocksTypes";
+import { isCellClearing } from "@/src/library/discover/blocksLogic";
+import type { Board, ClearingLines, DragPreview, PieceColor } from "@/src/library/discover/blocksTypes";
 
 interface BlocksBoardProps {
   board: Board;
   dragPreview: DragPreview | null;
+  clearingLines: ClearingLines | null;
 }
 
 /*
@@ -32,15 +34,18 @@ interface BoardCellViewProps {
   col: number;
   board: Board;
   dragPreview: DragPreview | null;
+  clearingLines: ClearingLines | null;
 }
 
-function BoardCellView({ row, col, board, dragPreview }: BoardCellViewProps) {
+function BoardCellView({ row, col, board, dragPreview, clearingLines }: BoardCellViewProps) {
   const cell = board[row][col];
   const inPreview = isCellInPreview(row, col, dragPreview);
+  const clearing = isCellClearing(row, col, clearingLines);
 
   let className = "aspect-square min-h-[3rem] min-w-[3rem] rounded-sm transition-colors";
   if (cell.filled) {
     className += ` border border-white/30 shadow-inner ${CELL_COLOR_CLASSES[cell.color as PieceColor]}`;
+    if (clearing) className += " blocks-clear-fade";
   } else if (inPreview) {
     className += " border border-border-light bg-emerald-300/60 ring-2 ring-emerald-400";
   } else {
@@ -50,7 +55,7 @@ function BoardCellView({ row, col, board, dragPreview }: BoardCellViewProps) {
   return <div data-row={row} data-col={col} className={className} />;
 }
 
-export default function BlocksBoard({ board, dragPreview }: BlocksBoardProps) {
+export default function BlocksBoard({ board, dragPreview, clearingLines }: BlocksBoardProps) {
   const { setNodeRef } = useDroppable({ id: "blocks-board" });
 
   return (
@@ -61,7 +66,14 @@ export default function BlocksBoard({ board, dragPreview }: BlocksBoardProps) {
     >
       {board.map((rowCells, row) =>
         rowCells.map((_, col) => (
-          <BoardCellView key={`${row}-${col}`} row={row} col={col} board={board} dragPreview={dragPreview} />
+          <BoardCellView
+            key={`${row}-${col}`}
+            row={row}
+            col={col}
+            board={board}
+            dragPreview={dragPreview}
+            clearingLines={clearingLines}
+          />
         ))
       )}
     </div>

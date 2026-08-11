@@ -6,6 +6,14 @@ export const HAND_SIZE = 4;
 export const MAX_HEARTS = 3;
 export const POOL_TOPUP_THRESHOLD = 5;
 
+/** How long cleared cells flash/fade before they are emptied (ms). */
+export const CLEAR_ANIMATION_MS = 600;
+
+export interface ClearingLines {
+  rows: number[];
+  cols: number[];
+}
+
 // --- Piece colors (decorative only — spec §4) ---
 export const PIECE_COLORS = ["blue", "green", "amber", "rose", "violet", "teal"] as const;
 export type PieceColor = (typeof PIECE_COLORS)[number];

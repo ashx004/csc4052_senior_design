@@ -1,5 +1,5 @@
 // src/library/discover/blocksLogic.ts
-import { BOARD_SIZE, type Board, type HandPiece, type PieceColor, type PieceShape } from "./blocksTypes";
+import { BOARD_SIZE, type Board, type ClearingLines, type HandPiece, type PieceColor, type PieceShape } from "./blocksTypes";
 
 export interface RectLike {
   left: number;
@@ -147,4 +147,10 @@ export function measureBoardCellMetrics(): { size: number; gap: number } | null 
   const rect00 = cell00.getBoundingClientRect();
   const rect01 = cell01.getBoundingClientRect();
   return { size: rect00.width, gap: rect01.left - rect00.right };
+}
+
+/** True when `(row, col)` sits on a row or column currently being cleared. */
+export function isCellClearing(row: number, col: number, clearing: ClearingLines | null): boolean {
+  if (!clearing) return false;
+  return clearing.rows.includes(row) || clearing.cols.includes(col);
 }
