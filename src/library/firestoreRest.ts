@@ -57,8 +57,16 @@ export async function firestoreUpdate(
 ): Promise<void> {
   const url = `${FIRESTORE_BASE}/${collection}/${docId}`;
   // Firestore REST PATCH with updateMask writes only the listed fields.
-  const mask = Object.keys(fields).join(",");
-  const res = await fetch(`${url}?updateMask.fieldPaths=${mask}`, {
+  // The API requires the mask as one repeated updateMask.fieldPaths param
+  // PER field, not a single comma-joined value — a comma isn't valid inside
+  // a field path, so joining them made every multi-field update 400 with
+  // "Invalid property path" (confirmed live 2026-08-11), silently failing
+  // (see the console.error below) on every turn for any existing session.
+  const params = new URLSearchParams();
+  for (const key of Object.keys(fields)) {
+    params.append("updateMask.fieldPaths", key);
+  }
+  const res = await fetch(`${url}?${params.toString()}`, {
     method: "PATCH",
     headers: {
       Authorization: `Bearer ${idToken}`,

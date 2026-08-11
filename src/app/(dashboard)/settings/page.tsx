@@ -27,7 +27,7 @@ export default function Settings() {
     // const [studyRemIsOn, setstudyRemOn] = useState<boolean>(false);
     const [themeMode, setThemeModeState] = useState<ThemeMode>("light");
     const [coffee, setCoffeeState] = useState<boolean>(false);
-    const [chatMode, setChatModeState] = useState<ChatMode>("fast");
+    const [chatMode, setChatModeState] = useState<ChatMode>("quality");
     // const [focusIsOn, setFocusOn] = useState<boolean>(false);
 
     const [showPasswordForm, setShowPasswordForm] = useState<boolean>(false);
@@ -69,8 +69,20 @@ export default function Settings() {
 
     function handleChatModeToggle() {
         const next: ChatMode = chatMode === "quality" ? "fast" : "quality";
+        if (next === chatMode) return;
         setChatModeState(next);
         setStoredChatMode(next);
+
+        // Fire-and-forget: pays the cold-boot cost of switching models right
+        // now instead of on the student's next chat message. Never blocks
+        // the toggle UI or surfaces a failure — this is a best-effort
+        // latency optimization, not something the student needs to know
+        // about if the warm-up itself fails.
+        fetch("/api/warm-model", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode: next }),
+        }).catch((error) => console.error("Model warm-up request failed:", error));
     }
 
 

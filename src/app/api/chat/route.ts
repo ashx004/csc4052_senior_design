@@ -15,7 +15,7 @@ import { getStudentProfile, maybeUpdateStudentProfile, StudentProfile } from "@/
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import {pageContextSchema,buildPageContextPrompt,type PageContext,} from "@/src/library/Contextual_AI/contextualAi";
-import { ChatContext, ChatClass, ChatDocument, PageAIContext, buildSystemPrompt } from "@/src/library/systemPrompt";
+import { ChatContext, ChatClass, ChatDocument, buildSystemPrompt } from "@/src/library/systemPrompt";
 import { describeChatError } from "@/src/library/chatErrors";
 import { getIdToken, firestoreCreate, firestoreGet, firestoreUpdate } from "@/src/library/firestoreRest";
 import { deriveChatTitle } from "@/src/library/chatTitle";
@@ -33,6 +33,14 @@ const TOP_K_CHUNKS = 5;
 const HYBRID_CANDIDATE_POOL = 15; // widen recall for the hybrid dense+sparse score before taking the top TOP_K_CHUNKS
 const SIMILARITY_THRESHOLD = 0.3; // below this, a chunk is treated as "not actually relevant"
 const CHAT_TEMPERATURE = 0.3; // lower than Ollama's default (~0.8) — favors grounded answers over creative ones
+// Fast is meant to stay resident on Primary permanently (see OLLAMA_MODEL_FAST's
+// comment in env.example) — -1 tells Ollama to never auto-evict it just for
+// sitting idle. Quality competes with vision/OCR for VRAM, so it's only kept
+// warm for a bounded window past last use, long enough to outlast normal
+// back-and-forth in one sitting without camping in VRAM indefinitely once the
+// student's actually done and vision needs the room back.
+const FAST_MODEL_KEEP_ALIVE = -1;
+const QUALITY_MODEL_KEEP_ALIVE = "30m";
 const WEB_SEARCH_MAX_RESULTS = 5;
 const MAX_CHAT_INPUT_CHARS = 4000; // mirrors the client's <input maxLength> in ai-assistant/page.tsx
 
@@ -608,26 +616,38 @@ async function recallPastChatTool(
   }
 }
 
-// qwen3:30b-a3b (the "quality" model) has a known bug: even with
-// think:false, it sometimes still emits its raw chain-of-thought as plain
-// content, ending in a stray closing </think> tag with no matching opening
-// tag - confirmed live, reproduced 4/4 tries during model research. This
-// buffers a round's output until either that tag shows up (then discards
-// everything up to and including it, streaming only the real answer from
+// Both chat models have shown this bug: even with think:false, they
+// sometimes still emit raw chain-of-thought as plain content, ending in a
+// stray closing </think> tag with no matching opening tag (qwen3:30b-a3b -
+// confirmed live, reproduced 4/4 tries during model research; gpt-oss:20b -
+// confirmed live 2026-08-11, same tag-delimited shape). A separate,
+// non-tag-delimited gpt-oss:20b leak has also been seen once (a document-
+// summarization reply) - that shape isn't catchable by matching a
+// delimiter and isn't handled here.
+//
+// Buffers a round's output until either the tag shows up (then discards
+// everything up to and including it, releasing only the real answer from
 // there on) or a generous cap is hit without ever seeing it (then just
-// flushes the buffer as-is - a model that isn't leaking this round
-// shouldn't be held back indefinitely). Only applied to the quality
-// model's rounds; the fast model has never shown this bug, so its rounds
-// stream directly with no added buffering/latency. Non-streaming routes
-// (flashcards, quiz) use the simpler stripThinkLeak() from the same file
-// this constant now lives in, since they get the whole response at once.
+// releases the buffer as-is - a model that isn't leaking this round
+// shouldn't be held back indefinitely). The client never sees raw
+// chain-of-thought at all, not even briefly - the trade-off (confirmed as
+// the preferred one live 2026-08-11, over an earlier live-stream-then-
+// correct version that let a leak flash on screen before being wiped) is
+// that the reply bubble shows a plain "Thinking..."/spinner status with
+// nothing streaming until this resolves, instead of token-by-token
+// streaming from the first token. Applied to both models uniformly, now
+// that gpt-oss:20b has shown the same tag-delimited leak qwen3:30b-a3b did.
 const THINK_STRIP_BUFFER_CAP = 8000;
 
-function wrapDeltaForThinkStripping(onDelta: (text: string) => void): (text: string) => void {
+function wrapDeltaForThinkStripping(onDelta: (text: string) => void): {
+  handleDelta: (text: string) => void;
+  flush: () => void;
+  discard: () => void;
+} {
   let buffer = "";
   let resolved = false;
 
-  return (text: string) => {
+  function handleDelta(text: string) {
     if (resolved) {
       onDelta(text);
       return;
@@ -647,14 +667,49 @@ function wrapDeltaForThinkStripping(onDelta: (text: string) => void): (text: str
       resolved = true;
       onDelta(buffer);
     }
-  };
+  }
+
+  // Call once the round that used handleDelta finishes AND turns out to be
+  // a real answer (no tool calls) - releases whatever's still sitting in
+  // the buffer. That's the common case: a normal reply that never
+  // contained </think> and never crossed the cap, so neither branch above
+  // ever fired on its own (confirmed live 2026-08-11 as a bubble that sat
+  // empty far longer than it should have, before this call was added).
+  function flush() {
+    if (!resolved && buffer) {
+      resolved = true;
+      onDelta(buffer);
+    }
+  }
+
+  // Call instead of flush() when the round turns out to be a tool-call
+  // round - its buffered content (ordinary pre-tool-call chatter, or a
+  // leak) was never a real answer either way, so it's dropped rather than
+  // ever reaching the client (see the tool-call branch in the round loop).
+  function discard() {
+    resolved = true;
+  }
+
+  return { handleDelta, flush, discard };
 }
+
+// keep_alive controls how long Ollama holds a model in VRAM after a
+// request finishes idle, before evicting it (Ollama's own default is a
+// short few minutes). -1 means never auto-evict — reserved for the fast
+// model, which is meant to stay resident always (see OllamaTarget's own
+// comment) — a duration string bounds how long the quality model lingers
+// after use instead of camping in VRAM indefinitely, so it still frees up
+// for OCR/vision after real disuse. Omitted entirely for anything else
+// (compaction, clarification, embeddings' own explicit -1) — left at
+// Ollama's default rather than guessing a policy for models out of scope
+// here.
+type OllamaTarget = { baseUrl: string; model: string; keepAlive?: number | string };
 
 async function callOllama(
   messages: unknown[],
   tools?: unknown[],
   temperature = CHAT_TEMPERATURE,
-  target: { baseUrl: string; model: string } = {
+  target: OllamaTarget = {
     baseUrl: process.env.OLLAMA_PRIMARY_URL || "",
     model: process.env.OLLAMA_MODEL || "gpt-oss:20b",
   }
@@ -676,6 +731,7 @@ async function callOllama(
         stream: false,
         think: false,
         options: { temperature },
+        ...(target.keepAlive !== undefined ? { keep_alive: target.keepAlive } : {}),
       }),
       signal: controller.signal,
     });
@@ -694,7 +750,7 @@ async function streamOllamaRound(
   messages: unknown[],
   tools: unknown[],
   temperature: number,
-  target: { baseUrl: string; model: string },
+  target: OllamaTarget,
   onDelta: (text: string) => void
 ): Promise<{ content: string; toolCalls: any[] | null; rawMessage: any }> {
   const controller = new AbortController();
@@ -723,6 +779,7 @@ async function streamOllamaRound(
         // for the actual mitigation used for that one.
         think: false,
         options: { temperature },
+        ...(target.keepAlive !== undefined ? { keep_alive: target.keepAlive } : {}),
       }),
       signal: controller.signal,
     });
@@ -972,6 +1029,26 @@ async function finishChatPersistence(
   }
 }
 
+// Throttled mid-generation write of the placeholder's growing text, so
+// anyone watching this session live via subscribeToChatSession/
+// subscribeToPanelChatSession (e.g. reopened from the history panel mid-
+// reply) sees the reply streaming in rather than a static "generating"
+// state until the whole thing finishes. Deliberately NOT awaited by its
+// caller (see recordDelta in the streaming loop below) — a Firestore round
+// trip must never add latency to the response the original sender is
+// already watching live over the HTTP stream itself. generating stays
+// true; only finishChatPersistence flips it false.
+async function persistPartialReply(target: PersistTarget, text: string): Promise<void> {
+  try {
+    const messages = [...target.messages];
+    const last = messages[messages.length - 1];
+    messages[messages.length - 1] = { ...last, text };
+    await firestoreUpdate(target.idToken, target.collectionPath, target.docId, { messages });
+  } catch (error) {
+    console.error("Failed to persist partial chat reply:", error);
+  }
+}
+
 // Response protocol (newline-delimited JSON, one object per line):
 //   {"type":"delta","text":"..."}                                — append to the reply
 //   {"type":"tool","name":"search_documents"}                    — a tool started running
@@ -1052,9 +1129,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const enrolledCourseIds = (context?.classes || []).map((c) => c.classId);
-    if (!enrolledCourseIds.includes(parsed.data.courseId)) {
-      return NextResponse.json({ error: "pageContext.courseId not in user context" }, { status: 403 });
+    // page_text's courseId is optional (see contextualAi.ts) — pages that
+    // aren't about one specific course (classes list, advising) omit it
+    // entirely, and there's nothing course-private to authorize in that
+    // case since the briefing is built from the student's own data either
+    // way. flashcard/quiz_result/course-scoped page_text still always
+    // carry a courseId and get checked exactly as before.
+    if (parsed.data.courseId !== undefined) {
+      const enrolledCourseIds = (context?.classes || []).map((c) => c.classId);
+      if (!enrolledCourseIds.includes(parsed.data.courseId)) {
+        return NextResponse.json({ error: "pageContext.courseId not in user context" }, { status: 403 });
+      }
     }
 
     validatedPageContext = parsed.data;
@@ -1083,11 +1168,12 @@ export async function POST(request: NextRequest) {
   // front of Ollama for the eviction mechanics. `boost` overrides the
   // student's saved default for just this one message.
   const useQualityModel = boost === true || chatMode === "quality";
-  const primaryTarget = {
+  const primaryTarget: OllamaTarget = {
     baseUrl: await resolveOllamaBaseUrl(process.env.OLLAMA_PRIMARY_URL, process.env.OLLAMA_PRIMARY_FALLBACK_URL),
     model: useQualityModel
       ? process.env.OLLAMA_MODEL_QUALITY || process.env.OLLAMA_MODEL || "qwen3:30b-a3b"
       : process.env.OLLAMA_MODEL_FAST || process.env.OLLAMA_MODEL || "gpt-oss:20b",
+    keepAlive: useQualityModel ? QUALITY_MODEL_KEEP_ALIVE : FAST_MODEL_KEEP_ALIVE,
   };
   const stream = new ReadableStream({
     async start(controller) {
@@ -1103,17 +1189,52 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Fresh buffer state per round (each call site invokes this once per
-      // streamOllamaRound call) - see wrapDeltaForThinkStripping above.
-      const makeDeltaHandler = () => {
-        const base = (delta: string) => send({ type: "delta", text: delta });
-        return useQualityModel ? wrapDeltaForThinkStripping(base) : base;
-      };
-
       let studentProfile: StudentProfile = { summary: "", messageCount: 0 };
       const documentsRead: string[] = [];
       const generatedFiles: { name: string; url: string }[] = [];
       let persistTarget: PersistTarget | null = null;
+      // Accumulates the same post-think-stripping text actually sent to the
+      // live client, so a resumed viewer's partial text always matches what
+      // the original sender saw — never the raw pre-strip buffer.
+      let liveReplyText = "";
+      let lastPartialPersistAt = 0;
+      let hasPersistedFirstChunk = false;
+      const PARTIAL_PERSIST_INTERVAL_MS = 800;
+
+      // Fire-and-forget, throttled — persistTarget is captured by reference
+      // (assigned below, after this closure is created) so it's read at
+      // call time, once startChatPersistence has actually resolved. The
+      // very first write skips the throttle entirely — otherwise anyone
+      // watching this session live (a resumed/history-panel view) sits on a
+      // blank placeholder for up to the full interval even after real text
+      // has already started arriving.
+      function persistLiveReplyThrottled() {
+        if (!persistTarget) return;
+        const now = Date.now();
+        if (hasPersistedFirstChunk && now - lastPartialPersistAt < PARTIAL_PERSIST_INTERVAL_MS) return;
+        hasPersistedFirstChunk = true;
+        lastPartialPersistAt = now;
+        persistPartialReply(persistTarget, liveReplyText).catch(() => {});
+      }
+      function recordDeltaForPersistence(delta: string) {
+        liveReplyText += delta;
+        persistLiveReplyThrottled();
+      }
+
+      // Fresh buffer state per round (each call site invokes this once per
+      // streamOllamaRound call) - see wrapDeltaForThinkStripping above.
+      // Applied to both models uniformly - see that function's comment for
+      // why the old quality-only gate was dropped. onDelta only ever fires
+      // with already-clean text (post-buffering), so nothing downstream of
+      // it - including recordDeltaForPersistence - ever sees raw
+      // chain-of-thought either.
+      const makeDeltaHandler = () => {
+        const base = (delta: string) => {
+          send({ type: "delta", text: delta });
+          recordDeltaForPersistence(delta);
+        };
+        return wrapDeltaForThinkStripping(base);
+      };
       let finalAnswerText: string | null = null;
       // Persisted alongside the finished reply below; defaults to the raw
       // incoming values and is refreshed once compactionPromise resolves
@@ -1212,15 +1333,27 @@ export async function POST(request: NextRequest) {
         send({ type: "status", label: "Sending your question to the AI model..." });
 
         for (let round = 0; round < MAX_TOOL_ROUNDS && !finished; round++) {
+          const { handleDelta, flush, discard } = makeDeltaHandler();
           const { content, toolCalls, rawMessage } = await streamOllamaRound(
             conversation,
             tools,
             CHAT_TEMPERATURE,
             primaryTarget,
-            makeDeltaHandler()
+            handleDelta
           );
 
           if (toolCalls && toolCalls.length > 0) {
+            // A tool-call round must never leave visible/persisted text
+            // behind — its buffered content (ordinary pre-tool-call
+            // chatter, or a leak that never produces a closing tag because
+            // the round ends in a tool call instead of an answer) was never
+            // a real answer either way, so it's dropped rather than
+            // flushed. Confirmed live: flushing it regardless of tool calls
+            // (the buffer's contents reaching the client either way) is
+            // what made a reply look like it was "thinking twice" — once
+            // for this round's stray content, again for the next round's
+            // real one.
+            discard();
             if (!anyToolCalled) {
               anyToolCalled = true;
               // Swap in the post-tool layer for every round from here on —
@@ -1272,12 +1405,26 @@ export async function POST(request: NextRequest) {
             continue;
           }
 
-          // No tool calls. Normally this round's content is the final answer
-          // — but occasionally Ollama returns neither tool calls nor content
-          // (an empty round). Silently declaring that "done" produces an
-          // invisible, empty assistant bubble, so retry once before
-          // surfacing an error.
-          if (!content) {
+          // Not a tool-call round — release whatever's buffered (see
+          // wrapDeltaForThinkStripping/flush above): the common case is a
+          // normal reply that never contained </think> and never crossed
+          // the buffer cap, so it hasn't reached the client at all yet.
+          flush();
+
+          // Normally this round's content is the final answer — but
+          // occasionally Ollama returns neither tool calls nor content (an
+          // empty round), or the round's entire content turns out to have
+          // BEEN the leaked chain-of-thought with nothing real after the
+          // closing tag (confirmed live 2026-08-11 — the buffer correctly
+          // withheld the leaked text from the live view, but the round
+          // still had a non-empty raw `content`, so it passed the old
+          // `!content` check and got finalized as-is, persisting an empty
+          // answer that then sat blank forever with no retry and no error).
+          // Checking the stripped text catches both cases the same way -
+          // silently declaring either "done" produces an invisible, empty
+          // assistant bubble, so retry once before surfacing an error.
+          const strippedContent = stripThinkLeak(content).trim();
+          if (!strippedContent) {
             if (emptyRoundRetries < 1) {
               emptyRoundRetries++;
               continue;
@@ -1289,7 +1436,13 @@ export async function POST(request: NextRequest) {
           }
 
           finished = true;
-          finalAnswerText = content;
+          // stripThinkLeak here is a safety net, not the primary defense —
+          // wrapDeltaForThinkStripping above already corrected what the
+          // live client saw via a reset event. This just keeps what gets
+          // persisted (and what a resumed/history-panel viewer eventually
+          // sees) in sync with that, since `content` itself is the raw,
+          // pre-strip round output.
+          finalAnswerText = strippedContent;
           const finalCompaction = await compactionPromise;
           persistedSummary = finalCompaction.summary;
           persistedSummarizedCount = finalCompaction.summarizedCount;
@@ -1313,10 +1466,22 @@ export async function POST(request: NextRequest) {
           });
 
           send({ type: "status", label: "Wrapping up an answer..." });
-          const { content } = await streamOllamaRound(conversation, [], CHAT_TEMPERATURE, primaryTarget, makeDeltaHandler());
+          const finalRoundHandler = makeDeltaHandler();
+          const { content } = await streamOllamaRound(
+            conversation,
+            [],
+            CHAT_TEMPERATURE,
+            primaryTarget,
+            finalRoundHandler.handleDelta
+          );
+          finalRoundHandler.flush();
 
-          if (content) {
-            finalAnswerText = content;
+          // See the retry loop's identical check above — content that was
+          // entirely leaked chain-of-thought (non-empty raw, empty once
+          // stripped) must not be finalized as an answer either.
+          const strippedFinalContent = content ? stripThinkLeak(content).trim() : "";
+          if (strippedFinalContent) {
+            finalAnswerText = strippedFinalContent;
             const finalCompaction = await compactionPromise;
             persistedSummary = finalCompaction.summary;
             persistedSummarizedCount = finalCompaction.summarizedCount;
