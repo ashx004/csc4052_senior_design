@@ -5,6 +5,7 @@ import {
   fetchInternal,
   resolveInternalUrl,
 } from '@/src/library/pdfExtract';
+import { stripThinkLeak } from '@/src/library/stripThinkLeak';
 
 const FlashcardResponseSchema = z.object({
   topicName: z
@@ -75,7 +76,7 @@ Rules:
 // endpoint, non-streaming, AbortController-backed timeout. Structured output
 // is enforced via Ollama's `format` field (a JSON schema) instead of relying
 // on prompt instructions alone.
-async function callOllamaForFlashcards(messages: unknown[]): Promise<Response> {
+async function callOllamaForFlashcards(messages: unknown[], useQualityModel: boolean): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
 
@@ -87,9 +88,15 @@ async function callOllamaForFlashcards(messages: unknown[]): Promise<Response> {
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
       },
       body: JSON.stringify({
-        model: process.env.OLLAMA_MODEL,
+        // Same fast/quality selection as api/chat/route.ts - flashcard
+        // generation is the same underlying task, so it respects the
+        // student's saved chat-mode preference too.
+        model: useQualityModel
+          ? process.env.OLLAMA_MODEL_QUALITY || process.env.OLLAMA_MODEL || 'qwen3:30b-a3b'
+          : process.env.OLLAMA_MODEL_FAST || process.env.OLLAMA_MODEL || 'gpt-oss:20b',
         messages,
         stream: false,
+        think: false,
         format: FLASHCARD_JSON_SCHEMA,
         options: { temperature: 0 },
       }),
@@ -104,13 +111,14 @@ async function callOllamaForFlashcards(messages: unknown[]): Promise<Response> {
 // once if the model's output isn't valid/parseable JSON — a small model can
 // occasionally wrap the JSON in prose or drop a field even with `format` set.
 async function generateFlashcardsWithRetry(
-  messages: unknown[]
+  messages: unknown[],
+  useQualityModel: boolean
 ): Promise<{ topicName: string; questions: { question: string; answer: string }[] }> {
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const response = await callOllamaForFlashcards(messages);
+      const response = await callOllamaForFlashcards(messages, useQualityModel);
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => '');
@@ -118,7 +126,7 @@ async function generateFlashcardsWithRetry(
       }
 
       const data = await response.json();
-      const content = data?.message?.content ?? '';
+      const content = stripThinkLeak(data?.message?.content ?? '');
       const parsed = FlashcardResponseSchema.parse(JSON.parse(content));
 
       return parsed;
@@ -138,7 +146,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { docUrl, docName, previousQuestions } = await request.json();
+    const { docUrl, docName, previousQuestions, chatMode, boost } = await request.json();
+    const useQualityModel = boost === true || chatMode === 'quality';
 
     if (!docUrl) {
       return NextResponse.json({ error: 'Document URL is required' }, { status: 400 });
@@ -147,7 +156,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    if (!process.env.OLLAMA_PRIMARY_URL || !process.env.OLLAMA_AUTH_TOKEN || !process.env.OLLAMA_MODEL) {
+    if (!process.env.OLLAMA_PRIMARY_URL || !process.env.OLLAMA_AUTH_TOKEN) {
       return NextResponse.json({ error: 'The AI assistant is not configured.' }, { status: 500 });
     }
 
@@ -207,7 +216,7 @@ export async function POST(request: NextRequest) {
 
     let parsed;
     try {
-      parsed = await generateFlashcardsWithRetry(messages);
+      parsed = await generateFlashcardsWithRetry(messages, useQualityModel);
     } catch (error) {
       console.error('Flashcard generation failed after retry:', error);
       return NextResponse.json(
