@@ -9,6 +9,7 @@ import type { HandPiece, PieceColor } from "@/src/library/discover/blocksTypes";
 
 interface BlocksPieceTrayProps {
   hand: HandPiece[];
+  disabled: boolean;
 }
 
 const PIECE_COLOR_CLASSES: Record<PieceColor, string> = {
@@ -28,12 +29,14 @@ interface PieceGlyphProps {
   piece: HandPiece;
   cellSize: number;
   gap: number;
+  disabled: boolean;
 }
 
-function PieceGlyph({ piece, cellSize, gap }: PieceGlyphProps) {
+function PieceGlyph({ piece, cellSize, gap, disabled }: PieceGlyphProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `piece-${piece.instanceId}`,
     data: { piece },
+    disabled,
   });
 
   const maxRow = Math.max(...piece.shape.cells.map(([r]) => r)) + 1;
@@ -68,7 +71,7 @@ function PieceGlyph({ piece, cellSize, gap }: PieceGlyphProps) {
   );
 }
 
-export default function BlocksPieceTray({ hand }: BlocksPieceTrayProps) {
+export default function BlocksPieceTray({ hand, disabled }: BlocksPieceTrayProps) {
   const [cellMetrics, setCellMetrics] = useState(FALLBACK_CELL_METRICS);
 
   useLayoutEffect(() => {
@@ -79,7 +82,13 @@ export default function BlocksPieceTray({ hand }: BlocksPieceTrayProps) {
   return (
     <div className="flex flex-col items-center gap-3">
       {hand.map((piece) => (
-        <PieceGlyph key={piece.instanceId} piece={piece} cellSize={cellMetrics.size} gap={cellMetrics.gap} />
+        <PieceGlyph
+          key={piece.instanceId}
+          piece={piece}
+          cellSize={cellMetrics.size}
+          gap={cellMetrics.gap}
+          disabled={disabled}
+        />
       ))}
     </div>
   );

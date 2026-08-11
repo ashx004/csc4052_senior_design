@@ -204,3 +204,24 @@ a:hover {
 .no-scrollbar::-webkit-scrollbar {
   display: none; /* Chrome, Safari, other WebKit browsers */
 }
+
+/* Blocks line-clear: flash bright, then fade out over CLEAR_ANIMATION_MS (600ms). */
+@keyframes blocks-clear-fade {
+  0% {
+    opacity: 1;
+    filter: brightness(1);
+  }
+  35% {
+    opacity: 1;
+    filter: brightness(1.7);
+  }
+  100% {
+    opacity: 0;
+    filter: brightness(1.2);
+  }
+}
+
+.blocks-clear-fade {
+  animation: blocks-clear-fade 0.6s ease-out forwards;
+  pointer-events: none;
+}

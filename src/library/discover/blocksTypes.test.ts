@@ -1,6 +1,15 @@
 // src/library/discover/blocksTypes.test.ts
 import { describe, expect, it } from "vitest";
-import { isMatchingQuestion, isSingleQuestion, BOARD_SIZE, HAND_SIZE, MAX_HEARTS, POOL_TOPUP_THRESHOLD, PIECE_COLORS } from "./blocksTypes";
+import {
+  isMatchingQuestion,
+  isSingleQuestion,
+  BOARD_SIZE,
+  CLEAR_ANIMATION_MS,
+  HAND_SIZE,
+  MAX_HEARTS,
+  POOL_TOPUP_THRESHOLD,
+  PIECE_COLORS,
+} from "./blocksTypes";
 import type { BlocksQuestion } from "./blocksTypes";
 
 const single: BlocksQuestion = {
@@ -32,6 +41,7 @@ describe("blocksTypes constants", () => {
     expect(HAND_SIZE).toBe(4);
     expect(MAX_HEARTS).toBe(3);
     expect(POOL_TOPUP_THRESHOLD).toBe(5);
+    expect(CLEAR_ANIMATION_MS).toBe(600);
     expect(PIECE_COLORS.length).toBeGreaterThan(0);
   });
 });

@@ -8,6 +8,7 @@ import {
   hasAnyValidPlacement,
   placeShape,
   resolveDropAnchor,
+  isCellClearing,
   type RectLike,
 } from "./blocksLogic";
 import type { Board, HandPiece, PieceShape } from "./blocksTypes";
@@ -280,5 +281,33 @@ describe("resolveDropAnchor", () => {
     const getBoardCellRect = (row: number, col: number) => boardRect(row, col);
 
     expect(resolveDropAnchor(dominoH, getPieceCellRect, getBoardCellRect, board)).toBeNull();
+  });
+});
+
+describe("isCellClearing", () => {
+  it("returns false when nothing is clearing", () => {
+    expect(isCellClearing(0, 0, null)).toBe(false);
+  });
+
+  it("returns true for every cell in a clearing row", () => {
+    const clearing = { rows: [2], cols: [] as number[] };
+    expect(isCellClearing(2, 0, clearing)).toBe(true);
+    expect(isCellClearing(2, 7, clearing)).toBe(true);
+    expect(isCellClearing(1, 0, clearing)).toBe(false);
+  });
+
+  it("returns true for every cell in a clearing column", () => {
+    const clearing = { rows: [] as number[], cols: [3] };
+    expect(isCellClearing(0, 3, clearing)).toBe(true);
+    expect(isCellClearing(7, 3, clearing)).toBe(true);
+    expect(isCellClearing(0, 2, clearing)).toBe(false);
+  });
+
+  it("returns true for the intersection when both a row and a column clear", () => {
+    const clearing = { rows: [1], cols: [4] };
+    expect(isCellClearing(1, 4, clearing)).toBe(true);
+    expect(isCellClearing(1, 0, clearing)).toBe(true);
+    expect(isCellClearing(0, 4, clearing)).toBe(true);
+    expect(isCellClearing(0, 0, clearing)).toBe(false);
   });
 });

@@ -28,10 +28,12 @@ import { playClear, playCorrect, playMove, playPlace } from "@/src/library/disco
 import { buildBlocksPool, needsTopUp, pickNextQuestion, topUpPool } from "@/src/library/discover/blocksPool";
 import { getBlocksHighScore, setBlocksHighScoreIfBeaten } from "@/src/library/gameStats";
 import {
+  CLEAR_ANIMATION_MS,
   HAND_SIZE,
   MAX_HEARTS,
   type Board,
   type BlocksQuestion,
+  type ClearingLines,
   type DragPreview,
   type HandPiece,
 } from "@/src/library/discover/blocksTypes";
@@ -67,13 +69,25 @@ export default function BlocksGame({ uid, onGameOver, isMuted = false }: BlocksG
   const [heartsRemaining, setHeartsRemaining] = useState(MAX_HEARTS);
   const [pool, setPool] = useState<BlocksQuestion[]>([]);
   const [servedIds, setServedIds] = useState<Set<string>>(new Set());
+  const poolRef = useRef<BlocksQuestion[]>([]);
+  const servedIdsRef = useRef<Set<string>>(new Set());
   const [currentQuestion, setCurrentQuestion] = useState<BlocksQuestion | null>(null);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [activePiece, setActivePiece] = useState<HandPiece | null>(null);
   const [boardCellMetrics, setBoardCellMetrics] = useState<{ size: number; gap: number } | null>(null);
   const latestAnchorRef = useRef<{ row: number; col: number } | null>(null);
+  const [clearingLines, setClearingLines] = useState<ClearingLines | null>(null);
+  const clearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+
+  useEffect(() => {
+    poolRef.current = pool;
+  }, [pool]);
+
+  useEffect(() => {
+    servedIdsRef.current = servedIds;
+  }, [servedIds]);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,6 +115,15 @@ export default function BlocksGame({ uid, onGameOver, isMuted = false }: BlocksG
       cancelled = true;
     };
   }, [uid]);
+
+  useEffect(() => {
+    return () => {
+      if (clearTimeoutRef.current !== null) {
+        clearTimeout(clearTimeoutRef.current);
+        clearTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   const maybeTopUp = (currentPool: BlocksQuestion[], currentServed: Set<string>) => {
     if (!needsTopUp(currentPool, currentServed)) return;
@@ -145,7 +168,29 @@ export default function BlocksGame({ uid, onGameOver, isMuted = false }: BlocksG
     maybeTopUp(currentPool, servedForNext);
   };
 
+  const finishPlacement = (
+    nextBoard: Board,
+    remainingHand: HandPiece[],
+    newScore: number,
+    currentPool: BlocksQuestion[],
+    currentServed: Set<string>,
+  ) => {
+    setBoard(nextBoard);
+    setHand(remainingHand);
+    setClearingLines(null);
+
+    if (remainingHand.length === 0) {
+      startAnsweringPhase(currentPool, currentServed, nextBoard);
+      return;
+    }
+
+    if (!hasAnyValidPlacement(remainingHand, nextBoard)) {
+      endGame(newScore);
+    }
+  };
+
   const handleDragStart = (event: DragStartEvent) => {
+    if (clearingLines) return;
     if (!isMuted) playMove();
     const piece = hand.find((p) => `piece-${p.instanceId}` === event.active.id);
     setActivePiece(piece ?? null);
@@ -160,6 +205,11 @@ export default function BlocksGame({ uid, onGameOver, isMuted = false }: BlocksG
   };
 
   const handleDragMove = (event: DragMoveEvent) => {
+    if (clearingLines) {
+      latestAnchorRef.current = null;
+      setDragPreview(null);
+      return;
+    }
     const { active, over } = event;
     if (!over) {
       latestAnchorRef.current = null;
@@ -188,32 +238,36 @@ export default function BlocksGame({ uid, onGameOver, isMuted = false }: BlocksG
     setBoardCellMetrics(null);
     latestAnchorRef.current = null;
 
+    if (clearingLines) return;
+
     const piece = hand.find((p) => `piece-${p.instanceId}` === event.active.id);
     if (!piece || !anchor) return; // invalid drop — piece just stays in hand
 
     if (!isMuted) playPlace();
-    let nextBoard = placeShape(piece.shape, anchor.row, anchor.col, board, piece.color);
+    const placedBoard = placeShape(piece.shape, anchor.row, anchor.col, board, piece.color);
     const newScore = score + piece.shape.cells.length;
     setScore(newScore);
 
-    const { rows, cols } = getFullLines(nextBoard);
-    if (rows.length > 0 || cols.length > 0) {
-      nextBoard = clearLines(nextBoard, rows, cols);
-      if (!isMuted) playClear();
-    }
-    setBoard(nextBoard);
-
     const remainingHand = hand.filter((p) => p.instanceId !== piece.instanceId);
-    setHand(remainingHand);
+    const { rows, cols } = getFullLines(placedBoard);
 
-    if (remainingHand.length === 0) {
-      startAnsweringPhase(pool, servedIds, nextBoard);
+    if (rows.length === 0 && cols.length === 0) {
+      finishPlacement(placedBoard, remainingHand, newScore, pool, servedIds);
       return;
     }
 
-    if (!hasAnyValidPlacement(remainingHand, nextBoard)) {
-      endGame(newScore);
-    }
+    // Keep filled lines on the board, play clear sound, animate, then empty.
+    setBoard(placedBoard);
+    setHand(remainingHand);
+    setClearingLines({ rows, cols });
+    if (!isMuted) playClear();
+
+    if (clearTimeoutRef.current !== null) clearTimeout(clearTimeoutRef.current);
+    clearTimeoutRef.current = setTimeout(() => {
+      clearTimeoutRef.current = null;
+      const clearedBoard = clearLines(placedBoard, rows, cols);
+      finishPlacement(clearedBoard, remainingHand, newScore, poolRef.current, servedIdsRef.current);
+    }, CLEAR_ANIMATION_MS);
   };
 
   const handleCorrect = () => {
@@ -290,8 +344,8 @@ export default function BlocksGame({ uid, onGameOver, isMuted = false }: BlocksG
               </span>
             </div>
             <div className="flex items-start gap-3">
-              <BlocksPieceTray hand={hand} />
-              <BlocksBoard board={board} dragPreview={dragPreview} />
+              <BlocksPieceTray hand={hand} disabled={clearingLines !== null} />
+              <BlocksBoard board={board} dragPreview={dragPreview} clearingLines={clearingLines} />
             </div>
           </div>
         </div>
