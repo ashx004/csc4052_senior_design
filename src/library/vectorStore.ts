@@ -43,6 +43,9 @@ export type ChunkPoint = {
     resourceId: string;
     chunkIndex: number;
     text: string;
+    // Undefined for non-PDF sources (docx/xlsx/plain text) and for chunks
+    // extracted before this field existed — always optional at read time.
+    page?: number;
   };
 };
 

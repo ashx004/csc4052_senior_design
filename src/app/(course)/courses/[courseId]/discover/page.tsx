@@ -286,6 +286,7 @@ export default function DiscoverPage() {
             pageContext={learnQuestionsPageContext}
             chatContext={chatContext}
             launcherRef={launcherRef}
+            panelContextKey={`learn:${courseId}`}
           />
         </>
       )}

@@ -1,13 +1,16 @@
 "use client";
 
-import { useEffect, useState, use } from 'react';
+import { useEffect, useState, useRef, use } from 'react';
 import dynamic from 'next/dynamic';
-import { Pencil, Loader2, X } from 'lucide-react';
+import { Pencil, Loader2, X, Sparkles } from 'lucide-react';
 import CircleIconButton from '@/src/components/resourceManagement/CircleIconButton';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
 import { EnrollmentFields } from '@/src/app/(dashboard)/classes/page';
 import { useAuth } from '@/src/context/AuthContext';
+import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
+import { buildPageTextSuggestions, type PageTextPageContext } from '@/src/library/Contextual_AI/contextualAi';
+import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
 
 // Lazy-loaded: pulls in docx-preview, pdfjs-dist, xlsx, and syntax
 // highlighting — heavy, and not needed until this section actually renders.
@@ -42,6 +45,7 @@ async function getEnrollment(
         classSchedule: data.classSchedule,
         classRoom: data.classRoom,
         classDescription: data.classDescription,
+        courseSummary: data.courseSummary,
     };
 }
 
@@ -83,6 +87,21 @@ export default function CourseOverview({
     const [editingSection, setEditingSection] = useState<EditSection>(null);
     const [editValues, setEditValues] = useState<Record<string, string>>({});
     const [savingEdit, setSavingEdit] = useState(false);
+
+    // "Ask Catalyst" floating panel — same pattern as the flashcards/quiz
+    // pages, briefed with a plain-text summary of this course page (see
+    // coursePageContext below) rather than a bespoke schema, since there's
+    // nothing here as structured as a flashcard/quiz result to model.
+    const [catalystOpen, setCatalystOpen] = useState(false);
+    const catalystBtnRef = useRef<HTMLButtonElement | null>(null);
+    const [catalystChatContext, setCatalystChatContext] = useState<ChatContext | null>(null);
+
+    useEffect(() => {
+        if (!user?.email) return;
+        buildChatContext(user.uid, user.email)
+            .then(setCatalystChatContext)
+            .catch(() => setCatalystChatContext(null));
+    }, [user]);
 
     useEffect(() => {
         // Halt processing if the context session payload is still resolving
@@ -134,6 +153,34 @@ export default function CourseOverview({
             setSavingEdit(false);
         }
     }
+
+    // Plain-text briefing of this page for the Catalyst panel — document
+    // names come from catalystChatContext (already loaded per-class for the
+    // main AI assistant) rather than a separate fetch, matched on courseId
+    // since that's the same id used as classId there.
+    const currentClass = catalystChatContext?.classes.find((c) => c.classId === courseId);
+    const documentNames = currentClass?.documents.map((d) => d.name) ?? [];
+    const pageText = enrollment
+        ? [
+              `${enrollment.classCode} — ${enrollment.className} (${enrollment.term})`,
+              enrollment.classDescription ? `Description: ${enrollment.classDescription}` : "",
+              enrollment.courseSummary ? `AI-generated course summary: ${enrollment.courseSummary}` : "",
+              `Schedule: ${enrollment.classSchedule || "not listed"}${enrollment.time ? `, ${enrollment.time}` : ""}${
+                  enrollment.classRoom ? `, ${enrollment.classRoom}` : ""
+              }`,
+              `Instructor: ${enrollment.facultyName || "not listed"}`,
+              documentNames.length
+                  ? `Uploaded documents (${documentNames.length}): ${documentNames.join(", ")}`
+                  : "No documents uploaded yet for this class.",
+          ]
+              .filter(Boolean)
+              .join("\n")
+        : "";
+    const coursePageContext: PageTextPageContext | null =
+        enrollment && pageText
+            ? { kind: "page_text", courseId, pageTitle: `the ${enrollment.classCode} course page`, pageText }
+            : null;
+    const catalystSuggestions = coursePageContext ? buildPageTextSuggestions(coursePageContext) : [];
 
     // Page shell renders immediately — only the parts that actually depend on
     // Firestore data show a skeleton, instead of blanking the whole screen
@@ -193,6 +240,20 @@ export default function CourseOverview({
                         {enrollment.className}
                     </h1>
                 </div>
+
+                {/* Course Summary — AI-generated from uploaded documents, see
+                    src/library/courseSummary.ts. Absent until at least one
+                    supported document has been uploaded and indexed. */}
+                {enrollment.courseSummary && (
+                    <div className="mb-6 rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light">
+                        <div className="flex items-center gap-2">
+                            <Sparkles size={16} className="text-primary" />
+                            <h2 className="text-sm font-semibold text-text-main">Course Summary</h2>
+                            <span className="text-xs text-text-muted">Generated by Catalyst AI</span>
+                        </div>
+                        <p className="mt-3 text-sm leading-relaxed text-text-main">{enrollment.courseSummary}</p>
+                    </div>
+                )}
 
                 {/* Info cards */}
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -275,6 +336,26 @@ export default function CourseOverview({
                     <ResourcePreview userId={user.uid} courseId={courseId} />
                 </div>
             </div>
+
+            {coursePageContext && catalystChatContext && (
+                <>
+                    <CatalystLauncher
+                        onClick={() => setCatalystOpen(true)}
+                        visible={!catalystOpen}
+                        buttonRef={catalystBtnRef}
+                    />
+                    <ContextualAiPanel
+                        open={catalystOpen}
+                        onClose={() => setCatalystOpen(false)}
+                        contextLabel={`${enrollment.classCode} — ${enrollment.className}`}
+                        suggestions={catalystSuggestions}
+                        pageContext={coursePageContext}
+                        chatContext={catalystChatContext}
+                        panelContextKey={`course:${courseId}`}
+                        launcherRef={catalystBtnRef}
+                    />
+                </>
+            )}
 
             {/* Edit modal — shared between Class Details and Instructor */}
             {editingSection && (

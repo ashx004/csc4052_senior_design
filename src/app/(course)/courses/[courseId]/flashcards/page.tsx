@@ -5,6 +5,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
 import { useCourseInfo } from '@/src/hooks/useCourseInfo';
 import { getCourseResources } from '@/src/components/resourceManagement/fileUploadService';
+import { getStoredChatMode } from '@/src/library/chatMode';
 import {
   doc,
   getDoc,
@@ -50,7 +51,7 @@ async function requestFlashcards(
   const response = await fetch('/api/generate-flashcards', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ docUrl, docName, previousQuestions }),
+    body: JSON.stringify({ docUrl, docName, previousQuestions, chatMode: getStoredChatMode() }),
   });
 
   const data = await response.json();
@@ -535,6 +536,7 @@ export default function FlashcardsPage() {
             suggestions={catalystSuggestions}
             pageContext={flashcardPageContext}
             chatContext={catalystChatContext}
+            panelContextKey={`flashcard:${setId || docId}`}
             launcherRef={catalystBtnRef}
           />
         </>

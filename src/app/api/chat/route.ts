@@ -15,8 +15,12 @@ import { getStudentProfile, maybeUpdateStudentProfile, StudentProfile } from "@/
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import {pageContextSchema,buildPageContextPrompt,type PageContext,} from "@/src/library/Contextual_AI/contextualAi";
-import { ChatContext, ChatClass, ChatDocument, PageAIContext, buildSystemPrompt } from "@/src/library/systemPrompt";
+import { ChatContext, ChatClass, ChatDocument, buildSystemPrompt } from "@/src/library/systemPrompt";
 import { describeChatError } from "@/src/library/chatErrors";
+import { getIdToken, firestoreCreate, firestoreGet, firestoreUpdate } from "@/src/library/firestoreRest";
+import { deriveChatTitle } from "@/src/library/chatTitle";
+import type { StoredChatMessage } from "@/src/library/chatMemory";
+import { THINK_CLOSE_TAG, stripThinkLeak } from "@/src/library/stripThinkLeak";
 
 const CHAT_RATE_LIMIT_WINDOW_MS = 60_000;
 const CHAT_RATE_LIMIT_MAX = 15; // per user per window — generous for real use, catches runaway/abusive callers
@@ -26,17 +30,31 @@ const MAX_TOOL_ROUNDS = 5;
 const MAX_DOCUMENT_CHARS = 30000;
 const MAX_DOCS_SCANNED = 25;
 const TOP_K_CHUNKS = 5;
-const RERANK_CANDIDATE_POOL = 15; // widen hybrid-score recall, then rerank down to TOP_K_CHUNKS
+const HYBRID_CANDIDATE_POOL = 15; // widen recall for the hybrid dense+sparse score before taking the top TOP_K_CHUNKS
 const SIMILARITY_THRESHOLD = 0.3; // below this, a chunk is treated as "not actually relevant"
 const CHAT_TEMPERATURE = 0.3; // lower than Ollama's default (~0.8) — favors grounded answers over creative ones
+// Fast is meant to stay resident on Primary permanently (see OLLAMA_MODEL_FAST's
+// comment in env.example) — -1 tells Ollama to never auto-evict it just for
+// sitting idle. Quality competes with vision/OCR for VRAM, so it's only kept
+// warm for a bounded window past last use, long enough to outlast normal
+// back-and-forth in one sitting without camping in VRAM indefinitely once the
+// student's actually done and vision needs the room back.
+const FAST_MODEL_KEEP_ALIVE = -1;
+const QUALITY_MODEL_KEEP_ALIVE = "30m";
 const WEB_SEARCH_MAX_RESULTS = 5;
 const MAX_CHAT_INPUT_CHARS = 4000; // mirrors the client's <input maxLength> in ai-assistant/page.tsx
 
 // Conversation compaction: once the "unsummarized" tail of a conversation
 // gets this long, fold everything except the last KEEP_RECENT_MESSAGES turns
 // into a running summary instead of resending it verbatim every request.
-const COMPACTION_CHAR_THRESHOLD = 12000;
-const KEEP_RECENT_MESSAGES = 6;
+// Raised from the original 12000/6 - that was conservative even for
+// qwen3:14b's real 40960-token context, and both current models (Fast:
+// gpt-oss:20b, Quality: qwen3:30b-a3b) have substantially larger real
+// context windows, so there's real headroom to keep more actual
+// conversation verbatim (better continuity, no lossy summarization) before
+// compaction needs to kick in at all.
+const COMPACTION_CHAR_THRESHOLD = 45000;
+const KEEP_RECENT_MESSAGES = 10;
 
 type ChatMessage = { role: string; content: string };
 
@@ -261,7 +279,7 @@ function tokenize(text: string): string[] {
 // complementing the dense (embedding) one — catches exact terms like course
 // codes or names that semantic similarity alone sometimes misses. Computed
 // over the candidate pool itself as the "corpus": the pool is small
-// (bounded by RERANK_CANDIDATE_POOL), so per-term document frequency and
+// (bounded by HYBRID_CANDIDATE_POOL), so per-term document frequency and
 // average document length are cheap to compute inline, with no need for a
 // persistent text index. Replaces the previous naive "% of query terms
 // present" ratio, which ignored term frequency and document length
@@ -346,7 +364,7 @@ async function searchDocuments(
     return "Error: the search service is unavailable right now.";
   }
 
-  const scored: { text: string; docName: string; classCode: string; denseScore: number }[] = [];
+  const scored: { text: string; docName: string; classCode: string; page?: number; denseScore: number }[] = [];
   const docsByResourceId = new Map(candidateDocs.map((d) => [d.resourceId, d]));
   const scannedDocs = candidateDocs.slice(0, MAX_DOCS_SCANNED);
 
@@ -365,7 +383,7 @@ async function searchDocuments(
       const results = await searchChunks(
         queryEmbedding,
         { userId: context.userId, resourceIds: qdrantDocs.map((d) => d.resourceId) },
-        RERANK_CANDIDATE_POOL * 3
+        HYBRID_CANDIDATE_POOL * 3
       );
       for (const r of results) {
         const doc = docsByResourceId.get(r.payload.resourceId);
@@ -374,6 +392,7 @@ async function searchDocuments(
           text: r.payload.text,
           docName: doc.name,
           classCode: doc.classCode,
+          page: r.payload.page,
           denseScore: r.score, // Qdrant returns cosine similarity directly
         });
       }
@@ -408,6 +427,7 @@ async function searchDocuments(
           text: data.text,
           docName: doc.name,
           classCode: doc.classCode,
+          page: typeof data.page === "number" ? data.page : undefined,
           denseScore: cosineSimilarity(queryEmbedding, data.embedding),
         });
       });
@@ -438,7 +458,7 @@ async function searchDocuments(
   }));
 
   withScore.sort((a, b) => b.score - a.score);
-  const candidates = withScore.filter((r) => r.score >= SIMILARITY_THRESHOLD).slice(0, RERANK_CANDIDATE_POOL);
+  const candidates = withScore.filter((r) => r.score >= SIMILARITY_THRESHOLD).slice(0, HYBRID_CANDIDATE_POOL);
 
   if (candidates.length === 0) {
     return (
@@ -447,77 +467,24 @@ async function searchDocuments(
     );
   }
 
-  const relevant = await rerankChunks(query, candidates, TOP_K_CHUNKS);
+  // `candidates` is already sorted by hybrid score (dense+sparse) descending
+  // from the .sort() above - this used to hand off to an LLM reranker
+  // (qwen3:4b) for a second pass, but that call was pure overhead on every
+  // single document search: the hybrid score is already a real relevance
+  // signal, not a rough pre-filter, and the LLM pass added a full secondary-
+  // box round trip (plus, confirmed separately, that specific model ignores
+  // think:false at the weights level, so it was an unavoidably slow round
+  // trip) for a reordering that empirically wasn't earning its cost. Straight
+  // deterministic top-K slice now - faster, and one less network hop that
+  // can fail.
+  const relevant = candidates.slice(0, TOP_K_CHUNKS);
 
   return relevant
-    .map((r, i) => `[${i + 1}] From "${r.docName}" (${r.classCode}):\n${r.text}`)
+    .map((r, i) => {
+      const pageNote = typeof r.page === "number" ? `, p.${r.page}` : "";
+      return `[${i + 1}] From "${r.docName}" (${r.classCode}${pageNote}):\n${r.text}`;
+    })
     .join("\n\n");
-}
-
-// Two-stage retrieval: hybrid dense+sparse score gets a wide candidate pool
-// (recall), then a cross-encoder-style LLM pass reranks it down to the few
-// chunks actually worth sending to the primary model (precision). Runs on
-// the secondary box's small model — fails open to hybrid-score order if the
-// call fails, since a worse-ranked result set beats no result set.
-async function rerankChunks<T extends { text: string }>(
-  query: string,
-  candidates: T[],
-  topK: number
-): Promise<T[]> {
-  if (candidates.length <= topK) return candidates;
-  if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN) {
-    return candidates.slice(0, topK);
-  }
-
-  const numbered = candidates.map((c, i) => `[${i + 1}] ${c.text.slice(0, 500)}`).join("\n\n");
-
-  try {
-    const rerankBaseUrl = await resolveOllamaBaseUrl(process.env.OLLAMA_SECONDARY_URL, process.env.OLLAMA_SECONDARY_FALLBACK_URL);
-    const response = await callOllama(
-      [
-        {
-          role: "system",
-          content: `You are a search relevance reranker. Given a query and numbered passages, reply with ONLY a comma-separated list of the ${topK} passage numbers most relevant to the query, best first — nothing else. Example: 3,1,7`,
-        },
-        { role: "user", content: `Query: ${query}\n\nPassages:\n${numbered}` },
-      ],
-      undefined,
-      0.1,
-      {
-        baseUrl: rerankBaseUrl,
-        model: process.env.OLLAMA_SUMMARY_MODEL || "qwen3:4b",
-      }
-    );
-    if (!response.ok) return candidates.slice(0, topK);
-
-    const data = await response.json();
-    warnIfSlowGeneration(
-      rerankBaseUrl,
-      process.env.OLLAMA_SUMMARY_MODEL || "qwen3:4b",
-      data?.eval_count,
-      data?.eval_duration
-    );
-    const raw = (data?.message?.content || "").trim();
-    const indices = raw
-      .split(",")
-      .map((s: string) => parseInt(s.trim(), 10) - 1)
-      .filter((i: number) => Number.isInteger(i) && i >= 0 && i < candidates.length);
-
-    if (indices.length === 0) return candidates.slice(0, topK);
-
-    const seen = new Set<number>();
-    const reranked: T[] = [];
-    for (const i of indices) {
-      if (seen.has(i)) continue;
-      seen.add(i);
-      reranked.push(candidates[i]);
-      if (reranked.length >= topK) break;
-    }
-    return reranked.length > 0 ? reranked : candidates.slice(0, topK);
-  } catch (error) {
-    console.error("Reranking failed, using hybrid-score order:", error);
-    return candidates.slice(0, topK);
-  }
 }
 
 async function webSearchTool(query: string, scholarly?: boolean): Promise<string> {
@@ -649,11 +616,100 @@ async function recallPastChatTool(
   }
 }
 
+// Both chat models have shown this bug: even with think:false, they
+// sometimes still emit raw chain-of-thought as plain content, ending in a
+// stray closing </think> tag with no matching opening tag (qwen3:30b-a3b -
+// confirmed live, reproduced 4/4 tries during model research; gpt-oss:20b -
+// confirmed live 2026-08-11, same tag-delimited shape). A separate,
+// non-tag-delimited gpt-oss:20b leak has also been seen once (a document-
+// summarization reply) - that shape isn't catchable by matching a
+// delimiter and isn't handled here.
+//
+// Buffers a round's output until either the tag shows up (then discards
+// everything up to and including it, releasing only the real answer from
+// there on) or a generous cap is hit without ever seeing it (then just
+// releases the buffer as-is - a model that isn't leaking this round
+// shouldn't be held back indefinitely). The client never sees raw
+// chain-of-thought at all, not even briefly - the trade-off (confirmed as
+// the preferred one live 2026-08-11, over an earlier live-stream-then-
+// correct version that let a leak flash on screen before being wiped) is
+// that the reply bubble shows a plain "Thinking..."/spinner status with
+// nothing streaming until this resolves, instead of token-by-token
+// streaming from the first token. Applied to both models uniformly, now
+// that gpt-oss:20b has shown the same tag-delimited leak qwen3:30b-a3b did.
+const THINK_STRIP_BUFFER_CAP = 8000;
+
+function wrapDeltaForThinkStripping(onDelta: (text: string) => void): {
+  handleDelta: (text: string) => void;
+  flush: () => void;
+  discard: () => void;
+} {
+  let buffer = "";
+  let resolved = false;
+
+  function handleDelta(text: string) {
+    if (resolved) {
+      onDelta(text);
+      return;
+    }
+
+    buffer += text;
+    const closeIndex = buffer.indexOf(THINK_CLOSE_TAG);
+
+    if (closeIndex !== -1) {
+      resolved = true;
+      const remainder = buffer.slice(closeIndex + THINK_CLOSE_TAG.length);
+      if (remainder) onDelta(remainder);
+      return;
+    }
+
+    if (buffer.length >= THINK_STRIP_BUFFER_CAP) {
+      resolved = true;
+      onDelta(buffer);
+    }
+  }
+
+  // Call once the round that used handleDelta finishes AND turns out to be
+  // a real answer (no tool calls) - releases whatever's still sitting in
+  // the buffer. That's the common case: a normal reply that never
+  // contained </think> and never crossed the cap, so neither branch above
+  // ever fired on its own (confirmed live 2026-08-11 as a bubble that sat
+  // empty far longer than it should have, before this call was added).
+  function flush() {
+    if (!resolved && buffer) {
+      resolved = true;
+      onDelta(buffer);
+    }
+  }
+
+  // Call instead of flush() when the round turns out to be a tool-call
+  // round - its buffered content (ordinary pre-tool-call chatter, or a
+  // leak) was never a real answer either way, so it's dropped rather than
+  // ever reaching the client (see the tool-call branch in the round loop).
+  function discard() {
+    resolved = true;
+  }
+
+  return { handleDelta, flush, discard };
+}
+
+// keep_alive controls how long Ollama holds a model in VRAM after a
+// request finishes idle, before evicting it (Ollama's own default is a
+// short few minutes). -1 means never auto-evict — reserved for the fast
+// model, which is meant to stay resident always (see OllamaTarget's own
+// comment) — a duration string bounds how long the quality model lingers
+// after use instead of camping in VRAM indefinitely, so it still frees up
+// for OCR/vision after real disuse. Omitted entirely for anything else
+// (compaction, clarification, embeddings' own explicit -1) — left at
+// Ollama's default rather than guessing a policy for models out of scope
+// here.
+type OllamaTarget = { baseUrl: string; model: string; keepAlive?: number | string };
+
 async function callOllama(
   messages: unknown[],
   tools?: unknown[],
   temperature = CHAT_TEMPERATURE,
-  target: { baseUrl: string; model: string } = {
+  target: OllamaTarget = {
     baseUrl: process.env.OLLAMA_PRIMARY_URL || "",
     model: process.env.OLLAMA_MODEL || "gpt-oss:20b",
   }
@@ -673,7 +729,9 @@ async function callOllama(
         messages,
         ...(tools ? { tools } : {}),
         stream: false,
+        think: false,
         options: { temperature },
+        ...(target.keepAlive !== undefined ? { keep_alive: target.keepAlive } : {}),
       }),
       signal: controller.signal,
     });
@@ -692,7 +750,7 @@ async function streamOllamaRound(
   messages: unknown[],
   tools: unknown[],
   temperature: number,
-  target: { baseUrl: string; model: string },
+  target: OllamaTarget,
   onDelta: (text: string) => void
 ): Promise<{ content: string; toolCalls: any[] | null; rawMessage: any }> {
   const controller = new AbortController();
@@ -710,7 +768,18 @@ async function streamOllamaRound(
         messages,
         tools,
         stream: true,
+        // Explicit, not omitted - this app previously never set this field
+        // anywhere, relying entirely on Ollama's implicit per-model default.
+        // Most models here (gpt-oss:20b, qwen3-vl) correctly suppress
+        // thinking once this is actually set; qwen3:30b-a3b still leaks
+        // sometimes even with this set (see wrapDeltaForThinkStripping,
+        // still needed as a safety net regardless); qwen3:4b ignores it
+        // entirely at the model-weights level, confirmed via direct
+        // testing - not fixable from here, see stripThinkLeak call sites
+        // for the actual mitigation used for that one.
+        think: false,
         options: { temperature },
+        ...(target.keepAlive !== undefined ? { keep_alive: target.keepAlive } : {}),
       }),
       signal: controller.signal,
     });
@@ -829,7 +898,7 @@ async function compactIfNeeded(
       data?.eval_count,
       data?.eval_duration
     );
-    const newSummary = data?.message?.content;
+    const newSummary = stripThinkLeak(data?.message?.content ?? "");
     if (!newSummary) throw new Error("Summarization returned no content");
 
     return { summary: newSummary, summarizedCount: summarizedCount + toFold.length };
@@ -839,11 +908,153 @@ async function compactIfNeeded(
   }
 }
 
+// ── Server-side chat persistence ──────────────────────────────────────────
+// A reply must survive the user navigating away or closing the tab before
+// it finishes, so this route (not the browser) owns saving the transcript.
+// It writes at the start of a turn (so the question isn't lost even if
+// generation never finishes) and again at the end (in the stream's
+// `finally`, which — unlike the response stream itself — keeps running
+// even after the client has disconnected; see the Ollama calls above,
+// which are never tied to the incoming request's abort signal either).
+const CHAT_SESSION_RETENTION_DAYS = 30;
+
+type PersistTarget = {
+  idToken: string;
+  collectionPath: string;
+  docId: string;
+  isNewMainSession: boolean;
+  messages: StoredChatMessage[];
+};
+
+function nextMessageId(existing: StoredChatMessage[]): number {
+  return existing.reduce((max, m) => Math.max(max, m.id), 0) + 1;
+}
+
+// Creates/updates the doc with the new user turn + an empty assistant
+// placeholder, generating:true. Returns null (persistence skipped, never
+// blocks generation) if there's no usable ID token — e.g. the session
+// cookie is present but not forwardable for some reason.
+async function startChatPersistence(params: {
+  request: NextRequest;
+  uid: string;
+  panelContextKey?: string;
+  currentSessionId?: string;
+  latestUserContent: string;
+  summary: string;
+  summarizedCount: number;
+}): Promise<PersistTarget | null> {
+  const idToken = getIdToken(params.request);
+  if (!idToken) return null;
+
+  const userMsg = (id: number): StoredChatMessage => ({ id, role: "user", text: params.latestUserContent });
+  const placeholder = (id: number): StoredChatMessage => ({ id, role: "assistant", text: "" });
+
+  if (params.panelContextKey) {
+    const collectionPath = `users/${params.uid}/panelChatSessions`;
+    const docId = params.panelContextKey;
+    const existing = await firestoreGet(idToken, collectionPath, docId);
+    const priorMessages = Array.isArray(existing?.messages) ? (existing!.messages as StoredChatMessage[]) : [];
+    const id = nextMessageId(priorMessages);
+    const messages = [...priorMessages, userMsg(id), placeholder(id + 1)];
+    await firestoreUpdate(idToken, collectionPath, docId, { messages, generating: true, updatedAt: new Date() });
+    return { idToken, collectionPath, docId, isNewMainSession: false, messages };
+  }
+
+  const collectionPath = `users/${params.uid}/chatSessions`;
+
+  if (params.currentSessionId) {
+    const docId = params.currentSessionId;
+    const existing = await firestoreGet(idToken, collectionPath, docId);
+    const priorMessages = Array.isArray(existing?.messages) ? (existing!.messages as StoredChatMessage[]) : [];
+    const id = nextMessageId(priorMessages);
+    const messages = [...priorMessages, userMsg(id), placeholder(id + 1)];
+    await firestoreUpdate(idToken, collectionPath, docId, {
+      messages,
+      summary: params.summary,
+      summarizedCount: params.summarizedCount,
+      generating: true,
+      updatedAt: new Date(),
+    });
+    return { idToken, collectionPath, docId, isNewMainSession: false, messages };
+  }
+
+  const messages = [userMsg(1), placeholder(2)];
+  const expireAt = new Date();
+  expireAt.setDate(expireAt.getDate() + CHAT_SESSION_RETENTION_DAYS);
+  const docId = await firestoreCreate(idToken, collectionPath, {
+    messages,
+    summary: params.summary,
+    summarizedCount: params.summarizedCount,
+    title: deriveChatTitle(params.latestUserContent),
+    pinned: false,
+    generating: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    expireAt,
+  });
+  if (!docId) return null;
+  return { idToken, collectionPath, docId, isNewMainSession: true, messages };
+}
+
+// Fills in the placeholder assistant message with the finished (or errored)
+// reply and clears generating. Never throws — a persistence failure must
+// not surface as a chat error to whatever client might still be attached.
+async function finishChatPersistence(
+  target: PersistTarget,
+  final: {
+    text: string;
+    documentsRead?: string[];
+    generatedFiles?: { name: string; url: string }[];
+    summary?: string;
+    summarizedCount?: number;
+  }
+): Promise<void> {
+  try {
+    const messages = [...target.messages];
+    const last = messages[messages.length - 1];
+    messages[messages.length - 1] = {
+      ...last,
+      text: final.text,
+      ...(final.documentsRead?.length ? { documentsRead: final.documentsRead } : {}),
+      ...(final.generatedFiles?.length ? { generatedFiles: final.generatedFiles } : {}),
+    };
+
+    const fields: Record<string, unknown> = { messages, generating: false, updatedAt: new Date() };
+    if (final.summary !== undefined) fields.summary = final.summary;
+    if (final.summarizedCount !== undefined) fields.summarizedCount = final.summarizedCount;
+
+    await firestoreUpdate(target.idToken, target.collectionPath, target.docId, fields);
+  } catch (error) {
+    console.error("Failed to persist finished chat turn:", error);
+  }
+}
+
+// Throttled mid-generation write of the placeholder's growing text, so
+// anyone watching this session live via subscribeToChatSession/
+// subscribeToPanelChatSession (e.g. reopened from the history panel mid-
+// reply) sees the reply streaming in rather than a static "generating"
+// state until the whole thing finishes. Deliberately NOT awaited by its
+// caller (see recordDelta in the streaming loop below) — a Firestore round
+// trip must never add latency to the response the original sender is
+// already watching live over the HTTP stream itself. generating stays
+// true; only finishChatPersistence flips it false.
+async function persistPartialReply(target: PersistTarget, text: string): Promise<void> {
+  try {
+    const messages = [...target.messages];
+    const last = messages[messages.length - 1];
+    messages[messages.length - 1] = { ...last, text };
+    await firestoreUpdate(target.idToken, target.collectionPath, target.docId, { messages });
+  } catch (error) {
+    console.error("Failed to persist partial chat reply:", error);
+  }
+}
+
 // Response protocol (newline-delimited JSON, one object per line):
 //   {"type":"delta","text":"..."}                                — append to the reply
 //   {"type":"tool","name":"search_documents"}                    — a tool started running
 //   {"type":"done","documentsRead":[...],"generatedFiles":[...],"summary":"...","summarizedCount":N}
 //   {"type":"error","error":"..."}
+//   {"type":"session","id":"..."}                                 — new session's ID (first turn only)
 export async function POST(request: NextRequest) {
   const auth = await verifyRequestAuth(request);
   if (!auth) {
@@ -865,6 +1076,10 @@ export async function POST(request: NextRequest) {
     summarizedCount: incomingSummarizedCount,
     currentSessionId,
     pageContext,
+    panelContextKey,
+    chatMode,
+    boost,
+    extraTools,
   } = (await request.json().catch(() => ({}))) as {
     messages?: ChatMessage[];
     context?: ChatContext;
@@ -872,6 +1087,20 @@ export async function POST(request: NextRequest) {
     summarizedCount?: number;
     currentSessionId?: string;
     pageContext?: unknown;
+    panelContextKey?: string;
+    // Client-stored preference (see src/library/chatMode.ts), sent with
+    // every request - the server has no independent copy of this, it just
+    // trusts whatever the client sends per-request, same as summary/context.
+    chatMode?: "fast" | "quality";
+    // Per-message override: uses the quality model for just this one
+    // message regardless of the student's saved default mode.
+    boost?: boolean;
+    // Opt-in for tools that aren't always necessary (web/YouTube search) -
+    // off by default. Fewer tools in the schema on every request means less
+    // for the model to choose between (real tool-selection accuracy cost,
+    // not just prompt size) and less latency, for the common case where a
+    // student's question is answerable from their own course materials.
+    extraTools?: boolean;
   };
 
   if (!Array.isArray(messages) || messages.length === 0) {
@@ -901,9 +1130,13 @@ export async function POST(request: NextRequest) {
     }
 
     // learn_questions has no single courseId (a session spans every active
-    // course), so the enrollment check only applies to the flashcard/quiz
-    // kinds, which are always scoped to one course.
-    if (parsed.data.kind !== "learn_questions") {
+    // course), so the enrollment check only applies to the flashcard/quiz/
+    // page_text kinds, which are scoped to one course. page_text's courseId
+    // is itself optional (see contextualAi.ts) — pages that aren't about
+    // one specific course (classes list, advising) omit it entirely, and
+    // there's nothing course-private to authorize in that case since the
+    // briefing is built from the student's own data either way.
+    if (parsed.data.kind !== "learn_questions" && parsed.data.courseId !== undefined) {
       const enrolledCourseIds = (context?.classes || []).map((c) => c.classId);
       if (!enrolledCourseIds.includes(parsed.data.courseId)) {
         return NextResponse.json({ error: "pageContext.courseId not in user context" }, { status: 403 });
@@ -928,17 +1161,88 @@ export async function POST(request: NextRequest) {
   }
 
   const encoder = new TextEncoder();
-  const primaryTarget = {
+  // Fast = a smaller model kept always-resident on Primary alongside the
+  // vision model, zero cold-boot swaps ever, including for OCR. Quality =
+  // a larger model that's both faster and noticeably better for plain
+  // chat/quiz/advising text, but has to evict the vision model (and vice
+  // versa) whenever OCR is actually needed - see the gatekeeper proxy in
+  // front of Ollama for the eviction mechanics. `boost` overrides the
+  // student's saved default for just this one message.
+  const useQualityModel = boost === true || chatMode === "quality";
+  const primaryTarget: OllamaTarget = {
     baseUrl: await resolveOllamaBaseUrl(process.env.OLLAMA_PRIMARY_URL, process.env.OLLAMA_PRIMARY_FALLBACK_URL),
-    model: process.env.OLLAMA_MODEL || "gpt-oss:20b",
+    model: useQualityModel
+      ? process.env.OLLAMA_MODEL_QUALITY || process.env.OLLAMA_MODEL || "qwen3:30b-a3b"
+      : process.env.OLLAMA_MODEL_FAST || process.env.OLLAMA_MODEL || "gpt-oss:20b",
+    keepAlive: useQualityModel ? QUALITY_MODEL_KEEP_ALIVE : FAST_MODEL_KEEP_ALIVE,
   };
   const stream = new ReadableStream({
     async start(controller) {
+      // Swallows enqueue failures (e.g. the client already disconnected) so
+      // a dead connection doesn't abort generation partway through — the
+      // model keeps producing tokens and finishChatPersistence below still
+      // gets the complete answer, even though nobody's listening anymore.
       function send(obj: unknown) {
-        controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+        try {
+          controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+        } catch {
+          // client gone — ignore, generation continues regardless
+        }
       }
 
       let studentProfile: StudentProfile = { summary: "", messageCount: 0 };
+      const documentsRead: string[] = [];
+      const generatedFiles: { name: string; url: string }[] = [];
+      let persistTarget: PersistTarget | null = null;
+      // Accumulates the same post-think-stripping text actually sent to the
+      // live client, so a resumed viewer's partial text always matches what
+      // the original sender saw — never the raw pre-strip buffer.
+      let liveReplyText = "";
+      let lastPartialPersistAt = 0;
+      let hasPersistedFirstChunk = false;
+      const PARTIAL_PERSIST_INTERVAL_MS = 800;
+
+      // Fire-and-forget, throttled — persistTarget is captured by reference
+      // (assigned below, after this closure is created) so it's read at
+      // call time, once startChatPersistence has actually resolved. The
+      // very first write skips the throttle entirely — otherwise anyone
+      // watching this session live (a resumed/history-panel view) sits on a
+      // blank placeholder for up to the full interval even after real text
+      // has already started arriving.
+      function persistLiveReplyThrottled() {
+        if (!persistTarget) return;
+        const now = Date.now();
+        if (hasPersistedFirstChunk && now - lastPartialPersistAt < PARTIAL_PERSIST_INTERVAL_MS) return;
+        hasPersistedFirstChunk = true;
+        lastPartialPersistAt = now;
+        persistPartialReply(persistTarget, liveReplyText).catch(() => {});
+      }
+      function recordDeltaForPersistence(delta: string) {
+        liveReplyText += delta;
+        persistLiveReplyThrottled();
+      }
+
+      // Fresh buffer state per round (each call site invokes this once per
+      // streamOllamaRound call) - see wrapDeltaForThinkStripping above.
+      // Applied to both models uniformly - see that function's comment for
+      // why the old quality-only gate was dropped. onDelta only ever fires
+      // with already-clean text (post-buffering), so nothing downstream of
+      // it - including recordDeltaForPersistence - ever sees raw
+      // chain-of-thought either.
+      const makeDeltaHandler = () => {
+        const base = (delta: string) => {
+          send({ type: "delta", text: delta });
+          recordDeltaForPersistence(delta);
+        };
+        return wrapDeltaForThinkStripping(base);
+      };
+      let finalAnswerText: string | null = null;
+      // Persisted alongside the finished reply below; defaults to the raw
+      // incoming values and is refreshed once compactionPromise resolves
+      // (see the "done" sends below) so an error before that point still
+      // persists something sane rather than nothing.
+      let persistedSummary = incomingSummary ?? "";
+      let persistedSummarizedCount = incomingSummarizedCount ?? 0;
 
       try {
         // Sent before any of the (potentially slow) work below starts —
@@ -948,32 +1252,74 @@ export async function POST(request: NextRequest) {
         // through the model's first token happened in total silence.
         send({ type: "status", label: "Loading your classes and profile..." });
 
-        // Clarification runs alongside compaction/profile-loading (not
-        // after) so its round-trip is hidden behind theirs rather than
-        // adding its own serial latency in front of every response.
-        const [{ summary, summarizedCount }, loadedProfile, clarifiedIntent] = await Promise.all([
-          compactIfNeeded(messages, incomingSummary ?? "", incomingSummarizedCount ?? 0),
+        // Compaction runs in the background rather than gating this turn:
+        // qwen3:4b's own thinking preamble (~5s, see stripThinkLeak's
+        // comment) made every compaction-triggering turn sit in total
+        // silence before the primary model even started streaming. Nothing
+        // this turn actually needs the NEW summary — using last turn's
+        // summary/summarizedCount to build the conversation below just
+        // means the raw tail folds in one turn later than it could have,
+        // which only affects context size, not correctness. The refreshed
+        // values are awaited later, right before they're reported in the
+        // "done" event (and used for persistence), by which point the
+        // primary model's own (often longer) response has usually already
+        // absorbed the wait.
+        const compactionPromise = compactIfNeeded(messages, incomingSummary ?? "", incomingSummarizedCount ?? 0);
+
+        // Clarification and persisting this turn's user message run
+        // alongside profile-loading (not after) so their round-trips are
+        // hidden behind that rather than adding their own serial latency in
+        // front of every response. Clarification itself is skipped outright
+        // in Fast mode: it's designed fail-open/additive (see
+        // queryClarifier.ts), so "off" here just means the raw message goes
+        // to the primary model unclarified, same as any other message this
+        // feature declines to touch - a real (if now modest, since the
+        // llama3.2:3b swap) latency + one fewer network round trip saved
+        // for students who've explicitly opted into Fast over Quality.
+        const [loadedProfile, clarifiedIntent, startedPersist] = await Promise.all([
           context?.userId ? getStudentProfile(context.userId) : Promise.resolve(studentProfile),
-          typeof latestMessage?.content === "string" ? clarifyUserQuery(latestMessage.content) : Promise.resolve(null),
+          useQualityModel && typeof latestMessage?.content === "string"
+            ? clarifyUserQuery(latestMessage.content)
+            : Promise.resolve(null),
+          typeof latestMessage?.content === "string"
+            ? startChatPersistence({
+                request,
+                uid: auth.uid,
+                panelContextKey,
+                currentSessionId,
+                latestUserContent: latestMessage.content,
+                summary: incomingSummary ?? "",
+                summarizedCount: incomingSummarizedCount ?? 0,
+              }).catch((error) => {
+                console.error("Failed to persist chat turn start:", error);
+                return null;
+              })
+            : Promise.resolve(null),
         ]);
         studentProfile = loadedProfile;
+        persistTarget = startedPersist;
+        if (persistTarget?.isNewMainSession) {
+          send({ type: "session", id: persistTarget.docId });
+        }
 
+        const summary = incomingSummary ?? "";
+        const summarizedCount = incomingSummarizedCount ?? 0;
         const conversation: any[] = [
           { role: "system", content: buildSystemPrompt(context, studentProfile.summary, false, clarifiedIntent) },
           ...(summary ? [{ role: "system", content: `Summary of earlier conversation:\n${summary}` }] : []),
           ...(validatedPageContext ? [{ role: "system", content: buildPageContextPrompt(validatedPageContext) }] : []),
           ...messages.slice(summarizedCount),
         ];
-        const documentsRead: string[] = [];
-        const generatedFiles: { name: string; url: string }[] = [];
         const tools = [
           LIST_CLASSES_TOOL,
           SEARCH_DOCUMENTS_TOOL,
           READ_DOCUMENT_TOOL,
-          WEB_SEARCH_TOOL,
-          YOUTUBE_SEARCH_TOOL,
           CREATE_PDF_TOOL,
           RECALL_PAST_CHAT_TOOL,
+          // Opt-in only (see extraTools in the request body type above) -
+          // these two are the only tools that reach outside the student's
+          // own course materials, and aren't needed for most questions.
+          ...(extraTools ? [WEB_SEARCH_TOOL, YOUTUBE_SEARCH_TOOL] : []),
         ];
 
         let finished = false;
@@ -988,15 +1334,27 @@ export async function POST(request: NextRequest) {
         send({ type: "status", label: "Sending your question to the AI model..." });
 
         for (let round = 0; round < MAX_TOOL_ROUNDS && !finished; round++) {
+          const { handleDelta, flush, discard } = makeDeltaHandler();
           const { content, toolCalls, rawMessage } = await streamOllamaRound(
             conversation,
             tools,
             CHAT_TEMPERATURE,
             primaryTarget,
-            (delta) => send({ type: "delta", text: delta })
+            handleDelta
           );
 
           if (toolCalls && toolCalls.length > 0) {
+            // A tool-call round must never leave visible/persisted text
+            // behind — its buffered content (ordinary pre-tool-call
+            // chatter, or a leak that never produces a closing tag because
+            // the round ends in a tool call instead of an answer) was never
+            // a real answer either way, so it's dropped rather than
+            // flushed. Confirmed live: flushing it regardless of tool calls
+            // (the buffer's contents reaching the client either way) is
+            // what made a reply look like it was "thinking twice" — once
+            // for this round's stray content, again for the next round's
+            // real one.
+            discard();
             if (!anyToolCalled) {
               anyToolCalled = true;
               // Swap in the post-tool layer for every round from here on —
@@ -1048,26 +1406,54 @@ export async function POST(request: NextRequest) {
             continue;
           }
 
-          // No tool calls. Normally this round's content is the final answer
-          // — but occasionally Ollama returns neither tool calls nor content
-          // (an empty round). Silently declaring that "done" produces an
-          // invisible, empty assistant bubble, so retry once before
-          // surfacing an error.
-          if (!content) {
+          // Not a tool-call round — release whatever's buffered (see
+          // wrapDeltaForThinkStripping/flush above): the common case is a
+          // normal reply that never contained </think> and never crossed
+          // the buffer cap, so it hasn't reached the client at all yet.
+          flush();
+
+          // Normally this round's content is the final answer — but
+          // occasionally Ollama returns neither tool calls nor content (an
+          // empty round), or the round's entire content turns out to have
+          // BEEN the leaked chain-of-thought with nothing real after the
+          // closing tag (confirmed live 2026-08-11 — the buffer correctly
+          // withheld the leaked text from the live view, but the round
+          // still had a non-empty raw `content`, so it passed the old
+          // `!content` check and got finalized as-is, persisting an empty
+          // answer that then sat blank forever with no retry and no error).
+          // Checking the stripped text catches both cases the same way -
+          // silently declaring either "done" produces an invisible, empty
+          // assistant bubble, so retry once before surfacing an error.
+          const strippedContent = stripThinkLeak(content).trim();
+          if (!strippedContent) {
             if (emptyRoundRetries < 1) {
               emptyRoundRetries++;
               continue;
             }
-            send({
-              type: "error",
-              error: "The assistant didn't generate a response. Please try asking again.",
-            });
+            finalAnswerText = "The assistant didn't generate a response. Please try asking again.";
+            send({ type: "error", error: finalAnswerText });
             finished = true;
             break;
           }
 
           finished = true;
-          send({ type: "done", documentsRead, generatedFiles, summary, summarizedCount });
+          // stripThinkLeak here is a safety net, not the primary defense —
+          // wrapDeltaForThinkStripping above already corrected what the
+          // live client saw via a reset event. This just keeps what gets
+          // persisted (and what a resumed/history-panel viewer eventually
+          // sees) in sync with that, since `content` itself is the raw,
+          // pre-strip round output.
+          finalAnswerText = strippedContent;
+          const finalCompaction = await compactionPromise;
+          persistedSummary = finalCompaction.summary;
+          persistedSummarizedCount = finalCompaction.summarizedCount;
+          send({
+            type: "done",
+            documentsRead,
+            generatedFiles,
+            summary: finalCompaction.summary,
+            summarizedCount: finalCompaction.summarizedCount,
+          });
         }
 
         if (!finished) {
@@ -1081,22 +1467,41 @@ export async function POST(request: NextRequest) {
           });
 
           send({ type: "status", label: "Wrapping up an answer..." });
-          const { content } = await streamOllamaRound(conversation, [], CHAT_TEMPERATURE, primaryTarget, (delta) =>
-            send({ type: "delta", text: delta })
+          const finalRoundHandler = makeDeltaHandler();
+          const { content } = await streamOllamaRound(
+            conversation,
+            [],
+            CHAT_TEMPERATURE,
+            primaryTarget,
+            finalRoundHandler.handleDelta
           );
+          finalRoundHandler.flush();
 
-          if (content) {
-            send({ type: "done", documentsRead, generatedFiles, summary, summarizedCount });
-          } else {
+          // See the retry loop's identical check above — content that was
+          // entirely leaked chain-of-thought (non-empty raw, empty once
+          // stripped) must not be finalized as an answer either.
+          const strippedFinalContent = content ? stripThinkLeak(content).trim() : "";
+          if (strippedFinalContent) {
+            finalAnswerText = strippedFinalContent;
+            const finalCompaction = await compactionPromise;
+            persistedSummary = finalCompaction.summary;
+            persistedSummarizedCount = finalCompaction.summarizedCount;
             send({
-              type: "error",
-              error: "The assistant needed too many steps to answer. Please try rephrasing your question.",
+              type: "done",
+              documentsRead,
+              generatedFiles,
+              summary: finalCompaction.summary,
+              summarizedCount: finalCompaction.summarizedCount,
             });
+          } else {
+            finalAnswerText = "The assistant needed too many steps to answer. Please try rephrasing your question.";
+            send({ type: "error", error: finalAnswerText });
           }
         }
       } catch (error: any) {
         console.error("Chat route error:", error);
-        send({ type: "error", error: describeChatError(error) });
+        finalAnswerText = describeChatError(error);
+        send({ type: "error", error: finalAnswerText });
       } finally {
         // Fire-and-forget — never awaited, must not add latency to a
         // response the student is already looking at. Errors are handled
@@ -1106,7 +1511,23 @@ export async function POST(request: NextRequest) {
             console.error("Unhandled student profile update error:", error)
           );
         }
-        controller.close();
+        // Runs regardless of whether a client is still attached (see the
+        // send() comment above) — this is what makes a reply durable even
+        // when the user has already navigated away or closed the tab.
+        if (persistTarget) {
+          await finishChatPersistence(persistTarget, {
+            text: finalAnswerText ?? "Something went wrong generating this reply. Please try again.",
+            documentsRead,
+            generatedFiles,
+            summary: persistedSummary,
+            summarizedCount: persistedSummarizedCount,
+          });
+        }
+        try {
+          controller.close();
+        } catch {
+          // client already gone — nothing left to close for
+        }
       }
     },
   });
