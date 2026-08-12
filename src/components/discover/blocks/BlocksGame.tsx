@@ -324,7 +324,7 @@ export default function BlocksGame({ uid, onGameOver, isMuted = false }: BlocksG
       onDragCancel={handleDragCancel}
     >
       <div className="flex min-h-[calc(100vh-120px)] items-start justify-center pt-8 md:pt-12">
-        <div className="mx-auto flex max-w-4xl flex-col gap-6 md:flex-row md:items-start">
+        <div className="mx-auto flex max-w-6xl flex-col gap-6 md:flex-row md:items-start">
           {phase === "answering" && currentQuestion && (
             <div className="md:w-1/2">
               <BlocksQuestionPanel

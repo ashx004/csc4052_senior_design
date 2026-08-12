@@ -83,11 +83,7 @@ export function sampleFlashcardsAsMatching(
 ): BlocksMatchingQuestion | null {
   if (cards.length < 3) return null;
 
-  const shuffled = [...cards];
-  for (let i = shuffled.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(rng() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
+  const shuffled = sampleCardsForGeneration(cards, cards.length, rng);
 
   const uniqueCards: RawFlashcard[] = [];
   const selectedAnswers = new Set<string>();
@@ -112,6 +108,19 @@ export function sampleFlashcardsAsMatching(
   }));
 
   return { id: `matching-flashcards-${sourceSet}`, kind: "matching", sourceCourse, sourceSet, pairs };
+}
+
+export function sampleCardsForGeneration(
+  cards: RawFlashcard[],
+  count: number,
+  rng: () => number = Math.random
+): RawFlashcard[] {
+  const shuffled = [...cards];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled.slice(0, count);
 }
 
 export function needsTopUp(
@@ -206,50 +215,63 @@ export async function buildBlocksPool(uid: string): Promise<BlocksQuestion[]> {
   const activeCourses = await getActiveCourses(uid);
   if (activeCourses.length === 0) return [];
 
-  const pool: BlocksQuestion[] = [];
   const aiJobs: Array<() => Promise<BlocksSingleQuestion[]>> = [];
 
-  for (const course of activeCourses) {
-    const sourceCourse = `${course.classCode} — ${course.className}`;
+  // Each course's quizSets + flashcardSets reads fan out concurrently
+  // instead of running one course at a time. The `aiJobs.length < 3` cap
+  // below is still safe to share across the concurrent course callbacks —
+  // JS is single-threaded, so each push happens atomically — but which 3
+  // flashcard sets end up under the cap can now vary run to run depending
+  // on which course's Firestore reads resolve first, instead of always
+  // being the first 3 sets in course-declaration order.
+  const perCourseQuestions = await Promise.all(
+    activeCourses.map(async (course) => {
+      const sourceCourse = `${course.classCode} — ${course.className}`;
+      const coursePool: BlocksQuestion[] = [];
 
-    const quizSnap = await getDocs(collection(db, "users", uid, "enrollment", course.courseId, "quizSets"));
-    quizSnap.forEach((qDoc) => {
-      const set = qDoc.data();
-      const setName = set.name || "Untitled";
-      const questions: RawQuizQuestion[] = set.questions || [];
-      pool.push(...extractSingleQuestions(questions, sourceCourse, setName));
-      pool.push(...extractMatchingQuestions(questions, sourceCourse, setName));
-    });
+      const quizSnap = await getDocs(collection(db, "users", uid, "enrollment", course.courseId, "quizSets"));
+      quizSnap.forEach((qDoc) => {
+        const set = qDoc.data();
+        const setName = set.name || "Untitled";
+        const questions: RawQuizQuestion[] = set.questions || [];
+        coursePool.push(...extractSingleQuestions(questions, sourceCourse, setName));
+        coursePool.push(...extractMatchingQuestions(questions, sourceCourse, setName));
+      });
 
-    const flashcardSnap = await getDocs(
-      collection(db, "users", uid, "enrollment", course.courseId, "flashcardSets")
-    );
-    for (const fDoc of flashcardSnap.docs) {
-      const set = fDoc.data();
-      const setName = set.name || "Untitled";
-      const cards: RawFlashcard[] = set.cards || [];
-      if (cards.length < 3) continue;
+      const flashcardSnap = await getDocs(
+        collection(db, "users", uid, "enrollment", course.courseId, "flashcardSets")
+      );
+      for (const fDoc of flashcardSnap.docs) {
+        const set = fDoc.data();
+        const setName = set.name || "Untitled";
+        const cards: RawFlashcard[] = set.cards || [];
+        if (cards.length < 3) continue;
 
-      const matching = sampleFlashcardsAsMatching(cards, sourceCourse, setName);
-      if (matching) pool.push(matching);
+        const matching = sampleFlashcardsAsMatching(cards, sourceCourse, setName);
+        if (matching) coursePool.push(matching);
 
-      if (aiJobs.length < 3) {
-        aiJobs.push(async () => {
-          try {
-            const generated = await generateAIQuestions(
-              [course],
-              3,
-              new Map([[course.courseId, cards.slice(0, 10)]])
-            );
-            return generated.map((q) => ({ ...q, sourceCourse, sourceSet: setName }));
-          } catch (err) {
-            console.error(`Blocks: flashcard question generation failed for "${setName}":`, err);
-            return [];
-          }
-        });
+        if (aiJobs.length < 3) {
+          aiJobs.push(async () => {
+            try {
+              const generated = await generateAIQuestions(
+                [course],
+                3,
+                new Map([[course.courseId, sampleCardsForGeneration(cards, 10)]])
+              );
+              return generated.map((q) => ({ ...q, sourceCourse, sourceSet: setName }));
+            } catch (err) {
+              console.error(`Blocks: flashcard question generation failed for "${setName}":`, err);
+              return [];
+            }
+          });
+        }
       }
-    }
-  }
+
+      return coursePool;
+    })
+  );
+
+  const pool: BlocksQuestion[] = perCourseQuestions.flat();
 
   const generatedResults = await Promise.allSettled(aiJobs.map((job) => job()));
   for (const result of generatedResults) {

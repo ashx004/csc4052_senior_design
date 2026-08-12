@@ -84,11 +84,11 @@ const RequestBodySchema = z.object({
 async function callOllama(prompt: string, count: number): Promise<string> {
   const configuredUrl = process.env.OLLAMA_PRIMARY_URL;
   const token = process.env.OLLAMA_AUTH_TOKEN;
-  const model = process.env.OLLAMA_MODEL;
+  const model = process.env.OLLAMA_MODEL_QUALITY;
 
   if (!configuredUrl || !token || !model) {
     throw new Error(
-      "Ollama is not configured. Set OLLAMA_PRIMARY_URL, OLLAMA_AUTH_TOKEN, and OLLAMA_MODEL."
+      "Ollama is not configured. Set OLLAMA_PRIMARY_URL, OLLAMA_AUTH_TOKEN, and OLLAMA_MODEL_QUALITY."
     );
   }
 

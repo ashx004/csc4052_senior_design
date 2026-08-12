@@ -248,20 +248,29 @@ export default function DiscoverPage() {
             Answer questions, build with blocks, and make studying fun.
           </p>
 
-          <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white p-5">
-            <div>
-              <p className="text-sm font-semibold text-[#1a1a2e]">Blocks</p>
-              <p className="text-xs text-gray-500">
-                Place pieces on the board, answer questions to keep them coming.
-              </p>
+          <div className="grid min-h-[230px] grid-cols-1 overflow-hidden rounded-xl border border-gray-200 bg-white md:min-h-[250px] md:grid-cols-[52%_48%]">
+            <div className="flex flex-col justify-between gap-8 p-5 md:p-6">
+              <div>
+                <h3 className="text-2xl font-semibold text-[#1a1a2e]">Blocks</h3>
+                <p className="mt-2 max-w-sm text-sm text-gray-500">
+                  Place pieces on the board, answer questions to keep them coming.
+                </p>
+              </div>
+              <button
+                onClick={() => router.push(`/courses/${courseId}/discover/blocks`)}
+                className="inline-flex w-[240px] max-w-full items-center justify-center gap-1.5 rounded-lg bg-[#1a1a2e] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#2a2a3e]"
+              >
+                <Gamepad2 size={14} />
+                Play Blocks
+              </button>
             </div>
-            <button
-              onClick={() => router.push(`/courses/${courseId}/discover/blocks`)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#1a1a2e] px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-[#2a2a3e]"
-            >
-              <Gamepad2 size={14} />
-              Play Blocks
-            </button>
+            <div className="relative h-48 overflow-hidden md:h-auto md:min-h-[250px]">
+              <img
+                src="/block_game.png"
+                alt=""
+                className="absolute inset-0 h-full w-full scale-110 object-cover object-center"
+              />
+            </div>
           </div>
         </section>
       </div>

@@ -50,49 +50,60 @@ export async function buildLearnQuestionsSession(
 
   if (activeCourses.length === 0) return [];
 
-  // 2. Collect existing MC/TF questions from all quiz sets
-  const allQuestions: LearnQuestion[] = [];
+  // 2. Collect existing MC/TF questions from all quiz sets — fetched for
+  // every active course concurrently instead of one course at a time.
   const courseTopics: Map<string, string[]> = new Map(); // for AI context
 
-  for (const course of activeCourses) {
-    const quizSnap = await getDocs(
-      collection(
-        db,
-        "users",
-        uid,
-        "enrollment",
-        course.courseId,
-        "quizSets"
-      )
-    );
+  const perCourseQuestions = await Promise.all(
+    activeCourses.map(async (course) => {
+      const quizSnap = await getDocs(
+        collection(
+          db,
+          "users",
+          uid,
+          "enrollment",
+          course.courseId,
+          "quizSets"
+        )
+      );
 
-    const topics: string[] = [];
+      const topics: string[] = [];
+      const questions: LearnQuestion[] = [];
 
-    quizSnap.forEach((qDoc) => {
-      const set = qDoc.data();
-      const setName = set.name || "Untitled";
-      topics.push(setName);
+      quizSnap.forEach((qDoc) => {
+        const set = qDoc.data();
+        const setName = set.name || "Untitled";
+        topics.push(setName);
 
-      const questions = set.questions || [];
-      for (const q of questions) {
-        if (q.type !== "multiple_choice" && q.type !== "true_false") continue;
-        if (!q.question || !q.correctAnswer || !q.options?.length) continue;
+        const setQuestions = set.questions || [];
+        for (const q of setQuestions) {
+          if (q.type !== "multiple_choice" && q.type !== "true_false") continue;
+          if (!q.question || !q.correctAnswer || !q.options?.length) continue;
 
-        allQuestions.push({
-          id: q.id || `existing-${allQuestions.length}`,
-          type: q.type,
-          question: q.question,
-          options: q.options,
-          correctAnswer: q.correctAnswer,
-          sourceCourse: `${course.classCode} — ${course.className}`,
-          sourceSet: setName,
-          explanation: q.explanation || "",
-        });
-      }
-    });
+          // Fallback id is namespaced by courseId — with concurrent
+          // per-course fetches, each course's local `questions.length`
+          // counter restarts at 0, so the courseId prefix keeps fallback
+          // ids unique across courses (the old sequential loop got this
+          // for free from a single shared running counter).
+          questions.push({
+            id: q.id || `existing-${course.courseId}-${questions.length}`,
+            type: q.type,
+            question: q.question,
+            options: q.options,
+            correctAnswer: q.correctAnswer,
+            sourceCourse: `${course.classCode} — ${course.className}`,
+            sourceSet: setName,
+            explanation: q.explanation || "",
+          });
+        }
+      });
 
-    courseTopics.set(course.courseId, topics);
-  }
+      courseTopics.set(course.courseId, topics);
+      return questions;
+    })
+  );
+
+  const allQuestions: LearnQuestion[] = perCourseQuestions.flat();
 
   // 3. Shuffle and balance across courses
   const shuffled = balanceAndShuffle(allQuestions, activeCourses.length);
@@ -124,9 +135,9 @@ export async function buildLearnQuestionsSession(
 }
 
 /**
- * Call the /api/discover/learn-questions route to generate questions via Ollama.
+ * Call the /api/discover/learn-question route to generate questions via Ollama.
  */
-async function generateMissingQuestions(
+export async function generateMissingQuestions(
   courses: { courseId: string; classCode: string; className: string }[],
   courseTopics: Map<string, string[]>,
   count: number
@@ -140,7 +151,7 @@ async function generateMissingQuestions(
     count,
   };
 
-  const res = await fetch("/api/discover/learn-questions", {
+  const res = await fetch("/api/discover/learn-question", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

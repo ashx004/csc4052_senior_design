@@ -11,7 +11,7 @@ interface RawFlashcardTestShape {
 // live Firebase config. Matches src/library/chatMemory.test.ts.
 vi.mock("@/src/library/firebase", () => ({ db: {} }));
 
-const { extractSingleQuestions, extractMatchingQuestions, sampleFlashcardsAsMatching, needsTopUp, pickNextQuestion } =
+const { extractSingleQuestions, extractMatchingQuestions, sampleFlashcardsAsMatching, sampleCardsForGeneration, needsTopUp, pickNextQuestion } =
   await import("./blocksPool");
 
 describe("extractSingleQuestions", () => {
@@ -150,6 +150,37 @@ describe("sampleFlashcardsAsMatching", () => {
 
     expect(new Set(normalizedDefinitions).size).toBe(normalizedDefinitions.length);
     expect(result.pairs.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("sampleCardsForGeneration", () => {
+  const tenCards: RawFlashcardTestShape[] = Array.from({ length: 10 }, (_, i) => ({
+    question: `Q${i}`,
+    answer: `A${i}`,
+  }));
+
+  it("returns up to `count` cards", () => {
+    const result = sampleCardsForGeneration(tenCards, 5, () => 0);
+    expect(result).toHaveLength(5);
+  });
+
+  it("returns all cards when the set has fewer than `count`", () => {
+    const threeCards = tenCards.slice(0, 3);
+    const result = sampleCardsForGeneration(threeCards, 10, () => 0);
+    expect(result).toHaveLength(3);
+  });
+
+  it("does not mutate the input array", () => {
+    const copy = [...tenCards];
+    sampleCardsForGeneration(tenCards, 5, () => 0.5);
+    expect(tenCards).toEqual(copy);
+  });
+
+  it("shuffles deterministically for a fixed rng", () => {
+    const result = sampleCardsForGeneration(tenCards, 10, () => 0);
+    expect(result.map((c) => c.question)).toEqual([
+      "Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9", "Q0",
+    ]);
   });
 });
 
