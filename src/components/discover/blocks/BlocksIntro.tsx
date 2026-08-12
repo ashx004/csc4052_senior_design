@@ -11,25 +11,34 @@ export default function BlocksIntro({ onStart }: BlocksIntroProps) {
   const [showInstructions, setShowInstructions] = useState(false);
 
   return (
-    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 text-center">
-      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#1a1a2e] text-2xl font-black text-white">
-        B
+    <div className="flex min-h-[60vh] flex-col items-center justify-center px-4 py-8 text-center">
+      <div className="relative mb-8 h-[240px] w-full max-w-[620px] overflow-hidden rounded-2xl sm:h-[300px]">
+        <img
+          src="/block_game.png"
+          alt="Blocks"
+          className="absolute inset-0 h-full w-full scale-110 object-cover object-center"
+        />
       </div>
-      <h1 className="text-2xl font-bold text-[#1a1a2e]">Build, Play, And Learn With Blocks!</h1>
-      <p className="max-w-sm text-sm text-gray-500">Answer questions, build with blocks, and make studying fun!</p>
 
-      <div className="mt-2 flex flex-col gap-3">
+      <h1 className="max-w-xl text-2xl font-bold text-[#1a1a2e] sm:text-3xl">
+        Build, Play, And Learn With Blocks!
+      </h1>
+      <p className="mt-3 max-w-[460px] text-base text-gray-500">
+        Answer questions, build with blocks, and make studying fun!
+      </p>
+
+      <div className="mt-8 flex w-full max-w-[220px] flex-col gap-3">
         <button
           type="button"
           onClick={onStart}
-          className="rounded-full bg-[#1a1a2e] px-8 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#2a2a3e]"
+          className="w-full rounded-full bg-[#1a1a2e] px-8 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#2a2a3e]"
         >
           Play Blocks
         </button>
         <button
           type="button"
           onClick={() => setShowInstructions(true)}
-          className="rounded-full border border-border-light bg-bg-warm px-8 py-3 text-sm font-semibold text-[#1a1a2e] transition-colors hover:bg-[#F5F0EB]"
+          className="w-full rounded-full border border-border-light bg-bg-warm px-8 py-3 text-sm font-semibold text-[#1a1a2e] transition-colors hover:bg-[#F5F0EB]"
         >
           How to Play
         </button>
