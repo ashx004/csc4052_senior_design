@@ -17,8 +17,12 @@ export async function embedTexts(texts: string[], signal?: AbortSignal): Promise
     },
     signal,
     body: JSON.stringify({
-      model: process.env.OLLAMA_EMBED_MODEL || "qwen3-embedding:latest",
+      model: process.env.OLLAMA_EMBED_MODEL || "nomic-embed-text:latest",
       input: texts,
+      // Every search_documents/indexing call needs this model — it should
+      // never sit idle-evicted between uses the way an occasional-use model
+      // reasonably would.
+      keep_alive: -1,
     }),
   });
 

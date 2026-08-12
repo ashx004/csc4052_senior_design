@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
+import { getStoredChatMode } from '@/src/library/chatMode';
 import { getCourseResources } from '@/src/components/resourceManagement/fileUploadService';
 import {
   addDoc,
@@ -220,6 +221,7 @@ export default function CourseLearningPage() {
           docName: quizDocument.name,
           questionCount: config.questionCount,
           questionTypes: config.questionTypes,
+          chatMode: getStoredChatMode(),
         }),
       });
 

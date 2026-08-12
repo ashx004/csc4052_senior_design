@@ -6,7 +6,9 @@ import {
   fetchInternal,
   resolveInternalUrl,
 } from '@/src/library/pdfExtract';
+import { resolveOllamaBaseUrl } from '@/src/library/ollamaClient';
 import { verifyRequestAuth } from '@/src/library/verifyAuth';
+import { stripThinkLeak } from '@/src/library/stripThinkLeak';
 
 const OLLAMA_TIMEOUT_MS = 120_000;
 const MAX_OLLAMA_ATTEMPTS = 2;
@@ -90,17 +92,28 @@ function buildQuizJsonSchema(questionCount: number) {
 
 async function callOllama(
   prompt: string,
-  questionCount: number
+  questionCount: number,
+  useQualityModel: boolean
 ): Promise<OllamaChatResponse> {
   const ollamaUrl = process.env.OLLAMA_PRIMARY_URL;
   const ollamaToken = process.env.OLLAMA_AUTH_TOKEN;
-  const ollamaModel = process.env.OLLAMA_MODEL;
+  // Same fast/quality selection as api/chat/route.ts - quiz generation is
+  // the same underlying task, so it respects the student's saved
+  // chat-mode preference too.
+  const ollamaModel = useQualityModel
+    ? process.env.OLLAMA_MODEL_QUALITY || process.env.OLLAMA_MODEL || 'qwen3:30b-a3b'
+    : process.env.OLLAMA_MODEL_FAST || process.env.OLLAMA_MODEL || 'gpt-oss:20b';
 
-  if (!ollamaUrl || !ollamaToken || !ollamaModel) {
+  if (!ollamaUrl || !ollamaToken) {
     throw new Error(
-      'Ollama is not configured. Check OLLAMA_PRIMARY_URL, OLLAMA_AUTH_TOKEN, and OLLAMA_MODEL.'
+      'Ollama is not configured. Check OLLAMA_PRIMARY_URL and OLLAMA_AUTH_TOKEN.'
     );
   }
+
+  const baseUrl = await resolveOllamaBaseUrl(
+    ollamaUrl,
+    process.env.OLLAMA_PRIMARY_FALLBACK_URL
+  );
 
   const controller = new AbortController();
   const timeoutId = setTimeout(
@@ -110,7 +123,7 @@ async function callOllama(
 
   try {
     const response = await fetch(
-      `${ollamaUrl.replace(/\/$/, '')}/api/chat`,
+      `${baseUrl.replace(/\/$/, '')}/api/chat`,
       {
         method: 'POST',
         headers: {
@@ -131,6 +144,7 @@ async function callOllama(
             },
           ],
           stream: false,
+          think: false,
           format: buildQuizJsonSchema(questionCount),
           options: {
             temperature: 0,
@@ -158,7 +172,8 @@ async function callOllama(
 
 async function generateQuizWithRetry(
   prompt: string,
-  questionCount: number
+  questionCount: number,
+  useQualityModel: boolean
 ): Promise<QuizResponse> {
   let lastError: unknown;
 
@@ -168,15 +183,16 @@ async function generateQuizWithRetry(
     attempt += 1
   ) {
     try {
-      const data = await callOllama(prompt, questionCount);
-      const content = data.message?.content;
+      const data = await callOllama(prompt, questionCount, useQualityModel);
+      const rawContent = data.message?.content;
 
-      if (!content) {
+      if (!rawContent) {
         throw new Error(
           'Ollama returned an empty message.'
         );
       }
 
+      const content = stripThinkLeak(rawContent);
       const parsedJson: unknown = JSON.parse(content);
 
       return QuizResponseSchema.parse(parsedJson);
@@ -224,7 +240,10 @@ export async function POST(request: NextRequest) {
       docName,
       questionCount,
       questionTypes,
+      chatMode,
+      boost,
     } = await request.json();
+    const useQualityModel = boost === true || chatMode === 'quality';
 
     if (typeof docUrl !== 'string' || !docUrl) {
       return NextResponse.json(
@@ -415,7 +434,8 @@ ${extractedText}
     try {
       parsed = await generateQuizWithRetry(
         prompt,
-        questionCount
+        questionCount,
+        useQualityModel
       );
     } catch (error) {
       console.error(

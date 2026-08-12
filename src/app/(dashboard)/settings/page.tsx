@@ -19,6 +19,7 @@ import {
     setThemeMode,
     ThemeMode,
 } from "@/src/library/theme";
+import { ChatMode, getStoredChatMode, setStoredChatMode } from "@/src/library/chatMode";
 
 export default function Settings() {
 
@@ -26,6 +27,7 @@ export default function Settings() {
     // const [studyRemIsOn, setstudyRemOn] = useState<boolean>(false);
     const [themeMode, setThemeModeState] = useState<ThemeMode>("light");
     const [coffee, setCoffeeState] = useState<boolean>(false);
+    const [chatMode, setChatModeState] = useState<ChatMode>("quality");
     // const [focusIsOn, setFocusOn] = useState<boolean>(false);
 
     const [showPasswordForm, setShowPasswordForm] = useState<boolean>(false);
@@ -50,6 +52,7 @@ export default function Settings() {
         applyTheme(storedMode, storedCoffee);
         setThemeModeState(storedMode);
         setCoffeeState(storedCoffee);
+        setChatModeState(getStoredChatMode());
     }, []);
 
     function handleThemeModeToggle() {
@@ -62,6 +65,24 @@ export default function Settings() {
         const next = event.target.checked;
         setCoffeeState(next);
         setCoffee(next);
+    }
+
+    function handleChatModeToggle() {
+        const next: ChatMode = chatMode === "quality" ? "fast" : "quality";
+        if (next === chatMode) return;
+        setChatModeState(next);
+        setStoredChatMode(next);
+
+        // Fire-and-forget: pays the cold-boot cost of switching models right
+        // now instead of on the student's next chat message. Never blocks
+        // the toggle UI or surfaces a failure — this is a best-effort
+        // latency optimization, not something the student needs to know
+        // about if the warm-up itself fails.
+        fetch("/api/warm-model", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode: next }),
+        }).catch((error) => console.error("Model warm-up request failed:", error));
     }
 
 
@@ -442,6 +463,47 @@ export default function Settings() {
 
             <div className="flex w-3/4 self-center px-2 py-1 text-xs text-text-muted">
                 Toggle dark mode, and check Coffee for a warm variant of either theme
+            </div>
+
+            <header className="mt-5 relative flex w-3/4 self-center
+                shrink-0 border-b border-border-light px-6">
+            </header>
+
+            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
+                        bg-bg-main text-text-main hover:bg-bg-warm">
+
+                <span className="text-sm">
+                    AI Chat Speed
+                </span>
+
+                <div className="flex items-center gap-3">
+                    <button
+                        type="button"
+                        role="switch"
+                        aria-checked={chatMode === "quality"}
+                        aria-label="Toggle AI chat quality mode"
+                        onClick={handleChatModeToggle}
+                        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                            chatMode === "quality" ? "bg-primary" : "bg-border-light"
+                        }`}
+                    >
+                        <span
+                            className={`absolute left-[2px] top-[2px] h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                                chatMode === "quality" ? "translate-x-5" : "translate-x-0"
+                            }`}
+                        />
+                    </button>
+                    <span className="w-14 text-xs text-text-muted">
+                        {chatMode === "quality" ? "Quality" : "Fast"}
+                    </span>
+                </div>
+
+            </div>
+
+            <div className="flex w-3/4 self-center px-2 py-1 text-xs text-text-muted">
+                {chatMode === "quality"
+                    ? "Quality: deeper, faster chat answers. Reading a scanned document takes a bit longer right after, since it has to swap models."
+                    : "Fast: instant responses, including reading scanned documents. Switch to Quality for noticeably better chat answers."}
             </div>
 
 

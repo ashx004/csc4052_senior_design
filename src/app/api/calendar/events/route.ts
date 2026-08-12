@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import { getUidFromRequest, listEvents, createEvent, toCalendarEvent } from "@/src/library/googleCalendar";
+import { getUidFromRequest } from "@/src/library/firestoreRest";
+import { listEvents, createEvent, toCalendarEvent } from "@/src/library/googleCalendar";
 
 export async function GET(req: NextRequest) {
   try {
