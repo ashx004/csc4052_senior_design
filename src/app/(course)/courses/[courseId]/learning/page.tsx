@@ -303,7 +303,7 @@ export default function CourseLearningPage() {
 
       if (isCurrentlyPublic) {
         if (item?.publicSetId) {
-          await unpublishStudySet(item.publicSetId);
+          await unpublishStudySet(item.publicSetId, user.uid);
         }
         await updateDoc(setRef, { visibility: 'private' });
         return;
