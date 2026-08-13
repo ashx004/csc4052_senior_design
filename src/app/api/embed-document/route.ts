@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { DeleteObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getIdToken, firestoreGet, firestoreUpdate, firestoreCommitBatch } from "@/src/library/firestoreRest";
+import { getMinioClient } from "@/src/library/minioClient";
 import { resolveInternalUrl } from "@/src/library/pdfExtract";
-import { extractDocumentText, SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
+import { extractDocumentText, IMAGE_FILE_TYPES, SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
 import { chunkText } from "@/src/library/chunking";
 import { addChunkContext } from "@/src/library/contextualChunking";
 import { embedTexts } from "@/src/library/ollamaEmbeddings";
@@ -28,6 +30,57 @@ const INDEXING_TIMEOUT_MS = 3.5 * 60 * 1000;
 // in one shot — missed content just can't be found by search_documents,
 // while read_document still has its own separate cap for full reads.
 const MAX_INDEXABLE_CHARS = 100000;
+
+const MINIO_BUCKET = "studora";
+
+// Images have no embedded text — the OCR model returns a plain-text
+// transcription. Instead of keeping the uploaded picture as the class's
+// resource (with the transcription tucked away on it as a `transcript`
+// field), persist the transcription as a real, readable .txt document in the
+// class's resources and delete the original picture, which served no purpose
+// once its text was captured.
+async function persistImageTranscriptionAsResource(opts: {
+  idToken: string;
+  userId: string;
+  courseId: string;
+  resourceCollectionPath: string;
+  resourceId: string;
+  originalName: string;
+  originalUrl: string;
+  transcript: string;
+}): Promise<void> {
+  const { idToken, userId, courseId, resourceCollectionPath, resourceId, originalName, originalUrl, transcript } = opts;
+
+  const baseName = originalName.replace(/\.[^.]+$/, "") || "transcription";
+  const txtName = `${baseName}.txt`;
+  const txtStoragePath = `users/${userId}/classes/${courseId}/${Date.now()}_${txtName}`;
+
+  const s3Client = await getMinioClient();
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: MINIO_BUCKET,
+      Key: txtStoragePath,
+      Body: Buffer.from(transcript, "utf8"),
+      ContentType: "text/plain",
+    })
+  );
+
+  const updated = await firestoreUpdate(idToken, resourceCollectionPath, resourceId, {
+    name: txtName,
+    url: `/api/download?key=${encodeURIComponent(txtStoragePath)}`,
+    fileType: "txt",
+  });
+  if (!updated) throw new Error("Failed to update image resource to transcript text file");
+
+  // The uploaded picture is now orphaned — drop it so the upload doesn't
+  // leave a dead copy in storage. Non-fatal if it can't be removed.
+  const imageKey = decodeURIComponent(originalUrl.split("key=")[1] ?? "");
+  if (imageKey) {
+    await s3Client
+      .send(new DeleteObjectCommand({ Bucket: MINIO_BUCKET, Key: imageKey }))
+      .catch((err) => console.error(`Failed to delete uploaded image "${imageKey}":`, err));
+  }
+}
 
 // Indexes a single document for semantic search: extracts its text, splits
 // it into chunks, embeds each chunk on the secondary (embeddings) Ollama box,
@@ -82,6 +135,23 @@ export async function POST(request: NextRequest) {
 
     const fullUrl = resolveInternalUrl(request, resourceUrl);
     let text = await extractDocumentText(fullUrl, resourceFileType);
+
+    // Images: the OCR transcription becomes the class's actual resource (a
+    // readable .txt document), replacing the uploaded picture. Done before
+    // the length cap below so the saved file holds the full transcription.
+    if (IMAGE_FILE_TYPES.includes(resourceFileType)) {
+      await persistImageTranscriptionAsResource({
+        idToken,
+        userId,
+        courseId,
+        resourceCollectionPath,
+        resourceId,
+        originalName: resourceName,
+        originalUrl: resourceUrl,
+        transcript: text,
+      });
+    }
+
     if (text.length > MAX_INDEXABLE_CHARS) {
       text = text.slice(0, MAX_INDEXABLE_CHARS);
     }

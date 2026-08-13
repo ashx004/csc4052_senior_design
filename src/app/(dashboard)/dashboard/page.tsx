@@ -14,7 +14,7 @@ export default function Dashboard() {
             icon="/icons/notebook-pen.png"
             title="Notes"
             description="Create and manage your notes"
-            href="/dashboard"
+            href="/notes"
           />
           <DashboardCard
             icon="/icons/book-open.png"
