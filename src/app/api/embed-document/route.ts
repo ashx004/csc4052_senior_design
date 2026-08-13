@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { DeleteObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { doc, getDoc, collection, updateDoc, serverTimestamp, writeBatch } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
+import { getMinioClient } from "@/src/library/minioClient";
 import { resolveInternalUrl } from "@/src/library/pdfExtract";
 import { extractDocumentText, IMAGE_FILE_TYPES, SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
 import { chunkText } from "@/src/library/chunking";
@@ -28,6 +30,54 @@ const INDEXING_TIMEOUT_MS = 3.5 * 60 * 1000;
 // in one shot — missed content just can't be found by search_documents,
 // while read_document still has its own separate cap for full reads.
 const MAX_INDEXABLE_CHARS = 100000;
+
+const MINIO_BUCKET = "studora";
+
+// Images have no embedded text — the OCR model returns a plain-text
+// transcription. Instead of keeping the uploaded picture as the class's
+// resource (with the transcription tucked away on it as a `transcript`
+// field), persist the transcription as a real, readable .txt document in the
+// class's resources and delete the original picture, which served no purpose
+// once its text was captured.
+async function persistImageTranscriptionAsResource(opts: {
+  userId: string;
+  courseId: string;
+  resourceId: string;
+  originalName: string;
+  originalUrl: string;
+  transcript: string;
+}): Promise<void> {
+  const { userId, courseId, resourceId, originalName, originalUrl, transcript } = opts;
+
+  const baseName = originalName.replace(/\.[^.]+$/, "") || "transcription";
+  const txtName = `${baseName}.txt`;
+  const txtStoragePath = `users/${userId}/classes/${courseId}/${Date.now()}_${txtName}`;
+
+  const s3Client = await getMinioClient();
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: MINIO_BUCKET,
+      Key: txtStoragePath,
+      Body: Buffer.from(transcript, "utf8"),
+      ContentType: "text/plain",
+    })
+  );
+
+  await updateDoc(doc(db, "users", userId, "enrollment", courseId, "resources", resourceId), {
+    name: txtName,
+    url: `/api/download?key=${encodeURIComponent(txtStoragePath)}`,
+    fileType: "txt",
+  });
+
+  // The uploaded picture is now orphaned — drop it so the upload doesn't
+  // leave a dead copy in storage. Non-fatal if it can't be removed.
+  const imageKey = decodeURIComponent(originalUrl.split("key=")[1] ?? "");
+  if (imageKey) {
+    await s3Client
+      .send(new DeleteObjectCommand({ Bucket: MINIO_BUCKET, Key: imageKey }))
+      .catch((err) => console.error(`Failed to delete uploaded image "${imageKey}":`, err));
+  }
+}
 
 // Indexes a single document for semantic search: extracts its text, splits
 // it into chunks, embeds each chunk on the secondary (embeddings) Ollama box,
@@ -75,6 +125,21 @@ export async function POST(request: NextRequest) {
 
     const fullUrl = resolveInternalUrl(request, resource.url);
     let text = await extractDocumentText(fullUrl, resource.fileType);
+
+    // Images: the OCR transcription becomes the class's actual resource (a
+    // readable .txt document), replacing the uploaded picture. Done before
+    // the length cap below so the saved file holds the full transcription.
+    if (IMAGE_FILE_TYPES.includes(resource.fileType)) {
+      await persistImageTranscriptionAsResource({
+        userId,
+        courseId,
+        resourceId,
+        originalName: resource.name,
+        originalUrl: resource.url,
+        transcript: text,
+      });
+    }
+
     if (text.length > MAX_INDEXABLE_CHARS) {
       text = text.slice(0, MAX_INDEXABLE_CHARS);
     }
@@ -140,11 +205,6 @@ export async function POST(request: NextRequest) {
         indexedAt: serverTimestamp(),
         chunkCount: chunks.contextualized.length,
         vectorIndexed,
-        // Images have no embedded text — this is the OCR transcription the
-        // notes page preview surfaces. Store it so the client can show the
-        // transcript without re-running the (slow) vision model. Only set for
-        // images to avoid duplicating large extracted text on text-based docs.
-        ...(IMAGE_FILE_TYPES.includes(resource.fileType) ? { transcript: text } : {}),
       });
 
       return NextResponse.json({ success: true, chunkCount: chunks.contextualized.length });
