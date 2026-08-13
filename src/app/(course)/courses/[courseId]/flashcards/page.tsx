@@ -19,7 +19,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
-import {ArrowLeft,ChevronLeft,ChevronRight,BookOpen,Bookmark,RefreshCw,Shuffle,Loader2,AlertCircle,} from 'lucide-react';
+import {ArrowLeft,ChevronLeft,ChevronRight,RefreshCw,Shuffle,Loader2,AlertCircle,} from 'lucide-react';
 import FlashCard from '@/src/components/learning/FlashCard';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
 import { buildFlashcardSuggestions, type FlashcardPageContext } from '@/src/library/Contextual_AI/contextualAi';
@@ -419,7 +419,7 @@ export default function FlashcardsPage() {
   return (
     <div className="min-h-screen bg-[#FAFAF8] flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border-light">
+      <div className="flex h-[60px] items-center justify-between border-b border-border-light px-6 md:px-14">
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.push(`/courses/${courseId}/learning`)}
@@ -430,15 +430,6 @@ export default function FlashcardsPage() {
           <h1 className="text-xl font-bold text-[#1a1a2e]">
             {displayName}
           </h1>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors">
-            <BookOpen size={20} className="text-text-muted" />
-          </button>
-          <button className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors">
-            <Bookmark size={20} className="text-text-muted" />
-          </button>
         </div>
       </div>
 

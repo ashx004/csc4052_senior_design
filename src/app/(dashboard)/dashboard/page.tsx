@@ -35,10 +35,10 @@ export default function Dashboard() {
             href="/calendar"
           />
           <DashboardCard
-            icon="/icons/summary.png"
-            title="Summary"
-            description="View your class resources"
-            href="/summary"
+            icon="/icons/discover.png"
+            title="Discover"
+            description="Explore study sets shared by others"
+            href="/discover"
           />
           <DashboardCard
             icon="/icons/bot-message-square.png"
