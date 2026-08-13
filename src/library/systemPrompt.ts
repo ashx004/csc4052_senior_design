@@ -34,20 +34,12 @@ export type ChatClass = {
   status?: EnrollmentStatus;
 };
 
-export type PageAIContext = {
-  page: string;
-  label: string;
-  summary: string;
-  data?: Record<string, unknown>;
-};
-
 export type ChatContext = {
   userId: string;
   email: string;
   name?: string;
   college?: string;
   classes: ChatClass[];
-  pageContext?: PageAIContext;
 };
 
 // Four-layer compositional prompt, following the architecture described in
@@ -167,14 +159,6 @@ Currently enrolled classes:
 ${activeLines}${completedBlock}`;
 }
 
-// Present only when the caller supplies a pageContext (e.g. the AI side
-// panel on /advising) — absent on /ai-assistant, which never sets it, so
-// this layer contributes nothing there and that page's prompt is unchanged.
-export function buildPageContextLayer(pageContext?: PageAIContext): string {
-  if (!pageContext?.summary) return "";
-  return `Right now the student is on the ${pageContext.label} page. Don't bring this up unprompted or open with it — only use it if the student actually asks something about what's on their screen (e.g. "what am I looking at", "what courses are these") or otherwise clearly references the current page:\n${pageContext.summary}`;
-}
-
 // A small model's restatement of what the student's latest message is
 // specifically asking for (see queryClarifier.ts) — an annotation for the
 // primary model's own understanding, never something to surface to the
@@ -236,7 +220,6 @@ export function buildSystemPrompt(
     buildGlobalContextLayer(identityWithEmail),
     buildInstructionalLogicLayer(),
     buildAdaptiveVariableLayer(context, learnerProfile),
-    buildPageContextLayer(context?.pageContext),
   ];
   if (includePostToolLayer) layers.push(buildPostToolLayer());
 
