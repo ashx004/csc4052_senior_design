@@ -12,6 +12,7 @@ dist
 dist-ssr
 .next
 package-lock.json
+*.tsbuildinfo
 
 *.local
 
