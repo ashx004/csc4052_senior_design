@@ -19,7 +19,7 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
-import { ArrowLeft, FileEdit, BookOpen, Bookmark, Loader2 } from 'lucide-react';
+import { ArrowLeft, FileEdit, BookOpen, Loader2 } from 'lucide-react';
 import PdfThumbnail from '@/src/components/learning/PdfThumbnail';
 import { useCourseInfo } from '@/src/hooks/useCourseInfo';
 import RecentItemRow, { RecentItem } from '@/src/components/learning/RecentItemRow';
@@ -373,15 +373,6 @@ export default function CourseLearningPage() {
           <h1 className="ml-1 text-xl font-bold text-[#1a1a2e]">
             {courseInfoLoading ? 'Loading...' : courseDisplayName}
           </h1>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors">
-            <BookOpen size={20} className="text-text-muted" />
-          </button>
-          <button className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors">
-            <Bookmark size={20} className="text-text-muted" />
-          </button>
         </div>
       </div>
 
