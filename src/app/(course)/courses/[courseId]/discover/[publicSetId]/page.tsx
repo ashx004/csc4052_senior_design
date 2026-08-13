@@ -13,6 +13,7 @@ import {
   serverTimestamp,
   where,
 } from 'firebase/firestore';
+import { FirebaseError } from 'firebase/app';
 import { db } from '@/src/library/firebase';
 import { ArrowLeft, Loader2, AlertCircle, ChevronLeft, ChevronRight, Check } from 'lucide-react';
 import QuestionCard from '@/src/components/quizzes/QuestionCard';
@@ -126,23 +127,26 @@ export default function DiscoverSetPreviewPage() {
     };
   }, [user, set, courseId, publicSetId]);
 
-  // Is the current user the creator of this set? Queries the ownerMapping
-  // subcollection directly from the client — see the security note in
-  // publishStudySet.ts: without committed firestore.rules, this is not a
-  // hard security boundary today, only a UI convenience that hides the
-  // vote buttons from the owner's own view.
+  // Is the current user the creator? Reads ownerMapping/owner by fixed doc ID
+  // so firestore.rules can allow the check (collection queries are denied).
   useEffect(() => {
     if (!user) return;
+
+    setIsOwner(false);
 
     let cancelled = false;
     const checkOwner = async () => {
       try {
-        const mappingRef = collection(db, 'publicStudySets', publicSetId, 'ownerMapping');
-        const mine = await getDocs(query(mappingRef, where('ownerUid', '==', user.uid)));
+        const ownerRef = doc(db, 'publicStudySets', publicSetId, 'ownerMapping', 'owner');
+        const snap = await getDoc(ownerRef);
         if (cancelled) return;
-        setIsOwner(!mine.empty);
+        setIsOwner(snap.exists() && snap.data()?.ownerUid === user.uid);
       } catch (err) {
         if (cancelled) return;
+        if (err instanceof FirebaseError && err.code === 'permission-denied') {
+          setIsOwner(false);
+          return;
+        }
         console.error('Error checking study set ownership:', err);
       }
     };

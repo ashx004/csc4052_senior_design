@@ -1,5 +1,4 @@
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "@/src/library/firebase";
+import { firestoreGet } from "@/src/library/firestoreRest";
 import {
   CourseOfferingSource,
   getDefaultCourseOfferingSource,
@@ -14,11 +13,13 @@ export type StudentUniversitySource = {
 
 // Shared by /api/advising and /api/courses/search — both need to know which
 // school's course data to use for the signed-in student.
-export async function getStudentCourseOfferingSource(uid: string): Promise<StudentUniversitySource> {
-  const userSnap = await getDoc(doc(db, "users", uid));
-  const data = userSnap.exists() ? userSnap.data() : undefined;
-  const domain: string | undefined = data?.universityDomain;
-  const name: string | undefined = data?.universityName;
+export async function getStudentCourseOfferingSource(
+  uid: string,
+  idToken: string
+): Promise<StudentUniversitySource> {
+  const data = await firestoreGet(idToken, "users", uid);
+  const domain = typeof data?.universityDomain === "string" ? data.universityDomain : undefined;
+  const name = typeof data?.universityName === "string" ? data.universityName : undefined;
 
   if (!domain) {
     // No university chosen yet — default to LA Tech's data, since that's

@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { collection, getDocs, query, orderBy, limit } from "firebase/firestore";
-import { db } from "@/src/library/firebase";
 import { resolveInternalUrl } from "@/src/library/pdfExtract";
 import { extractDocumentText, SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
 import { embedTexts, cosineSimilarity } from "@/src/library/ollamaEmbeddings";
@@ -17,7 +15,7 @@ import { checkRateLimit } from "@/src/library/rateLimit";
 import {pageContextSchema,buildPageContextPrompt,type PageContext,} from "@/src/library/Contextual_AI/contextualAi";
 import { ChatContext, ChatClass, ChatDocument, buildSystemPrompt } from "@/src/library/systemPrompt";
 import { describeChatError } from "@/src/library/chatErrors";
-import { getIdToken, firestoreCreate, firestoreGet, firestoreUpdate } from "@/src/library/firestoreRest";
+import { getIdToken, firestoreCreate, firestoreGet, firestoreUpdate, firestoreListCollection, firestoreRunQuery } from "@/src/library/firestoreRest";
 import { deriveChatTitle } from "@/src/library/chatTitle";
 import type { StoredChatMessage } from "@/src/library/chatMemory";
 import { THINK_CLOSE_TAG, stripThinkLeak } from "@/src/library/stripThinkLeak";
@@ -322,6 +320,7 @@ function bm25Scores(query: string, texts: string[]): number[] {
 }
 
 async function searchDocuments(
+  request: NextRequest,
   context: ChatContext | undefined,
   query: string,
   courseId?: string,
@@ -406,29 +405,24 @@ async function searchDocuments(
 
   const fallbackDocs = firestoreOnlyDocs;
 
+  const idToken = getIdToken(request);
   for (const doc of fallbackDocs) {
     try {
-      const chunksSnap = await getDocs(
-        collection(
-          db,
-          "users",
-          context.userId,
-          "enrollment",
-          doc.courseId,
-          "resources",
-          doc.resourceId,
-          "chunks"
-        )
-      );
-      chunksSnap.forEach((chunkDoc) => {
-        const data = chunkDoc.data();
+      const chunkDocs = idToken
+        ? await firestoreListCollection(
+            idToken,
+            `users/${context.userId}/enrollment/${doc.courseId}/resources/${doc.resourceId}/chunks`
+          )
+        : [];
+      chunkDocs.forEach((chunkDoc) => {
+        const data = chunkDoc.data;
         if (!Array.isArray(data.embedding)) return;
         scored.push({
-          text: data.text,
+          text: data.text as string,
           docName: doc.name,
           classCode: doc.classCode,
           page: typeof data.page === "number" ? data.page : undefined,
-          denseScore: cosineSimilarity(queryEmbedding, data.embedding),
+          denseScore: cosineSimilarity(queryEmbedding, data.embedding as number[]),
         });
       });
     } catch (error) {
@@ -545,6 +539,7 @@ const PAST_CHAT_FALLBACK_MESSAGE_COUNT = 6;
 const PAST_CHAT_EXCERPT_CHARS = 800;
 
 async function recallPastChatTool(
+  request: NextRequest,
   context: ChatContext | undefined,
   currentSessionId: string | undefined,
   searchQuery: string
@@ -554,18 +549,19 @@ async function recallPastChatTool(
   }
 
   try {
-    const snap = await getDocs(
-      query(
-        collection(db, "users", context.userId, "chatSessions"),
-        orderBy("updatedAt", "desc"),
-        limit(MAX_PAST_CHATS_SCANNED)
-      )
-    );
+    const idToken = getIdToken(request);
+    const sessionDocs = idToken
+      ? await firestoreRunQuery(idToken, `users/${context.userId}`, "chatSessions", {
+          orderByField: "updatedAt",
+          direction: "DESCENDING",
+          limit: MAX_PAST_CHATS_SCANNED,
+        })
+      : [];
 
-    const candidates = snap.docs
+    const candidates = sessionDocs
       .filter((d) => d.id !== currentSessionId)
       .map((d) => {
-        const data = d.data();
+        const data = d.data;
         const summary = typeof data.summary === "string" ? data.summary : "";
         const messages = Array.isArray(data.messages) ? data.messages : [];
         // Most chats never grow long enough to trigger compaction (empty
@@ -577,10 +573,18 @@ async function recallPastChatTool(
           .join(" ");
         const searchableText = (summary || fallbackText).trim();
 
+        let updatedAt: Date | undefined;
+        if (typeof data.updatedAt === "string") {
+          const d = new Date(data.updatedAt);
+          updatedAt = Number.isNaN(d.getTime()) ? undefined : d;
+        } else {
+          updatedAt = (data.updatedAt as { toDate?: () => Date } | undefined)?.toDate?.();
+        }
+
         return {
           title: typeof data.title === "string" && data.title ? data.title : "Untitled chat",
           searchableText,
-          updatedAt: data.updatedAt?.toDate?.() as Date | undefined,
+          updatedAt,
         };
       })
       .filter((c) => c.searchableText);
@@ -1277,7 +1281,7 @@ export async function POST(request: NextRequest) {
         // llama3.2:3b swap) latency + one fewer network round trip saved
         // for students who've explicitly opted into Fast over Quality.
         const [loadedProfile, clarifiedIntent, startedPersist] = await Promise.all([
-          context?.userId ? getStudentProfile(context.userId) : Promise.resolve(studentProfile),
+          context?.userId ? getStudentProfile(context.userId, getIdToken(request) ?? undefined) : Promise.resolve(studentProfile),
           useQualityModel && typeof latestMessage?.content === "string"
             ? clarifyUserQuery(latestMessage.content)
             : Promise.resolve(null),
@@ -1384,7 +1388,7 @@ export async function POST(request: NextRequest) {
                   });
                 }
               } else if (fnName === "search_documents") {
-                result = await searchDocuments(context, args.query, args.courseId, documentsReadThisTurn);
+                result = await searchDocuments(request, context, args.query, args.courseId, documentsReadThisTurn);
               } else if (fnName === "web_search") {
                 result = await webSearchTool(args.query, args.scholarly);
               } else if (fnName === "search_youtube") {
@@ -1394,7 +1398,7 @@ export async function POST(request: NextRequest) {
                 result = pdfResult.result;
                 if (pdfResult.file) generatedFiles.push(pdfResult.file);
               } else if (fnName === "recall_past_chat") {
-                result = await recallPastChatTool(context, currentSessionId, args.query);
+                result = await recallPastChatTool(request, context, currentSessionId, args.query);
               } else {
                 result = `Error: unknown tool "${fnName}".`;
               }
@@ -1507,9 +1511,12 @@ export async function POST(request: NextRequest) {
         // response the student is already looking at. Errors are handled
         // entirely inside maybeUpdateStudentProfile itself.
         if (context?.userId) {
-          maybeUpdateStudentProfile(context.userId, studentProfile, messages.slice(-8)).catch((error) =>
-            console.error("Unhandled student profile update error:", error)
-          );
+          const idToken = getIdToken(request);
+          if (idToken) {
+            maybeUpdateStudentProfile(context.userId, studentProfile, messages.slice(-8), idToken).catch((error) =>
+              console.error("Unhandled student profile update error:", error)
+            );
+          }
         }
         // Runs regardless of whether a client is still attached (see the
         // send() comment above) — this is what makes a reply durable even
