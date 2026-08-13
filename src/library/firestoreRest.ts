@@ -54,7 +54,7 @@ export async function firestoreUpdate(
   collection: string,
   docId: string,
   fields: Record<string, unknown>
-): Promise<void> {
+): Promise<boolean> {
   const url = `${FIRESTORE_BASE}/${collection}/${docId}`;
   // Firestore REST PATCH with updateMask writes only the listed fields.
   // The API requires the mask as one repeated updateMask.fieldPaths param
@@ -76,7 +76,9 @@ export async function firestoreUpdate(
   });
   if (!res.ok) {
     console.error("Firestore write failed:", res.status, await res.text());
+    return false;
   }
+  return true;
 }
 
 /** Create a new document with an auto-generated ID. Returns that ID, or null on failure. */
@@ -101,6 +103,92 @@ export async function firestoreCreate(
   // data.name is like "projects/{p}/databases/(default)/documents/{collection}/{docId}"
   const name = typeof data.name === "string" ? data.name : "";
   return name.split("/").pop() || null;
+}
+
+/** List every document in a collection, unfiltered. */
+export async function firestoreListCollection(
+  idToken: string,
+  collectionPath: string
+): Promise<{ id: string; data: Record<string, unknown> }[]> {
+  const accumulated: { id: string; data: Record<string, unknown> }[] = [];
+  let pageToken: string | undefined;
+
+  while (true) {
+    let url = `${FIRESTORE_BASE}/${collectionPath}?pageSize=300`;
+    if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${idToken}` },
+    });
+    if (!res.ok) return accumulated;
+    const data = await res.json();
+    const documents: { name: string; fields?: Record<string, Record<string, unknown>> }[] = data.documents ?? [];
+    accumulated.push(
+      ...documents.map((docEntry) => ({
+        id: docEntry.name.split("/").pop() || "",
+        data: parseFirestoreFields(docEntry.fields ?? {}),
+      }))
+    );
+    if (!data.nextPageToken) break;
+    pageToken = data.nextPageToken;
+  }
+
+  return accumulated;
+}
+
+/** Ordered, limited query against a subcollection. */
+export async function firestoreRunQuery(
+  idToken: string,
+  parentPath: string,
+  collectionId: string,
+  opts: { orderByField: string; direction?: "ASCENDING" | "DESCENDING"; limit: number }
+): Promise<{ id: string; data: Record<string, unknown> }[]> {
+  const res = await fetch(`${FIRESTORE_BASE}/${parentPath}:runQuery`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{ collectionId }],
+        orderBy: [{ field: { fieldPath: opts.orderByField }, direction: opts.direction ?? "ASCENDING" }],
+        limit: opts.limit,
+      },
+    }),
+  });
+  if (!res.ok) return [];
+  const results: { document?: { name: string; fields?: Record<string, Record<string, unknown>> } }[] = await res.json();
+  return results
+    .filter((entry) => entry.document)
+    .map((entry) => ({
+      id: entry.document!.name.split("/").pop() || "",
+      data: parseFirestoreFields(entry.document!.fields ?? {}),
+    }));
+}
+
+/** Atomic multi-document write. Every write is a full-document replace-or-create — callers supply the doc ID (no auto-ID support in the REST :commit endpoint). */
+export async function firestoreCommitBatch(
+  idToken: string,
+  writes: { path: string; fields: Record<string, unknown> }[]
+): Promise<void> {
+  const res = await fetch(`${FIRESTORE_BASE}:commit`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      writes: writes.map((w) => ({
+        update: {
+          name: `projects/${PROJECT_ID}/databases/(default)/documents/${w.path}`,
+          fields: serializeFirestoreFields(w.fields),
+        },
+      })),
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`Firestore batch commit failed: ${res.status} ${await res.text()}`);
+  }
 }
 
 // ── Firestore REST field format conversion ───────────────────────────────────

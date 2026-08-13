@@ -32,3 +32,4 @@ package-lock.json
 # secrets
 .env.local
 .env
+.worktrees/

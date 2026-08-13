@@ -1,21 +1,24 @@
 import { NextRequest } from "next/server";
 import { jwtVerify, createRemoteJWKSet } from "jose";
+import { SESSION_COOKIE, getRequestAuthToken } from "./requestAuthToken";
 
 // API routes are NOT covered by middleware.ts's edge auth check (its matcher
 // deliberately excludes /api — a redirect-to-login response makes no sense
 // for a fetch() call expecting JSON). This is the API-route equivalent:
-// same verification approach (Firebase ID token cookie checked against
-// Google's public keys, no Admin SDK/service account needed), but returns a
-// clean pass/fail instead of a redirect, and the caller returns a 401 JSON
-// response on failure.
+// same verification approach (Firebase ID token cookie or Authorization
+// Bearer header checked against Google's public keys, no Admin SDK/service
+// account needed), but returns a clean pass/fail instead of a redirect, and
+// the caller returns a 401 JSON response on failure.
 const PROJECT_ID = "studora-933f8";
 const JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com")
 );
-const SESSION_COOKIE = "fb_token";
 
 export async function verifyRequestAuth(request: NextRequest): Promise<{ uid: string } | null> {
-  const token = request.cookies.get(SESSION_COOKIE)?.value;
+  const token = getRequestAuthToken({
+    cookie: request.cookies.get(SESSION_COOKIE)?.value,
+    authorization: request.headers.get("authorization"),
+  });
   if (!token) return null;
 
   try {
