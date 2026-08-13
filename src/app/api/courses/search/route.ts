@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
+import { getIdToken } from "@/src/library/firestoreRest";
 import { getCourseOfferings } from "@/src/library/courseOfferings";
 import { getStudentCourseOfferingSource } from "@/src/library/getStudentUniversitySource";
 import { checkRateLimit } from "@/src/library/rateLimit";
@@ -22,6 +23,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const idToken = getIdToken(request);
+  if (!idToken) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const rateLimit = checkRateLimit(auth.uid, RATE_LIMIT_WINDOW_MS, RATE_LIMIT_MAX);
   if (!rateLimit.allowed) {
     return NextResponse.json(
@@ -36,7 +42,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { source } = await getStudentCourseOfferingSource(auth.uid);
+    const { source } = await getStudentCourseOfferingSource(auth.uid, idToken);
     if (!source) return NextResponse.json({ results: [] }); // unsupported university — no-op is a reasonable fallback for autocomplete
 
     const snapshot = await getCourseOfferings(source);

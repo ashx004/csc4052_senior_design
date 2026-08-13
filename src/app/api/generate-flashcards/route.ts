@@ -77,12 +77,11 @@ Rules:
 // endpoint, non-streaming, AbortController-backed timeout. Structured output
 // is enforced via Ollama's `format` field (a JSON schema) instead of relying
 // on prompt instructions alone.
-async function callOllamaForFlashcards(messages: unknown[], useQualityModel: boolean): Promise<Response> {
-  const baseUrl = await resolveOllamaBaseUrl(
-    process.env.OLLAMA_PRIMARY_URL!,
-    process.env.OLLAMA_PRIMARY_FALLBACK_URL
-  );
-
+async function callOllamaForFlashcards(
+  messages: unknown[],
+  baseUrl: string,
+  useQualityModel: boolean
+): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
 
@@ -118,13 +117,14 @@ async function callOllamaForFlashcards(messages: unknown[], useQualityModel: boo
 // occasionally wrap the JSON in prose or drop a field even with `format` set.
 async function generateFlashcardsWithRetry(
   messages: unknown[],
+  baseUrl: string,
   useQualityModel: boolean
 ): Promise<{ topicName: string; questions: { question: string; answer: string }[] }> {
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const response = await callOllamaForFlashcards(messages, useQualityModel);
+      const response = await callOllamaForFlashcards(messages, baseUrl, useQualityModel);
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => '');
@@ -219,10 +219,11 @@ export async function POST(request: NextRequest) {
 
     // 3. Build the prompt and call Ollama with structured output, retrying once on bad JSON
     const messages = buildFlashcardMessages(extractedText, previousQuestions);
+    const baseUrl = await resolveOllamaBaseUrl(process.env.OLLAMA_PRIMARY_URL, process.env.OLLAMA_PRIMARY_FALLBACK_URL);
 
     let parsed;
     try {
-      parsed = await generateFlashcardsWithRetry(messages, useQualityModel);
+      parsed = await generateFlashcardsWithRetry(messages, baseUrl, useQualityModel);
     } catch (error) {
       console.error('Flashcard generation failed after retry:', error);
       return NextResponse.json(

@@ -377,6 +377,7 @@ export async function POST(request: NextRequest) {
     if (types.multipleChoice) {
       typeBlocks.push(`For every "multiple_choice" question:
 - Include exactly 4 options.
+- All 4 options must be distinct — never repeat the same option text.
 - correctAnswer must exactly match one option.`);
     }
     if (types.trueFalse) {
@@ -479,6 +480,17 @@ ${extractedText}
         ) {
           console.warn(
             'Dropping quiz question: multiple_choice does not have exactly 4 options',
+            question
+          );
+          return false;
+        }
+
+        if (
+          question.type === 'multiple_choice' &&
+          new Set(question.options).size !== question.options.length
+        ) {
+          console.warn(
+            'Dropping quiz question: multiple_choice has duplicate options',
             question
           );
           return false;

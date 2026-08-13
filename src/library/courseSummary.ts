@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server";
-import { collection, doc, getDoc, getDocs, updateDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "./firebase";
+import { getIdToken, firestoreGet, firestoreListCollection, firestoreUpdate } from "./firestoreRest";
 import { resolveInternalUrl } from "./pdfExtract";
 import { extractDocumentText, SUPPORTED_DOCUMENT_TYPES } from "./documentExtract";
 import { resolveOllamaBaseUrl } from "./ollamaClient";
@@ -72,35 +71,45 @@ export async function generateCourseSummary(
   courseId: string
 ): Promise<void> {
   try {
-    const enrollmentRef = doc(db, "users", userId, "enrollment", courseId);
-    const enrollmentSnap = await getDoc(enrollmentRef);
-    if (!enrollmentSnap.exists()) return;
-    const enrollment = enrollmentSnap.data();
+    const idToken = getIdToken(request);
+    if (!idToken) return;
 
-    const resourcesSnap = await getDocs(collection(enrollmentRef, "resources"));
-    const supportedDocs = resourcesSnap.docs
-      .map((d) => d.data())
-      .filter((d) => SUPPORTED_DOCUMENT_TYPES.includes(d.fileType))
+    const enrollment = await firestoreGet(idToken, `users/${userId}/enrollment`, courseId);
+    if (!enrollment) return;
+
+    const resourceDocs = await firestoreListCollection(
+      idToken,
+      `users/${userId}/enrollment/${courseId}/resources`
+    );
+    const supportedDocs = resourceDocs
+      .map((d) => d.data)
+      .filter((d) => typeof d.fileType === "string" && SUPPORTED_DOCUMENT_TYPES.includes(d.fileType))
       .slice(0, MAX_DOCS_FOR_SUMMARY);
 
     if (supportedDocs.length === 0) {
       // No summarizable material (yet) — clear out any stale summary from
       // before the student removed their last document, rather than
       // leaving it describing content that's no longer there.
-      await updateDoc(enrollmentRef, { courseSummary: "", courseSummaryUpdatedAt: serverTimestamp() });
+      await firestoreUpdate(idToken, `users/${userId}/enrollment`, courseId, {
+        courseSummary: "",
+        courseSummaryUpdatedAt: new Date(),
+      });
       return;
     }
 
     const docExcerpts: string[] = [];
     for (const resource of supportedDocs) {
+      const name = typeof resource.name === "string" ? resource.name : "";
+      const url = typeof resource.url === "string" ? resource.url : "";
+      const fileType = resource.fileType as string;
       try {
-        const fullUrl = resolveInternalUrl(request, resource.url);
-        let text = await extractDocumentText(fullUrl, resource.fileType);
+        const fullUrl = resolveInternalUrl(request, url);
+        let text = await extractDocumentText(fullUrl, fileType);
         if (!text) continue;
         if (text.length > MAX_CHARS_PER_DOC) text = text.slice(0, MAX_CHARS_PER_DOC);
-        docExcerpts.push(`--- "${resource.name}" ---\n${text}`);
+        docExcerpts.push(`--- "${name}" ---\n${text}`);
       } catch (error) {
-        console.error(`Course summary: failed to extract "${resource.name}":`, error);
+        console.error(`Course summary: failed to extract "${name}":`, error);
       }
     }
 
@@ -110,7 +119,10 @@ export async function generateCourseSummary(
     const summary = await callOllamaForSummary(prompt);
     if (!summary) return;
 
-    await updateDoc(enrollmentRef, { courseSummary: summary, courseSummaryUpdatedAt: serverTimestamp() });
+    await firestoreUpdate(idToken, `users/${userId}/enrollment`, courseId, {
+      courseSummary: summary,
+      courseSummaryUpdatedAt: new Date(),
+    });
   } catch (error) {
     console.error(`Course summary generation failed for course ${courseId}:`, error);
   }
