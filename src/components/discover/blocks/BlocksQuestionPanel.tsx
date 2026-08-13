@@ -66,9 +66,9 @@ export default function BlocksQuestionPanel({ question, heartsRemaining, onCorre
         <>
           <h3 className="text-base font-bold text-text-main">{question.question}</h3>
           <div className="grid grid-cols-1 gap-2">
-            {question.options.map((option) => (
+            {question.options.map((option, index) => (
               <AnswerOption
-                key={option}
+                key={`${index}-${option}`}
                 option={option}
                 isSelected={selected === option}
                 isCorrect={option === question.correctAnswer}

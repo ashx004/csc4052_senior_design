@@ -116,7 +116,7 @@ async function callOllama(prompt: string, count: number): Promise<string> {
         messages: [
           {
             role: "system",
-            content: `You are a university-level quiz generator. Generate exactly ${count} study questions. Mix multiple_choice and true_false types roughly equally. Each question MUST have a short explanation of why the correct answer is right. For multiple_choice: provide exactly 4 options. For true_false: provide exactly ["True", "False"] as options. The correctAnswer must be one of the options verbatim. Do not repeat concepts. Make questions educational and clear.`,
+            content: `You are a university-level quiz generator. Generate exactly ${count} study questions. Mix multiple_choice and true_false types roughly equally. Each question MUST have a short explanation of why the correct answer is right. For multiple_choice: provide exactly 4 distinct options (never duplicate option text). For true_false: provide exactly ["True", "False"] as options. The correctAnswer must be one of the options verbatim. Do not repeat concepts. Make questions educational and clear.`,
           },
           {
             role: "user",
@@ -140,9 +140,10 @@ async function callOllama(prompt: string, count: number): Promise<string> {
 
 // --- Semantic post-filter (matches existing quiz generation pattern) ---
 function isValidQuestion(q: z.infer<typeof GeneratedQuestionSchema>): boolean {
-  // MC must have exactly 4 options, correctAnswer must be one of them
+  // MC must have exactly 4 distinct options, correctAnswer must be one of them
   if (q.type === "multiple_choice") {
     if (q.options.length !== 4) return false;
+    if (new Set(q.options).size !== q.options.length) return false;
     if (!q.options.includes(q.correctAnswer)) return false;
   }
   // TF must have exactly ["True", "False"]

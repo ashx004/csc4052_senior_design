@@ -154,7 +154,7 @@ export default function LearnQuestionsSession({ questions, onStateChange }: Lear
         <p className="mb-3 text-sm font-semibold text-[#1a1a2e]">{current.question}</p>
 
         <div className="flex flex-col gap-2">
-          {current.options.map((option) => {
+          {current.options.map((option, index) => {
             let optionStyle = "border-gray-200 hover:border-[#b08957] hover:bg-[#F5F0EB] cursor-pointer";
 
             if (isRevealed && currentAnswer) {
@@ -169,7 +169,7 @@ export default function LearnQuestionsSession({ questions, onStateChange }: Lear
 
             return (
               <button
-                key={option}
+                key={`${index}-${option}`}
                 onClick={() => handleSelect(option)}
                 disabled={isRevealed}
                 className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition-colors ${optionStyle}`}
