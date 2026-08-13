@@ -19,7 +19,7 @@ export default function Dashboard() {
           <DashboardCard
             icon="/icons/book-open.png"
             title="Learning"
-            description="Access learning materials here"
+            description="Make flashcards and quizzes from your lectures"
             href="/learning"
           />
           <DashboardCard
@@ -37,7 +37,7 @@ export default function Dashboard() {
           <DashboardCard
             icon="/icons/discover.png"
             title="Discover"
-            description="Explore study sets shared by others"
+            description="Explore community quizzes and play Blocks"
             href="/discover"
           />
           <DashboardCard
