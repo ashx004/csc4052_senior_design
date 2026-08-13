@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { isQuizOptionSelected } from "@/src/library/quizAnswerSelection";
 import AnswerOption from "./AnswerOption";
 
 interface QuizQuestion {
@@ -27,6 +29,13 @@ export default function QuestionCard({
 }: QuestionCardProps) {
   const isResults = mode === "results";
   const isCorrect = selectedAnswer === question.correctAnswer;
+  const [selectedIndex, setSelectedIndex] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (selectedAnswer === undefined) {
+      setSelectedIndex(undefined);
+    }
+  }, [selectedAnswer]);
 
   return (
     <div className="rounded-2xl border border-border-light bg-bg-container p-5 shadow-sm">
@@ -46,17 +55,28 @@ export default function QuestionCard({
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        {question.options.map((option) => (
-          <AnswerOption
-            key={option}
-            option={option}
-            isSelected={selectedAnswer === option}
-            isCorrect={option === question.correctAnswer}
-            isUserAnswer={selectedAnswer === option}
-            mode={mode}
-            onClick={() => onSelect(option)}
-          />
-        ))}
+        {question.options.map((option, index) => {
+          const chosen = isQuizOptionSelected({
+            optionIndex: index,
+            selectedIndex,
+            selectedAnswer,
+            option,
+          });
+          return (
+            <AnswerOption
+              key={`${index}-${option}`}
+              option={option}
+              isSelected={chosen}
+              isCorrect={option === question.correctAnswer}
+              isUserAnswer={chosen}
+              mode={mode}
+              onClick={() => {
+                setSelectedIndex(index);
+                onSelect(option);
+              }}
+            />
+          );
+        })}
       </div>
     </div>
   );

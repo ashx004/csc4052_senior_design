@@ -173,7 +173,7 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
                 : "text-text-main hover:bg-bg-warm"
             }`}
           >
-            Learning
+            My Study Sets
           </button>
 
           {/* Flashcard — dropdown of pinned flashcard sets */}
@@ -182,7 +182,7 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
               onClick={() => toggleSection("Flashcard")}
               className="flex items-center justify-between w-full text-sm font-bold text-text-main px-3 py-2.5 rounded-lg hover:bg-bg-warm transition-colors"
             >
-              <span>Flashcard</span>
+              <span>Recent Flashcard</span>
               <ChevronDown
                 size={16}
                 className={`text-text-muted transition-transform duration-200 ${
@@ -229,7 +229,7 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
               onClick={() => toggleSection("Quizzes")}
               className="flex items-center justify-between w-full text-sm font-bold text-text-main px-3 py-2.5 rounded-lg hover:bg-bg-warm transition-colors"
             >
-              <span>Quizzes</span>
+              <span>Recent Quizzes</span>
               <ChevronDown
                 size={16}
                 className={`text-text-muted transition-transform duration-200 ${
