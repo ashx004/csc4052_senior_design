@@ -1,4 +1,4 @@
-import { doc, serverTimestamp, updateDoc } from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
 
 /**
@@ -10,8 +10,25 @@ import { db } from "@/src/library/firebase";
  * live dependency on this document. Marking it "deleted" just removes it
  * from future Discover query results (status === "active" is one of the
  * required filters on that query).
+ *
+ * If this set was published before ownerMapping existed, the mapping is
+ * created first so firestore.rules can verify ownership on the status write.
  */
-export async function unpublishStudySet(publicSetId: string): Promise<void> {
+export async function unpublishStudySet(
+  publicSetId: string,
+  ownerUid: string
+): Promise<void> {
+  const mappingRef = doc(db, "publicStudySets", publicSetId, "ownerMapping", "owner");
+  const mappingSnap = await getDoc(mappingRef);
+
+  if (!mappingSnap.exists()) {
+    await setDoc(mappingRef, {
+      ownerUid,
+      originalPath: "",
+      publishedAt: serverTimestamp(),
+    });
+  }
+
   await updateDoc(doc(db, "publicStudySets", publicSetId), {
     status: "deleted",
     updatedAt: serverTimestamp(),

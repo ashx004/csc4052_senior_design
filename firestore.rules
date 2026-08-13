@@ -17,10 +17,19 @@ service cloud.firestore {
       allow update: if request.auth != null &&
         (isOwnerUnpublish() || isBoundedVoteUpdate());
 
+      function ownerMappingPath() {
+        return /databases/$(database)/documents/publicStudySets/$(setId)/ownerMapping/owner;
+      }
+
+      // Soft-delete (Public → Private). Do not use affectedKeys().hasOnly()
+      // here: quiz/flashcard docs carry large nested questions/cards arrays,
+      // and MapDiff often treats those (and Timestamp fields) as changed even
+      // when the client only wrote status + updatedAt — which denied every
+      // legitimate unpublish with permission-denied.
       function isOwnerUnpublish() {
-        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
-          exists(/databases/$(database)/documents/publicStudySets/$(setId)/ownerMapping/owner) &&
-          get(/databases/$(database)/documents/publicStudySets/$(setId)/ownerMapping/owner).data.ownerUid == request.auth.uid;
+        return request.resource.data.status == 'deleted' &&
+          exists(ownerMappingPath()) &&
+          get(ownerMappingPath()).data.ownerUid == request.auth.uid;
       }
 
       // Bounds each vote-triggered update to at most ±1 on each aggregate
@@ -42,9 +51,13 @@ service cloud.firestore {
         // Only "owner" is ever written (see publishStudySet.ts) — pinning
         // the check to that exact ID keeps this closed even if some other
         // code path ever wrote a differently-named doc here.
+        // resource == null lets the owner distinguish "no mapping yet"
+        // (not-found) from "mapping exists but you are not the owner"
+        // (permission-denied). Without this, a missing mapping looks like
+        // permission-denied and unpublish cannot repair it.
         allow read: if request.auth != null &&
           mappingId == 'owner' &&
-          resource.data.ownerUid == request.auth.uid;
+          (resource == null || resource.data.ownerUid == request.auth.uid);
 
         allow create: if request.auth != null &&
           mappingId == 'owner' &&
