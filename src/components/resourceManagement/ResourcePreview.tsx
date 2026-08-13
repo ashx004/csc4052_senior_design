@@ -189,7 +189,9 @@ async function generateThumbnail(resource: Resource): Promise<ThumbnailData | nu
 
         if (resource.fileType === "pdf") {
             const pdfjsLib = await import("pdfjs-dist");
-            pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+            // Version query busts a stale cached worker after pdfjs-dist upgrades
+            // (mismatched API/Worker versions throw UnknownErrorException).
+            pdfjsLib.GlobalWorkerOptions.workerSrc = `/pdf.worker.min.mjs?v=${pdfjsLib.version}`;
 
             const res = await fetch(resource.url);
             if (!res.ok) return null;

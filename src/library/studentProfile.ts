@@ -1,6 +1,8 @@
-import { doc, getDoc, updateDoc, serverTimestamp, deleteField, Timestamp } from "firebase/firestore";
+import { doc, getDoc, updateDoc, deleteField, Timestamp } from "firebase/firestore";
 import { db } from "./firebase";
+import { firestoreGet, firestoreUpdate } from "./firestoreRest";
 import { resolveOllamaBaseUrl } from "./ollamaClient";
+import { stripThinkLeak } from "./stripThinkLeak";
 
 // The "Core memory" tier of a small, tiered memory system — a short,
 // always-loaded profile of durable facts about a student (academic/career
@@ -19,21 +21,36 @@ export interface StudentProfile {
   updatedAt?: Date;
 }
 
-export async function getStudentProfile(userId: string): Promise<StudentProfile> {
+function parseLearnerProfileUpdatedAt(value: unknown): Date | undefined {
+  if (value instanceof Timestamp) return value.toDate();
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+  }
+  return undefined;
+}
+
+export async function getStudentProfile(userId: string, idToken?: string): Promise<StudentProfile> {
   try {
-    const snap = await getDoc(doc(db, "users", userId));
-    if (!snap.exists()) return { summary: "", messageCount: 0 };
-    const data = snap.data();
-    const updatedAt = data.learnerProfileUpdatedAt instanceof Timestamp ? data.learnerProfileUpdatedAt.toDate() : undefined;
+    const data = idToken
+      ? await firestoreGet(idToken, "users", userId)
+      : await getClientUserData(userId);
+    if (!data) return { summary: "", messageCount: 0 };
     return {
       summary: typeof data.learnerProfileSummary === "string" ? data.learnerProfileSummary : "",
       messageCount: typeof data.learnerProfileMessageCount === "number" ? data.learnerProfileMessageCount : 0,
-      updatedAt,
+      updatedAt: parseLearnerProfileUpdatedAt(data.learnerProfileUpdatedAt),
     };
   } catch (error) {
     console.error("Error loading student profile:", error);
     return { summary: "", messageCount: 0 };
   }
+}
+
+async function getClientUserData(userId: string): Promise<Record<string, unknown> | null> {
+  const snap = await getDoc(doc(db, "users", userId));
+  if (!snap.exists()) return null;
+  return snap.data() as Record<string, unknown>;
 }
 
 // Full removal, not just clearing the text — a student should be able to
@@ -59,21 +76,18 @@ export async function clearStudentProfile(userId: string): Promise<void> {
 export async function maybeUpdateStudentProfile(
   userId: string,
   currentProfile: StudentProfile,
-  recentExchange: { role: string; content: string }[]
+  recentExchange: { role: string; content: string }[],
+  idToken: string
 ): Promise<void> {
   const newCount = currentProfile.messageCount + 1;
 
   if (newCount < UPDATE_EVERY_N_MESSAGES) {
-    await updateDoc(doc(db, "users", userId), { learnerProfileMessageCount: newCount }).catch((error) =>
-      console.error("Error incrementing student profile counter:", error)
-    );
+    await firestoreUpdate(idToken, "users", userId, { learnerProfileMessageCount: newCount });
     return;
   }
 
   const resetCounter = () =>
-    updateDoc(doc(db, "users", userId), { learnerProfileMessageCount: 0 }).catch((error) =>
-      console.error("Error resetting student profile counter:", error)
-    );
+    firestoreUpdate(idToken, "users", userId, { learnerProfileMessageCount: 0 });
 
   if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN) {
     await resetCounter();
@@ -97,6 +111,11 @@ export async function maybeUpdateStudentProfile(
       body: JSON.stringify({
         model: process.env.OLLAMA_SUMMARY_MODEL || "qwen3:4b",
         stream: false,
+        // qwen3:4b ignores this at the model-weights level (confirmed via
+        // direct testing) - stripThinkLeak below is the real fix; setting
+        // this explicitly still costs nothing and helps any future model
+        // swapped into OLLAMA_SUMMARY_MODEL that does respect it.
+        think: false,
         options: { temperature: 0.2 },
         messages: [
           {
@@ -115,13 +134,13 @@ export async function maybeUpdateStudentProfile(
     if (!response.ok) throw new Error(`Profile update request failed (${response.status})`);
 
     const data = await response.json();
-    const newSummary = (data?.message?.content || "").trim();
+    const newSummary = stripThinkLeak(data?.message?.content || "").trim();
 
     if (newSummary) {
-      await updateDoc(doc(db, "users", userId), {
+      await firestoreUpdate(idToken, "users", userId, {
         learnerProfileSummary: newSummary,
         learnerProfileMessageCount: 0,
-        learnerProfileUpdatedAt: serverTimestamp(),
+        learnerProfileUpdatedAt: new Date(),
       });
     } else {
       await resetCounter();

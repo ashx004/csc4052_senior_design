@@ -43,12 +43,14 @@ export type ChatClass = {
   status: EnrollmentStatus;
 };
 
-// Describes what page the student is currently viewing, so the AI side
-// panel (src/components/aiPanel/AIPanel.tsx) can answer "what am I looking
-// at" style questions grounded in the real on-screen data instead of
-// guessing. Kept as one free-text `summary` block rather than a rigid
-// per-page schema, mirroring how the rest of this context gets turned into
-// prose for the system prompt anyway.
+// Describes what page the student is currently viewing — the external API
+// for useSetPageContext (src/context/AIPageContext.tsx). Kept as one
+// free-text `summary` block rather than a rigid per-page schema, since
+// that's cheap for a page to produce and useAIPanelChat converts it into a
+// PageTextPageContext (src/library/Contextual_AI/contextualAi.ts) at send
+// time — the single mechanism the server actually turns page context into
+// prompt text with (see buildPageContextPrompt), shared with
+// ContextualAiPanel's course/flashcard/quiz-result contexts.
 export type PageAIContext = {
   page: string;
   label: string;
@@ -62,7 +64,6 @@ export type ChatContext = {
   name: string;
   college: string;
   classes: ChatClass[];
-  pageContext?: PageAIContext;
 };
 
 // Pulls together everything the AI assistant is allowed to know about the

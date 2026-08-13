@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { collection, getDocs } from "firebase/firestore";
-import { db } from "@/src/library/firebase";
+import { getIdToken, firestoreListCollection } from "@/src/library/firestoreRest";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { getNextTerm, formatTerm } from "@/src/library/academicTerm";
 import { getCourseOfferings } from "@/src/library/courseOfferings";
@@ -24,6 +23,11 @@ const RATE_LIMIT_MAX = 30;
 export async function GET(request: NextRequest) {
   const auth = await verifyRequestAuth(request);
   if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const idToken = getIdToken(request);
+  if (!idToken) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -69,10 +73,16 @@ export async function GET(request: NextRequest) {
   const completedCourses: { classId: string; classCode: string; className: string; term: string; creditHours?: number }[] = [];
   let totalCreditsCompleted = 0;
   try {
-    const enrollmentRef = collection(db, "users", auth.uid, "enrollment");
-    const snap = await getDocs(enrollmentRef);
-    snap.forEach((d) => {
-      const data = d.data();
+    const enrollmentDocs = await firestoreListCollection(idToken, `users/${auth.uid}/enrollment`);
+    enrollmentDocs.forEach((d) => {
+      const data = d.data as {
+        classCode?: string;
+        subject?: string;
+        className?: string;
+        term?: string;
+        creditHours?: number;
+        status?: string;
+      };
       // Completed classes still count toward "already taken" for
       // recommendation-exclusion purposes (a finished course shouldn't be
       // re-recommended) — they're just *also* surfaced separately below.
@@ -94,7 +104,7 @@ export async function GET(request: NextRequest) {
   }
   const progress = { completedCount: completedCourses.length, totalCreditsCompleted };
 
-  const { source, unsupported, university } = await getStudentCourseOfferingSource(auth.uid);
+  const { source, unsupported, university } = await getStudentCourseOfferingSource(auth.uid, idToken);
 
   if (unsupported || !source) {
     // Distinct from sourceUnavailable below (which means "scrape failed") —
