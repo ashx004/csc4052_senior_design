@@ -14,11 +14,8 @@ import { db } from "@/src/library/firebase";
  * `isOwner` prop), which disables the vote buttons for the owner. That is a
  * CLIENT-SIDE-ONLY guard — nothing here stops a malicious client from
  * calling this function directly (e.g. via devtools) to vote on their own
- * set, since there is no committed firestore.rules in this repo to enforce
- * it server-side either. Flagging this as a known, deferred gap consistent
- * with the "don't touch firestore.rules in this batch" instruction — it
- * should be closed before this feature is relied on for real integrity
- * guarantees.
+ * set. Firestore rules bound each aggregate write to ±1 and do not consult
+ * ownerMapping, so self-voting/spam is only partially constrained.
  */
 export async function voteOnStudySet(params: {
   publicSetId: string;

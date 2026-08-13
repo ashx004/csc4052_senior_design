@@ -1,4 +1,4 @@
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
 import { sanitizeStudySet } from "./sanitizeStudySet";
 import type { FlashcardCard, QuizQuestion } from "./types";
@@ -18,14 +18,9 @@ interface RawSetData {
  * Publishes a sanitized copy of a study set to the public collection.
  * Called after a set is created (or toggled) with visibility === "public".
  *
- * SECURITY NOTE: this repo has no committed firestore.rules (confirmed
- * during Phase 0 investigation), so the ownerMapping subcollection this
- * writes to is NOT actually access-restricted today — any authenticated
- * client could query it directly and de-anonymize a creator or read
- * `originalPath`. Rules to lock `ownerMapping` reads down to the owner only
- * are out of scope for this batch per the "don't touch firestore.rules"
- * instruction, but this must be closed before this feature is safe to rely
- * on for real anonymity guarantees.
+ * The ownerMapping subdoc is written at a fixed ID ("owner") so
+ * firestore.rules can restrict its read/write to the owner — see that
+ * file's `publicStudySets/{setId}/ownerMapping/{mappingId}` rule.
  */
 export async function publishStudySet(params: {
   type: "quiz" | "flashcard";
@@ -53,9 +48,10 @@ export async function publishStudySet(params: {
     })
   );
 
-  // Write the private owner mapping (subcollection, intended to never be
-  // exposed to other users — see the security note above).
-  await addDoc(collection(db, "publicStudySets", publicRef.id, "ownerMapping"), {
+  // Write the private owner mapping at a fixed doc ID ("owner") rather than
+  // an auto-generated one — firestore.rules can only get() a document at a
+  // known path, and this is the path its owner-only read/write rule checks.
+  await setDoc(doc(db, "publicStudySets", publicRef.id, "ownerMapping", "owner"), {
     ownerUid: params.ownerUid,
     originalPath: params.originalPath,
     publishedAt: serverTimestamp(),

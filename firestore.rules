@@ -1,0 +1,90 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Discover: publicStudySets ─────────────────────────────────────────
+    match /publicStudySets/{setId} {
+      allow read: if request.auth != null;
+
+      // Anonymity is intentional — the public doc itself never stores an
+      // owner field. Ownership lives only in ownerMapping/owner below.
+      allow create: if request.auth != null;
+
+      // The app only ever soft-deletes via status — never a real delete.
+      allow delete: if false;
+
+      allow update: if request.auth != null &&
+        (isOwnerUnpublish() || isBoundedVoteUpdate());
+
+      function isOwnerUnpublish() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+          exists(/databases/$(database)/documents/publicStudySets/$(setId)/ownerMapping/owner) &&
+          get(/databases/$(database)/documents/publicStudySets/$(setId)/ownerMapping/owner).data.ownerUid == request.auth.uid;
+      }
+
+      // Bounds each vote-triggered update to at most ±1 on each aggregate
+      // field. This caps the blast radius of any single write; it does not
+      // cross-reference the caller's specific votes/{uid} doc transition
+      // (Firestore rules can't cleanly assert "this delta equals exactly
+      // what this specific sibling-document write implies" across two
+      // documents) — a deliberate, documented limit, not an oversight.
+      function isBoundedVoteUpdate() {
+        let keys = request.resource.data.diff(resource.data).affectedKeys();
+        let posDelta = request.resource.data.positiveVotes - resource.data.positiveVotes;
+        let negDelta = request.resource.data.negativeVotes - resource.data.negativeVotes;
+        return keys.hasOnly(['positiveVotes', 'negativeVotes', 'updatedAt']) &&
+          posDelta >= -1 && posDelta <= 1 &&
+          negDelta >= -1 && negDelta <= 1;
+      }
+
+      match /ownerMapping/{mappingId} {
+        // Only "owner" is ever written (see publishStudySet.ts) — pinning
+        // the check to that exact ID keeps this closed even if some other
+        // code path ever wrote a differently-named doc here.
+        allow read: if request.auth != null &&
+          mappingId == 'owner' &&
+          resource.data.ownerUid == request.auth.uid;
+
+        allow create: if request.auth != null &&
+          mappingId == 'owner' &&
+          request.resource.data.ownerUid == request.auth.uid;
+
+        allow update, delete: if false;
+      }
+
+      match /votes/{voterId} {
+        // voterId is the voter's own uid — you can only ever touch your own
+        // vote doc, which structurally caps one user to one vote per set.
+        allow read, create, update, delete: if request.auth != null &&
+          request.auth.uid == voterId;
+      }
+    }
+
+    // ── Per-user data ────────────────────────────────────────────────────
+    // Safe now that every writer under users/{uid}/** — browser or API
+    // routes that forward the caller's token — carries the real signed-in
+    // user's token.
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+    match /users/{uid}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ── Course offering cache: shared, non-user catalog data ────────────
+    // KNOWN GAP, deliberately out of scope for this batch: cache.ts writes
+    // this via the plain client SDK from server routes with no Firebase
+    // Auth session attached, so it can't be locked to request.auth without
+    // breaking course search/advising. Left open — no worse than today (no
+    // rules existed at all before this file), just not improved today.
+    match /courseOfferingCache/{document=**} {
+      allow read, write: if true;
+    }
+
+    // ── Default deny ─────────────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

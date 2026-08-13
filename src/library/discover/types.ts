@@ -41,10 +41,8 @@ export interface PublicStudySet {
   // Private mapping — stored in a SEPARATE subcollection, not on this doc
 }
 
-// Stored at publicStudySets/{setId}/ownerMapping/{mappingId} — intended to
-// stay owner-only. NOTE: this repo has no committed firestore.rules, so this
-// separation is not actually enforced yet — see the security note in
-// publishStudySet.ts.
+// Stored at publicStudySets/{setId}/ownerMapping/owner (fixed doc ID).
+// Owner-only read enforced by firestore.rules.
 export interface OwnerMapping {
   ownerUid: string;
   originalPath: string; // e.g. "users/{uid}/enrollment/{courseId}/quizSets/{quizId}"
