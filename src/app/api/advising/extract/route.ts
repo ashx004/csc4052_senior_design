@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { extractPdfTextFromUrl, resolveInternalUrl, } from "@/src/library/pdfExtract";
 import { extractTranscriptWithOllama, extractCurriculumWithOllama, } from "@/src/library/advisingOllama";
-import { doc, setDoc, serverTimestamp, } from "firebase/firestore";
-import { db } from "@/src/library/firebase";
+//import { doc, setDoc, serverTimestamp, } from "firebase/firestore";
+//import { db } from "@/src/library/firebase";
+import { FieldValue, } from "firebase-admin/firestore";
+import { adminDb, } from "@/src/library/firebaseAdmin";
+import { transcriptExtractionSchema, curriculumExtractionSchema, } from "@/src/library/advisingSchemas";
 
 
 export async function POST(request: NextRequest) {
@@ -30,40 +33,58 @@ export async function POST(request: NextRequest) {
 
     const transcriptText = await extractPdfTextFromUrl(transcriptUrl);
     const curriculumText = await extractPdfTextFromUrl(curriculumUrl);
-
+    
+    // ask ollama to extract the data 
     const transcriptResponse = await extractTranscriptWithOllama(transcriptText);
     const curriculumResponse = await extractCurriculumWithOllama(curriculumText);
 
-    const transcriptData = JSON.parse(transcriptResponse);
-    const curriculumData = JSON.parse(curriculumResponse);
+    // convert ollama's json strings into javascript objects
+    const rawTranscriptData = JSON.parse(transcriptResponse);
+    const rawCurriculumData = JSON.parse(curriculumResponse);
 
-    console.log("PARSED TRANSCRIPT:");
+    /* validate the objects against the structures defined in advisingSchema.ts.
+       if Ollama returns the wrong structure, .parse() throws an error and nothing
+       gets saved to Firestore. */
+
+    const transcriptData = transcriptExtractionSchema.parse(rawTranscriptData);
+    const curriculumData = curriculumExtractionSchema.parse(rawCurriculumData);
+
+
+    /*console.log("PARSED TRANSCRIPT:");
     console.dir(transcriptData, { depth: null });
 
     console.log("PARSED CURRICULUM:");
-    console.dir(curriculumData, { depth: null });
+    console.dir(curriculumData, { depth: null }); */
 
-    const transcriptRef = doc(db, "users", userId, "transcript", "data" );
-    const curriculumRef = doc(db, "users", userId, "curriculum", "data" );
+    
+    //console.log("RAW TRANSCRIPT TEXT:");
+    //console.log(transcriptText);
 
-    // Save extracted information
+    //console.log("RAW CURRICULUM TEXT:");
+    //console.log(curriculumText);
+
+
+    // firestore document locations
+    const transcriptRef =
+      adminDb.collection("users").doc(userId).collection("transcript").doc("data");
+
+    const curriculumRef =
+      adminDb.collection("users").doc(userId).collection("curriculum").doc("data");
+
+    
+    // save the validated data. marge false means the old document is completely replaced
     await Promise.all([
-      // put this data at the firestore document users/{userId}/transcript/data
-      setDoc (transcriptRef,
-        { // every field ollama extracts=ed, put it into the firestore document
-          ...transcriptData,
-          updatedAt: serverTimestamp(),
-        },
-        { merge: false }
-      ),
+      transcriptRef.set({
+        ...transcriptData,
+        updatedAt:
+          FieldValue.serverTimestamp(),
+      }),
 
-      setDoc (curriculumRef,
-        {
-          ...curriculumData,
-          updatedAt: serverTimestamp(),
-        },
-        { merge: false }
-      ),
+      curriculumRef.set({
+        ...curriculumData,
+        updatedAt:
+          FieldValue.serverTimestamp(),
+      }),
     ]);
 
 

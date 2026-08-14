@@ -6,6 +6,31 @@ import AdvisingUploadModal from "@/src/components/advising/AdvisingUploadModal";
 import ExistingDocumentsModal from "@/src/components/advising/ExistingDocumentsModal";
 import { useAuth } from "@/src/context/AuthContext";
 
+
+type GeneratedCourse = {
+  courseCode: string;
+  courseTitle: string | null;
+  creditHours: number | null;
+  requirementId: string | null;
+};
+
+type GeneratedTerm = {
+  term:
+    | "Fall"
+    | "Winter"
+    | "Spring"
+    | "Summer";
+
+  year: number;
+  courses: GeneratedCourse[];
+};
+
+type GeneratedSchedule = {
+  terms: GeneratedTerm[];
+  warnings: string[];
+};
+
+
 export default function AdvisingPage() {
   const [showPermissionModal, setShowPermissionModal] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>("");
@@ -16,6 +41,8 @@ export default function AdvisingPage() {
   const [usingExistingDocuments, setUsingExistingDocuments] = useState<boolean>(false);
   const { user, loading } = useAuth();
   const [documentsReady, setDocumentsReady] = useState<boolean>(false);
+  const [generatedSchedule, setGeneratedSchedule,] = useState<GeneratedSchedule | null>(null);
+  const [isGeneratingSchedule, setIsGeneratingSchedule,] = useState<boolean>(false);
 
   useEffect(() => {
   if (loading || !user) {
@@ -117,9 +144,14 @@ export default function AdvisingPage() {
 
           <button
             type="button"
-            className="mt-8 rounded-lg bg-[#b08957] px-6 py-3 text-sm 
-            font-medium text-white transition hover:bg-[#9c7849]" >
-            Generate Schedule
+            onClick={generateSchedule}
+            disabled={isGeneratingSchedule}
+            className="mt-8 rounded-lg bg-[#b08957] px-6 py-3 text-sm font-medium
+            text-white transition hover:bg-[#9c7849] disabled:cursor-not-allowed
+            disabled:opacity-60" >
+
+            {isGeneratingSchedule ? "Generating Schedule..." : "Generate Schedule"}
+
           </button>
         </section>
 
@@ -130,86 +162,312 @@ export default function AdvisingPage() {
 
             <div>
               <h2 className="text-xl font-semibold">
-                Previous Schedule
+                Generate Schedule
               </h2>
 
               <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                View your most recently generated advising schedule.
+                Your suggested schedule will appear below after generation.
               </p>
-            </div>
-
-            <div className="flex gap-4 py-4">
-              <button
-                type="button"
-                className="rounded-lg border border-[#d8d3ca] px-4 py-2 text-sm
-                  hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700" >
-                View Schedule
-              </button>
-
-              <button
-                type="button"
-                className="rounded-lg bg-[#b08957] px-4 py-2 text-sm text-white hover:bg-[#9c7849]" >
-                Regenerate Schedule
-              </button>
             </div>
           </div>
 
             {/* Schedule preview area */}
           <div
-            className="min-h-[320px] rounded-lg border border-border-light bg-bg-main px-3 py-3" >
-            <p className="text-sm text-text-muted">
-              Your generated schedule will appear here.
-            </p>
+            className="
+              min-h-[320px]
+              rounded-lg
+              border
+              border-border-light
+              bg-bg-main
+              p-5
+            "
+          >
+
+            {!generatedSchedule && (
+              <p className="text-sm text-text-muted">
+                Your generated schedule will appear here.
+              </p>
+            )}
+
+
+            {generatedSchedule && (
+              <div className="space-y-6">
+
+                {generatedSchedule.terms.map(
+                  (term) => (
+
+                    <section
+                      key={`${term.term}-${term.year}`}
+                      className="
+                        rounded-xl
+                        border
+                        border-[#d8d3ca]
+                        bg-white
+                        p-5
+                        dark:border-gray-700
+                        dark:bg-[#202020]
+                      "
+                    >
+
+                      <h3
+                        className="
+                          text-lg
+                          font-semibold
+                        "
+                      >
+                        {term.term} {term.year}
+                      </h3>
+
+
+                      <div className="mt-4 space-y-3">
+
+                        {term.courses.map(
+                          (course) => (
+
+                            <div
+                              key={
+                                `${term.term}-${term.year}-${course.courseCode}`
+                              }
+                              className="
+                                flex
+                                items-center
+                                justify-between
+                                gap-4
+                                rounded-lg
+                                border
+                                border-[#ece8e1]
+                                px-4
+                                py-3
+                                dark:border-gray-700
+                              "
+                            >
+
+                              <div>
+
+                                <p
+                                  className="
+                                    text-sm
+                                    font-semibold
+                                  "
+                                >
+                                  {course.courseCode}
+                                </p>
+
+
+                                {course.courseTitle && (
+
+                                  <p
+                                    className="
+                                      mt-1
+                                      text-xs
+                                      text-gray-500
+                                      dark:text-gray-400
+                                    "
+                                  >
+                                    {course.courseTitle}
+                                  </p>
+
+                                )}
+
+                              </div>
+
+
+                              {course.creditHours !== null && (
+
+                                <span
+                                  className="
+                                    whitespace-nowrap
+                                    text-xs
+                                    text-gray-500
+                                    dark:text-gray-400
+                                  "
+                                >
+                                  {course.creditHours} credits
+                                </span>
+
+                              )}
+
+                            </div>
+                          )
+                        )}
+
+                      </div>
+
+                    </section>
+
+                  )
+                )}
+
+
+                {generatedSchedule.warnings.length > 0 && (
+
+                  <section
+                    className="
+                      rounded-lg
+                      border
+                      border-yellow-300
+                      bg-yellow-50
+                      p-4
+                      dark:border-yellow-700
+                      dark:bg-yellow-950/20
+                    "
+                  >
+
+                    <h3 className="text-sm font-semibold">
+                      Advising Notes
+                    </h3>
+
+
+                    <ul
+                      className="
+                        mt-2
+                        list-disc
+                        space-y-1
+                        pl-5
+                        text-sm
+                      "
+                    >
+
+                      {generatedSchedule.warnings.map(
+                        (warning, index) => (
+
+                          <li key={index}>
+                            {warning}
+                          </li>
+
+                        )
+                      )}
+
+                    </ul>
+
+                  </section>
+
+                )}
+
+              </div>
+            )}
+
           </div>
         </section>
       </div>
     </main>
-  );
-}
+    );
+  }
 
-  async function testDocumentExtraction() {
-    if (!user) {
-      return;
+  async function extractDocuments(): Promise<boolean> {
+
+  if (!user) { return false; }
+
+  try {
+
+    setErrorMessage("");
+
+
+    const token = await user.getIdToken();
+
+    const response =
+      await fetch(
+        "/api/advising/extract",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+            Authorization:
+              `Bearer ${token}`,
+          },
+        }
+      );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+
+      throw new Error(
+        data.error ??
+          "The documents could not be read."
+      );
     }
 
+    console.log("Transcript:", data.transcript);
+    console.log("Curriculum:", data.curriculum);
+
+    return true;
+
+
+  } catch (error) {
+
+    setErrorMessage(
+      error instanceof Error
+        ? error.message
+        : "The documents could not be read."
+    );
+
+    return false;
+  }
+}
+
+  async function generateSchedule() {
+
+    if (!user) { return; }
+
     try {
+
       setErrorMessage("");
+
+      setIsGeneratingSchedule(true);
 
       const token = await user.getIdToken();
 
-      const response = await fetch("/api/advising/extract", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      });
+
+      const response =
+        await fetch(
+          "/api/advising/generate",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+              Authorization:
+                `Bearer ${token}`,
+            },
+          }
+        );
+
 
       const data = await response.json();
 
+
       if (!response.ok) {
+
         throw new Error(
-          data.error ?? "The documents could not be read."
+          data.error ??
+            "The schedule could not be generated."
         );
       }
 
-      //console.log("Extracted advising data:", data.extractedData);
+      setGeneratedSchedule(data.schedule);
 
-      console.log("Transcript:", data.transcript);
-      console.log("Curriculum:", data.curriculum);
+      console.log("Generated Schedule:", data.schedule);
+
+
     } catch (error) {
+
       setErrorMessage(
         error instanceof Error
           ? error.message
-          : "The documents could not be read."
+          : "The schedule could not be generated."
       );
+
+    } finally {
+
+      setIsGeneratingSchedule(false);
     }
   }
 
   return (
     <div
-      className="min-h-screen bg-[#f7f5f1] text-[#1f2933] dark:bg-[#171717] 
-      dark:text-gray-100" >
+      className="min-h-screen bg-[#f7f5f1] text-[#1f2933] dark:bg-[#171717] dark:text-gray-100" >
 
       <header
         className="relative flex h-[73px] items-center justify-center border-b 
@@ -257,12 +515,11 @@ export default function AdvisingPage() {
      <ExistingDocumentsModal
         isOpen={showExistingModal}
         onUseExisting={async () => {
-            setShowExistingModal(false);
-            setUsingExistingDocuments(true);
-            setUploadSuccess(false);
-            setErrorMessage("");
-            setDocumentsReady(true);
-            await testDocumentExtraction();
+          setShowExistingModal(false);
+          setUsingExistingDocuments(true);
+          setUploadSuccess(false);
+          setErrorMessage("");
+          setDocumentsReady(true);
         }}
         onReplace={() => {
             setShowExistingModal(false);
@@ -280,13 +537,13 @@ export default function AdvisingPage() {
             isOpen={showUploadModal}
             onClose={() => setShowUploadModal(false)}
             onUploaded={async () => {
-                setShowUploadModal(false);
-                setUploadSuccess(true);
-                setUsingExistingDocuments(false);
-                setErrorMessage("");
-                setDocumentsReady(true);
-                await testDocumentExtraction();
-          }}
+              setShowUploadModal(false);
+              setUploadSuccess(true);
+              setUsingExistingDocuments(false);
+              setErrorMessage("");
+              const success = await extractDocuments();
+              if (success) { setDocumentsReady(true); }
+            }}
         />
       )}
     </div>

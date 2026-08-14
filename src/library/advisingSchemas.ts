@@ -5,23 +5,27 @@ import { z } from "zod";
 export const extractedCourseSchema = z.object({
   courseCode: z
     .string()
-    .describe("Course code exactly as displayed, such as CSC 3303"),
+    .describe("Course code exactly as displayed on the transcript"),
 
   courseTitle: z
     .string()
-    .describe("Full course title exactly as displayed"),
+    .nullable()
+    .describe("Full course title exactly as displayed, or null if not shown"),
 
   term: z
     .string()
-    .describe("Term and year in which the course appears"),
+    .nullable()
+    .describe("Term and year in which the course appears, or null if the transcript does not provide a term"),
 
   creditHours: z
     .number()
-    .describe("Credit hours"),
+    .nullable()
+    .describe("Credit hours, or null if not clearly shown"),
 
   grade: z
     .string()
-    .describe("Grade exactly as displayed"),
+    .nullable()
+    .describe("Grade exactly as displayed, or null if no grade is shown"),
 
   status: z
     .enum([
@@ -33,10 +37,6 @@ export const extractedCourseSchema = z.object({
       "unknown",
     ])
     .describe("Status of this individual course"),
-
-  /*sourceText: z
-    .string()
-    .describe("Short text from the document supporting this record"), */
 });
 
 export const courseOptionSchema = z.object({
@@ -51,6 +51,7 @@ export const courseOptionSchema = z.object({
 
   creditHours: z
     .number()
+    .nullable()
     .describe("Credit hours"),
 
   prerequisites: z
@@ -60,6 +61,13 @@ export const courseOptionSchema = z.object({
   corequisites: z
     .array(z.string())
     .describe("Corequisite course codes explicitly shown"),
+
+  minimumGrade: z
+    .string()
+    .nullable()
+    .describe(
+      "Minimum grade explicitly required by the curriculum, or null"
+    ),
 });
 
 export const curriculumRequirementSchema = z.object({
@@ -117,6 +125,26 @@ export const curriculumRequirementSchema = z.object({
   sourceText: z
     .string()
     .describe("Short curriculum text supporting this requirement"),
+
+  minimumGrade: z
+    .string()
+    .nullable()
+    .describe(
+      "Minimum grade explicitly required by the curriculum, or null"
+    ),
+
+  eligibilityRules: z
+    .object({
+    allowedCourseCodes: z.array(z.string()),
+    allowedSubjectPrefixes: z.array(z.string()),
+    minimumCourseLevel: z.number().nullable(),
+    maximumCourseLevel: z.number().nullable(),
+    excludedCourseCodes: z.array(z.string()),
+    sourceText: z.string().nullable(),
+  })
+  .nullable()
+  .default(null),
+
 });
 
 export const concentrationSchema = z.object({
@@ -135,9 +163,13 @@ export const concentrationSchema = z.object({
 
 export const advisingExtractionSchema = z.object({
   transcript: z.object({
+
     studentName: z.string().nullable(),
 
     major: z.string().nullable(),
+
+    concentration: z.string().nullable().describe(
+        "Student concentration, track, specialization, emphasis, or similar program option exactly as displayed"),
 
     catalogYear: z.string().nullable(),
 
@@ -165,6 +197,60 @@ export const advisingExtractionSchema = z.object({
     ),
 });
 
-export type AdvisingExtraction = z.infer<
-  typeof advisingExtractionSchema
+export type ElectiveEligibilityRules = {
+  allowedCourseCodes: string[];
+  allowedSubjectPrefixes: string[];
+  minimumCourseLevel: number | null;
+  maximumCourseLevel: number | null;
+  excludedCourseCodes: string[];
+  sourceText: string | null;
+};
+
+export const transcriptExtractionSchema = z.object({
+  studentName: z.string().nullable(),
+  major: z.string().nullable(),
+  concentration: z.string().nullable(),
+  catalogYear: z.string().nullable(),
+  courses: z.array(extractedCourseSchema),
+  warnings: z.array(z.string()).default([]),
+});
+
+export const curriculumExtractionSchema = z.object({
+  programName: z.string().nullable(),
+  degreeName: z.string().nullable(),
+  catalogYear: z.string().nullable(),
+  totalDegreeCredits: z.number().nullable(),
+  requirements: z.array(curriculumRequirementSchema),
+  concentrations: z.array(concentrationSchema),
+  warnings: z.array(z.string()).default([]),
+});
+
+export const generatedScheduleCourseSchema = z.object({
+  courseCode: z.string(),
+  courseTitle: z.string().nullable(),
+  creditHours: z.number().nullable(),
+  requirementId: z.string().nullable(),
+});
+
+export const generatedScheduleTermSchema = z.object({
+  term: z.enum([
+    "Fall",
+    "Winter",
+    "Spring",
+    "Summer",
+  ]),
+
+  year: z.number().int(),
+
+  courses: z.array(generatedScheduleCourseSchema),
+});
+
+export const generatedAdvisingScheduleSchema = z.object({
+  terms: z.array(generatedScheduleTermSchema),
+
+  warnings: z.array(z.string()).default([]),
+});
+
+export type GeneratedAdvisingSchedule = z.infer<
+  typeof generatedAdvisingScheduleSchema
 >;
