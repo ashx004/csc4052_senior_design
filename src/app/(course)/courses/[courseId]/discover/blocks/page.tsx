@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ChevronLeft, Loader2, Volume2, VolumeX, X } from "lucide-react";
 import { useAuth } from "@/src/context/AuthContext";
 import BlocksIntro from "@/src/components/discover/blocks/BlocksIntro";
 import BlocksGame from "@/src/components/discover/blocks/BlocksGame";
 import BlocksGameOver from "@/src/components/discover/blocks/BlocksGameOver";
+import { buildChatContext, type ChatContext } from "@/src/library/chatContext";
+import ContextualAiPanel, { CatalystLauncher } from "@/src/components/aiAssistant/ContextualAiPanel";
+import { buildPageTextSuggestions, type PageTextPageContext } from "@/src/library/Contextual_AI/contextualAi";
 
 type View = "intro" | "playing" | "gameover";
 
@@ -27,10 +30,21 @@ export default function BlocksPage() {
   const [gameKey, setGameKey] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
 
+  const [catalystOpen, setCatalystOpen] = useState(false);
+  const catalystBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [catalystChatContext, setCatalystChatContext] = useState<ChatContext | null>(null);
+
   useEffect(() => {
     if (authLoading) return;
     if (!user) router.push("/login");
   }, [authLoading, user, router]);
+
+  useEffect(() => {
+    if (!user?.email) return;
+    buildChatContext(user.uid, user.email)
+      .then(setCatalystChatContext)
+      .catch(() => setCatalystChatContext(null));
+  }, [user]);
 
   if (authLoading || !user) {
     return (
@@ -57,6 +71,13 @@ export default function BlocksPage() {
     }
     router.push(`/courses/${courseId}/discover`);
   };
+
+  const blocksPageText =
+    view === "gameover" && result
+      ? `The student is on the Blocks game-over screen — score ${result.finalScore}, high score ${result.highScore}${result.beatHighScore ? " (a new high score!)" : ""}.`
+      : "The student is playing Blocks, a falling-shapes arcade game that reviews this class's study material between rounds.";
+  const blocksPageContext: PageTextPageContext = { kind: "page_text", courseId, pageTitle: "the Blocks game", pageText: blocksPageText };
+  const catalystSuggestions = buildPageTextSuggestions(blocksPageContext);
 
   return (
     <div className="min-h-screen bg-[#FAFAF8] px-6 py-8 md:px-14">
@@ -100,6 +121,22 @@ export default function BlocksPage() {
           onPlayAgain={handlePlayAgain}
           onBackToDiscover={() => router.push(`/courses/${courseId}/discover`)}
         />
+      )}
+
+      {catalystChatContext && (
+        <>
+          <CatalystLauncher onClick={() => setCatalystOpen(true)} visible={!catalystOpen} buttonRef={catalystBtnRef} />
+          <ContextualAiPanel
+            open={catalystOpen}
+            onClose={() => setCatalystOpen(false)}
+            contextLabel="Blocks"
+            suggestions={catalystSuggestions}
+            pageContext={blocksPageContext}
+            chatContext={catalystChatContext}
+            panelContextKey={`blocks:${courseId}`}
+            launcherRef={catalystBtnRef}
+          />
+        </>
       )}
     </div>
   );

@@ -2,7 +2,9 @@
 
 import { FormEvent, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { FileDown, Globe, History, Loader2, Mic, Paperclip, Zap } from "lucide-react";
+import Link from "next/link";
+import { FileDown, Globe, History, Loader2, Mic, Paperclip, BookOpen, ListChecks, Wrench } from "lucide-react";
+import ToolboxPanel from "@/src/components/aiAssistant/ToolboxPanel";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -21,7 +23,7 @@ import ChatUploadModal from "@/src/components/aiAssistant/ChatUploadModal";
 import ChatHistoryPanel from "@/src/components/aiAssistant/ChatHistoryPanel";
 import { readChatStream, TOOL_STATUS_LABELS } from "@/src/library/chatStream";
 import { useChatStatus } from "@/src/library/useChatStatus";
-import { getStoredChatMode } from "@/src/library/chatMode";
+import { getEffectiveModelKey, getStoredExtraTools, setStoredExtraTools } from "@/src/library/chatMode";
 
 type ChatMessage = StoredChatMessage;
 
@@ -102,6 +104,25 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
                   <FileDown size={14} />
                   {file.name}
                 </a>
+              ))}
+            </div>
+          )}
+
+          {message.generatedStudySets && (
+            <div className="flex flex-wrap gap-2 px-1">
+              {message.generatedStudySets.map((set) => (
+                <Link
+                  key={`${set.kind}-${set.id}`}
+                  href={
+                    set.kind === "flashcard"
+                      ? `/courses/${set.courseId}/flashcards?setId=${set.id}`
+                      : `/courses/${set.courseId}/quizzes/${set.id}?mode=take`
+                  }
+                  className="flex items-center gap-1.5 rounded-md border border-border-light bg-bg-container px-3 py-1.5 text-xs font-medium text-primary shadow-sm transition hover:bg-bg-warm"
+                >
+                  {set.kind === "flashcard" ? <BookOpen size={14} /> : <ListChecks size={14} />}
+                  {set.kind === "flashcard" ? "Study" : "Take quiz"}: {set.name}
+                </Link>
               ))}
             </div>
           )}
@@ -230,18 +251,30 @@ function AIAssistantPageContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [input, setInput] = useState("");
-  // Overrides the student's saved chat-mode default (see settings) to the
-  // quality model for messages sent while this is on - a per-conversation
-  // "actually, think harder about this one" escalation rather than a
-  // permanent preference change. Stays on until the student turns it back
-  // off themselves, same interaction shape as the mic toggle below.
-  const [boost, setBoost] = useState(false);
   // Off by default - web/YouTube search reach outside the student's own
   // course materials and aren't needed for most questions, so they're kept
   // out of the tool schema entirely unless explicitly turned on, rather
-  // than always being one of the options the model has to weigh. Same
-  // sticky-toggle interaction as boost above.
+  // than always being one of the options the model has to weigh.
   const [extraTools, setExtraTools] = useState(false);
+  const [toolboxOpen, setToolboxOpen] = useState(false);
+  const toolboxBtnRef = useRef<HTMLButtonElement | null>(null);
+
+  // Starts false above (SSR-safe - localStorage doesn't exist server-side)
+  // and syncs to whatever was actually saved right after mount, same
+  // pattern AIPanel.tsx uses for its own open/closed persistence. A student
+  // who deliberately turns this on for an ongoing project/study session
+  // shouldn't have it silently reset every time they reload the page.
+  useEffect(() => {
+    setExtraTools(getStoredExtraTools());
+  }, []);
+
+  function toggleExtraTools() {
+    setExtraTools((prev) => {
+      const next = !prev;
+      setStoredExtraTools(next);
+      return next;
+    });
+  }
   const [hasStarted, setHasStarted] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   // Non-null right after resuming a session long enough to cap (see
@@ -544,8 +577,7 @@ function AIAssistantPageContent() {
           summary: summaryRef.current,
           summarizedCount: summarizedCountRef.current,
           currentSessionId: sessionId.current,
-          chatMode: getStoredChatMode(),
-          boost,
+          modelKey: getEffectiveModelKey("chat"),
           extraTools,
         }),
       });
@@ -560,6 +592,7 @@ function AIAssistantPageContent() {
       let streamError: string | null = null;
       let documentsRead: string[] | undefined;
       let generatedFiles: { name: string; url: string }[] | undefined;
+      let generatedStudySets: { kind: "flashcard" | "quiz"; id: string; courseId: string; name: string }[] | undefined;
 
       for await (const event of readChatStream(response)) {
         if (event.type === "delta") {
@@ -580,6 +613,7 @@ function AIAssistantPageContent() {
         } else if (event.type === "done") {
           if (event.documentsRead?.length) documentsRead = event.documentsRead;
           if (event.generatedFiles?.length) generatedFiles = event.generatedFiles;
+          if (event.generatedStudySets?.length) generatedStudySets = event.generatedStudySets;
           if (typeof event.summary === "string") summaryRef.current = event.summary;
           if (typeof event.summarizedCount === "number") summarizedCountRef.current = event.summarizedCount;
         } else if (event.type === "error") {
@@ -600,6 +634,7 @@ function AIAssistantPageContent() {
       const finalMessage: ChatMessage = { id: assistantId, role: "assistant", text };
       if (documentsRead) finalMessage.documentsRead = documentsRead;
       if (generatedFiles) finalMessage.generatedFiles = generatedFiles;
+      if (generatedStudySets) finalMessage.generatedStudySets = generatedStudySets;
       setMessages([...nextMessages, finalMessage]);
 
       if (streamError) setErrorText(streamError);
@@ -791,28 +826,33 @@ function AIAssistantPageContent() {
 
           <form
             onSubmit={handleSubmit}
-            className="mx-auto flex max-w-4xl items-center gap-3 rounded-2xl border border-border-light bg-bg-container px-4 py-2 shadow-lg shadow-stone-200/70"
+            className="relative mx-auto flex max-w-4xl items-center gap-3 rounded-2xl border border-border-light bg-bg-container px-4 py-2 shadow-lg shadow-stone-200/70"
           >
             <button
               type="button"
-              onClick={() => setBoost((prev) => !prev)}
-              title={
-                boost
-                  ? "Boost on — using the higher-quality model for messages you send"
-                  : "Boost — use the higher-quality model for this conversation"
-              }
+              ref={toolboxBtnRef}
+              onClick={() => setToolboxOpen((open) => !open)}
+              title="See what the assistant can do"
               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition ${
-                boost ? "bg-primary text-text-inverse" : "text-primary hover:bg-bg-warm"
+                toolboxOpen ? "bg-primary text-text-inverse" : "text-primary hover:bg-bg-warm"
               }`}
-              aria-label={boost ? "Turn off boost mode" : "Turn on boost mode"}
-              aria-pressed={boost}
+              aria-label="Show available AI tools"
+              aria-pressed={toolboxOpen}
             >
-              <Zap size={18} strokeWidth={2} fill={boost ? "currentColor" : "none"} />
+              <Wrench size={18} strokeWidth={2} />
             </button>
+
+            <ToolboxPanel
+              open={toolboxOpen}
+              onClose={() => setToolboxOpen(false)}
+              extraTools={extraTools}
+              onToggleExtraTools={toggleExtraTools}
+              anchorRef={toolboxBtnRef}
+            />
 
             <button
               type="button"
-              onClick={() => setExtraTools((prev) => !prev)}
+              onClick={toggleExtraTools}
               title={
                 extraTools
                   ? "Web & video search on — the assistant can search the internet"

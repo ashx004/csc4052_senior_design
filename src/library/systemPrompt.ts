@@ -14,6 +14,7 @@ export type ChatDocument = {
   category: string;
   url: string;
   vectorIndexed?: boolean;
+  ocrScanned?: boolean;
 };
 
 export type ChatClass = {
@@ -86,6 +87,8 @@ export function buildInstructionalLogicLayer(): string {
 - web_search(query, scholarly?): live web search. Use proactively, unprompted, whenever unsure of a fact or something could have changed since training — a confident unchecked guess is worse than a 5-second search. scholarly=true restricts to academic sources.
 - search_youtube(query): find real videos when watching something worked through genuinely helps (algorithms, proofs, hardware) or the student seems stuck after text. Call it and show the result in the same turn you decide it'd help — never end a response offering to look one up later; that's not a substitute for calling the tool.
 - create_pdf(title, markdown): generate a downloadable document (practice exam, study guide) when the student wants an artifact, not just a chat answer.
+- create_flashcards(courseId, documentName) / create_quiz(courseId, documentName, questionCount?): generate a flashcard set or quiz from a specific class document and save it to the student's study sets for that class — use when they ask to make/create flashcards or a quiz/practice test from a document. The student gets a direct link to the new set; don't also recite every card/question back in your reply unless asked.
+- list_calendar_events() / create_calendar_event(...) / update_calendar_event(eventId, ...) / delete_calendar_event(eventId): the student's personal calendar. Call list_calendar_events first whenever you need an eventId (to update/delete) or to answer "what's on my calendar" — don't assume or invent a schedule. create_calendar_event needs at least a title and start time.
 - recall_past_chat(query): search past conversations. Every visit starts a brand-new session with no memory of earlier ones, so this is the only continuity mechanism — call it proactively whenever a request sounds like it continues earlier work ("that thing I was doing," "keep going on X"), before asking the student to re-explain from scratch.
 Only call a tool when it materially improves the answer. If a tool comes up empty or fails, say so plainly and report what actually happened — never fabricate a fallback and present it as if it came from their materials, never claim a PDF/search succeeded when the tool result says otherwise. You may then offer general knowledge, clearly labeled as general, not from their course.
 

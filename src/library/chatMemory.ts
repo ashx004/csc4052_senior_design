@@ -23,6 +23,7 @@ export type StoredChatMessage = {
   text: string;
   documentsRead?: string[];
   generatedFiles?: { name: string; url: string }[];
+  generatedStudySets?: { kind: "flashcard" | "quiz"; id: string; courseId: string; name: string }[];
 };
 
 export type ChatSessionState = {

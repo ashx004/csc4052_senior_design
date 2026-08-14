@@ -1,6 +1,4 @@
-import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
 
 import {
   fetchInternal,
@@ -8,208 +6,14 @@ import {
 } from '@/src/library/pdfExtract';
 import { resolveOllamaBaseUrl } from '@/src/library/ollamaClient';
 import { verifyRequestAuth } from '@/src/library/verifyAuth';
-import { stripThinkLeak } from '@/src/library/stripThinkLeak';
+import { checkRateLimit } from '@/src/library/rateLimit';
+import { generateQuizWithValidation, type QuestionTypes } from '@/src/library/quizGeneration';
 
-const OLLAMA_TIMEOUT_MS = 120_000;
-const MAX_OLLAMA_ATTEMPTS = 2;
-
-const QuizResponseSchema = z.object({
-  topicName: z
-    .string()
-    .describe('Short descriptive title for this quiz'),
-  questions: z.array(
-    z.object({
-      type: z.enum(['multiple_choice', 'true_false', 'matching']),
-      question: z.string(),
-      options: z.array(z.string()),
-      correctAnswer: z.string(),
-    })
-  ),
-});
-
-type QuizResponse = z.infer<typeof QuizResponseSchema>;
-type ParsedQuestion = QuizResponse['questions'][number];
-
-const MAX_MATCHING_GROUP_SIZE = 5;
-
-interface QuestionTypes {
-  multipleChoice?: boolean;
-  trueFalse?: boolean;
-  matching?: boolean;
-}
-
-interface OllamaChatResponse {
-  message?: {
-    content?: string;
-  };
-}
-
-function buildQuizJsonSchema(questionCount: number) {
-  return {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      topicName: {
-        type: 'string',
-      },
-      questions: {
-        type: 'array',
-        minItems: questionCount,
-        maxItems: questionCount,
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          properties: {
-            type: {
-              type: 'string',
-              enum: ['multiple_choice', 'true_false', 'matching'],
-            },
-            question: {
-              type: 'string',
-            },
-            options: {
-              type: 'array',
-              items: {
-                type: 'string',
-              },
-            },
-            correctAnswer: {
-              type: 'string',
-            },
-          },
-          required: [
-            'type',
-            'question',
-            'options',
-            'correctAnswer',
-          ],
-        },
-      },
-    },
-    required: ['topicName', 'questions'],
-  };
-}
-
-async function callOllama(
-  prompt: string,
-  questionCount: number,
-  useQualityModel: boolean
-): Promise<OllamaChatResponse> {
-  const ollamaUrl = process.env.OLLAMA_PRIMARY_URL;
-  const ollamaToken = process.env.OLLAMA_AUTH_TOKEN;
-  // Same fast/quality selection as api/chat/route.ts - quiz generation is
-  // the same underlying task, so it respects the student's saved
-  // chat-mode preference too.
-  const ollamaModel = useQualityModel
-    ? process.env.OLLAMA_MODEL_QUALITY || process.env.OLLAMA_MODEL || 'qwen3:30b-a3b'
-    : process.env.OLLAMA_MODEL_FAST || process.env.OLLAMA_MODEL || 'gpt-oss:20b';
-
-  if (!ollamaUrl || !ollamaToken) {
-    throw new Error(
-      'Ollama is not configured. Check OLLAMA_PRIMARY_URL and OLLAMA_AUTH_TOKEN.'
-    );
-  }
-
-  const baseUrl = await resolveOllamaBaseUrl(
-    ollamaUrl,
-    process.env.OLLAMA_PRIMARY_FALLBACK_URL
-  );
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(
-    () => controller.abort(),
-    OLLAMA_TIMEOUT_MS
-  );
-
-  try {
-    const response = await fetch(
-      `${baseUrl.replace(/\/$/, '')}/api/chat`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${ollamaToken}`,
-        },
-        body: JSON.stringify({
-          model: ollamaModel,
-          messages: [
-            {
-              role: 'system',
-              content:
-                'You generate academic quizzes from supplied documents. Respond with ONLY valid JSON matching the provided schema. Do not include markdown, explanations, or text outside the JSON object.',
-            },
-            {
-              role: 'user',
-              content: prompt,
-            },
-          ],
-          stream: false,
-          think: false,
-          format: buildQuizJsonSchema(questionCount),
-          options: {
-            temperature: 0,
-          },
-        }),
-        signal: controller.signal,
-      }
-    );
-
-    if (!response.ok) {
-      const responseText = await response.text();
-
-      throw new Error(
-        `Ollama request failed (${response.status}): ${
-          responseText || response.statusText
-        }`
-      );
-    }
-
-    return (await response.json()) as OllamaChatResponse;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-async function generateQuizWithRetry(
-  prompt: string,
-  questionCount: number,
-  useQualityModel: boolean
-): Promise<QuizResponse> {
-  let lastError: unknown;
-
-  for (
-    let attempt = 1;
-    attempt <= MAX_OLLAMA_ATTEMPTS;
-    attempt += 1
-  ) {
-    try {
-      const data = await callOllama(prompt, questionCount, useQualityModel);
-      const rawContent = data.message?.content;
-
-      if (!rawContent) {
-        throw new Error(
-          'Ollama returned an empty message.'
-        );
-      }
-
-      const content = stripThinkLeak(rawContent);
-      const parsedJson: unknown = JSON.parse(content);
-
-      return QuizResponseSchema.parse(parsedJson);
-    } catch (error) {
-      lastError = error;
-
-      console.error(
-        `Quiz Ollama attempt ${attempt} failed:`,
-        error
-      );
-    }
-  }
-
-  throw lastError instanceof Error
-    ? lastError
-    : new Error('Quiz generation failed after two attempts.');
-}
+// Same GPU/LLM-cost-bearing rationale as api/chat and api/embed-document's
+// own rate limits (see rateLimit.ts) — this route makes an identical kind
+// of Ollama call and had no limit at all until 2026-08-14's bug sweep.
+const QUIZ_RATE_LIMIT_WINDOW_MS = 60_000;
+const QUIZ_RATE_LIMIT_MAX = 10; // per user per window — generating a quiz isn't normally rapid-fire
 
 function getDocumentKey(docUrl: string): string | null {
   try {
@@ -235,15 +39,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const rateLimit = checkRateLimit(auth.uid, QUIZ_RATE_LIMIT_WINDOW_MS, QUIZ_RATE_LIMIT_MAX);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: 'Too many quizzes being generated at once — please wait a moment.' },
+        { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) } }
+      );
+    }
+
     const {
       docUrl,
       docName,
       questionCount,
       questionTypes,
-      chatMode,
-      boost,
+      modelKey,
     } = await request.json();
-    const useQualityModel = boost === true || chatMode === 'quality';
 
     if (typeof docUrl !== 'string' || !docUrl) {
       return NextResponse.json(
@@ -368,238 +178,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const enabledTypes: string[] = [];
-    if (types.multipleChoice) enabledTypes.push('multiple_choice');
-    if (types.trueFalse) enabledTypes.push('true_false');
-    if (types.matching) enabledTypes.push('matching');
+    const baseUrl = await resolveOllamaBaseUrl(
+      process.env.OLLAMA_PRIMARY_URL || '',
+      process.env.OLLAMA_PRIMARY_FALLBACK_URL
+    );
 
-    const typeBlocks: string[] = [];
-    if (types.multipleChoice) {
-      typeBlocks.push(`For every "multiple_choice" question:
-- Include exactly 4 options.
-- All 4 options must be distinct — never repeat the same option text.
-- correctAnswer must exactly match one option.`);
-    }
-    if (types.trueFalse) {
-      typeBlocks.push(`For every "true_false" question:
-- Use options exactly ["True", "False"] in that order.
-- correctAnswer must be exactly "True" or "False".`);
-    }
-    if (types.matching) {
-      typeBlocks.push(`For every "matching" question:
-- question is a short term or concept.
-- correctAnswer is that term's matching definition.
-- options may be an empty array — the server builds the option pool.
-- Terms and definitions must be unique across all matching questions.
-- Base it only on the supplied document.`);
-    }
-
-    const typeInstructions =
-      enabledTypes.length > 1
-        ? `Generate a reasonable mix of ${enabledTypes
-            .map((t) => `"${t}"`)
-            .join(', ')} questions totaling ${questionCount}. An exact even split is not required.
-
-${typeBlocks.join('\n\n')}`
-        : `Every question must have type "${enabledTypes[0]}".
-
-${typeBlocks.join('\n\n')}`;
-
-    const prompt = `
-You are an expert academic tutor creating a quiz for a college student.
-
-Based ONLY on the document content below, generate exactly ${questionCount} quiz questions.
-
-Create a short, descriptive topicName containing approximately 3 to 6 words.
-
-${typeInstructions}
-
-Rules:
-- Every question must be answerable using only the supplied document.
-- Do not use outside knowledge.
-- Do not invent facts.
-- correctAnswer must be verbatim identical to one entry in options.
-- Questions must be clear and unambiguous.
-- Cover different important concepts throughout the document.
-- Do not repeat the same question or concept.
-- Use simple language.
-- Return only the JSON object required by the supplied schema.
-- Do not include markdown or explanatory text outside the JSON.
-
---- DOCUMENT CONTENT ---
-${extractedText}
-`.trim();
-
-    let parsed: QuizResponse;
-
+    let result;
     try {
-      parsed = await generateQuizWithRetry(
-        prompt,
-        questionCount,
-        useQualityModel
-      );
+      result = await generateQuizWithValidation(extractedText, questionCount, types, baseUrl, modelKey);
     } catch (error) {
-      console.error(
-        'Quiz generation failed after retries:',
-        error
-      );
-
+      console.error('Quiz generation failed:', error);
       return NextResponse.json(
-        {
-          error:
-            'The assistant returned an unexpected response. Please try again.',
-        },
+        { error: 'The assistant returned an unexpected response. Please try again.' },
         { status: 502 }
       );
     }
-
-    /*
-     * Preserve the existing post-generation checks for multiple_choice /
-     * true_false. Matching questions don't carry their own options from
-     * the model, so they're validated and normalized separately below.
-     */
-    const validStandard = parsed.questions.filter(
-      (question) => {
-        if (question.type === 'matching') return false;
-
-        if (
-          !question.options.includes(
-            question.correctAnswer
-          )
-        ) {
-          console.warn(
-            'Dropping quiz question: correctAnswer not found in options',
-            question
-          );
-          return false;
-        }
-
-        if (
-          question.type === 'multiple_choice' &&
-          question.options.length !== 4
-        ) {
-          console.warn(
-            'Dropping quiz question: multiple_choice does not have exactly 4 options',
-            question
-          );
-          return false;
-        }
-
-        if (
-          question.type === 'multiple_choice' &&
-          new Set(question.options).size !== question.options.length
-        ) {
-          console.warn(
-            'Dropping quiz question: multiple_choice has duplicate options',
-            question
-          );
-          return false;
-        }
-
-        if (
-          question.type === 'true_false' &&
-          !(
-            question.options.length === 2 &&
-            question.options[0] === 'True' &&
-            question.options[1] === 'False'
-          )
-        ) {
-          console.warn(
-            'Dropping quiz question: true_false options are not exactly ["True", "False"]',
-            question
-          );
-          return false;
-        }
-
-        return true;
-      }
-    );
-
-    /*
-     * Matching — dedupe terms/definitions, split into groups of at most
-     * MAX_MATCHING_GROUP_SIZE, and build one shuffled shared options pool
-     * per group. Always builds fresh copies; never mutates parsed objects.
-     */
-    function shuffle<T>(items: T[]): T[] {
-      const copy = [...items];
-      for (let i = copy.length - 1; i > 0; i -= 1) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [copy[i], copy[j]] = [copy[j], copy[i]];
-      }
-      return copy;
-    }
-
-    const matchingRaw = parsed.questions.filter(
-      (q) => q.type === 'matching'
-    );
-    const seenTerms = new Set<string>();
-    const seenDefinitions = new Set<string>();
-    const dedupedMatching = matchingRaw.filter((q) => {
-      if (!q.question || !q.correctAnswer) return false;
-      if (
-        seenTerms.has(q.question) ||
-        seenDefinitions.has(q.correctAnswer)
-      ) {
-        console.warn(
-          'Dropping duplicate matching term/definition',
-          q
-        );
-        return false;
-      }
-      seenTerms.add(q.question);
-      seenDefinitions.add(q.correctAnswer);
-      return true;
-    });
-
-    const validMatching: (ParsedQuestion & {
-      matchingGroupId: string;
-    })[] = [];
-    for (
-      let i = 0;
-      i < dedupedMatching.length;
-      i += MAX_MATCHING_GROUP_SIZE
-    ) {
-      const group = dedupedMatching.slice(
-        i,
-        i + MAX_MATCHING_GROUP_SIZE
-      );
-      const groupId = randomUUID();
-      const sharedOptions = shuffle(
-        group.map((q) => q.correctAnswer)
-      );
-      for (const q of group) {
-        validMatching.push({
-          type: q.type,
-          question: q.question,
-          correctAnswer: q.correctAnswer,
-          options: sharedOptions,
-          matchingGroupId: groupId,
-        });
-      }
-    }
-
-    const validQuestions = [...validStandard, ...validMatching];
-
-    if (validQuestions.length < 1) {
-      return NextResponse.json(
-        {
-          error:
-            'Failed to generate a valid quiz. Please try again.',
-        },
-        { status: 502 }
-      );
-    }
-
-    const questionsWithIds = validQuestions.map(
-      (question) => ({
-        id: randomUUID(),
-        ...question,
-      })
-    );
 
     return NextResponse.json({
-      topicName: parsed.topicName,
-      questions: questionsWithIds,
+      topicName: result.topicName,
+      questions: result.questions,
     });
   } catch (error) {
     console.error('Quiz generation error:', error);

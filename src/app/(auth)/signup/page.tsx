@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/src/library/firebase";
-import { createUserWithEmailAndPassword } from "firebase/auth";
+import { createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { signInWithGoogle, signInWithApple } from "@/src/library/socialAuth";
 import { useAuth } from "@/src/context/AuthContext";
 import { touchRememberCookie } from "@/src/library/session";
@@ -51,14 +51,39 @@ export default function Signup() {
       // get firebase user's UID
       const user = userCredntial.user;
 
-      // create the user's firestore document
-      await setDoc(doc(db, "users", user.uid), {
-        name: name,
-        email: email,
-        role: role,
-        college: college,
-        joinedAt: serverTimestamp(),
-      });
+      // Create the user's firestore document. This account already exists
+      // in Firebase Auth at this point (createUserWithEmailAndPassword
+      // above already succeeded) — a network blip here would otherwise
+      // leave a real, signed-in account with no users/{uid} doc at all,
+      // and AuthContext's own auth-state listener (which drives the
+      // dashboard redirect above) doesn't know or care whether this
+      // succeeded. A couple of quick retries covers a transient blip;
+      // if it's still failing, sign back out so the redirect never fires
+      // for a half-created account, rather than bouncing the student into
+      // a dashboard with no profile and no way to tell what went wrong.
+      let profileSaved = false;
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 3 && !profileSaved; attempt++) {
+        try {
+          await setDoc(doc(db, "users", user.uid), {
+            name: name,
+            email: email,
+            role: role,
+            college: college,
+            joinedAt: serverTimestamp(),
+          });
+          profileSaved = true;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+
+      if (!profileSaved) {
+        await signOut(auth).catch(() => {});
+        throw lastError instanceof Error
+          ? lastError
+          : new Error("Your account was created, but we couldn't finish setting it up. Please try signing up again.");
+      }
     } catch (error) {
       alert(error instanceof Error ? error.message : "Account failed to be created.");
       console.log(error);

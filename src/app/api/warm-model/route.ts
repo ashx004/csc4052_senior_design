@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resolveOllamaBaseUrl } from "@/src/library/ollamaClient";
+import { resolveOllamaBaseUrl, resolveModelFromKey, FAST_MODEL_KEEP_ALIVE } from "@/src/library/ollamaClient";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
 
@@ -8,18 +8,18 @@ const WARM_RATE_LIMIT_MAX = 10; // one toggle click each way, generously
 
 const WARM_TIMEOUT_MS = 120000; // matches OLLAMA_TIMEOUT_MS in api/chat/route.ts — a genuine cold load can take a while
 
-// Same keep_alive policy as api/chat/route.ts's primaryTarget: fast stays
-// resident forever, quality is kept warm for a bounded window past last use
-// so it still frees up for OCR/vision once genuinely idle.
-const FAST_MODEL_KEEP_ALIVE = -1;
-const QUALITY_MODEL_KEEP_ALIVE = "30m";
+// "ocr" isn't a real TaskModelKey/UnifiedModelKey (see resolveModelFromKey) -
+// it's included here only so the settings page can eagerly co-warm vision
+// alongside fastResident (gpt-oss:20b), the one selection small enough for
+// both to sit resident together.
+const VALID_MODEL_KEYS = ["museGlimmer", "nemotron", "qwenCoder", "qwen3A3b", "fastResident", "ocr"];
 
-// Pre-loads the fast or quality chat model into VRAM on the primary Ollama
-// box, so the switch a student makes on the Settings page pays its cold-boot
-// cost right then instead of on their next actual message. Ollama's
-// documented way to load a model without generating anything is a /api/chat
-// (or /api/generate) call with no messages/prompt — the model loads, the
-// call returns once it's resident, and nothing gets billed as a real turn.
+// Pre-loads the settings page's currently-effective chat model into VRAM,
+// so a change a student makes there pays its cold-boot cost right then
+// instead of on their next actual message. Ollama's documented way to load
+// a model without generating anything is a /api/chat (or /api/generate)
+// call with no messages/prompt — the model loads, the call returns once
+// it's resident, and nothing gets billed as a real turn.
 export async function POST(request: NextRequest) {
   const auth = await verifyRequestAuth(request);
   if (!auth) {
@@ -31,20 +31,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
-  const { mode } = (await request.json().catch(() => ({}))) as { mode?: "fast" | "quality" };
-  if (mode !== "fast" && mode !== "quality") {
-    return NextResponse.json({ error: "mode must be 'fast' or 'quality'" }, { status: 400 });
+  const { modelKey } = (await request.json().catch(() => ({}))) as { modelKey?: string };
+  // Unlike resolveModelFromKey's own fail-open default (right for the
+  // generation routes), this route's whole job is confirming a specific
+  // real model gets warmed - silently substituting a different one on bad
+  // input would be actively wrong here, so it rejects outright instead.
+  if (!modelKey || !VALID_MODEL_KEYS.includes(modelKey)) {
+    return NextResponse.json({ error: `modelKey must be one of: ${VALID_MODEL_KEYS.join(", ")}` }, { status: 400 });
   }
 
   if (!process.env.OLLAMA_PRIMARY_URL || !process.env.OLLAMA_AUTH_TOKEN) {
     return NextResponse.json({ error: "The AI assistant is not configured." }, { status: 500 });
   }
 
-  const useQualityModel = mode === "quality";
-  const model = useQualityModel
-    ? process.env.OLLAMA_MODEL_QUALITY || process.env.OLLAMA_MODEL || "qwen3:30b-a3b"
-    : process.env.OLLAMA_MODEL_FAST || process.env.OLLAMA_MODEL || "gpt-oss:20b";
-  const keepAlive = useQualityModel ? QUALITY_MODEL_KEEP_ALIVE : FAST_MODEL_KEEP_ALIVE;
+  const model = resolveModelFromKey(modelKey);
+  // Always FAST_MODEL_KEEP_ALIVE, not conditional on which key it is - this
+  // route's whole purpose is pre-loading the model that's about to become
+  // (or already is) the resident AI Chat model, see chat/route.ts.
+  const keepAlive = FAST_MODEL_KEEP_ALIVE;
 
   const baseUrl = await resolveOllamaBaseUrl(process.env.OLLAMA_PRIMARY_URL, process.env.OLLAMA_PRIMARY_FALLBACK_URL);
   const controller = new AbortController();

@@ -6,11 +6,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveOllamaBaseUrl } from "@/src/library/ollamaClient";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
+import { checkRateLimit } from "@/src/library/rateLimit";
 import { z } from "zod";
 
 // --- Config ---
 const OLLAMA_TIMEOUT_MS = 120_000;
 const MAX_OLLAMA_ATTEMPTS = 2;
+
+// Same GPU/LLM-cost-bearing rationale as api/chat and api/embed-document's
+// own rate limits (see rateLimit.ts) — this route makes an identical kind
+// of Ollama call (with its own 2-attempt retry on top) and had no limit at
+// all until 2026-08-14's bug sweep.
+const LEARN_QUESTION_RATE_LIMIT_WINDOW_MS = 60_000;
+const LEARN_QUESTION_RATE_LIMIT_MAX = 10; // per user per window
 
 // --- Zod schema for validating Ollama's response ---
 const GeneratedQuestionSchema = z.object({
@@ -165,6 +173,14 @@ export async function POST(req: NextRequest) {
   const auth = await verifyRequestAuth(req);
   if (!auth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const rateLimit = checkRateLimit(auth.uid, LEARN_QUESTION_RATE_LIMIT_WINDOW_MS, LEARN_QUESTION_RATE_LIMIT_MAX);
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many questions being generated at once — please wait a moment." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+    );
   }
 
   // Parse and validate body

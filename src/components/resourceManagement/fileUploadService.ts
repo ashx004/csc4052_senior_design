@@ -14,7 +14,7 @@ export const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
 // Kept in sync with SUPPORTED_DOCUMENT_TYPES in src/library/documentExtract.ts —
 // duplicated as a plain array here (rather than imported) so this client
 // bundle never pulls in server-only extraction code.
-const INDEXABLE_FILE_TYPES = [
+export const INDEXABLE_FILE_TYPES = [
   "pdf", "docx", "xlsx", "xls",
   "png", "jpg", "jpeg", "webp",
   "txt", "py", "js", "jsx", "ts", "tsx", "java", "go", "sql", "c", "cpp",
