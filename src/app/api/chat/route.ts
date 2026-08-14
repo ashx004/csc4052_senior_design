@@ -3,11 +3,13 @@ import { resolveInternalUrl } from "@/src/library/pdfExtract";
 import { extractDocumentText, SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
 import { embedTexts, cosineSimilarity } from "@/src/library/ollamaEmbeddings";
 import { searchChunks } from "@/src/library/vectorStore";
-import { resolveOllamaBaseUrl } from "@/src/library/ollamaClient";
+import { resolveOllamaBaseUrl, resolveModelFromKey, FAST_MODEL_KEEP_ALIVE } from "@/src/library/ollamaClient";
 import { clarifyUserQuery } from "@/src/library/queryClarifier";
 import { searchWeb } from "@/src/library/webSearch";
 import { searchYoutube } from "@/src/library/youtubeSearch";
-import { generateAndUploadPdf } from "@/src/library/pdfGenerate";
+import { generateAndUploadPdf, generateAndUploadPdfToCourse } from "@/src/library/pdfGenerate";
+import { generateFlashcardsWithRetry } from "@/src/library/flashcardGeneration";
+import { generateQuizWithValidation } from "@/src/library/quizGeneration";
 import { warnIfSlowGeneration } from "@/src/library/ollamaHealthCheck";
 import { getStudentProfile, maybeUpdateStudentProfile, StudentProfile } from "@/src/library/studentProfile";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
@@ -15,7 +17,7 @@ import { checkRateLimit } from "@/src/library/rateLimit";
 import {pageContextSchema,buildPageContextPrompt,type PageContext,} from "@/src/library/Contextual_AI/contextualAi";
 import { ChatContext, ChatClass, ChatDocument, buildSystemPrompt } from "@/src/library/systemPrompt";
 import { describeChatError } from "@/src/library/chatErrors";
-import { getIdToken, firestoreCreate, firestoreGet, firestoreUpdate, firestoreListCollection, firestoreRunQuery } from "@/src/library/firestoreRest";
+import { getIdToken, firestoreCreate, firestoreGet, firestoreUpdate, firestoreDelete, firestoreListCollection, firestoreRunQuery } from "@/src/library/firestoreRest";
 import { deriveChatTitle } from "@/src/library/chatTitle";
 import type { StoredChatMessage } from "@/src/library/chatMemory";
 import { THINK_CLOSE_TAG, stripThinkLeak } from "@/src/library/stripThinkLeak";
@@ -31,14 +33,6 @@ const TOP_K_CHUNKS = 5;
 const HYBRID_CANDIDATE_POOL = 15; // widen recall for the hybrid dense+sparse score before taking the top TOP_K_CHUNKS
 const SIMILARITY_THRESHOLD = 0.3; // below this, a chunk is treated as "not actually relevant"
 const CHAT_TEMPERATURE = 0.3; // lower than Ollama's default (~0.8) — favors grounded answers over creative ones
-// Fast is meant to stay resident on Primary permanently (see OLLAMA_MODEL_FAST's
-// comment in env.example) — -1 tells Ollama to never auto-evict it just for
-// sitting idle. Quality competes with vision/OCR for VRAM, so it's only kept
-// warm for a bounded window past last use, long enough to outlast normal
-// back-and-forth in one sitting without camping in VRAM indefinitely once the
-// student's actually done and vision needs the room back.
-const FAST_MODEL_KEEP_ALIVE = -1;
-const QUALITY_MODEL_KEEP_ALIVE = "30m";
 const WEB_SEARCH_MAX_RESULTS = 5;
 const MAX_CHAT_INPUT_CHARS = 4000; // mirrors the client's <input maxLength> in ai-assistant/page.tsx
 
@@ -142,12 +136,13 @@ const CREATE_PDF_TOOL = {
   function: {
     name: "create_pdf",
     description:
-      "Generate a formatted PDF the student can download — e.g. a practice exam, study guide, or worksheet. Write the body as markdown (use # / ## for section headings, numbered lists for questions, **bold** for emphasis); it gets rendered into a real PDF document. Only use this when the student actually wants a document to keep/print/download, not for a normal chat answer.",
+      "Generate a formatted PDF the student can download — e.g. a practice exam, study guide, or worksheet. Write the body as markdown (use # / ## for section headings, numbered lists for questions, **bold** for emphasis); it gets rendered into a real PDF document. Only use this when the student actually wants a document to keep/print/download, not for a normal chat answer. If the PDF is for a specific class (e.g. a practice exam covering that class's material), pass courseId so it's also saved into that class's files, not just handed back as a one-off download.",
     parameters: {
       type: "object",
       properties: {
         title: { type: "string", description: "Short title for the document, used as its filename" },
         markdown: { type: "string", description: "The document body, written in simple markdown" },
+        courseId: { type: "string", description: "Optional: the class ID from context, if this PDF belongs to a specific class and should be saved into that class's files." },
       },
       required: ["title", "markdown"],
     },
@@ -170,6 +165,113 @@ const RECALL_PAST_CHAT_TOOL = {
   },
 };
 
+const CREATE_FLASHCARDS_TOOL = {
+  type: "function",
+  function: {
+    name: "create_flashcards",
+    description:
+      "Generate a set of study flashcards from a specific class document and save it to the student's flashcards for that class, ready to study immediately. Use this when the student asks to make/create/generate flashcards from a document (e.g. 'make flashcards from the syllabus', 'create flashcards for the chapter 3 notes'). Reference the exact courseId from the system context, and the document's filename exactly as shown there.",
+    parameters: {
+      type: "object",
+      properties: {
+        courseId: { type: "string", description: "The class ID the document belongs to" },
+        documentName: { type: "string", description: "The document's filename to generate flashcards from, e.g. \"GroupCreationAssignment.pdf\"" },
+      },
+      required: ["courseId", "documentName"],
+    },
+  },
+};
+
+const CREATE_QUIZ_TOOL = {
+  type: "function",
+  function: {
+    name: "create_quiz",
+    description:
+      "Generate a quiz (multiple choice / true-false / matching questions) from a specific class document and save it to the student's quizzes for that class, ready to take immediately. Use this when the student asks to make/create/generate a quiz or practice test from a document. Reference the exact courseId from the system context, and the document's filename exactly as shown there.",
+    parameters: {
+      type: "object",
+      properties: {
+        courseId: { type: "string", description: "The class ID the document belongs to" },
+        documentName: { type: "string", description: "The document's filename to generate the quiz from, e.g. \"GroupCreationAssignment.pdf\"" },
+        questionCount: { type: "number", description: "How many questions to generate, between 1 and 20. Default to 10 if the student doesn't say." },
+      },
+      required: ["courseId", "documentName"],
+    },
+  },
+};
+
+const DATETIME_FORMAT_NOTE =
+  'Format as "YYYY-MM-DDTHH:MM" in the student\'s local time (24-hour clock, no timezone suffix) — match the "Current date/time" already given in context above for what "today"/"tomorrow"/relative dates mean.';
+
+const LIST_CALENDAR_EVENTS_TOOL = {
+  type: "function",
+  function: {
+    name: "list_calendar_events",
+    description:
+      "Returns every event on the student's personal calendar (title, start/end time, all-day flag, location, notes, and its id). Call this before update_calendar_event or delete_calendar_event to find the right event's id — matching by title alone is unreliable. Also use this to answer 'what's on my calendar' / 'when is X' questions. This does NOT include Google Calendar events if the student has that connected separately, only events created in Catalyst itself (including ones this assistant created).",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+};
+
+const CREATE_CALENDAR_EVENT_TOOL = {
+  type: "function",
+  function: {
+    name: "create_calendar_event",
+    description:
+      "Add a new event to the student's personal calendar — e.g. a study session, appointment, reminder, or due date they mention. Use this whenever the student asks to add/schedule/create/remind them about something on their calendar.",
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Short event title" },
+        startDateTime: { type: "string", description: `When the event starts. ${DATETIME_FORMAT_NOTE}` },
+        endDateTime: { type: "string", description: `When the event ends. ${DATETIME_FORMAT_NOTE} Omit to default to one hour after the start.` },
+        allDay: { type: "boolean", description: "True for an all-day event (e.g. a due date with no specific time) — only startDateTime's date portion is used." },
+        description: { type: "string", description: "Optional notes/details for the event" },
+        location: { type: "string", description: "Optional location" },
+      },
+      required: ["title", "startDateTime"],
+    },
+  },
+};
+
+const UPDATE_CALENDAR_EVENT_TOOL = {
+  type: "function",
+  function: {
+    name: "update_calendar_event",
+    description:
+      "Change an existing calendar event — reschedule it, rename it, or edit its details. Call list_calendar_events first to get the exact eventId; only include the fields that are actually changing.",
+    parameters: {
+      type: "object",
+      properties: {
+        eventId: { type: "string", description: "The event's id, from list_calendar_events" },
+        title: { type: "string", description: "New title, if changing" },
+        startDateTime: { type: "string", description: `New start time, if changing. ${DATETIME_FORMAT_NOTE}` },
+        endDateTime: { type: "string", description: `New end time, if changing. ${DATETIME_FORMAT_NOTE}` },
+        allDay: { type: "boolean", description: "New all-day flag, if changing" },
+        description: { type: "string", description: "New notes/details, if changing" },
+        location: { type: "string", description: "New location, if changing" },
+      },
+      required: ["eventId"],
+    },
+  },
+};
+
+const DELETE_CALENDAR_EVENT_TOOL = {
+  type: "function",
+  function: {
+    name: "delete_calendar_event",
+    description:
+      "Cancel/remove an event from the student's calendar. Call list_calendar_events first to get the exact eventId. This cannot be undone — only call it when the student clearly asks to cancel/delete/remove a specific event.",
+    parameters: {
+      type: "object",
+      properties: {
+        eventId: { type: "string", description: "The event's id, from list_calendar_events" },
+      },
+      required: ["eventId"],
+    },
+  },
+};
+
 // Code-generated, not LLM-generated — the class listing is already fully
 // known from context, but reciting it from memory has repeatedly produced
 // fabricated course codes, instructor names, and invented contact emails
@@ -185,7 +287,9 @@ function renderEnrolledClass(c: ChatClass): string {
   ].join(", ");
 
   const docLines = c.documents.length
-    ? c.documents.map((d) => `  - ${d.name} (${d.fileType}, tag: ${d.category || "untagged"})`).join("\n")
+    ? c.documents
+        .map((d) => `  - ${d.name} (${d.fileType}, tag: ${d.category || "untagged"}${d.ocrScanned ? ", OCR-scanned" : ""})`)
+        .join("\n")
     : "  (no documents uploaded)";
 
   return `${c.classCode} — ${c.className} (${c.term})\n${contactParts}\nSchedule: ${c.classSchedule || "not listed"}\nDocuments:\n${docLines}`;
@@ -513,9 +617,11 @@ async function youtubeSearchTool(query: string): Promise<string> {
 }
 
 async function createPdfTool(
+  request: NextRequest,
   context: ChatContext | undefined,
   title: string,
-  markdown: string
+  markdown: string,
+  courseId?: string
 ): Promise<{ result: string; file?: { name: string; url: string } }> {
   if (!context?.userId) {
     return { result: "Error: no student context available to save a file for." };
@@ -524,7 +630,43 @@ async function createPdfTool(
     return { result: "Error: both a title and content are required to create a PDF." };
   }
 
+  // Only trust a courseId the student is actually enrolled in — same check
+  // readDocument does — so this can't be used to write into an arbitrary
+  // course's resources.
+  const validCourseId = courseId && context.classes.some((c) => c.classId === courseId) ? courseId : undefined;
+
   try {
+    if (validCourseId) {
+      const idToken = getIdToken(request);
+      if (!idToken) return { result: "Error: not authenticated." };
+
+      const file = await generateAndUploadPdfToCourse(context.userId, validCourseId, title, markdown);
+      const resourceId = await firestoreCreate(idToken, `users/${context.userId}/enrollment/${validCourseId}/resources`, {
+        name: file.name,
+        url: file.url,
+        fileType: "pdf",
+        category: "assignments",
+        uploadedAt: new Date(),
+        lastViewedAt: new Date(),
+      });
+
+      // Fire-and-forget, same as the manual-upload UI (fileUploadService.ts)
+      // — not awaited so the chat reply doesn't wait on embedding, which can
+      // take a while for a long exam.
+      if (resourceId) {
+        fetch(resolveInternalUrl(request, "/api/embed-document"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+          body: JSON.stringify({ userId: context.userId, courseId: validCourseId, resourceId }),
+        }).catch((error) => console.error("Background indexing of generated PDF failed:", error));
+      }
+
+      return {
+        result: `PDF created successfully: "${file.name}". It's been saved into this class's files (so it'll show up in Course Resources and can be found again later), and is ready for the student to download now.`,
+        file: { name: file.name, url: file.url },
+      };
+    }
+
     const file = await generateAndUploadPdf(context.userId, title, markdown);
     return { result: `PDF created successfully: "${file.name}". It's ready for the student to download.`, file };
   } catch (error) {
@@ -620,6 +762,292 @@ async function recallPastChatTool(
   }
 }
 
+type GeneratedStudySet = { kind: "flashcard" | "quiz"; id: string; courseId: string; name: string };
+
+// The stored sourceDocKey (flashcardSets/quizSets schema) is the raw MinIO
+// object key, not the download URL — matches the ?key= extraction the
+// client pages already do (flashcards/page.tsx's extractStorageKey) so a
+// chat-created set looks identical to one created from the course page.
+function storageKeyFromDocUrl(url: string): string {
+  return decodeURIComponent(url.split("key=")[1] ?? "");
+}
+
+// Shares the exact same generation logic as the standalone
+// generate-flashcards/generate-quiz routes (see flashcardGeneration.ts/
+// quizGeneration.ts) and the same document-reading path as the
+// read_document tool above — just persists straight to Firestore instead of
+// handing the result back to a client page to save. New sets are always
+// created fresh (never merged into an existing set for the same document,
+// unlike the course-page flow) — simpler, and a student re-asking the chat
+// for "more flashcards" from the same doc reasonably expects a new set.
+async function createFlashcardsFromDocument(
+  request: NextRequest,
+  context: ChatContext | undefined,
+  primaryTarget: OllamaTarget,
+  modelKey: string | undefined,
+  courseId: string,
+  documentName: string
+): Promise<{ result: string; studySet?: GeneratedStudySet }> {
+  if (!context?.userId) {
+    return { result: "Error: no student context available to save flashcards for." };
+  }
+
+  const idToken = getIdToken(request);
+  if (!idToken) {
+    return { result: "Error: not authenticated." };
+  }
+
+  const readResult = await readDocument(request, context, courseId, documentName);
+  if (!readResult.doc) {
+    return { result: readResult.text };
+  }
+
+  try {
+    const generated = await generateFlashcardsWithRetry(readResult.text, primaryTarget.baseUrl, modelKey);
+    const collectionPath = `users/${context.userId}/enrollment/${courseId}/flashcardSets`;
+    const docId = await firestoreCreate(idToken, collectionPath, {
+      name: generated.topicName,
+      sourceDocKey: storageKeyFromDocUrl(readResult.doc.url),
+      cards: generated.questions,
+      pinned: true,
+      visibility: "private",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    if (!docId) {
+      return { result: "Error: the flashcards were generated but failed to save. Tell the student and offer to try again." };
+    }
+
+    return {
+      result: `Created a flashcard set called "${generated.topicName}" with ${generated.questions.length} cards from "${readResult.doc.name}". It's saved to this class's flashcards and ready to study — a link has been shared with the student, don't repeat the raw questions/answers back in your reply unless asked.`,
+      studySet: { kind: "flashcard", id: docId, courseId, name: generated.topicName },
+    };
+  } catch (error) {
+    console.error("create_flashcards tool failed:", error);
+    return { result: "Error: failed to generate flashcards from that document. Tell the student and offer to try again." };
+  }
+}
+
+async function createQuizFromDocument(
+  request: NextRequest,
+  context: ChatContext | undefined,
+  primaryTarget: OllamaTarget,
+  modelKey: string | undefined,
+  courseId: string,
+  documentName: string,
+  questionCount: number | undefined
+): Promise<{ result: string; studySet?: GeneratedStudySet }> {
+  if (!context?.userId) {
+    return { result: "Error: no student context available to save a quiz for." };
+  }
+
+  const idToken = getIdToken(request);
+  if (!idToken) {
+    return { result: "Error: not authenticated." };
+  }
+
+  const readResult = await readDocument(request, context, courseId, documentName);
+  if (!readResult.doc) {
+    return { result: readResult.text };
+  }
+
+  const count = Math.min(20, Math.max(1, Math.round(questionCount ?? 10)));
+
+  try {
+    const generated = await generateQuizWithValidation(
+      readResult.text,
+      count,
+      { multipleChoice: true, trueFalse: true, matching: false },
+      primaryTarget.baseUrl,
+      modelKey
+    );
+    const collectionPath = `users/${context.userId}/enrollment/${courseId}/quizSets`;
+    const docId = await firestoreCreate(idToken, collectionPath, {
+      name: generated.topicName,
+      sourceDocKey: storageKeyFromDocUrl(readResult.doc.url),
+      questions: generated.questions,
+      questionTypes: { multipleChoice: true, trueFalse: true, matching: false },
+      questionCount: generated.questions.length,
+      pinned: true,
+      visibility: "private",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    if (!docId) {
+      return { result: "Error: the quiz was generated but failed to save. Tell the student and offer to try again." };
+    }
+
+    return {
+      result: `Created a quiz called "${generated.topicName}" with ${generated.questions.length} questions from "${readResult.doc.name}". It's saved to this class's quizzes and ready to take — a link has been shared with the student, don't repeat the raw questions back in your reply unless asked.`,
+      studySet: { kind: "quiz", id: docId, courseId, name: generated.topicName },
+    };
+  } catch (error) {
+    console.error("create_quiz tool failed:", error);
+    return { result: "Error: failed to generate a quiz from that document. Tell the student and offer to try again." };
+  }
+}
+
+const CALENDAR_EVENTS_COLLECTION = (userId: string) => `users/${userId}/events`;
+const DEFAULT_EVENT_DURATION_MS = 60 * 60 * 1000;
+
+// The app has no per-user timezone concept anywhere yet — AddEventModal.tsx
+// (the only other writer of this collection) builds its UTC ISO string from
+// a bare "YYYY-MM-DDTHH:MM" using whatever timezone the browser is in, and
+// buildSystemPrompt's own "Current date/time" line for the model is
+// server-local time. This matches both of those exactly (server-local,
+// since there's no browser here) rather than inventing a new convention.
+function parseLocalDateTime(value: string): Date | null {
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+type CalendarEventFields = {
+  title: string;
+  description: string | null;
+  location: string | null;
+  startTime: string;
+  endTime: string;
+  allDay: boolean;
+  tone: string;
+  source: "local";
+};
+
+async function listCalendarEventsTool(request: NextRequest, context: ChatContext | undefined): Promise<string> {
+  if (!context?.userId) return "Error: no student context available.";
+  const idToken = getIdToken(request);
+  if (!idToken) return "Error: not authenticated.";
+
+  try {
+    const events = await firestoreListCollection(idToken, CALENDAR_EVENTS_COLLECTION(context.userId));
+    if (events.length === 0) return "The student has no events on their Catalyst calendar yet.";
+
+    const rows = events
+      .map((e) => ({ id: e.id, ...(e.data as CalendarEventFields) }))
+      .filter((e) => typeof e.startTime === "string" && typeof e.title === "string")
+      .sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+    return rows
+      .map((e) => {
+        const when = e.allDay ? `${e.startTime.slice(0, 10)} (all day)` : `${e.startTime} to ${e.endTime}`;
+        const extras = [e.location ? `location: ${e.location}` : null, e.description ? `notes: ${e.description}` : null]
+          .filter(Boolean)
+          .join(", ");
+        return `[id: ${e.id}] "${e.title}" — ${when}${extras ? ` (${extras})` : ""}`;
+      })
+      .join("\n");
+  } catch (error) {
+    console.error("list_calendar_events tool failed:", error);
+    return "Error: couldn't load the student's calendar right now.";
+  }
+}
+
+async function createCalendarEventTool(
+  request: NextRequest,
+  context: ChatContext | undefined,
+  args: { title?: string; startDateTime?: string; endDateTime?: string; allDay?: boolean; description?: string; location?: string }
+): Promise<string> {
+  if (!context?.userId) return "Error: no student context available to save an event for.";
+  const idToken = getIdToken(request);
+  if (!idToken) return "Error: not authenticated.";
+  if (!args.title || !args.startDateTime) return "Error: an event needs at least a title and a start date/time.";
+
+  const allDay = Boolean(args.allDay);
+  let startTime: string;
+  let endTime: string;
+
+  if (allDay) {
+    const datePart = args.startDateTime.slice(0, 10);
+    const start = parseLocalDateTime(`${datePart}T00:00:00`);
+    const end = parseLocalDateTime(`${datePart}T23:59:59`);
+    if (!start || !end) return `Error: couldn't understand the date "${args.startDateTime}".`;
+    startTime = start.toISOString();
+    endTime = end.toISOString();
+  } else {
+    const start = parseLocalDateTime(args.startDateTime);
+    if (!start) return `Error: couldn't understand the start date/time "${args.startDateTime}" — use YYYY-MM-DDTHH:MM.`;
+    const end = args.endDateTime ? parseLocalDateTime(args.endDateTime) : new Date(start.getTime() + DEFAULT_EVENT_DURATION_MS);
+    if (!end) return `Error: couldn't understand the end date/time "${args.endDateTime}" — use YYYY-MM-DDTHH:MM.`;
+    startTime = start.toISOString();
+    endTime = end.toISOString();
+  }
+
+  try {
+    const docId = await firestoreCreate(idToken, CALENDAR_EVENTS_COLLECTION(context.userId), {
+      title: args.title,
+      description: args.description || null,
+      location: args.location || null,
+      startTime,
+      endTime,
+      allDay,
+      tone: "sage",
+      source: "local",
+    } satisfies CalendarEventFields);
+
+    if (!docId) return "Error: the event was created but failed to save. Tell the student and offer to try again.";
+    return `Added "${args.title}" to the student's calendar. It's saved and visible on their Calendar page now.`;
+  } catch (error) {
+    console.error("create_calendar_event tool failed:", error);
+    return "Error: failed to create the calendar event. Tell the student and offer to try again.";
+  }
+}
+
+async function updateCalendarEventTool(
+  request: NextRequest,
+  context: ChatContext | undefined,
+  args: {
+    eventId?: string;
+    title?: string;
+    startDateTime?: string;
+    endDateTime?: string;
+    allDay?: boolean;
+    description?: string;
+    location?: string;
+  }
+): Promise<string> {
+  if (!context?.userId) return "Error: no student context available.";
+  const idToken = getIdToken(request);
+  if (!idToken) return "Error: not authenticated.";
+  if (!args.eventId) return "Error: an eventId is required — call list_calendar_events first to find it.";
+
+  const fields: Record<string, unknown> = {};
+  if (args.title) fields.title = args.title;
+  if (args.description !== undefined) fields.description = args.description || null;
+  if (args.location !== undefined) fields.location = args.location || null;
+  if (typeof args.allDay === "boolean") fields.allDay = args.allDay;
+  if (args.startDateTime) {
+    const start = parseLocalDateTime(args.startDateTime);
+    if (!start) return `Error: couldn't understand the start date/time "${args.startDateTime}" — use YYYY-MM-DDTHH:MM.`;
+    fields.startTime = start.toISOString();
+  }
+  if (args.endDateTime) {
+    const end = parseLocalDateTime(args.endDateTime);
+    if (!end) return `Error: couldn't understand the end date/time "${args.endDateTime}" — use YYYY-MM-DDTHH:MM.`;
+    fields.endTime = end.toISOString();
+  }
+  if (Object.keys(fields).length === 0) return "Error: nothing to update was specified.";
+
+  const ok = await firestoreUpdate(idToken, CALENDAR_EVENTS_COLLECTION(context.userId), args.eventId, fields);
+  if (!ok) return "Error: failed to update that event — it may not exist. Tell the student and offer to try again.";
+  return "Updated the event. Changes are saved and visible on the student's Calendar page now.";
+}
+
+async function deleteCalendarEventTool(
+  request: NextRequest,
+  context: ChatContext | undefined,
+  eventId: string | undefined
+): Promise<string> {
+  if (!context?.userId) return "Error: no student context available.";
+  const idToken = getIdToken(request);
+  if (!idToken) return "Error: not authenticated.";
+  if (!eventId) return "Error: an eventId is required — call list_calendar_events first to find it.";
+
+  const ok = await firestoreDelete(idToken, CALENDAR_EVENTS_COLLECTION(context.userId), eventId);
+  if (!ok) return "Error: failed to remove that event — it may not exist. Tell the student and offer to try again.";
+  return "Removed the event from the student's calendar.";
+}
+
 // Both chat models have shown this bug: even with think:false, they
 // sometimes still emit raw chain-of-thought as plain content, ending in a
 // stray closing </think> tag with no matching opening tag (qwen3:30b-a3b -
@@ -639,9 +1067,27 @@ async function recallPastChatTool(
 // correct version that let a leak flash on screen before being wiped) is
 // that the reply bubble shows a plain "Thinking..."/spinner status with
 // nothing streaming until this resolves, instead of token-by-token
-// streaming from the first token. Applied to both models uniformly, now
-// that gpt-oss:20b has shown the same tag-delimited leak qwen3:30b-a3b did.
-const THINK_STRIP_BUFFER_CAP = 8000;
+// streaming from the first token. Only worth paying that cost for the two
+// models actually confirmed to leak (qwen3A3b, and fastResident/gpt-oss:20b
+// per this same 2026-08-11 finding) - applying it to every model
+// unconditionally (as it was before the 2026-08-13 model-selection
+// settings added museGlimmer/nemotron/qwenCoder) meant those three never
+// appeared to stream at all: any response short enough to stay under the
+// cap, with no </think> tag to trigger early, sat fully buffered until the
+// round finished and flush() released it all at once. See
+// deltaHandlerForModel below for the model-scoped choice.
+//
+// Known remaining gap (confirmed live 2026-08-14, a verbose pre-tool-call
+// reasoning block that ran long before finally emitting </think>): if the
+// leak itself is long enough to cross this cap before the tag ever shows
+// up, the cap-hit branch above releases the still-unstripped buffer raw —
+// and once that's streamed to the client there's no undoing it, even
+// though the tag (and discard(), if it turns out to be a tool-call round)
+// would have caught it a moment later. Raised from 8000 to cut down how
+// often real leaked reasoning is long enough to hit this, at the cost of
+// a longer "Thinking..." wait before an unusually long *legitimate* reply
+// starts streaming. Doesn't close the gap entirely — just narrows it.
+const THINK_STRIP_BUFFER_CAP = 20000;
 
 function wrapDeltaForThinkStripping(onDelta: (text: string) => void): {
   handleDelta: (text: string) => void;
@@ -695,6 +1141,59 @@ function wrapDeltaForThinkStripping(onDelta: (text: string) => void): {
   }
 
   return { handleDelta, flush, discard };
+}
+
+// The two models with a confirmed <think>-leak (see THINK_STRIP_BUFFER_CAP's
+// comment) - every other model streams straight through via
+// passthroughDelta below instead.
+const MODELS_KNOWN_TO_LEAK_THINKING = ["qwen3A3b", "fastResident"];
+
+// No buffering, no delay - text reaches the client the instant Ollama
+// produces it. flush/discard are no-ops since there's never anything held
+// back to release or drop.
+function passthroughDelta(onDelta: (text: string) => void): {
+  handleDelta: (text: string) => void;
+  flush: () => void;
+  discard: () => void;
+} {
+  return { handleDelta: onDelta, flush: () => {}, discard: () => {} };
+}
+
+function deltaHandlerForModel(modelKey: string | undefined, onDelta: (text: string) => void) {
+  return MODELS_KNOWN_TO_LEAK_THINKING.includes(modelKey ?? "")
+    ? wrapDeltaForThinkStripping(onDelta)
+    : passthroughDelta(onDelta);
+}
+
+const OLLAMA_PS_TIMEOUT_MS = 5000; // this only decides which status label to show - never worth blocking the real request over
+
+// Whether modelName is already resident on Ollama right now, via /api/ps
+// (Ollama's "list currently loaded models" endpoint). Used purely to pick
+// the right status label before generating (see the "Cold booting
+// model..."/"Sending your question..." send below) - fails open to `true`
+// (the non-cold-boot label) on any error, since a wrong guess here is only
+// a cosmetic mislabel, never worth surfacing as a real error or delaying
+// the actual chat request over.
+async function isModelLoaded(baseUrl: string, modelName: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), OLLAMA_PS_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${baseUrl}/api/ps`, {
+      headers: { Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}` },
+      signal: controller.signal,
+    });
+    if (!response.ok) return true;
+    const data = await response.json();
+    const loadedModels: unknown[] = Array.isArray(data?.models) ? data.models : [];
+    return loadedModels.some((m) => {
+      const entry = m as { name?: string; model?: string };
+      return entry.name === modelName || entry.model === modelName;
+    });
+  } catch {
+    return true;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 // keep_alive controls how long Ollama holds a model in VRAM after a
@@ -1009,6 +1508,7 @@ async function finishChatPersistence(
     text: string;
     documentsRead?: string[];
     generatedFiles?: { name: string; url: string }[];
+    generatedStudySets?: GeneratedStudySet[];
     summary?: string;
     summarizedCount?: number;
   }
@@ -1021,6 +1521,7 @@ async function finishChatPersistence(
       text: final.text,
       ...(final.documentsRead?.length ? { documentsRead: final.documentsRead } : {}),
       ...(final.generatedFiles?.length ? { generatedFiles: final.generatedFiles } : {}),
+      ...(final.generatedStudySets?.length ? { generatedStudySets: final.generatedStudySets } : {}),
     };
 
     const fields: Record<string, unknown> = { messages, generating: false, updatedAt: new Date() };
@@ -1056,7 +1557,7 @@ async function persistPartialReply(target: PersistTarget, text: string): Promise
 // Response protocol (newline-delimited JSON, one object per line):
 //   {"type":"delta","text":"..."}                                — append to the reply
 //   {"type":"tool","name":"search_documents"}                    — a tool started running
-//   {"type":"done","documentsRead":[...],"generatedFiles":[...],"summary":"...","summarizedCount":N}
+//   {"type":"done","documentsRead":[...],"generatedFiles":[...],"generatedStudySets":[...],"summary":"...","summarizedCount":N}
 //   {"type":"error","error":"..."}
 //   {"type":"session","id":"..."}                                 — new session's ID (first turn only)
 export async function POST(request: NextRequest) {
@@ -1081,8 +1582,7 @@ export async function POST(request: NextRequest) {
     currentSessionId,
     pageContext,
     panelContextKey,
-    chatMode,
-    boost,
+    modelKey,
     extraTools,
   } = (await request.json().catch(() => ({}))) as {
     messages?: ChatMessage[];
@@ -1092,13 +1592,13 @@ export async function POST(request: NextRequest) {
     currentSessionId?: string;
     pageContext?: unknown;
     panelContextKey?: string;
-    // Client-stored preference (see src/library/chatMode.ts), sent with
-    // every request - the server has no independent copy of this, it just
-    // trusts whatever the client sends per-request, same as summary/context.
-    chatMode?: "fast" | "quality";
-    // Per-message override: uses the quality model for just this one
-    // message regardless of the student's saved default mode.
-    boost?: boolean;
+    // Client-stored preference (see src/library/chatMode.ts's
+    // getEffectiveModelKey), sent with every request - the server has no
+    // independent copy of this, it just trusts whatever the client sends
+    // per-request, same as summary/context, resolving it through a fixed
+    // server-side allow-list (see ollamaClient.ts's resolveModelFromKey)
+    // rather than trusting a raw model string from the client.
+    modelKey?: string;
     // Opt-in for tools that aren't always necessary (web/YouTube search) -
     // off by default. Fewer tools in the schema on every request means less
     // for the model to choose between (real tool-selection accuracy cost,
@@ -1165,20 +1665,20 @@ export async function POST(request: NextRequest) {
   }
 
   const encoder = new TextEncoder();
-  // Fast = a smaller model kept always-resident on Primary alongside the
-  // vision model, zero cold-boot swaps ever, including for OCR. Quality =
-  // a larger model that's both faster and noticeably better for plain
-  // chat/quiz/advising text, but has to evict the vision model (and vice
-  // versa) whenever OCR is actually needed - see the gatekeeper proxy in
-  // front of Ollama for the eviction mechanics. `boost` overrides the
-  // student's saved default for just this one message.
-  const useQualityModel = boost === true || chatMode === "quality";
+  // modelKey picks which of the 5 models (see chatMode.ts's TaskModelKey/
+  // UnifiedModelKey) actually handles this chat turn - either the
+  // student's per-task "AI Chat model" choice, or the unified pick if
+  // they've turned on "Reduce cold boots" (see getEffectiveModelKey).
+  // Whichever one it is boots immediately and then stays resident
+  // indefinitely (FAST_MODEL_KEEP_ALIVE), until the student picks a
+  // different one - not just when it happens to be "fastResident". Every
+  // key other than "fastResident" itself still competes with the
+  // vision/OCR model for VRAM while it's the one loaded - see the
+  // gatekeeper proxy in front of Ollama for the eviction mechanics.
   const primaryTarget: OllamaTarget = {
     baseUrl: await resolveOllamaBaseUrl(process.env.OLLAMA_PRIMARY_URL, process.env.OLLAMA_PRIMARY_FALLBACK_URL),
-    model: useQualityModel
-      ? process.env.OLLAMA_MODEL_QUALITY || process.env.OLLAMA_MODEL || "qwen3:30b-a3b"
-      : process.env.OLLAMA_MODEL_FAST || process.env.OLLAMA_MODEL || "gpt-oss:20b",
-    keepAlive: useQualityModel ? QUALITY_MODEL_KEEP_ALIVE : FAST_MODEL_KEEP_ALIVE,
+    model: resolveModelFromKey(modelKey),
+    keepAlive: FAST_MODEL_KEEP_ALIVE,
   };
   const stream = new ReadableStream({
     async start(controller) {
@@ -1197,6 +1697,7 @@ export async function POST(request: NextRequest) {
       let studentProfile: StudentProfile = { summary: "", messageCount: 0 };
       const documentsRead: string[] = [];
       const generatedFiles: { name: string; url: string }[] = [];
+      const generatedStudySets: GeneratedStudySet[] = [];
       let persistTarget: PersistTarget | null = null;
       // Accumulates the same post-think-stripping text actually sent to the
       // live client, so a resumed viewer's partial text always matches what
@@ -1227,10 +1728,9 @@ export async function POST(request: NextRequest) {
       }
 
       // Fresh buffer state per round (each call site invokes this once per
-      // streamOllamaRound call) - see wrapDeltaForThinkStripping above.
-      // Applied to both models uniformly - see that function's comment for
-      // why the old quality-only gate was dropped. onDelta only ever fires
-      // with already-clean text (post-buffering), so nothing downstream of
+      // streamOllamaRound call) - see deltaHandlerForModel above for which
+      // models actually get buffered vs. stream straight through. onDelta
+      // only ever fires with already-clean text, so nothing downstream of
       // it - including recordDeltaForPersistence - ever sees raw
       // chain-of-thought either.
       const makeDeltaHandler = () => {
@@ -1238,7 +1738,7 @@ export async function POST(request: NextRequest) {
           send({ type: "delta", text: delta });
           recordDeltaForPersistence(delta);
         };
-        return wrapDeltaForThinkStripping(base);
+        return deltaHandlerForModel(modelKey, base);
       };
       let finalAnswerText: string | null = null;
       // Persisted alongside the finished reply below; defaults to the raw
@@ -1274,15 +1774,16 @@ export async function POST(request: NextRequest) {
         // alongside profile-loading (not after) so their round-trips are
         // hidden behind that rather than adding their own serial latency in
         // front of every response. Clarification itself is skipped outright
-        // in Fast mode: it's designed fail-open/additive (see
-        // queryClarifier.ts), so "off" here just means the raw message goes
-        // to the primary model unclarified, same as any other message this
-        // feature declines to touch - a real (if now modest, since the
-        // llama3.2:3b swap) latency + one fewer network round trip saved
-        // for students who've explicitly opted into Fast over Quality.
+        // for the always-resident "fastResident" key: it's designed
+        // fail-open/additive (see queryClarifier.ts), so skipping it just
+        // means the raw message goes to the primary model unclarified, same
+        // as any other message this feature declines to touch - a real (if
+        // now modest, since the llama3.2:3b swap) latency + one fewer
+        // network round trip saved for students who've explicitly opted
+        // into the fastest model.
         const [loadedProfile, clarifiedIntent, startedPersist] = await Promise.all([
           context?.userId ? getStudentProfile(context.userId, getIdToken(request) ?? undefined) : Promise.resolve(studentProfile),
-          useQualityModel && typeof latestMessage?.content === "string"
+          modelKey !== "fastResident" && typeof latestMessage?.content === "string"
             ? clarifyUserQuery(latestMessage.content)
             : Promise.resolve(null),
           typeof latestMessage?.content === "string"
@@ -1319,6 +1820,12 @@ export async function POST(request: NextRequest) {
           SEARCH_DOCUMENTS_TOOL,
           READ_DOCUMENT_TOOL,
           CREATE_PDF_TOOL,
+          CREATE_FLASHCARDS_TOOL,
+          CREATE_QUIZ_TOOL,
+          LIST_CALENDAR_EVENTS_TOOL,
+          CREATE_CALENDAR_EVENT_TOOL,
+          UPDATE_CALENDAR_EVENT_TOOL,
+          DELETE_CALENDAR_EVENT_TOOL,
           RECALL_PAST_CHAT_TOOL,
           // Opt-in only (see extraTools in the request body type above) -
           // these two are the only tools that reach outside the student's
@@ -1334,8 +1841,17 @@ export async function POST(request: NextRequest) {
         // The model's first token can legitimately take a while (cold model
         // load after idle — see OLLAMA_TIMEOUT_MS), so this is the last
         // status update before either a real answer or a tool call starts
-        // streaming in on its own.
-        send({ type: "status", label: "Sending your question to the AI model..." });
+        // streaming in on its own. isModelLoaded is a best-effort check
+        // (fails open to the non-cold-boot label on any error) purely so a
+        // student switching models on the settings page sees an honest
+        // "this is going to take a bit" label instead of the generic one.
+        const modelAlreadyLoaded = await isModelLoaded(primaryTarget.baseUrl, primaryTarget.model);
+        send({
+          type: "status",
+          label: modelAlreadyLoaded
+            ? "Sending your question to the AI model..."
+            : "Cold booting model...",
+        });
 
         for (let round = 0; round < MAX_TOOL_ROUNDS && !finished; round++) {
           const { handleDelta, flush, discard } = makeDeltaHandler();
@@ -1394,9 +1910,40 @@ export async function POST(request: NextRequest) {
               } else if (fnName === "search_youtube") {
                 result = await youtubeSearchTool(args.query);
               } else if (fnName === "create_pdf") {
-                const pdfResult = await createPdfTool(context, args.title, args.markdown);
+                const pdfResult = await createPdfTool(request, context, args.title, args.markdown, args.courseId);
                 result = pdfResult.result;
                 if (pdfResult.file) generatedFiles.push(pdfResult.file);
+              } else if (fnName === "create_flashcards") {
+                const flashcardResult = await createFlashcardsFromDocument(
+                  request,
+                  context,
+                  primaryTarget,
+                  modelKey,
+                  args.courseId,
+                  args.documentName
+                );
+                result = flashcardResult.result;
+                if (flashcardResult.studySet) generatedStudySets.push(flashcardResult.studySet);
+              } else if (fnName === "create_quiz") {
+                const quizResult = await createQuizFromDocument(
+                  request,
+                  context,
+                  primaryTarget,
+                  modelKey,
+                  args.courseId,
+                  args.documentName,
+                  args.questionCount
+                );
+                result = quizResult.result;
+                if (quizResult.studySet) generatedStudySets.push(quizResult.studySet);
+              } else if (fnName === "list_calendar_events") {
+                result = await listCalendarEventsTool(request, context);
+              } else if (fnName === "create_calendar_event") {
+                result = await createCalendarEventTool(request, context, args);
+              } else if (fnName === "update_calendar_event") {
+                result = await updateCalendarEventTool(request, context, args);
+              } else if (fnName === "delete_calendar_event") {
+                result = await deleteCalendarEventTool(request, context, args.eventId);
               } else if (fnName === "recall_past_chat") {
                 result = await recallPastChatTool(request, context, currentSessionId, args.query);
               } else {
@@ -1455,6 +2002,7 @@ export async function POST(request: NextRequest) {
             type: "done",
             documentsRead,
             generatedFiles,
+            generatedStudySets,
             summary: finalCompaction.summary,
             summarizedCount: finalCompaction.summarizedCount,
           });
@@ -1494,6 +2042,7 @@ export async function POST(request: NextRequest) {
               type: "done",
               documentsRead,
               generatedFiles,
+              generatedStudySets,
               summary: finalCompaction.summary,
               summarizedCount: finalCompaction.summarizedCount,
             });
@@ -1526,6 +2075,7 @@ export async function POST(request: NextRequest) {
             text: finalAnswerText ?? "Something went wrong generating this reply. Please try again.",
             documentsRead,
             generatedFiles,
+            generatedStudySets,
             summary: persistedSummary,
             summarizedCount: persistedSummarizedCount,
           });

@@ -1,9 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
-import { getStoredChatMode } from '@/src/library/chatMode';
+import { getEffectiveModelKey } from '@/src/library/chatMode';
+import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
+import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
+import { buildPageTextSuggestions, type PageTextPageContext } from '@/src/library/Contextual_AI/contextualAi';
 import { getCourseResources } from '@/src/components/resourceManagement/fileUploadService';
 import {
   addDoc,
@@ -85,6 +88,21 @@ export default function CourseLearningPage() {
   const [quizError, setQuizError] = useState<string | null>(null);
 
   const [togglingVisibilityId, setTogglingVisibilityId] = useState<string | null>(null);
+
+  // "Ask Catalyst" floating panel — same page_text pattern as the course
+  // overview page, since this page (choosing a document to turn into
+  // flashcards/quizzes) has nothing as structured as a flashcard/quiz
+  // result to model either.
+  const [catalystOpen, setCatalystOpen] = useState(false);
+  const catalystBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [catalystChatContext, setCatalystChatContext] = useState<ChatContext | null>(null);
+
+  useEffect(() => {
+    if (!user?.email) return;
+    buildChatContext(user.uid, user.email)
+      .then(setCatalystChatContext)
+      .catch(() => setCatalystChatContext(null));
+  }, [user]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -221,7 +239,7 @@ export default function CourseLearningPage() {
           docName: quizDocument.name,
           questionCount: config.questionCount,
           questionTypes: config.questionTypes,
-          chatMode: getStoredChatMode(),
+          modelKey: getEffectiveModelKey('quiz'),
         }),
       });
 
@@ -350,6 +368,18 @@ export default function CourseLearningPage() {
       setDeleting(false);
     }
   };
+
+  const learningPageText = [
+    `${courseCode || courseDisplayName} — Learning page (create flashcards/quizzes from a document, or open an existing set).`,
+    resources.length
+      ? `Documents available to turn into flashcards/quizzes (${resources.length}): ${resources.map((r) => r.name).join(', ')}`
+      : 'No documents uploaded to this class yet — the student needs to upload one before creating flashcards or a quiz.',
+    `Existing flashcard sets: ${flashcardSets.length ? flashcardSets.map((s) => s.name).join(', ') : 'none yet'}`,
+    `Existing quiz sets: ${quizSets.length ? quizSets.map((s) => s.name).join(', ') : 'none yet'}`,
+  ].join('\n');
+  const learningPageContext: PageTextPageContext | null =
+    !loading ? { kind: 'page_text', courseId, pageTitle: `the ${courseCode || courseDisplayName} Learning page`, pageText: learningPageText } : null;
+  const catalystSuggestions = learningPageContext ? buildPageTextSuggestions(learningPageContext) : [];
 
   if (authLoading || loading) {
     return (
@@ -481,6 +511,22 @@ export default function CourseLearningPage() {
           )}
         </div>
       </div>
+
+      {learningPageContext && catalystChatContext && (
+        <>
+          <CatalystLauncher onClick={() => setCatalystOpen(true)} visible={!catalystOpen} buttonRef={catalystBtnRef} />
+          <ContextualAiPanel
+            open={catalystOpen}
+            onClose={() => setCatalystOpen(false)}
+            contextLabel={`Learning — ${courseDisplayName}`}
+            suggestions={catalystSuggestions}
+            pageContext={learningPageContext}
+            chatContext={catalystChatContext}
+            panelContextKey={`learning:${courseId}`}
+            launcherRef={catalystBtnRef}
+          />
+        </>
+      )}
 
       <LectureChoiceModal
         open={!!selectedResource}

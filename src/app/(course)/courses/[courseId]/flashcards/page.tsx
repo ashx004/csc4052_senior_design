@@ -5,7 +5,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
 import { useCourseInfo } from '@/src/hooks/useCourseInfo';
 import { getCourseResources } from '@/src/components/resourceManagement/fileUploadService';
-import { getStoredChatMode } from '@/src/library/chatMode';
+import { getEffectiveModelKey } from '@/src/library/chatMode';
 import {
   doc,
   getDoc,
@@ -51,7 +51,7 @@ async function requestFlashcards(
   const response = await fetch('/api/generate-flashcards', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ docUrl, docName, previousQuestions, chatMode: getStoredChatMode() }),
+    body: JSON.stringify({ docUrl, docName, previousQuestions, modelKey: getEffectiveModelKey('flashcards') }),
   });
 
   const data = await response.json();
