@@ -1,8 +1,13 @@
 import { NextRequest } from "next/server";
+import path from "path";
+import { pathToFileURL } from "url";
 import { PAGE_BREAK_MARKER } from "./chunking";
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdfParse = require("pdf-parse/lib/pdf-parse.js");
+type PositionedText = {
+  text: string;
+  x: number;
+  y: number;
+};
 
 // Mirrors pdf-parse's own default render_page (same getTextContent options,
 // same lastY-based line-break heuristic) so page-aware extraction doesn't
@@ -28,30 +33,138 @@ function renderPageWithMarker(pageData: any): Promise<string> {
 
 export function resolveInternalUrl(request: NextRequest, relativeUrl: string): string {
   const host = request.headers.get("host");
-  const protocol = process.env.NODE_ENV === "development" ? "http" : "https";
+
+  const protocol =
+    process.env.NODE_ENV === "development"
+      ? "http"
+      : "https";
+
   return `${protocol}://${host}${relativeUrl}`;
 }
 
-// /api/download now requires either a logged-in owner or this internal
-// header (see verifyAuth.ts) — every server-to-server document fetch must
-// go through this instead of a bare fetch().
-export function fetchInternal(url: string): Promise<Response> {
+export function fetchInternal(
+  url: string
+): Promise<Response> {
   return fetch(url, {
-    headers: process.env.INTERNAL_API_SECRET ? { "x-internal-secret": process.env.INTERNAL_API_SECRET } : {},
+    headers: process.env.INTERNAL_API_SECRET
+      ? {
+          "x-internal-secret":
+            process.env.INTERNAL_API_SECRET,
+        }
+      : {},
   });
 }
 
-export async function extractPdfTextFromUrl(fullUrl: string): Promise<string> {
+export async function extractPdfTextFromUrl(
+  fullUrl: string
+): Promise<string> {
   const fileResponse = await fetchInternal(fullUrl);
+
   if (!fileResponse.ok) {
-    throw new Error(`Failed to download PDF (${fileResponse.status})`);
+    throw new Error(
+      `Failed to download PDF (${fileResponse.status})`
+    );
   }
 
-  const fileBuffer = Buffer.from(await fileResponse.arrayBuffer());
-  const pdfData = await pdfParse(fileBuffer, { pagerender: renderPageWithMarker });
-  // .trim() only strips leading/trailing whitespace — PAGE_BREAK_MARKER is
-  // non-whitespace (see chunking.ts) and survives, including a trailing one
-  // after the last page, which chunkText's split() handles fine (its final
-  // page-text segment is just empty).
-  return (pdfData.text as string).trim();
+  const arrayBuffer =
+    await fileResponse.arrayBuffer();
+
+  const data = new Uint8Array(arrayBuffer);
+
+  /*
+    Dynamically import PDF.js so Next.js does not
+    bundle it the same way as a normal top-level import.
+  */
+  const pdfjsLib = await import(
+    "pdfjs-dist/legacy/build/pdf.mjs"
+  );
+
+  /*
+    Point PDF.js directly to the worker inside node_modules.
+  */
+  const workerPath = path.join(
+    process.cwd(),
+    "node_modules",
+    "pdfjs-dist",
+    "legacy",
+    "build",
+    "pdf.worker.mjs"
+  );
+
+
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+
+  const pdf = await pdfjsLib.getDocument({
+    data,
+  }).promise;
+
+  const pages: string[] = [];
+
+  for (
+    let pageNumber = 1;
+    pageNumber <= pdf.numPages;
+    pageNumber++
+  ) {
+    const page =
+      await pdf.getPage(pageNumber);
+
+    const content =
+      await page.getTextContent();
+
+    const items: PositionedText[] =
+      content.items
+        .filter(
+          (item: any) =>
+            "str" in item &&
+            item.str.trim() !== ""
+        )
+        .map((item: any) => ({
+          text: item.str,
+          x: item.transform[4],
+          y: item.transform[5],
+        }));
+
+    const lines: PositionedText[][] = [];
+
+    for (const item of items) {
+      let line = lines.find(
+        (existingLine) =>
+          Math.abs(
+            existingLine[0].y - item.y
+          ) < 3
+      );
+
+      if (!line) {
+        line = [];
+        lines.push(line);
+      }
+
+      line.push(item);
+    }
+
+    lines.sort(
+      (a, b) => b[0].y - a[0].y
+    );
+
+    const pageLines = lines.map(
+      (line) => {
+        line.sort(
+          (a, b) => a.x - b.x
+        );
+
+        return line
+          .map((item) => item.text)
+          .join(" ")
+          .trim();
+      }
+    );
+
+    pages.push(
+      `--- PAGE ${pageNumber} ---\n${pageLines.join("\n")}`
+    );
+  }
+
+  return pages
+    .join("\n\n")
+    .trim();
 }
