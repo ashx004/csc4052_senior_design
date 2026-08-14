@@ -62,4 +62,29 @@ describe("ocrImage", () => {
 
     await expect(ocrImage(IMAGE_BYTES)).rejects.toThrow("OCR service is not configured.");
   });
+
+  it("times out with a clear message if the request hangs, instead of waiting forever", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init: RequestInit) => {
+        // Mirrors real fetch's own abort behavior — never resolves on its
+        // own, only rejects once the combined signal actually fires.
+        return new Promise((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => {
+            const err = new Error("This operation was aborted");
+            err.name = "AbortError";
+            reject(err);
+          });
+        });
+      })
+    );
+
+    const promise = ocrImage(IMAGE_BYTES);
+    const assertion = expect(promise).rejects.toThrow("OCR transcription timed out after 120s.");
+    await vi.advanceTimersByTimeAsync(120_000);
+    await assertion;
+
+    vi.useRealTimers();
+  });
 });

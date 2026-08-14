@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { buildChatContext, PageAIContext } from "@/src/library/chatContext";
 import { readChatStream, TOOL_STATUS_LABELS } from "@/src/library/chatStream";
 import { useChatStatus } from "@/src/library/useChatStatus";
-import { getStoredChatMode } from "@/src/library/chatMode";
+import { getEffectiveModelKey } from "@/src/library/chatMode";
 import type { PageTextPageContext } from "@/src/library/Contextual_AI/contextualAi";
 
 export type PanelMessage = {
@@ -63,7 +63,7 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
           summary: summaryRef.current,
           summarizedCount: summarizedCountRef.current,
           currentSessionId: null, // panel conversations are ephemeral, never persisted as a chatMemory session
-          chatMode: getStoredChatMode(),
+          modelKey: getEffectiveModelKey("chat"),
         }),
       });
 

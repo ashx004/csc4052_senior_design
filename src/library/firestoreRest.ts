@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { jwtVerify, createRemoteJWKSet } from "jose";
+import { createTimeoutSignal } from "./withTimeout";
 
 // ── Firestore REST helpers (no firebase-admin / client SDK needed) ───────────
 // These run in Node.js API routes, so the client-side Firebase SDK
@@ -12,6 +13,18 @@ const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT_I
 const JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com")
 );
+
+// None of this file's fetches had any timeout at all until 2026-08-14 (same
+// sweep that caught ocrClient.ts's and vectorStore.ts's) — this is the
+// broadest-blast-radius instance of that pattern, since nearly every API
+// route in the app goes through one of these helpers. A thin wrapper here
+// covers all of them at once rather than threading a signal through every
+// call site by hand.
+const FIRESTORE_TIMEOUT_MS = 15_000;
+function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const { signal, cancel } = createTimeoutSignal(FIRESTORE_TIMEOUT_MS, "Firestore REST call");
+  return fetch(url, { ...init, signal }).finally(cancel);
+}
 
 /** Extract the uid from the fb_token cookie on a server request. */
 export async function getUidFromRequest(req: NextRequest): Promise<string | null> {
@@ -40,7 +53,7 @@ export async function firestoreGet(
   docId: string
 ): Promise<Record<string, unknown> | null> {
   const url = `${FIRESTORE_BASE}/${collection}/${docId}`;
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     headers: { Authorization: `Bearer ${idToken}` },
   });
   if (!res.ok) return null;
@@ -66,7 +79,7 @@ export async function firestoreUpdate(
   for (const key of Object.keys(fields)) {
     params.append("updateMask.fieldPaths", key);
   }
-  const res = await fetch(`${url}?${params.toString()}`, {
+  const res = await fetchWithTimeout(`${url}?${params.toString()}`, {
     method: "PATCH",
     headers: {
       Authorization: `Bearer ${idToken}`,
@@ -87,7 +100,7 @@ export async function firestoreCreate(
   collection: string,
   fields: Record<string, unknown>
 ): Promise<string | null> {
-  const res = await fetch(`${FIRESTORE_BASE}/${collection}`, {
+  const res = await fetchWithTimeout(`${FIRESTORE_BASE}/${collection}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${idToken}`,
@@ -105,6 +118,19 @@ export async function firestoreCreate(
   return name.split("/").pop() || null;
 }
 
+/** Delete a document. Returns whether it succeeded. */
+export async function firestoreDelete(idToken: string, collection: string, docId: string): Promise<boolean> {
+  const res = await fetchWithTimeout(`${FIRESTORE_BASE}/${collection}/${docId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${idToken}` },
+  });
+  if (!res.ok) {
+    console.error("Firestore delete failed:", res.status, await res.text());
+    return false;
+  }
+  return true;
+}
+
 /** List every document in a collection, unfiltered. */
 export async function firestoreListCollection(
   idToken: string,
@@ -116,7 +142,7 @@ export async function firestoreListCollection(
   while (true) {
     let url = `${FIRESTORE_BASE}/${collectionPath}?pageSize=300`;
     if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       headers: { Authorization: `Bearer ${idToken}` },
     });
     if (!res.ok) return accumulated;
@@ -142,7 +168,7 @@ export async function firestoreRunQuery(
   collectionId: string,
   opts: { orderByField: string; direction?: "ASCENDING" | "DESCENDING"; limit: number }
 ): Promise<{ id: string; data: Record<string, unknown> }[]> {
-  const res = await fetch(`${FIRESTORE_BASE}/${parentPath}:runQuery`, {
+  const res = await fetchWithTimeout(`${FIRESTORE_BASE}/${parentPath}:runQuery`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${idToken}`,
@@ -171,7 +197,7 @@ export async function firestoreCommitBatch(
   idToken: string,
   writes: { path: string; fields: Record<string, unknown> }[]
 ): Promise<void> {
-  const res = await fetch(`${FIRESTORE_BASE}:commit`, {
+  const res = await fetchWithTimeout(`${FIRESTORE_BASE}:commit`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${idToken}`,

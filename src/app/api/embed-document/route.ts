@@ -69,6 +69,11 @@ async function persistImageTranscriptionAsResource(opts: {
     name: txtName,
     url: `/api/download?key=${encodeURIComponent(txtStoragePath)}`,
     fileType: "txt",
+    // Marks this resource as an OCR transcription rather than a plain
+    // uploaded .txt file, so the UI can tag it distinctly (see
+    // ResourcePreview.tsx) — the original image is gone by this point, so
+    // this field is the only remaining signal that it was ever a scan.
+    ocrScanned: true,
   });
   if (!updated) throw new Error("Failed to update image resource to transcript text file");
 

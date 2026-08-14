@@ -16,7 +16,7 @@ import { ChevronDown, Send, Sparkles, Loader2,Maximize2,Minimize2 } from "lucide
 import ReactMarkdown from "react-markdown";
 import type { PageContext, SuggestionItem } from "@/src/library/Contextual_AI/contextualAi";
 import { getPanelChatSession, subscribeToPanelChatSession } from "@/src/library/chatMemory";
-import { getStoredChatMode } from "@/src/library/chatMode";
+import { getEffectiveModelKey } from "@/src/library/chatMode";
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -177,7 +177,7 @@ export default function ContextualAiPanel({
             context: chatContext,
             pageContext,
             panelContextKey,
-            chatMode: getStoredChatMode(),
+            modelKey: getEffectiveModelKey("chat"),
           }),
           signal: controller.signal,
         });
