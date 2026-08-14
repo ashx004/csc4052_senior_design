@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {Home,Briefcase,Calendar,MessageSquare,Users,User,BookOpen,} from "lucide-react";
+import {Home,Briefcase,Calendar,MessageSquare,Users,User,BookOpen, Notebook } from "lucide-react";
 import Sidebar from "./Sidebar";
 
 const links = [
@@ -14,6 +14,7 @@ const links = [
   { label: "Advising", href: "/advising", icon: Users },
   { label: "Advising New & Improved", href: "/advising_new", icon: Users },
   { label: "Profile", href: "/profile", icon: User },
+  { label: "Notes", href: "/notes", icon: Notebook },
 ];
 
 export default function GeneralSidebar() {

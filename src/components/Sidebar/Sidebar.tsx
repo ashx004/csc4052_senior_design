@@ -34,7 +34,7 @@ export default function Sidebar({ children }: SidebarProps) {
         {/* Inner wrapper — fixed width prevents text from wrapping during the width animation */}
         <div className="min-w-[18rem] h-full flex flex-col">
           {/* Header: logo + close */}
-          <div className="flex items-center justify-between border-b border-border-light px-6 pb-4 pt-6">
+          <div className="flex h-[60px] shrink-0 items-center justify-between border-b border-border-light px-6">
             <h1 className="text-xl font-bold tracking-[0.15em] text-text-main">
               C a t a l y s t.
             </h1>

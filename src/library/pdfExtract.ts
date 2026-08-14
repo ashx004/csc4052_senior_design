@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import path from "path";
 import { pathToFileURL } from "url";
+import { PAGE_BREAK_MARKER } from "./chunking";
 
 type PositionedText = {
   text: string;
@@ -8,10 +9,29 @@ type PositionedText = {
   y: number;
 };
 
-export function resolveInternalUrl(
-  request: NextRequest,
-  relativeUrl: string
-): string {
+// Mirrors pdf-parse's own default render_page (same getTextContent options,
+// same lastY-based line-break heuristic) so page-aware extraction doesn't
+// change how a page's text reads — it only adds a marker chunking.ts can
+// split on, so search citations can name the page a chunk actually came
+// from instead of just the document.
+function renderPageWithMarker(pageData: any): Promise<string> {
+  const renderOptions = { normalizeWhitespace: false, disableCombineTextItems: false };
+  return pageData.getTextContent(renderOptions).then((textContent: any) => {
+    let lastY;
+    let text = "";
+    for (const item of textContent.items) {
+      if (lastY === item.transform[5] || !lastY) {
+        text += item.str;
+      } else {
+        text += "\n" + item.str;
+      }
+      lastY = item.transform[5];
+    }
+    return text + PAGE_BREAK_MARKER;
+  });
+}
+
+export function resolveInternalUrl(request: NextRequest, relativeUrl: string): string {
   const host = request.headers.get("host");
 
   const protocol =

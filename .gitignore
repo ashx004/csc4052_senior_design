@@ -12,6 +12,7 @@ dist
 dist-ssr
 .next
 package-lock.json
+*.tsbuildinfo
 
 *.local
 
@@ -32,3 +33,4 @@ package-lock.json
 # secrets
 .env.local
 .env
+.worktrees/

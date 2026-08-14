@@ -4,6 +4,8 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { verifyRequestAuth, isInternalRequest } from "@/src/library/verifyAuth";
 import { getMinioClient } from "@/src/library/minioClient";
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: NextRequest) {
     const key = req.nextUrl.searchParams.get("key");
     if (!key) {
@@ -30,7 +32,10 @@ export async function GET(req: NextRequest) {
         );
         const body = await result.Body!.transformToByteArray();
         return new NextResponse(Buffer.from(body), {
-            headers: { "Content-Type": result.ContentType || "application/octet-stream" },
+            headers: {
+                "Content-Type": result.ContentType || "application/octet-stream",
+                "Cache-Control": "private, no-store",
+            },
         });
     } catch (err: any) {
         console.error("Download error:", err.message);

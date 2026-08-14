@@ -19,6 +19,21 @@ import {
     setThemeMode,
     ThemeMode,
 } from "@/src/library/theme";
+import {
+    AiTask,
+    TaskModelKey,
+    UnifiedModelKey,
+    TASK_MODEL_OPTIONS,
+    UNIFIED_MODEL_OPTIONS,
+    getStoredTaskModel,
+    setStoredTaskModel,
+    getStoredReduceColdBoots,
+    setStoredReduceColdBoots,
+    getStoredUnifiedModel,
+    setStoredUnifiedModel,
+    getEffectiveModelKey,
+    resetModelPreferences,
+} from "@/src/library/chatMode";
 
 export default function Settings() {
 
@@ -26,6 +41,14 @@ export default function Settings() {
     // const [studyRemIsOn, setstudyRemOn] = useState<boolean>(false);
     const [themeMode, setThemeModeState] = useState<ThemeMode>("light");
     const [coffee, setCoffeeState] = useState<boolean>(false);
+    // Per-task model choices, plus the "reduce cold boots" unified-model
+    // override - see chatMode.ts for the fastest->smartest ordering and the
+    // full rationale behind each default.
+    const [chatModel, setChatModelState] = useState<TaskModelKey>("qwen3A3b");
+    const [quizModel, setQuizModelState] = useState<TaskModelKey>("qwen3A3b");
+    const [flashcardsModel, setFlashcardsModelState] = useState<TaskModelKey>("qwen3A3b");
+    const [reduceColdBoots, setReduceColdBootsState] = useState<boolean>(true);
+    const [unifiedModel, setUnifiedModelState] = useState<UnifiedModelKey>("qwen3A3b");
     // const [focusIsOn, setFocusOn] = useState<boolean>(false);
 
     const [showPasswordForm, setShowPasswordForm] = useState<boolean>(false);
@@ -50,6 +73,11 @@ export default function Settings() {
         applyTheme(storedMode, storedCoffee);
         setThemeModeState(storedMode);
         setCoffeeState(storedCoffee);
+        setChatModelState(getStoredTaskModel("chat"));
+        setQuizModelState(getStoredTaskModel("quiz"));
+        setFlashcardsModelState(getStoredTaskModel("flashcards"));
+        setReduceColdBootsState(getStoredReduceColdBoots());
+        setUnifiedModelState(getStoredUnifiedModel());
     }, []);
 
     function handleThemeModeToggle() {
@@ -62,6 +90,62 @@ export default function Settings() {
         const next = event.target.checked;
         setCoffeeState(next);
         setCoffee(next);
+    }
+
+    function warmModel(modelKey: string) {
+        fetch("/api/warm-model", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ modelKey }),
+        }).catch((error) => console.error("Model warm-up request failed:", error));
+    }
+
+    // Fire-and-forget: pays the cold-boot cost of switching the chat model
+    // right now instead of on the student's next chat message. Never blocks
+    // the calling UI or surfaces a failure — this is a best-effort latency
+    // optimization. Scoped to chat specifically (not quiz/flashcards) since
+    // that's the always-open surface the original warm-up optimization
+    // targeted - see getEffectiveModelKey for how "chat" resolves once
+    // reduceColdBoots is considered. gpt-oss:20b (fastResident) is small
+    // enough to sit resident alongside vision/OCR without either evicting
+    // the other, so picking it is the one case worth eagerly co-warming
+    // vision too, rather than leaving it lazy-loaded on first actual OCR
+    // use like every other selection.
+    function warmEffectiveChatModel() {
+        const effectiveKey = getEffectiveModelKey("chat");
+        warmModel(effectiveKey);
+        if (effectiveKey === "fastResident") warmModel("ocr");
+    }
+
+    function handleTaskModelChange(task: AiTask, value: TaskModelKey) {
+        if (task === "chat") setChatModelState(value);
+        else if (task === "quiz") setQuizModelState(value);
+        else setFlashcardsModelState(value);
+        setStoredTaskModel(task, value);
+        if (task === "chat" && !reduceColdBoots) warmEffectiveChatModel();
+    }
+
+    function handleReduceColdBootsToggle(event: ChangeEvent<HTMLInputElement>) {
+        const next = event.target.checked;
+        setReduceColdBootsState(next);
+        setStoredReduceColdBoots(next);
+        warmEffectiveChatModel();
+    }
+
+    function handleUnifiedModelChange(value: UnifiedModelKey) {
+        setUnifiedModelState(value);
+        setStoredUnifiedModel(value);
+        if (reduceColdBoots) warmEffectiveChatModel();
+    }
+
+    function handleRestoreModelDefaults() {
+        resetModelPreferences();
+        setChatModelState(getStoredTaskModel("chat"));
+        setQuizModelState(getStoredTaskModel("quiz"));
+        setFlashcardsModelState(getStoredTaskModel("flashcards"));
+        setReduceColdBootsState(getStoredReduceColdBoots());
+        setUnifiedModelState(getStoredUnifiedModel());
+        warmEffectiveChatModel();
     }
 
 
@@ -442,6 +526,124 @@ export default function Settings() {
 
             <div className="flex w-3/4 self-center px-2 py-1 text-xs text-text-muted">
                 Toggle dark mode, and check Coffee for a warm variant of either theme
+            </div>
+
+            <header className="mt-5 relative flex w-3/4 self-center
+                shrink-0 border-b border-border-light px-6">
+            </header>
+
+            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
+                        bg-bg-main text-text-main hover:bg-bg-warm">
+
+                <span className="text-sm">
+                    AI Chat model
+                </span>
+
+                <select
+                    value={chatModel}
+                    onChange={(event) => handleTaskModelChange("chat", event.target.value as TaskModelKey)}
+                    disabled={reduceColdBoots}
+                    aria-label="AI Chat model"
+                    className="w-56 rounded-md border border-border-light bg-bg-container px-3 py-1.5 text-sm text-text-main
+                        focus:border-green-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                    {TASK_MODEL_OPTIONS.map((option) => (
+                        <option key={option.key} value={option.key} title={option.detail}>{option.label}</option>
+                    ))}
+                </select>
+            </div>
+
+            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
+                        bg-bg-main text-text-main hover:bg-bg-warm">
+
+                <span className="text-sm">
+                    Quiz Generation model
+                </span>
+
+                <select
+                    value={quizModel}
+                    onChange={(event) => handleTaskModelChange("quiz", event.target.value as TaskModelKey)}
+                    disabled={reduceColdBoots}
+                    aria-label="Quiz Generation model"
+                    className="w-56 rounded-md border border-border-light bg-bg-container px-3 py-1.5 text-sm text-text-main
+                        focus:border-green-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                    {TASK_MODEL_OPTIONS.map((option) => (
+                        <option key={option.key} value={option.key} title={option.detail}>{option.label}</option>
+                    ))}
+                </select>
+            </div>
+
+            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
+                        bg-bg-main text-text-main hover:bg-bg-warm">
+
+                <span className="text-sm">
+                    Flashcard Generation model
+                </span>
+
+                <select
+                    value={flashcardsModel}
+                    onChange={(event) => handleTaskModelChange("flashcards", event.target.value as TaskModelKey)}
+                    disabled={reduceColdBoots}
+                    aria-label="Flashcard Generation model"
+                    className="w-56 rounded-md border border-border-light bg-bg-container px-3 py-1.5 text-sm text-text-main
+                        focus:border-green-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                    {TASK_MODEL_OPTIONS.map((option) => (
+                        <option key={option.key} value={option.key} title={option.detail}>{option.label}</option>
+                    ))}
+                </select>
+            </div>
+
+            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
+                        bg-bg-main text-text-main hover:bg-bg-warm">
+
+                <span className="text-sm">
+                    Reduce cold boots
+                </span>
+
+                <input
+                    type="checkbox"
+                    checked={reduceColdBoots}
+                    onChange={handleReduceColdBootsToggle}
+                    aria-label="Toggle reduce cold boots"
+                    className="h-4 w-4 cursor-pointer rounded border-border-light accent-primary"
+                />
+            </div>
+
+            <div className="flex w-3/4 self-center px-2 py-1 text-xs text-text-muted">
+                Reduces the occurrence of cold boots by selecting the best overall model for all tasks rather than various model selection.
+            </div>
+
+            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
+                        bg-bg-main text-text-main hover:bg-bg-warm">
+
+                <span className="text-sm">
+                    Model for all tasks
+                </span>
+
+                <select
+                    value={unifiedModel}
+                    onChange={(event) => handleUnifiedModelChange(event.target.value as UnifiedModelKey)}
+                    disabled={!reduceColdBoots}
+                    aria-label="Model for all tasks"
+                    className="w-56 rounded-md border border-border-light bg-bg-container px-3 py-1.5 text-sm text-text-main
+                        focus:border-green-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                    {UNIFIED_MODEL_OPTIONS.map((option) => (
+                        <option key={option.key} value={option.key} title={option.detail}>{option.label}</option>
+                    ))}
+                </select>
+            </div>
+
+            <div className="mt-2 flex w-3/4 self-center justify-end px-2 py-1">
+                <button
+                    type="button"
+                    onClick={handleRestoreModelDefaults}
+                    className="text-xs text-text-muted underline hover:text-text-main"
+                >
+                    Restore to default
+                </button>
             </div>
 
 

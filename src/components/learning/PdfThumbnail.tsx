@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { FileEdit } from 'lucide-react';
+import { auth } from '@/src/library/firebase';
+import { fetchCourseFile } from '@/src/library/fetchCourseFile';
 
 interface PdfThumbnailProps {
   url: string;
@@ -19,10 +21,16 @@ export default function PdfThumbnail({ url, className = '' }: PdfThumbnailProps)
     const renderThumbnail = async () => {
       try {
         const pdfjsLib = await import('pdfjs-dist');
-        pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+        // Version query busts a stale cached worker after pdfjs-dist upgrades
+        // (mismatched API/Worker versions throw UnknownErrorException).
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `/pdf.worker.min.mjs?v=${pdfjsLib.version}`;
 
-        const response = await fetch(url);
-        if (!response.ok) throw new Error('Failed to fetch PDF');
+        const idToken = await auth.currentUser?.getIdToken();
+        const response = await fetchCourseFile(url, idToken);
+        if (!response.ok) {
+          if (!cancelled) setError(true);
+          return;
+        }
 
         const arrayBuffer = await response.arrayBuffer();
         const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -53,7 +61,7 @@ export default function PdfThumbnail({ url, className = '' }: PdfThumbnailProps)
 
         if (!cancelled) setLoaded(true);
       } catch (err) {
-        console.error('PDF thumbnail error:', err);
+        console.warn('PDF thumbnail error:', err);
         if (!cancelled) setError(true);
       }
     };

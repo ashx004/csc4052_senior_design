@@ -21,11 +21,13 @@ import { // import symbols
     FileCode,
     FileArchive,
     FileSpreadsheet,
+    FileImage,
     Presentation,
     BookOpen,
     Loader2,
     Minus,
     Plus,
+    ScanText,
 } from "lucide-react";
 // PrismLight + explicit per-language registration instead of the default
 // `react-syntax-highlighter` import, which bundles all ~300 Prism language
@@ -63,7 +65,7 @@ import nasm from "react-syntax-highlighter/dist/esm/languages/prism/nasm";
 ].forEach(([name, lang]) => SyntaxHighlighter.registerLanguage(name as string, lang as any));
 import { renderAsync } from "docx-preview";
 import CircleIconButton from "./CircleIconButton";
-import { uploadUserResource, getCourseResources, deleteUserResource, MAX_FILE_SIZE_BYTES } from "./fileUploadService";
+import { uploadUserResource, getCourseResources, deleteUserResource, MAX_FILE_SIZE_BYTES, INDEXABLE_FILE_TYPES } from "./fileUploadService";
 
 const MAX_FILES_PER_BATCH = 5;
 
@@ -96,16 +98,18 @@ const CODE_TYPES = {
 type CodeType = keyof typeof CODE_TYPES;
 
 // other supported file types
-export type FileType = CodeType | "pdf" | "docx" | "zip" | "pptx" | "one" | "xlsx";
+export type FileType = CodeType | "pdf" | "docx" | "zip" | "pptx" | "one" | "xlsx" | "image";
 // "download only" formats — no in-browser rendering attempted, since there's
 const DOWNLOAD_ONLY_TYPES: FileType[] = ["zip", "pptx", "one"];
-const NON_CODE_META: Record<"pdf" | "docx" | "zip" | "pptx" | "one" | "xlsx", { label: string; color: string; bg: string }> = {
+const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp"];
+const NON_CODE_META: Record<"pdf" | "docx" | "zip" | "pptx" | "one" | "xlsx" | "image", { label: string; color: string; bg: string }> = {
     pdf: { label: "PDF", color: "#B85C45", bg: "#FBEAE7" },
     docx: { label: "DOCX", color: "#4A6FA5", bg: "#E8EEF9" },
     zip: { label: "ZIP", color: "#8A6D3B", bg: "#F5EEDC" },
     pptx: { label: "PPTX", color: "#C1440E", bg: "#FBE9E1" },
     one: { label: "ONE", color: "#7C3F00", bg: "#F5E9DC" },
     xlsx: { label: "XLSX", color: "#1D6F42", bg: "#E5F3EA" },
+    image: { label: "IMG", color: "#5B7A99", bg: "#E8F0F7" },
 };
 
 const TYPE_META: Record<FileType, { label: string; color: string; bg: string }> = {
@@ -123,9 +127,17 @@ const VALID_FILE_TYPES: FileType[] = [
     "pptx",
     "one",
     "xlsx",
+    "image",
 ];
 
-const ACCEPT_ATTR = VALID_FILE_TYPES.map((t) => `.${t}`).join(",");
+// The `image` FileType maps to several real extensions, so the picker's
+// accept attribute can't just prefix VALID_FILE_TYPES with dots.
+const ACCEPT_ATTR = [
+    ...VALID_FILE_TYPES.filter((t) => t !== "image"),
+    ...IMAGE_EXTENSIONS,
+]
+    .map((t) => `.${t}`)
+    .join(",");
 const PAGE_SIZE = 9;
 
 export interface Resource {
@@ -136,6 +148,11 @@ export interface Resource {
     category: Category;
     uploadedAt: Date;
     lastViewedAt: Date;
+    // Set on the resource doc when it's an OCR transcription of an
+    // uploaded image (see embed-document/route.ts's
+    // persistImageTranscriptionAsResource) — the original image is gone by
+    // then, so this is the only remaining signal it was ever a scan.
+    ocrScanned?: boolean;
 }
 
 const CATEGORY_LABELS: Record<Category, string> = {
@@ -144,12 +161,25 @@ const CATEGORY_LABELS: Record<Category, string> = {
     assignments: "Assignments",
 };
 
+function OcrScannedBadge() {
+    return (
+        <span
+            title="Created from an OCR scan of an uploaded image"
+            className="inline-flex items-center gap-1 rounded-full bg-bg-warm px-2 py-0.5 text-[10px] font-medium text-primary"
+        >
+            <ScanText size={11} strokeWidth={2.25} />
+            OCR
+        </span>
+    );
+}
+
 function getFileType(fileName: string): FileType | null {
     const ext = fileName.split(".").pop()?.toLowerCase();
     if (!ext) return null;
     if (ext in CODE_TYPES) return ext as CodeType;
     if (ext === "pdf" || ext === "docx" || ext === "zip" || ext === "pptx" || ext === "one") return ext;
     if (ext === "xlsx" || ext === "xls") return "xlsx";
+    if (IMAGE_EXTENSIONS.includes(ext)) return "image";
     return null;
 }
 
@@ -162,9 +192,24 @@ type ThumbnailData = { kind: "image" | "text"; content: string };
 
 async function generateThumbnail(resource: Resource): Promise<ThumbnailData | null> {
     try {
+        if (resource.fileType === "image") {
+            const res = await fetch(resource.url);
+            if (!res.ok) return null;
+            const blob = await res.blob();
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result as string);
+                reader.onerror = () => reject(new Error("Failed to read image"));
+                reader.readAsDataURL(blob);
+            });
+            return { kind: "image", content: dataUrl };
+        }
+
         if (resource.fileType === "pdf") {
             const pdfjsLib = await import("pdfjs-dist");
-            pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+            // Version query busts a stale cached worker after pdfjs-dist upgrades
+            // (mismatched API/Worker versions throw UnknownErrorException).
+            pdfjsLib.GlobalWorkerOptions.workerSrc = `/pdf.worker.min.mjs?v=${pdfjsLib.version}`;
 
             const res = await fetch(resource.url);
             if (!res.ok) return null;
@@ -280,6 +325,8 @@ function FileThumbnail({
             <BookOpen size={20} />
         ) : fileType === "xlsx" ? (
             <FileSpreadsheet size={20} />
+        ) : fileType === "image" ? (
+            <FileImage size={20} />
         ) : fileType === "pdf" || fileType === "docx" ? (
             <FileText size={20} />
         ) : (
@@ -365,6 +412,28 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                 })
                 .filter((r: Resource | null): r is Resource => r !== null);
             setResources(mapped);
+
+            // Self-healing lazy backfill: any resource that was indexed
+            // before the Qdrant collection got recreated at the correct
+            // vector dimension (2026-08-14) — or that failed indexing for
+            // any other reason — sits with vectorIndexed unset forever
+            // otherwise, since nothing re-triggers it. There's no bulk
+            // admin backfill available (this app has no firebase-admin/
+            // service-account path to iterate every user's documents at
+            // once), so this re-embeds one resource at a time, the next
+            // time its own owner actually looks at this course's
+            // resources — fire-and-forget, same pattern as the upload
+            // flow's own indexing call, so it never blocks or slows down
+            // just viewing the list.
+            raw.filter((r: any) => INDEXABLE_FILE_TYPES.includes((r.name as string).split(".").pop()?.toLowerCase() ?? "") && r.vectorIndexed !== true)
+                .forEach((r: any) => {
+                    fetch("/api/embed-document", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ userId, courseId, resourceId: r.id }),
+                        keepalive: true,
+                    }).catch((error) => console.error(`Background reindex of "${r.name}" failed:`, error));
+                });
         } catch (err) {
             console.error("Error loading resources:", err);
             setLoadError("Couldn't load resources for this course.");
@@ -473,7 +542,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
 
         const type = previewResource.fileType;
 
-        if (type === "pdf" || DOWNLOAD_ONLY_TYPES.includes(type)) {
+        if (type === "pdf" || DOWNLOAD_ONLY_TYPES.includes(type) || type === "image") {
             setPreviewLoading(false);
             setPreviewError(null);
             return;
@@ -873,10 +942,11 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                         <p className="truncate text-xs font-medium text-text-main group-hover:text-primary">
                                             {resource.name}
                                         </p>
-                                        <div className="mt-1">
+                                        <div className="mt-1 flex flex-wrap items-center gap-1">
                                             <span className="inline-block rounded-full bg-bg-warm px-2 py-0.5 text-[10px] font-medium text-primary">
                                                 {CATEGORY_LABELS[resource.category]}
                                             </span>
+                                            {resource.ocrScanned && <OcrScannedBadge />}
                                         </div>
                                         <p className="mt-1 text-[10px] text-text-muted">
                                             Uploaded {formatRelativeDate(resource.uploadedAt)} &middot; Viewed{" "}
@@ -949,6 +1019,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                             <span className="rounded-full bg-bg-warm px-2 py-0.5 text-[10px] font-medium text-primary">
                                                 {CATEGORY_LABELS[resource.category]}
                                             </span>
+                                            {resource.ocrScanned && <OcrScannedBadge />}
                                         </div>
                                     </div>
                                 </button>
@@ -1053,6 +1124,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                 {CATEGORY_LABELS[activeResource.category]}
                             </span>
                         )}
+                        {activeResource?.ocrScanned && <OcrScannedBadge />}
                     </div>
                     {activeResource && (
                         <p className="mt-1 text-center text-xs text-text-muted">
@@ -1078,6 +1150,14 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                         <div className="relative flex-1 overflow-auto bg-bg-container">
                             {previewResource.fileType === "pdf" ? (
                                 <iframe src={previewResource.url} title={previewResource.name} className="h-full w-full" />
+                            ) : previewResource.fileType === "image" ? (
+                                <div className="flex h-full items-center justify-center bg-bg-main p-6">
+                                    <img
+                                        src={previewResource.url}
+                                        alt={previewResource.name}
+                                        className="max-h-full max-w-full rounded-lg object-contain shadow-sm"
+                                    />
+                                </div>
                             ) : DOWNLOAD_ONLY_TYPES.includes(previewResource.fileType) ? (
                                 <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
                                     {previewResource.fileType === "pptx" ? (
