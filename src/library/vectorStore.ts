@@ -14,8 +14,18 @@
 // own already-loaded candidateDocs list).
 import { createHash } from "crypto";
 import { probeUrl, resolveReachableUrl } from "./resolveReachableUrl";
+import { createTimeoutSignal } from "./withTimeout";
 
 const COLLECTION = "catalyst_chunks";
+
+// None of this file's calls had any timeout at all until 2026-08-14 (found
+// in the same sweep that caught ocrClient.ts's missing one) — searchChunks
+// in particular runs synchronously inline on every chat RAG lookup
+// (api/chat/route.ts), so a hung Qdrant call meant a hung chat request with
+// no bound. Generous relative to how fast these calls normally are
+// (typically well under a second on the LAN) since this is a genuine
+// timeout, not a performance target.
+const QDRANT_TIMEOUT_MS = 10_000;
 
 // Qdrant only accepts an unsigned integer or a UUID as a point ID — not an
 // arbitrary string like a Firestore resourceId (confirmed live: it 400s
@@ -75,15 +85,21 @@ function headers(): HeadersInit {
 export async function upsertChunks(points: ChunkPoint[]): Promise<void> {
   if (points.length === 0) return;
 
-  const response = await fetch(`${await baseUrl()}/collections/${COLLECTION}/points`, {
-    method: "PUT",
-    headers: headers(),
-    body: JSON.stringify({ points }),
-  });
+  const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS, "Qdrant upsert");
+  try {
+    const response = await fetch(`${await baseUrl()}/collections/${COLLECTION}/points`, {
+      method: "PUT",
+      headers: headers(),
+      body: JSON.stringify({ points }),
+      signal,
+    });
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Qdrant upsert failed (${response.status}): ${text}`);
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Qdrant upsert failed (${response.status}): ${text}`);
+    }
+  } finally {
+    cancel();
   }
 }
 
@@ -94,47 +110,61 @@ export async function searchChunks(
 ): Promise<ChunkSearchResult[]> {
   if (filter.resourceIds.length === 0) return [];
 
-  const response = await fetch(`${await baseUrl()}/collections/${COLLECTION}/points/search`, {
-    method: "POST",
-    headers: headers(),
-    body: JSON.stringify({
-      vector: queryVector,
-      limit,
-      with_payload: true,
-      filter: {
-        must: [
-          { key: "userId", match: { value: filter.userId } },
-          { key: "resourceId", match: { any: filter.resourceIds } },
-        ],
-      },
-    }),
-  });
+  const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS, "Qdrant search");
+  try {
+    const response = await fetch(`${await baseUrl()}/collections/${COLLECTION}/points/search`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({
+        vector: queryVector,
+        limit,
+        with_payload: true,
+        filter: {
+          must: [
+            { key: "userId", match: { value: filter.userId } },
+            { key: "resourceId", match: { any: filter.resourceIds } },
+          ],
+        },
+      }),
+      signal,
+    });
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Qdrant search failed (${response.status}): ${text}`);
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Qdrant search failed (${response.status}): ${text}`);
+    }
+
+    const data = await response.json();
+    return (data?.result ?? []).map((r: any) => ({ score: r.score, payload: r.payload }));
+  } finally {
+    cancel();
   }
-
-  const data = await response.json();
-  return (data?.result ?? []).map((r: any) => ({ score: r.score, payload: r.payload }));
 }
 
 export async function deleteChunksForResource(userId: string, resourceId: string): Promise<void> {
-  const response = await fetch(`${await baseUrl()}/collections/${COLLECTION}/points/delete`, {
-    method: "POST",
-    headers: headers(),
-    body: JSON.stringify({
-      filter: {
-        must: [
-          { key: "userId", match: { value: userId } },
-          { key: "resourceId", match: { value: resourceId } },
-        ],
-      },
-    }),
-  });
+  const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS, "Qdrant delete");
+  try {
+    const response = await fetch(`${await baseUrl()}/collections/${COLLECTION}/points/delete`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({
+        filter: {
+          must: [
+            { key: "userId", match: { value: userId } },
+            { key: "resourceId", match: { value: resourceId } },
+          ],
+        },
+      }),
+      signal,
+    });
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    console.error(`Qdrant delete failed (${response.status}): ${text}`);
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      console.error(`Qdrant delete failed (${response.status}): ${text}`);
+    }
+  } catch (error) {
+    console.error("Qdrant delete request failed:", error);
+  } finally {
+    cancel();
   }
 }

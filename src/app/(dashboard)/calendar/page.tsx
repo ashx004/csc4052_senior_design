@@ -88,8 +88,8 @@ export default function CalendarPage() {
     return { start, end };
   }, [currentDate, view]);
 
-  const { events, loading: eventsLoading, error: eventsError } = useCalendarEvents(dateRange);
-  const { events: localEvents, refetch: refetchLocal } = useLocalCalendarEvents(localDateRange);
+  const { events, error: eventsError } = useCalendarEvents(dateRange);
+  const { events: localEvents, loading: localLoading, refetch: refetchLocal } = useLocalCalendarEvents(localDateRange);
 
   const allEvents = useMemo(() => [...events, ...localEvents], [events, localEvents]);
 
@@ -137,15 +137,11 @@ export default function CalendarPage() {
 
   // ── Shared view button class ─────────────────────────────────────────────
 
-  // The calendar has no real event data wired up yet (static UI scaffolding
-  // — no backend model, confirmed no events exist anywhere in this
-  // component tree) — say so honestly rather than letting the model assume
-  // or invent a schedule if asked about it.
   useSetPageContext(
     {
       page: "calendar",
       label: "Calendar",
-      summary: `The student is viewing their calendar in ${view} view. No real event/schedule data is wired up on this page yet — don't assume or invent any events.`,
+      summary: `The student is viewing their calendar in ${view} view. Real events exist here — use the list_calendar_events/create_calendar_event/update_calendar_event/delete_calendar_event tools rather than assuming or inventing a schedule.`,
     },
     [view]
   );
@@ -268,19 +264,32 @@ export default function CalendarPage() {
             </div>
           </div>
 
-          {/* ── Loading state ── */}
-          {status === "loading" && (
+          {/* Local events (Firestore client SDK, fast) never depended on
+              Google's connection status — they used to sit behind whichever
+              of two full-page blocking states was slower: the connection
+              status check (a real network round trip on every mount, with
+              no caching) or, once connected, Google's own events fetch.
+              Neither has anything to do with whether local events are ready
+              to show. Now the grid renders as soon as local events resolve,
+              same "only a genuinely empty first load blocks" rule as
+              before — Google's events (via allEvents, [] until connected/
+              loaded) and the connect banner just layer in once status
+              resolves, without holding up anything that didn't depend on
+              them. */}
+          {localLoading && allEvents.length === 0 ? (
             <p className="py-12 text-center text-sm text-text-muted">
-              Loading calendar...
+              Loading events...
             </p>
-          )}
-
-          {/* ── Disconnected — show local events + connect prompt ── */}
-          {status === "disconnected" && (
+          ) : (
             <>
+              {eventsError && status === "connected" && (
+                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {eventsError}
+                </div>
+              )}
               {view === "month" && (
                 <MonthView
-                  events={localEvents}
+                  events={allEvents}
                   currentYear={currentDate.getFullYear()}
                   currentMonth={currentDate.getMonth()}
                   selectedDate={selectedDate}
@@ -289,59 +298,18 @@ export default function CalendarPage() {
               )}
               {view === "week" && (
                 <WeekView
-                  events={localEvents}
+                  events={allEvents}
                   selectedDate={selectedDate}
                   onSelectDate={handleSelectDate}
                 />
               )}
               {view === "day" && (
-                <DayView events={localEvents} selectedDate={selectedDate} />
+                <DayView events={allEvents} selectedDate={selectedDate} />
               )}
-              <div className="mt-6">
-                <GoogleCalendarConnect onConnected={refresh} />
-              </div>
-            </>
-          )}
-
-          {/* ── Connected — show real calendar ──
-              Only a genuinely empty first load (no cached/prior data at
-              all) blocks on a loading message — every subsequent
-              navigation (prev/next, view switch) keeps the grid mounted
-              and showing whatever's already known while it revalidates in
-              the background, instead of wiping the view on every fetch. */}
-          {status === "connected" && (
-            <>
-              {eventsLoading && allEvents.length === 0 ? (
-                <p className="py-12 text-center text-sm text-text-muted">
-                  Loading events...
-                </p>
-              ) : (
-                <>
-                  {eventsError && (
-                    <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                      {eventsError}
-                    </div>
-                  )}
-                  {view === "month" && (
-                    <MonthView
-                      events={allEvents}
-                      currentYear={currentDate.getFullYear()}
-                      currentMonth={currentDate.getMonth()}
-                      selectedDate={selectedDate}
-                      onSelectDate={handleSelectDate}
-                    />
-                  )}
-                  {view === "week" && (
-                    <WeekView
-                      events={allEvents}
-                      selectedDate={selectedDate}
-                      onSelectDate={handleSelectDate}
-                    />
-                  )}
-                  {view === "day" && (
-                    <DayView events={allEvents} selectedDate={selectedDate} />
-                  )}
-                </>
+              {status === "disconnected" && (
+                <div className="mt-6">
+                  <GoogleCalendarConnect onConnected={refresh} />
+                </div>
               )}
             </>
           )}

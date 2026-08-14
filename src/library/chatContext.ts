@@ -16,6 +16,10 @@ export type ChatDocument = {
   // anything," which would wrongly re-scan Firestore for every document a
   // given query just didn't match.
   vectorIndexed?: boolean;
+  // True when this document's text came from OCR-transcribing an uploaded
+  // image rather than a native text/PDF file — see
+  // embed-document/route.ts's persistImageTranscriptionAsResource.
+  ocrScanned?: boolean;
 };
 
 export type ChatClass = {
@@ -112,6 +116,7 @@ export async function buildChatContext(userId: string, email: string): Promise<C
             category: resourceData.category ?? "",
             url: resourceData.url ?? "",
             vectorIndexed: resourceData.vectorIndexed === true,
+            ocrScanned: resourceData.ocrScanned === true,
           });
         });
       } catch (error) {

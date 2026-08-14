@@ -16,6 +16,7 @@ export type ChatStreamEvent =
       type: "done";
       documentsRead?: string[];
       generatedFiles?: { name: string; url: string }[];
+      generatedStudySets?: { kind: "flashcard" | "quiz"; id: string; courseId: string; name: string }[];
       summary?: string;
       summarizedCount?: number;
     }
@@ -32,6 +33,12 @@ export const TOOL_STATUS_LABELS: Record<string, string> = {
   web_search: "Searching the web...",
   search_youtube: "Looking for videos...",
   create_pdf: "Creating a PDF...",
+  create_flashcards: "Creating flashcards...",
+  create_quiz: "Creating a quiz...",
+  list_calendar_events: "Checking your calendar...",
+  create_calendar_event: "Adding to your calendar...",
+  update_calendar_event: "Updating your calendar...",
+  delete_calendar_event: "Removing from your calendar...",
   recall_past_chat: "Checking past conversations...",
 };
 

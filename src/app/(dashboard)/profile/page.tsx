@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, Pencil, Save, X, Loader2, Trash2 } from "lucide-react";
 
 import { useAuth } from "@/src/context/AuthContext";
+import { useSetPageContext } from "@/src/context/AIPageContext";
 import { useAdvisingCache } from "@/src/context/AdvisingCacheContext";
 import {
   getStudentProfile,
@@ -89,6 +90,26 @@ function ProfileField({
       )}
     </div>
   );
+}
+
+// Deliberately doesn't repeat catalystProfile.summary verbatim (that's
+// already given to the model on every turn via studentProfile — see
+// buildAdaptiveVariableLayer in systemPrompt.ts) — just enough for the AI
+// panel to know it's looking at the profile page and could reference
+// "your learning profile" / "clear it" if asked, without duplicating data
+// it already has another way.
+function buildProfileSummary(profile: UserProfile, university: SelectedUniversity | null, hasLearningProfile: boolean, enrollmentCount: number): string {
+  const parts: string[] = [];
+  if (profile.major) parts.push(`major: ${profile.major}`);
+  if (profile.expectedGraduation) parts.push(`expected graduation: ${profile.expectedGraduation}`);
+  if (university) parts.push(`university: ${university.name}`);
+  parts.push(`${enrollmentCount} class${enrollmentCount === 1 ? "" : "es"} enrolled`);
+
+  const learningProfileNote = hasLearningProfile
+    ? "This page also shows what Catalyst has learned about how the student studies, with an option to clear that learning profile."
+    : "Catalyst hasn't built up a learning profile for this student yet.";
+
+  return `The student is viewing their Profile page (${parts.join(", ")}). ${learningProfileNote}`;
 }
 
 export default function Profile() {
@@ -337,6 +358,22 @@ export default function Profile() {
       setProfileSaving(false);
     }
   };
+
+  const profileSummary = useMemo(
+    () => buildProfileSummary(profile, university, Boolean(catalystProfile?.summary), enrollments.length),
+    [profile, university, catalystProfile, enrollments.length]
+  );
+
+  useSetPageContext(
+    !profileLoading
+      ? {
+          page: "profile",
+          label: "Profile",
+          summary: profileSummary,
+        }
+      : null,
+    [profileLoading, profileSummary]
+  );
 
   return (
     <section className="flex h-screen flex-col bg-bg-main text-text-main">

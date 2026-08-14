@@ -1,8 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
+import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
+import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
+import { buildPageTextSuggestions, type PageTextPageContext } from '@/src/library/Contextual_AI/contextualAi';
 import {
   addDoc,
   collection,
@@ -59,10 +62,21 @@ export default function DiscoverSetPreviewPage() {
 
   const [isOwner, setIsOwner] = useState(false);
 
+  const [catalystOpen, setCatalystOpen] = useState(false);
+  const catalystBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [catalystChatContext, setCatalystChatContext] = useState<ChatContext | null>(null);
+
   useEffect(() => {
     if (authLoading) return;
     if (!user) router.push('/login');
   }, [authLoading, user, router]);
+
+  useEffect(() => {
+    if (!user?.email) return;
+    buildChatContext(user.uid, user.email)
+      .then(setCatalystChatContext)
+      .catch(() => setCatalystChatContext(null));
+  }, [user]);
 
   // Read-only load of the public set.
   useEffect(() => {
@@ -254,6 +268,10 @@ export default function DiscoverSetPreviewPage() {
   const isFirstCard = cardIndex === 0;
   const isLastCard = cardIndex === totalCards - 1;
 
+  const publicSetPageText = `The student is previewing a public ${set.type === 'quiz' ? 'quiz' : 'flashcard'} set called "${set.title}" from ${set.courseCode} on Discover, shared by another student (${set.itemCount} ${set.type === 'quiz' ? 'questions' : 'cards'}). This is a read-only preview — answers here aren't saved. The student can save an independent copy to their own study materials.`;
+  const publicSetPageContext: PageTextPageContext = { kind: 'page_text', courseId, pageTitle: `the "${set.title}" Discover preview`, pageText: publicSetPageText };
+  const catalystSuggestions = buildPageTextSuggestions(publicSetPageContext);
+
   return (
     <div className="min-h-screen bg-[#FAFAF8]">
       {/* Header */}
@@ -390,6 +408,22 @@ export default function DiscoverSetPreviewPage() {
           </div>
         )}
       </div>
+
+      {catalystChatContext && (
+        <>
+          <CatalystLauncher onClick={() => setCatalystOpen(true)} visible={!catalystOpen} buttonRef={catalystBtnRef} />
+          <ContextualAiPanel
+            open={catalystOpen}
+            onClose={() => setCatalystOpen(false)}
+            contextLabel={set.title}
+            suggestions={catalystSuggestions}
+            pageContext={publicSetPageContext}
+            chatContext={catalystChatContext}
+            panelContextKey={`discover-set:${publicSetId}`}
+            launcherRef={catalystBtnRef}
+          />
+        </>
+      )}
     </div>
   );
 }

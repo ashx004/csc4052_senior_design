@@ -1,149 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
 import { verifyRequestAuth } from '@/src/library/verifyAuth';
 import {
   fetchInternal,
   resolveInternalUrl,
 } from '@/src/library/pdfExtract';
 import { resolveOllamaBaseUrl } from '@/src/library/ollamaClient';
-import { stripThinkLeak } from '@/src/library/stripThinkLeak';
+import { checkRateLimit } from '@/src/library/rateLimit';
+import { generateFlashcardsWithRetry } from '@/src/library/flashcardGeneration';
 
-const FlashcardResponseSchema = z.object({
-  topicName: z
-    .string()
-    .describe('A short, descriptive name (3-6 words) summarizing what this set of flashcards covers'),
-  questions: z.array(
-    z.object({
-      question: z.string().describe('A clear, concise question about a key concept from the document'),
-      answer: z.string().describe('A brief, accurate answer in 1-2 sentences'),
-    })
-  ),
-});
-
-const FLASHCARD_JSON_SCHEMA = {
-  type: 'object',
-  properties: {
-    topicName: { type: 'string' },
-    questions: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          question: { type: 'string' },
-          answer: { type: 'string' },
-        },
-        required: ['question', 'answer'],
-      },
-    },
-  },
-  required: ['topicName', 'questions'],
-};
-
-const OLLAMA_TIMEOUT_MS = 120000; // same as chat/route.ts — first request after idle can take a while to cold-load
-
-function buildFlashcardMessages(extractedText: string, previousQuestions?: string[]) {
-  let userPrompt = `You are an expert academic tutor helping a college student study.
-
-Based ONLY on the following document content, generate exactly 10 flashcards that cover the most important key concepts. Also come up with a short, descriptive topic name (3-6 words) summarizing what this set of flashcards covers, e.g. "Evolution and Natural Selection" or "Boolean Logic Fundamentals".
-
-Rules:
-- Each question should test understanding of one specific concept
-- Answers should be concise (1-2 sentences maximum)
-- Questions should be clear and unambiguous
-- Cover different topics across the document, not just the beginning
-- Use simple language that a student can quickly understand
-- Do NOT use information outside of this document
-- The topic name should reflect the overall subject of the document, not a single flashcard
-- Return ONLY valid JSON matching the required schema — no commentary, no markdown fences`;
-
-  if (previousQuestions && previousQuestions.length > 0) {
-    userPrompt += `\n\nIMPORTANT: Do NOT repeat any of these previously generated questions:\n${previousQuestions.map((q: string, i: number) => `${i + 1}. ${q}`).join('\n')}`;
-    userPrompt += `\n\nGenerate 10 NEW and DIFFERENT flashcards covering other concepts from the document.`;
-  }
-
-  userPrompt += `\n\n--- DOCUMENT CONTENT ---\n${extractedText}`;
-
-  return [
-    {
-      role: 'system',
-      content:
-        'You generate study flashcards from academic documents. Always respond with ONLY valid JSON matching the provided schema — no prose, no markdown code fences, nothing outside the JSON object.',
-    },
-    { role: 'user', content: userPrompt },
-  ];
-}
-
-// Same raw-fetch pattern as callOllama() in api/chat/route.ts: native /api/chat
-// endpoint, non-streaming, AbortController-backed timeout. Structured output
-// is enforced via Ollama's `format` field (a JSON schema) instead of relying
-// on prompt instructions alone.
-async function callOllamaForFlashcards(
-  messages: unknown[],
-  baseUrl: string,
-  useQualityModel: boolean
-): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
-
-  try {
-    return await fetch(`${baseUrl}/api/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
-      },
-      body: JSON.stringify({
-        // Same fast/quality selection as api/chat/route.ts - flashcard
-        // generation is the same underlying task, so it respects the
-        // student's saved chat-mode preference too.
-        model: useQualityModel
-          ? process.env.OLLAMA_MODEL_QUALITY || process.env.OLLAMA_MODEL || 'qwen3:30b-a3b'
-          : process.env.OLLAMA_MODEL_FAST || process.env.OLLAMA_MODEL || 'gpt-oss:20b',
-        messages,
-        stream: false,
-        think: false,
-        format: FLASHCARD_JSON_SCHEMA,
-        options: { temperature: 0 },
-      }),
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-// Calls Ollama and validates the result against the flashcard schema, retrying
-// once if the model's output isn't valid/parseable JSON — a small model can
-// occasionally wrap the JSON in prose or drop a field even with `format` set.
-async function generateFlashcardsWithRetry(
-  messages: unknown[],
-  baseUrl: string,
-  useQualityModel: boolean
-): Promise<{ topicName: string; questions: { question: string; answer: string }[] }> {
-  let lastError: unknown;
-
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      const response = await callOllamaForFlashcards(messages, baseUrl, useQualityModel);
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => '');
-        throw new Error(`Ollama request failed (${response.status}): ${errorText}`);
-      }
-
-      const data = await response.json();
-      const content = stripThinkLeak(data?.message?.content ?? '');
-      const parsed = FlashcardResponseSchema.parse(JSON.parse(content));
-
-      return parsed;
-    } catch (error) {
-      lastError = error;
-      console.error(`Flashcard generation attempt ${attempt} failed:`, error);
-    }
-  }
-
-  throw lastError;
-}
+// Same GPU/LLM-cost-bearing rationale as api/chat and api/embed-document's
+// own rate limits (see rateLimit.ts) — this route makes an identical kind
+// of Ollama call and had no limit at all until 2026-08-14's bug sweep.
+const FLASHCARD_RATE_LIMIT_WINDOW_MS = 60_000;
+const FLASHCARD_RATE_LIMIT_MAX = 10; // per user per window
 
 export async function POST(request: NextRequest) {
   try {
@@ -152,8 +21,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { docUrl, docName, previousQuestions, chatMode, boost } = await request.json();
-    const useQualityModel = boost === true || chatMode === 'quality';
+    const rateLimit = checkRateLimit(auth.uid, FLASHCARD_RATE_LIMIT_WINDOW_MS, FLASHCARD_RATE_LIMIT_MAX);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: 'Too many flashcard sets being generated at once — please wait a moment.' },
+        { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) } }
+      );
+    }
+
+    const { docUrl, docName, previousQuestions, modelKey } = await request.json();
 
     if (!docUrl) {
       return NextResponse.json({ error: 'Document URL is required' }, { status: 400 });
@@ -217,13 +93,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3. Build the prompt and call Ollama with structured output, retrying once on bad JSON
-    const messages = buildFlashcardMessages(extractedText, previousQuestions);
+    // 3. Call Ollama with structured output, retrying once on bad JSON
     const baseUrl = await resolveOllamaBaseUrl(process.env.OLLAMA_PRIMARY_URL, process.env.OLLAMA_PRIMARY_FALLBACK_URL);
 
     let parsed;
     try {
-      parsed = await generateFlashcardsWithRetry(messages, baseUrl, useQualityModel);
+      parsed = await generateFlashcardsWithRetry(extractedText, baseUrl, modelKey, previousQuestions);
     } catch (error) {
       console.error('Flashcard generation failed after retry:', error);
       return NextResponse.json(

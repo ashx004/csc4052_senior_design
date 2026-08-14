@@ -27,6 +27,7 @@ import { // import symbols
     Loader2,
     Minus,
     Plus,
+    ScanText,
 } from "lucide-react";
 // PrismLight + explicit per-language registration instead of the default
 // `react-syntax-highlighter` import, which bundles all ~300 Prism language
@@ -64,7 +65,7 @@ import nasm from "react-syntax-highlighter/dist/esm/languages/prism/nasm";
 ].forEach(([name, lang]) => SyntaxHighlighter.registerLanguage(name as string, lang as any));
 import { renderAsync } from "docx-preview";
 import CircleIconButton from "./CircleIconButton";
-import { uploadUserResource, getCourseResources, deleteUserResource, MAX_FILE_SIZE_BYTES } from "./fileUploadService";
+import { uploadUserResource, getCourseResources, deleteUserResource, MAX_FILE_SIZE_BYTES, INDEXABLE_FILE_TYPES } from "./fileUploadService";
 
 const MAX_FILES_PER_BATCH = 5;
 
@@ -147,6 +148,11 @@ export interface Resource {
     category: Category;
     uploadedAt: Date;
     lastViewedAt: Date;
+    // Set on the resource doc when it's an OCR transcription of an
+    // uploaded image (see embed-document/route.ts's
+    // persistImageTranscriptionAsResource) — the original image is gone by
+    // then, so this is the only remaining signal it was ever a scan.
+    ocrScanned?: boolean;
 }
 
 const CATEGORY_LABELS: Record<Category, string> = {
@@ -154,6 +160,18 @@ const CATEGORY_LABELS: Record<Category, string> = {
     notes: "Notes",
     assignments: "Assignments",
 };
+
+function OcrScannedBadge() {
+    return (
+        <span
+            title="Created from an OCR scan of an uploaded image"
+            className="inline-flex items-center gap-1 rounded-full bg-bg-warm px-2 py-0.5 text-[10px] font-medium text-primary"
+        >
+            <ScanText size={11} strokeWidth={2.25} />
+            OCR
+        </span>
+    );
+}
 
 function getFileType(fileName: string): FileType | null {
     const ext = fileName.split(".").pop()?.toLowerCase();
@@ -394,6 +412,28 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                 })
                 .filter((r: Resource | null): r is Resource => r !== null);
             setResources(mapped);
+
+            // Self-healing lazy backfill: any resource that was indexed
+            // before the Qdrant collection got recreated at the correct
+            // vector dimension (2026-08-14) — or that failed indexing for
+            // any other reason — sits with vectorIndexed unset forever
+            // otherwise, since nothing re-triggers it. There's no bulk
+            // admin backfill available (this app has no firebase-admin/
+            // service-account path to iterate every user's documents at
+            // once), so this re-embeds one resource at a time, the next
+            // time its own owner actually looks at this course's
+            // resources — fire-and-forget, same pattern as the upload
+            // flow's own indexing call, so it never blocks or slows down
+            // just viewing the list.
+            raw.filter((r: any) => INDEXABLE_FILE_TYPES.includes((r.name as string).split(".").pop()?.toLowerCase() ?? "") && r.vectorIndexed !== true)
+                .forEach((r: any) => {
+                    fetch("/api/embed-document", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ userId, courseId, resourceId: r.id }),
+                        keepalive: true,
+                    }).catch((error) => console.error(`Background reindex of "${r.name}" failed:`, error));
+                });
         } catch (err) {
             console.error("Error loading resources:", err);
             setLoadError("Couldn't load resources for this course.");
@@ -902,10 +942,11 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                         <p className="truncate text-xs font-medium text-text-main group-hover:text-primary">
                                             {resource.name}
                                         </p>
-                                        <div className="mt-1">
+                                        <div className="mt-1 flex flex-wrap items-center gap-1">
                                             <span className="inline-block rounded-full bg-bg-warm px-2 py-0.5 text-[10px] font-medium text-primary">
                                                 {CATEGORY_LABELS[resource.category]}
                                             </span>
+                                            {resource.ocrScanned && <OcrScannedBadge />}
                                         </div>
                                         <p className="mt-1 text-[10px] text-text-muted">
                                             Uploaded {formatRelativeDate(resource.uploadedAt)} &middot; Viewed{" "}
@@ -978,6 +1019,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                             <span className="rounded-full bg-bg-warm px-2 py-0.5 text-[10px] font-medium text-primary">
                                                 {CATEGORY_LABELS[resource.category]}
                                             </span>
+                                            {resource.ocrScanned && <OcrScannedBadge />}
                                         </div>
                                     </div>
                                 </button>
@@ -1082,6 +1124,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                 {CATEGORY_LABELS[activeResource.category]}
                             </span>
                         )}
+                        {activeResource?.ocrScanned && <OcrScannedBadge />}
                     </div>
                     {activeResource && (
                         <p className="mt-1 text-center text-xs text-text-muted">
