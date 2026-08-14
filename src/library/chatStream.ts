@@ -16,10 +16,16 @@ export type ChatStreamEvent =
       type: "done";
       documentsRead?: string[];
       generatedFiles?: { name: string; url: string }[];
+      generatedStudySets?: { kind: "flashcard" | "quiz"; id: string; courseId: string; name: string }[];
       summary?: string;
       summarizedCount?: number;
     }
-  | { type: "error"; error: string };
+  | { type: "error"; error: string }
+  // Sent once, only for a brand-new main-assistant session, as soon as the
+  // server creates its Firestore doc — lets the client learn the session ID
+  // immediately instead of waiting for the reply to finish (see
+  // startChatPersistence in api/chat/route.ts).
+  | { type: "session"; id: string };
 
 export const TOOL_STATUS_LABELS: Record<string, string> = {
   search_documents: "Searching your documents...",
@@ -27,6 +33,12 @@ export const TOOL_STATUS_LABELS: Record<string, string> = {
   web_search: "Searching the web...",
   search_youtube: "Looking for videos...",
   create_pdf: "Creating a PDF...",
+  create_flashcards: "Creating flashcards...",
+  create_quiz: "Creating a quiz...",
+  list_calendar_events: "Checking your calendar...",
+  create_calendar_event: "Adding to your calendar...",
+  update_calendar_event: "Updating your calendar...",
+  delete_calendar_event: "Removing from your calendar...",
   recall_past_chat: "Checking past conversations...",
 };
 

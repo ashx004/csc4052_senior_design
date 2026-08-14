@@ -80,13 +80,44 @@ export function generatePdfBuffer(title: string, markdown: string): Promise<Buff
   });
 }
 
-function sanitizeFilename(title: string): string {
+export function sanitizeFilename(title: string): string {
   const cleaned = title
     .trim()
     .replace(/[^a-zA-Z0-9-_ ]/g, "")
     .replace(/\s+/g, "_")
     .slice(0, 60);
   return cleaned || "document";
+}
+
+// Uploads to the same `users/{userId}/classes/{courseId}/...` storage path
+// the manual upload UI uses (see fileUploadService.ts's uploadUserResource)
+// — a course-scoped generated PDF (e.g. a practice exam) needs to land in
+// the exact same storage layout so nothing about it looks different from a
+// file the student uploaded themselves. The Firestore `resources` doc and
+// the /api/embed-document indexing call are the caller's responsibility
+// (chat/route.ts's createPdfTool) since this function only knows about
+// storage, not Firestore.
+export async function generateAndUploadPdfToCourse(
+  userId: string,
+  courseId: string,
+  title: string,
+  markdown: string
+): Promise<{ name: string; url: string; storagePath: string }> {
+  const buffer = await generatePdfBuffer(title, markdown);
+  const fileName = `${sanitizeFilename(title)}.pdf`;
+  const storagePath = `users/${userId}/classes/${courseId}/${Date.now()}_${fileName}`;
+
+  const s3Client = await getMinioClient();
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: "studora",
+      Key: storagePath,
+      Body: buffer,
+      ContentType: "application/pdf",
+    })
+  );
+
+  return { name: fileName, url: `/api/download?key=${encodeURIComponent(storagePath)}`, storagePath };
 }
 
 export async function generateAndUploadPdf(

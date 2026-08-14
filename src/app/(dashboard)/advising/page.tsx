@@ -323,7 +323,7 @@ export default function Advising() {
 
   return (
     <div className="flex h-screen flex-col bg-bg-main text-text-main">
-      <header className="relative flex h-[73px] shrink-0 items-center justify-between border-b border-border-light bg-bg-container px-6">
+      <header className="relative flex h-[60px] shrink-0 items-center justify-between border-b border-border-light px-6">
         <h1 className="absolute left-1/2 -translate-x-1/2 text-center text-lg font-semibold tracking-[0.45em] text-text-main">
           Advising.
         </h1>

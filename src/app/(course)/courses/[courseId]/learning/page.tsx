@@ -1,22 +1,28 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
+import { getEffectiveModelKey } from '@/src/library/chatMode';
+import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
+import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
+import { buildPageTextSuggestions, type PageTextPageContext } from '@/src/library/Contextual_AI/contextualAi';
 import { getCourseResources } from '@/src/components/resourceManagement/fileUploadService';
 import {
   addDoc,
   collection,
   deleteDoc,
   doc,
+  getDoc,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   Timestamp,
+  updateDoc,
 } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
-import { ArrowLeft, FileEdit, BookOpen, Bookmark, Loader2 } from 'lucide-react';
+import { ArrowLeft, FileEdit, BookOpen, Loader2 } from 'lucide-react';
 import PdfThumbnail from '@/src/components/learning/PdfThumbnail';
 import { useCourseInfo } from '@/src/hooks/useCourseInfo';
 import RecentItemRow, { RecentItem } from '@/src/components/learning/RecentItemRow';
@@ -24,6 +30,9 @@ import SortDropdown, { SortOption } from '@/src/components/learning/SortDropdown
 import LectureChoiceModal from '@/src/components/learning/LectureChoiceModal';
 import ConfirmDeleteModal from '@/src/components/learning/ConfirmDeleteModal';
 import QuizSetupModal from '@/src/components/quizzes/QuizSetupModal';
+import { publishStudySet } from '@/src/library/discover/publishStudySet';
+import { unpublishStudySet } from '@/src/library/discover/unpublishStudySet';
+import type { StudySetVisibility } from '@/src/library/discover/types';
 
 interface Resource {
   id: string;
@@ -55,7 +64,11 @@ export default function CourseLearningPage() {
   const { user, loading: authLoading } = useAuth();
 
   const courseId = params.courseId as string;
-  const { displayName: courseDisplayName, loading: courseInfoLoading } = useCourseInfo(courseId);
+  const {
+    displayName: courseDisplayName,
+    courseCode,
+    loading: courseInfoLoading,
+  } = useCourseInfo(courseId);
 
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,6 +86,23 @@ export default function CourseLearningPage() {
   const [quizDocument, setQuizDocument] = useState<Resource | null>(null);
   const [quizGenerating, setQuizGenerating] = useState(false);
   const [quizError, setQuizError] = useState<string | null>(null);
+
+  const [togglingVisibilityId, setTogglingVisibilityId] = useState<string | null>(null);
+
+  // "Ask Catalyst" floating panel — same page_text pattern as the course
+  // overview page, since this page (choosing a document to turn into
+  // flashcards/quizzes) has nothing as structured as a flashcard/quiz
+  // result to model either.
+  const [catalystOpen, setCatalystOpen] = useState(false);
+  const catalystBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [catalystChatContext, setCatalystChatContext] = useState<ChatContext | null>(null);
+
+  useEffect(() => {
+    if (!user?.email) return;
+    buildChatContext(user.uid, user.email)
+      .then(setCatalystChatContext)
+      .catch(() => setCatalystChatContext(null));
+  }, [user]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -117,6 +147,8 @@ export default function CourseLearningPage() {
               itemCount: Array.isArray(data.cards) ? data.cards.length : 0,
               createdAt: (data.createdAt as Timestamp) ?? null,
               pinned: data.pinned as boolean | undefined,
+              visibility: data.visibility as StudySetVisibility | undefined,
+              publicSetId: data.publicSetId as string | undefined,
             };
           })
         );
@@ -152,6 +184,8 @@ export default function CourseLearningPage() {
               itemCount: Array.isArray(data.questions) ? data.questions.length : 0,
               createdAt: (data.createdAt as Timestamp) ?? null,
               pinned: data.pinned as boolean | undefined,
+              visibility: data.visibility as StudySetVisibility | undefined,
+              publicSetId: data.publicSetId as string | undefined,
             };
           })
         );
@@ -190,6 +224,7 @@ export default function CourseLearningPage() {
   const handleStartQuiz = async (config: {
     questionCount: number;
     questionTypes: { multipleChoice: boolean; trueFalse: boolean; matching: boolean };
+    visibility: StudySetVisibility;
   }) => {
     if (!user || !quizDocument) return;
     setQuizGenerating(true);
@@ -204,6 +239,7 @@ export default function CourseLearningPage() {
           docName: quizDocument.name,
           questionCount: config.questionCount,
           questionTypes: config.questionTypes,
+          modelKey: getEffectiveModelKey('quiz'),
         }),
       });
 
@@ -215,16 +251,36 @@ export default function CourseLearningPage() {
 
       const sourceDocKey = extractStorageKey(quizDocument.url);
       const setsRef = collection(db, 'users', user.uid, 'enrollment', courseId, 'quizSets');
-      const newDoc = await addDoc(setsRef, {
+      const setPayload = {
         name: data.topicName,
         sourceDocKey,
         questions: data.questions,
         questionTypes: config.questionTypes,
         questionCount: data.questions.length,
         pinned: true,
+        visibility: config.visibility,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-      });
+      };
+      const newDoc = await addDoc(setsRef, setPayload);
+
+      // Publishing is best-effort: a failure here shouldn't block the
+      // student from reaching their newly created (private-by-default-until-
+      // this-succeeds) quiz. It's logged, not surfaced as a blocking error.
+      if (config.visibility === 'public' && courseCode) {
+        try {
+          const publicSetId = await publishStudySet({
+            type: 'quiz',
+            setData: { name: data.topicName, questions: data.questions },
+            courseCode,
+            ownerUid: user.uid,
+            originalPath: `users/${user.uid}/enrollment/${courseId}/quizSets/${newDoc.id}`,
+          });
+          await updateDocPublicRef(newDoc, publicSetId);
+        } catch (publishError) {
+          console.error('Error publishing quiz set to Discover:', publishError);
+        }
+      }
 
       setQuizDocument(null);
       router.push(`/courses/${courseId}/quizzes/${newDoc.id}?mode=take`);
@@ -233,6 +289,69 @@ export default function CourseLearningPage() {
       setQuizError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
     } finally {
       setQuizGenerating(false);
+    }
+  };
+
+  // Stamps the newly created public set's ID back onto the owner's private
+  // doc, so a later unpublish/re-publish knows which public doc to touch.
+  const updateDocPublicRef = async (
+    newDoc: { id: string },
+    publicSetId: string
+  ) => {
+    if (!user) return;
+    await updateDoc(
+      doc(db, 'users', user.uid, 'enrollment', courseId, 'quizSets', newDoc.id),
+      { publicSetId }
+    );
+  };
+
+  // Toggles a quiz or flashcard set between Public and Private after
+  // creation. Mirrors the same publish/unpublish calls used at creation
+  // time (2C/2D), just triggered from the RecentItemRow menu instead.
+  const handleToggleVisibility = async (kind: 'flashcard' | 'quiz', id: string) => {
+    if (!user) return;
+    setTogglingVisibilityId(id);
+
+    try {
+      const collectionName = kind === 'flashcard' ? 'flashcardSets' : 'quizSets';
+      const setRef = doc(db, 'users', user.uid, 'enrollment', courseId, collectionName, id);
+      const current = kind === 'flashcard' ? flashcardSets : quizSets;
+      const item = current.find((set) => set.id === id);
+      const isCurrentlyPublic = item?.visibility === 'public';
+
+      if (isCurrentlyPublic) {
+        if (item?.publicSetId) {
+          await unpublishStudySet(item.publicSetId, user.uid);
+        }
+        await updateDoc(setRef, { visibility: 'private' });
+        return;
+      }
+
+      if (!courseCode) {
+        console.error('Cannot publish study set: course code not loaded yet.');
+        return;
+      }
+
+      const setSnap = await getDoc(setRef);
+      if (!setSnap.exists()) return;
+      const setData = setSnap.data();
+
+      const publicSetId = await publishStudySet({
+        type: kind === 'flashcard' ? 'flashcard' : 'quiz',
+        setData:
+          kind === 'flashcard'
+            ? { name: setData.name, cards: setData.cards }
+            : { name: setData.name, questions: setData.questions },
+        courseCode,
+        ownerUid: user.uid,
+        originalPath: `users/${user.uid}/enrollment/${courseId}/${collectionName}/${id}`,
+      });
+
+      await updateDoc(setRef, { visibility: 'public', publicSetId });
+    } catch (error) {
+      console.error('Error toggling study set visibility:', error);
+    } finally {
+      setTogglingVisibilityId(null);
     }
   };
 
@@ -250,6 +369,18 @@ export default function CourseLearningPage() {
     }
   };
 
+  const learningPageText = [
+    `${courseCode || courseDisplayName} — Learning page (create flashcards/quizzes from a document, or open an existing set).`,
+    resources.length
+      ? `Documents available to turn into flashcards/quizzes (${resources.length}): ${resources.map((r) => r.name).join(', ')}`
+      : 'No documents uploaded to this class yet — the student needs to upload one before creating flashcards or a quiz.',
+    `Existing flashcard sets: ${flashcardSets.length ? flashcardSets.map((s) => s.name).join(', ') : 'none yet'}`,
+    `Existing quiz sets: ${quizSets.length ? quizSets.map((s) => s.name).join(', ') : 'none yet'}`,
+  ].join('\n');
+  const learningPageContext: PageTextPageContext | null =
+    !loading ? { kind: 'page_text', courseId, pageTitle: `the ${courseCode || courseDisplayName} Learning page`, pageText: learningPageText } : null;
+  const catalystSuggestions = learningPageContext ? buildPageTextSuggestions(learningPageContext) : [];
+
   if (authLoading || loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#FAFAF8]">
@@ -261,26 +392,17 @@ export default function CourseLearningPage() {
   return (
     <div className="min-h-screen bg-[#FAFAF8]">
       {/* Header */}
-      <div className="flex items-center justify-between px-14 py-7 border-b border-border-light">
-        <div className="flex items-center gap-3">
+      <div className="flex h-[60px] items-center justify-between border-b border-border-light px-14">
+        <div className="ml-4 flex translate-y-3 items-center gap-3">
           <button
             onClick={() => router.back()}
             className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors"
           >
             <ArrowLeft size={20} className="text-text-main" />
           </button>
-          <h1 className="text-xl font-bold text-[#1a1a2e]">
+          <h1 className="ml-1 text-xl font-bold text-[#1a1a2e]">
             {courseInfoLoading ? 'Loading...' : courseDisplayName}
           </h1>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors">
-            <BookOpen size={20} className="text-text-muted" />
-          </button>
-          <button className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors">
-            <Bookmark size={20} className="text-text-muted" />
-          </button>
         </div>
       </div>
 
@@ -354,6 +476,8 @@ export default function CourseLearningPage() {
                   courseName={courseDisplayName}
                   kind="flashcard"
                   onDelete={(id) => setDeleteTarget({ id, kind: 'flashcard' })}
+                  onToggleVisibility={(id) => handleToggleVisibility('flashcard', id)}
+                  togglingVisibility={togglingVisibilityId === set.id}
                 />
               ))}
             </div>
@@ -379,12 +503,30 @@ export default function CourseLearningPage() {
                   courseName={courseDisplayName}
                   kind="quiz"
                   onDelete={(id) => setDeleteTarget({ id, kind: 'quiz' })}
+                  onToggleVisibility={(id) => handleToggleVisibility('quiz', id)}
+                  togglingVisibility={togglingVisibilityId === set.id}
                 />
               ))}
             </div>
           )}
         </div>
       </div>
+
+      {learningPageContext && catalystChatContext && (
+        <>
+          <CatalystLauncher onClick={() => setCatalystOpen(true)} visible={!catalystOpen} buttonRef={catalystBtnRef} />
+          <ContextualAiPanel
+            open={catalystOpen}
+            onClose={() => setCatalystOpen(false)}
+            contextLabel={`Learning — ${courseDisplayName}`}
+            suggestions={catalystSuggestions}
+            pageContext={learningPageContext}
+            chatContext={catalystChatContext}
+            panelContextKey={`learning:${courseId}`}
+            launcherRef={catalystBtnRef}
+          />
+        </>
+      )}
 
       <LectureChoiceModal
         open={!!selectedResource}

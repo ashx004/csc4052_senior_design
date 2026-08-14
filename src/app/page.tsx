@@ -72,7 +72,7 @@ export default function Home() {
         </h1>
 
         <p className="text-text-main font-mono font-thin text-sm mt-6">
-          More than just notes !
+          More than just notes!
         </p>
 
         <div className="mt-20 flex flex-col items-center">

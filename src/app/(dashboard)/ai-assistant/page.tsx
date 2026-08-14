@@ -2,7 +2,9 @@
 
 import { FormEvent, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { FileDown, History, Mic, Paperclip } from "lucide-react";
+import Link from "next/link";
+import { FileDown, Globe, History, Loader2, Mic, Paperclip, BookOpen, ListChecks, Wrench } from "lucide-react";
+import ToolboxPanel from "@/src/components/aiAssistant/ToolboxPanel";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -11,16 +13,17 @@ import "katex/dist/katex.min.css";
 import { useAuth } from "@/src/context/AuthContext";
 import { buildChatContext, ChatContext } from "@/src/library/chatContext";
 import {
-  createChatSession,
-  deriveChatTitle,
+  addLocalMessage,
   getChatSession,
-  saveChatState,
+  subscribeToChatSession,
   StoredChatMessage,
 } from "@/src/library/chatMemory";
+import { deriveChatTitle } from "@/src/library/chatTitle";
 import ChatUploadModal from "@/src/components/aiAssistant/ChatUploadModal";
 import ChatHistoryPanel from "@/src/components/aiAssistant/ChatHistoryPanel";
 import { readChatStream, TOOL_STATUS_LABELS } from "@/src/library/chatStream";
 import { useChatStatus } from "@/src/library/useChatStatus";
+import { getEffectiveModelKey, getStoredExtraTools, setStoredExtraTools } from "@/src/library/chatMode";
 
 type ChatMessage = StoredChatMessage;
 
@@ -52,7 +55,10 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
       ) : isPending ? (
         <div className="flex items-center gap-2 rounded-2xl bg-bg-container px-5 py-4 shadow-sm ring-1 ring-border-light">
           {toolStatus ? (
-            <span className="text-sm text-text-muted">{toolStatus}</span>
+            <>
+              <Loader2 size={14} className="shrink-0 animate-spin text-text-muted" />
+              <span className="text-sm text-text-muted">{toolStatus}</span>
+            </>
           ) : (
             <>
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-muted [animation-delay:-0.3s]" />
@@ -98,6 +104,25 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
                   <FileDown size={14} />
                   {file.name}
                 </a>
+              ))}
+            </div>
+          )}
+
+          {message.generatedStudySets && (
+            <div className="flex flex-wrap gap-2 px-1">
+              {message.generatedStudySets.map((set) => (
+                <Link
+                  key={`${set.kind}-${set.id}`}
+                  href={
+                    set.kind === "flashcard"
+                      ? `/courses/${set.courseId}/flashcards?setId=${set.id}`
+                      : `/courses/${set.courseId}/quizzes/${set.id}?mode=take`
+                  }
+                  className="flex items-center gap-1.5 rounded-md border border-border-light bg-bg-container px-3 py-1.5 text-xs font-medium text-primary shadow-sm transition hover:bg-bg-warm"
+                >
+                  {set.kind === "flashcard" ? <BookOpen size={14} /> : <ListChecks size={14} />}
+                  {set.kind === "flashcard" ? "Study" : "Take quiz"}: {set.name}
+                </Link>
               ))}
             </div>
           )}
@@ -194,6 +219,20 @@ function getStarterPrompts(context: ChatContext | null): StarterPrompt[] {
 
 const MAX_CHAT_INPUT_CHARS = 4000;
 
+// Resuming a long-running session renders only the most recent messages up
+// front — roughly the last 20 exchanges, generous enough to keep real
+// context on screen without dumping months of history into the DOM at
+// once. The full transcript is already in memory either way (the session
+// doc is fetched whole), so this is purely a render cap with a "show
+// earlier messages" escape hatch, not a data-fetching limit.
+const INITIAL_VISIBLE_MESSAGES = 40;
+
+// sessionStorage (not cookies/localStorage) so this only survives in-tab
+// navigation — closing the tab or opening the site fresh elsewhere starts a
+// new session with a clean slate, but swapping to Settings and back within
+// the same tab keeps the active conversation instead of losing it.
+const ACTIVE_CHAT_SESSION_KEY = "catalyst:activeChatSessionId";
+
 // useSearchParams (used below to resume a session from the URL on refresh)
 // requires a Suspense boundary around anything that calls it, or Next.js
 // bails out of static generation for the whole page at build time — see
@@ -212,8 +251,38 @@ function AIAssistantPageContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [input, setInput] = useState("");
+  // Off by default - web/YouTube search reach outside the student's own
+  // course materials and aren't needed for most questions, so they're kept
+  // out of the tool schema entirely unless explicitly turned on, rather
+  // than always being one of the options the model has to weigh.
+  const [extraTools, setExtraTools] = useState(false);
+  const [toolboxOpen, setToolboxOpen] = useState(false);
+  const toolboxBtnRef = useRef<HTMLButtonElement | null>(null);
+
+  // Starts false above (SSR-safe - localStorage doesn't exist server-side)
+  // and syncs to whatever was actually saved right after mount, same
+  // pattern AIPanel.tsx uses for its own open/closed persistence. A student
+  // who deliberately turns this on for an ongoing project/study session
+  // shouldn't have it silently reset every time they reload the page.
+  useEffect(() => {
+    setExtraTools(getStoredExtraTools());
+  }, []);
+
+  function toggleExtraTools() {
+    setExtraTools((prev) => {
+      const next = !prev;
+      setStoredExtraTools(next);
+      return next;
+    });
+  }
   const [hasStarted, setHasStarted] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Non-null right after resuming a session long enough to cap (see
+  // INITIAL_VISIBLE_MESSAGES) — null means "show everything," which is also
+  // the state for a brand-new/short chat and for a resumed one once the
+  // student reveals the rest or sends a new message (see handleSubmit).
+  const [visibleMessageCount, setVisibleMessageCount] = useState<number | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const [isSending, setIsSending] = useState(false);
   const chatStatus = useChatStatus();
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -223,6 +292,12 @@ function AIAssistantPageContent() {
   const [isListening, setIsListening] = useState(false);
   const [micSupported, setMicSupported] = useState(true);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  // Only set for a session resumed mid-generation via loadSession (see
+  // generatingWatchRef below) — isSending/chatStatus alone can't tell the
+  // pending bubble to render, since those only ever get set by THIS
+  // component instance's own handleSubmit call, not by a generation that
+  // was already running server-side before this instance mounted.
+  const [isResuming, setIsResuming] = useState(false);
   const sessionId = useRef<string | null>(null);
   // Tracks the in-flight buildChatContext call so handleSubmit can wait for
   // it even if the student sends a message before the state update lands —
@@ -234,6 +309,13 @@ function AIAssistantPageContent() {
   const summaryRef = useRef("");
   const summarizedCountRef = useRef(0);
   const titleRef = useRef("");
+  // Watches a still-generating session live after loadSession resumes it —
+  // see the generating-flag handling there. Only ever one at a time.
+  const generatingWatchRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => generatingWatchRef.current?.();
+  }, []);
 
   useEffect(() => {
     const SpeechRecognition =
@@ -303,13 +385,6 @@ function AIAssistantPageContent() {
   useEffect(() => {
     if (authLoading || !user?.email) return;
 
-    // Deliberately does NOT resume the most recent session on a plain visit
-    // — every fresh link into this tab starts a new chat. Past chats are
-    // still reachable from the history panel (loadSession) for anyone who
-    // wants to pick one back up. The one exception is a mid-conversation
-    // page *refresh*: the active session's id is mirrored into the URL
-    // (see updateSessionUrl below), so reloading the same URL below resumes
-    // it instead of losing the conversation.
     chatContextPromiseRef.current = buildChatContext(user.uid, user.email)
       .then((ctx) => {
         setChatContext(ctx);
@@ -323,20 +398,33 @@ function AIAssistantPageContent() {
       .finally(() => setContextLoaded(true));
   }, [user, authLoading]);
 
-  // Keeps the URL in sync with whichever session is active, purely so a
-  // page refresh has something to resume from — not real navigation, so no
-  // history entry and no scroll reset.
+  // Keeps the URL in sync with whichever session is active (so a page
+  // refresh has something to resume from — not real navigation, so no
+  // history entry and no scroll reset) and mirrors it into sessionStorage,
+  // which is what makes resuming survive actual in-app navigation (e.g. to
+  // Settings and back) without also surviving leaving the site entirely —
+  // sessionStorage clears when the tab/site session ends, unlike cookies or
+  // localStorage.
   function updateSessionUrl(id: string | null) {
     router.replace(id ? `${pathname}?session=${id}` : pathname, { scroll: false });
+    if (id) {
+      sessionStorage.setItem(ACTIVE_CHAT_SESSION_KEY, id);
+    } else {
+      sessionStorage.removeItem(ACTIVE_CHAT_SESSION_KEY);
+    }
   }
 
-  // Runs once auth settles: if the URL already names a session (because
-  // this is a refresh of a URL updateSessionUrl previously wrote), resume
-  // it. A plain nav-link visit has no ?session= param and falls through to
-  // the fresh-chat behavior above, unchanged.
+  // Runs once auth settles: resumes whichever session was last active in
+  // this tab, checking the URL first (a refresh of a URL updateSessionUrl
+  // previously wrote) and falling back to sessionStorage (a plain in-app
+  // nav-link visit, e.g. returning from Settings, which carries no
+  // ?session= param but should still land back on the same conversation).
+  // sessionStorage is per-tab/session-scoped, not a cookie — leaving the
+  // site entirely (closing the tab, or opening it fresh elsewhere) starts a
+  // new session with nothing to resume, by design.
   useEffect(() => {
     if (authLoading || !user) return;
-    const urlSessionId = searchParams.get("session");
+    const urlSessionId = searchParams.get("session") || sessionStorage.getItem(ACTIVE_CHAT_SESSION_KEY);
     if (urlSessionId && urlSessionId !== sessionId.current) {
       loadSession(urlSessionId);
     }
@@ -345,11 +433,31 @@ function AIAssistantPageContent() {
 
   const starterPrompts = useMemo(() => getStarterPrompts(chatContext), [chatContext]);
 
+  const displayedMessages = useMemo(
+    () => (visibleMessageCount != null ? messages.slice(-visibleMessageCount) : messages),
+    [messages, visibleMessageCount]
+  );
+  const hiddenMessageCount =
+    visibleMessageCount != null ? Math.max(0, messages.length - visibleMessageCount) : 0;
+
+  // Jumps to the newest message whenever the visible set actually changes
+  // content — a session resuming (messages replaced wholesale), a new
+  // token streaming in, or a live-watched reply updating. Deliberately NOT
+  // keyed on visibleMessageCount alone: revealing older messages via the
+  // "show earlier" button below must not yank the student back down away
+  // from the history they just asked to see.
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+  }, [messages]);
+
   async function loadSession(id: string) {
     if (!user || id === sessionId.current) {
       setShowHistoryPanel(false);
       return;
     }
+    generatingWatchRef.current?.();
+    generatingWatchRef.current = null;
+    setIsResuming(false);
     try {
       const session = await getChatSession(user.uid, id);
       if (!session) return;
@@ -361,34 +469,46 @@ function AIAssistantPageContent() {
       titleRef.current = session.title;
       document.title = session.title ? `Catalyst — ${session.title}` : "Catalyst";
       setMessages(session.messages);
+      setVisibleMessageCount(
+        session.messages.length > INITIAL_VISIBLE_MESSAGES ? INITIAL_VISIBLE_MESSAGES : null
+      );
       setHasStarted(session.messages.length > 0);
       nextId.current = session.messages.length ? Math.max(...session.messages.map((m) => m.id)) + 1 : 1;
       setInput("");
       setErrorText(null);
       updateSessionUrl(session.id);
+
+      // Reopened a session while the server was still generating its
+      // latest reply in the background (e.g. the user left mid-answer) —
+      // watch it live instead of leaving a stale empty bubble until a
+      // manual refresh. isResuming stands in for isSending (which only
+      // this instance's own handleSubmit ever sets) so the placeholder
+      // renders as pending instead of a blank finished bubble.
+      if (session.generating) {
+        setIsResuming(true);
+        chatStatus.progress("Catching up on this reply...");
+        generatingWatchRef.current = subscribeToChatSession(user.uid, session.id, (updated) => {
+          setMessages(updated.messages);
+          // The server now writes the reply's text periodically while it's
+          // still generating (see persistPartialReply in api/chat/route.ts),
+          // not just once at the end — as soon as the placeholder has real
+          // text, the bubble itself switches from pending to rendering that
+          // text (see isPending below), so the status label is redundant.
+          const last = updated.messages[updated.messages.length - 1];
+          if (!updated.generating || last?.text) {
+            setIsResuming(false);
+            chatStatus.clear();
+          }
+          if (!updated.generating) {
+            generatingWatchRef.current?.();
+            generatingWatchRef.current = null;
+          }
+        });
+      }
     } catch (error) {
       console.error("Error loading chat session:", error);
     } finally {
       setShowHistoryPanel(false);
-    }
-  }
-
-  async function persist(nextMessages: ChatMessage[]) {
-    if (!user) return;
-    try {
-      if (!sessionId.current) {
-        sessionId.current = await createChatSession(user.uid);
-        setActiveSessionId(sessionId.current);
-        updateSessionUrl(sessionId.current);
-      }
-      await saveChatState(user.uid, sessionId.current, {
-        messages: nextMessages,
-        summary: summaryRef.current,
-        summarizedCount: summarizedCountRef.current,
-        title: titleRef.current,
-      });
-    } catch (error) {
-      console.error("Error saving chat session:", error);
     }
   }
 
@@ -399,6 +519,18 @@ function AIAssistantPageContent() {
     if (!trimmed || isSending) {
       return;
     }
+
+    // Sending a new message makes the just-submitted stream authoritative
+    // for this session's state — stop watching a previous resumed-live
+    // generation so it can't race the local updates below.
+    generatingWatchRef.current?.();
+    generatingWatchRef.current = null;
+    setIsResuming(false);
+    // Actively chatting again — show the full transcript rather than
+    // keeping an old resume-time cap that would otherwise start hiding the
+    // student's own new messages once enough of them push the window past
+    // INITIAL_VISIBLE_MESSAGES.
+    setVisibleMessageCount(null);
 
     const userMessage: ChatMessage = {
       id: nextId.current++,
@@ -445,6 +577,8 @@ function AIAssistantPageContent() {
           summary: summaryRef.current,
           summarizedCount: summarizedCountRef.current,
           currentSessionId: sessionId.current,
+          modelKey: getEffectiveModelKey("chat"),
+          extraTools,
         }),
       });
 
@@ -458,6 +592,7 @@ function AIAssistantPageContent() {
       let streamError: string | null = null;
       let documentsRead: string[] | undefined;
       let generatedFiles: { name: string; url: string }[] | undefined;
+      let generatedStudySets: { kind: "flashcard" | "quiz"; id: string; courseId: string; name: string }[] | undefined;
 
       for await (const event of readChatStream(response)) {
         if (event.type === "delta") {
@@ -468,9 +603,17 @@ function AIAssistantPageContent() {
           chatStatus.tool(TOOL_STATUS_LABELS[event.name] || "Working on it...");
         } else if (event.type === "status") {
           chatStatus.progress(event.label);
+        } else if (event.type === "session") {
+          // Brand-new session — the server already created its Firestore
+          // doc (see startChatPersistence in api/chat/route.ts), so just
+          // adopt the ID rather than creating one ourselves.
+          sessionId.current = event.id;
+          setActiveSessionId(event.id);
+          updateSessionUrl(event.id);
         } else if (event.type === "done") {
           if (event.documentsRead?.length) documentsRead = event.documentsRead;
           if (event.generatedFiles?.length) generatedFiles = event.generatedFiles;
+          if (event.generatedStudySets?.length) generatedStudySets = event.generatedStudySets;
           if (typeof event.summary === "string") summaryRef.current = event.summary;
           if (typeof event.summarizedCount === "number") summarizedCountRef.current = event.summarizedCount;
         } else if (event.type === "error") {
@@ -485,13 +628,14 @@ function AIAssistantPageContent() {
         throw new Error(streamError || "The assistant didn't generate a response. Please try again.");
       }
 
+      // The server already persisted the finished reply (see the route's
+      // finally block) — this just reflects it locally for whoever's still
+      // watching this tab.
       const finalMessage: ChatMessage = { id: assistantId, role: "assistant", text };
       if (documentsRead) finalMessage.documentsRead = documentsRead;
       if (generatedFiles) finalMessage.generatedFiles = generatedFiles;
-
-      const withReply = [...nextMessages, finalMessage];
-      setMessages(withReply);
-      persist(withReply);
+      if (generatedStudySets) finalMessage.generatedStudySets = generatedStudySets;
+      setMessages([...nextMessages, finalMessage]);
 
       if (streamError) setErrorText(streamError);
     } catch (error) {
@@ -508,9 +652,13 @@ function AIAssistantPageContent() {
   }
 
   function handleNewChat() {
+    generatingWatchRef.current?.();
+    generatingWatchRef.current = null;
+    setIsResuming(false);
     setHasStarted(false);
     setInput("");
     setMessages([]);
+    setVisibleMessageCount(null);
     setErrorText(null);
     sessionId.current = null;
     setActiveSessionId(null);
@@ -542,7 +690,22 @@ function AIAssistantPageContent() {
     const nextMessages = [...messages, notice];
     setMessages(nextMessages);
     setHasStarted(true);
-    persist(nextMessages);
+
+    if (user) {
+      addLocalMessage(user.uid, sessionId.current, nextMessages, {
+        summary: summaryRef.current,
+        summarizedCount: summarizedCountRef.current,
+        title: titleRef.current,
+      })
+        .then((id) => {
+          if (!sessionId.current) {
+            sessionId.current = id;
+            setActiveSessionId(id);
+            updateSessionUrl(id);
+          }
+        })
+        .catch((error) => console.error("Error saving upload notice:", error));
+    }
 
     if (user?.email) {
       chatContextPromiseRef.current = buildChatContext(user.uid, user.email)
@@ -556,7 +719,7 @@ function AIAssistantPageContent() {
 
   return (
     <section className="flex h-screen flex-col bg-bg-main text-text-main">
-      <header className="relative flex h-[73px] shrink-0 items-center justify-between border-b border-border-light bg-bg-container px-6">
+      <header className="relative flex h-[60px] shrink-0 items-center justify-between border-b border-border-light px-6">
         <h1 className="absolute left-1/2 -translate-x-1/2 text-center text-lg font-semibold tracking-[0.45em] text-text-main">
           Catalyst assistant.
         </h1>
@@ -629,15 +792,27 @@ function AIAssistantPageContent() {
             </div>
           ) : (
             <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-              {messages.map((message) => (
+              {hiddenMessageCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setVisibleMessageCount(null)}
+                  className="mx-auto rounded-full border border-border-light bg-bg-container px-4 py-1.5 text-xs text-text-muted shadow-sm transition hover:bg-bg-warm"
+                >
+                  Show {hiddenMessageCount} earlier {hiddenMessageCount === 1 ? "message" : "messages"}
+                </button>
+              )}
+
+              {displayedMessages.map((message) => (
                 <ChatMessageBubble
                   key={message.id}
                   message={message}
-                  isPending={message.text === "" && isSending}
+                  isPending={message.text === "" && (isSending || isResuming)}
                   toolStatus={chatStatus.status}
                   onCopy={handleCopy}
                 />
               ))}
+
+              <div ref={messagesEndRef} />
             </div>
           )}
         </div>
@@ -651,8 +826,47 @@ function AIAssistantPageContent() {
 
           <form
             onSubmit={handleSubmit}
-            className="mx-auto flex max-w-4xl items-center gap-3 rounded-2xl border border-border-light bg-bg-container px-4 py-2 shadow-lg shadow-stone-200/70"
+            className="relative mx-auto flex max-w-4xl items-center gap-3 rounded-2xl border border-border-light bg-bg-container px-4 py-2 shadow-lg shadow-stone-200/70"
           >
+            <button
+              type="button"
+              ref={toolboxBtnRef}
+              onClick={() => setToolboxOpen((open) => !open)}
+              title="See what the assistant can do"
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition ${
+                toolboxOpen ? "bg-primary text-text-inverse" : "text-primary hover:bg-bg-warm"
+              }`}
+              aria-label="Show available AI tools"
+              aria-pressed={toolboxOpen}
+            >
+              <Wrench size={18} strokeWidth={2} />
+            </button>
+
+            <ToolboxPanel
+              open={toolboxOpen}
+              onClose={() => setToolboxOpen(false)}
+              extraTools={extraTools}
+              onToggleExtraTools={toggleExtraTools}
+              anchorRef={toolboxBtnRef}
+            />
+
+            <button
+              type="button"
+              onClick={toggleExtraTools}
+              title={
+                extraTools
+                  ? "Web & video search on — the assistant can search the internet"
+                  : "Web & video search off — turn on to let the assistant search beyond your course materials"
+              }
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition ${
+                extraTools ? "bg-primary text-text-inverse" : "text-primary hover:bg-bg-warm"
+              }`}
+              aria-label={extraTools ? "Turn off web and video search" : "Turn on web and video search"}
+              aria-pressed={extraTools}
+            >
+              <Globe size={18} strokeWidth={2} />
+            </button>
+
             <button
               type="button"
               onClick={() => setShowUploadModal(true)}

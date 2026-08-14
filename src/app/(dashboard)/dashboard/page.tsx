@@ -14,12 +14,12 @@ export default function Dashboard() {
             icon="/icons/notebook-pen.png"
             title="Notes"
             description="Create and manage your notes"
-            href="/dashboard"
+            href="/notes"
           />
           <DashboardCard
             icon="/icons/book-open.png"
             title="Learning"
-            description="Access learning materials here"
+            description="Make flashcards and quizzes from your lectures"
             href="/learning"
           />
           <DashboardCard
@@ -35,10 +35,10 @@ export default function Dashboard() {
             href="/calendar"
           />
           <DashboardCard
-            icon="/icons/summary.png"
-            title="Summary"
-            description="View your class resources"
-            href="/summary"
+            icon="/icons/discover.png"
+            title="Discover"
+            description="Explore community quizzes and play Blocks"
+            href="/discover"
           />
           <DashboardCard
             icon="/icons/bot-message-square.png"

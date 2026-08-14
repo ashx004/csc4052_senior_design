@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { MessageSquare, X, Send } from "lucide-react";
+import { Loader2, MessageSquare, X, Send } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -18,8 +18,9 @@ const STORAGE_KEY = "catalyst:aiPanelOpen";
 // volunteer what's on screen unprompted (confirmed 2026-07 as unwanted:
 // dumping the page summary into the very first message was both noisy and
 // the main source of unnecessary token/context bloat). The real page data
-// still reaches the model via buildPageContextLayer in api/chat/route.ts,
-// so it's available and accurate the moment the student actually asks.
+// still reaches the model (see useAIPanelChat's ambient:true page context,
+// turned into a prompt layer server-side via buildPageContextPrompt), so
+// it's available and accurate the moment the student actually asks.
 function buildGreeting(): string {
   return "Hi! I'm Catalyst — ask me anything about your classes, studies, or what's on this page.";
 }
@@ -104,7 +105,10 @@ export default function AIPanel() {
                 ) : (
                   <div className="flex items-center gap-2 rounded-2xl bg-bg-container px-4 py-3 shadow-sm ring-1 ring-border-light">
                     {toolStatus ? (
-                      <span className="text-xs text-text-muted">{toolStatus}</span>
+                      <>
+                        <Loader2 size={12} className="shrink-0 animate-spin text-text-muted" />
+                        <span className="text-xs text-text-muted">{toolStatus}</span>
+                      </>
                     ) : (
                       <>
                         <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-muted [animation-delay:-0.3s]" />
