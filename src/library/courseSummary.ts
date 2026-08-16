@@ -12,7 +12,11 @@ import { stripThinkLeak } from "./stripThinkLeak";
 // student has uploaded.
 const MAX_DOCS_FOR_SUMMARY = 8;
 const MAX_CHARS_PER_DOC = 3000;
-const OLLAMA_TIMEOUT_MS = 60000;
+// Was 60000 — raised alongside the 2026-08-16 switch to Muse Glimmer below,
+// a bigger/slower model than the previous fast tier. Still fire-and-forget
+// (see generateCourseSummary's doc comment), so a slower ceiling here costs
+// nothing user-facing, just a longer window before a failure is logged.
+const OLLAMA_TIMEOUT_MS = 120000;
 
 async function callOllamaForSummary(prompt: string): Promise<string> {
   const baseUrl = await resolveOllamaBaseUrl(
@@ -31,10 +35,13 @@ async function callOllamaForSummary(prompt: string): Promise<string> {
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
       },
       body: JSON.stringify({
-        // Fast model — this is a background housekeeping task, not
-        // something a student is waiting on, so there's no reason to pay
-        // quality mode's latency/leak-buffering cost for it.
-        model: process.env.OLLAMA_MODEL_FAST || process.env.OLLAMA_MODEL || "gpt-oss:20b",
+        // Changed 2026-08-16: was the fast tier (gpt-oss:20b) — this is a
+        // background housekeeping task with nobody waiting on it, so speed
+        // was never the constraint; now uses the app-wide default (Muse
+        // Glimmer) instead, so this call reuses whichever model is already
+        // resident for chat/OCR rather than potentially loading a second
+        // one just for a summary nobody's watching happen.
+        model: process.env.OLLAMA_MODEL_MUSE_GLIMMER || "muse-glimmer:latest",
         messages: [
           {
             role: "system",

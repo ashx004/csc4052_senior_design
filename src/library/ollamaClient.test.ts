@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveModelFromKey, FAST_MODEL_KEEP_ALIVE } from "./ollamaClient";
 
 const ENV_KEYS = [
@@ -9,6 +9,7 @@ const ENV_KEYS = [
   "OLLAMA_MODEL_NEMOTRON",
   "OLLAMA_MODEL_QWEN_CODER",
   "OLLAMA_OCR_MODEL",
+  "OLLAMA_MODEL_KEEP_ALIVE",
 ] as const;
 
 let savedEnv: Record<string, string | undefined>;
@@ -42,9 +43,13 @@ describe("resolveModelFromKey", () => {
     expect(resolveModelFromKey("museGlimmer")).toBe("muse-glimmer:custom-tag");
   });
 
-  it("falls open to qwen3A3b (the practical default) on an invalid or missing key, never throwing", () => {
-    expect(resolveModelFromKey("not-a-real-key")).toBe("qwen3:30b-a3b");
-    expect(resolveModelFromKey(undefined)).toBe("qwen3:30b-a3b");
+  // Changed 2026-08-16: the app-wide default is now Muse Glimmer (the one
+  // model with native vision, see chatMode.ts's DEFAULT_TASK_MODEL), not
+  // qwen3A3b - an invalid/missing key falls open to whatever "museGlimmer"
+  // itself resolves to.
+  it("falls open to museGlimmer (the app-wide default) on an invalid or missing key, never throwing", () => {
+    expect(resolveModelFromKey("not-a-real-key")).toBe("muse-glimmer:latest");
+    expect(resolveModelFromKey(undefined)).toBe("muse-glimmer:latest");
   });
 
   it("qwen3A3b falls back through OLLAMA_MODEL_QUALITY, then OLLAMA_MODEL, then the literal", () => {
@@ -54,20 +59,37 @@ describe("resolveModelFromKey", () => {
     expect(resolveModelFromKey("qwen3A3b")).toBe("qwen3:30b-a3b-custom");
   });
 
-  it("an invalid key falls open through the same OLLAMA_MODEL_QUALITY/OLLAMA_MODEL chain as qwen3A3b", () => {
-    process.env.OLLAMA_MODEL_QUALITY = "qwen3:30b-a3b-custom";
-    expect(resolveModelFromKey("not-a-real-key")).toBe("qwen3:30b-a3b-custom");
+  it("an invalid key falls open through the same OLLAMA_MODEL_MUSE_GLIMMER chain as museGlimmer", () => {
+    process.env.OLLAMA_MODEL_MUSE_GLIMMER = "muse-glimmer:custom-tag";
+    expect(resolveModelFromKey("not-a-real-key")).toBe("muse-glimmer:custom-tag");
   });
 
-  it("resolves the internal-only ocr key for co-warming vision alongside fastResident", () => {
-    expect(resolveModelFromKey("ocr")).toBe("qwen3-vl:8b");
+  // Changed 2026-08-16: defaults to muse-glimmer:latest (was qwen3-vl:8b) -
+  // Muse Glimmer's native vision encoder replaced the separate dedicated
+  // OCR model, see OLLAMA_OCR_MODEL in env.example. Kept as its own env var
+  // (not folded into OLLAMA_MODEL_MUSE_GLIMMER) so this and ocrClient.ts's
+  // real document-OCR calls stay sourced from one place.
+  it("resolves the internal-only ocr key for co-warming vision alongside the effective chat model", () => {
+    expect(resolveModelFromKey("ocr")).toBe("muse-glimmer:latest");
     process.env.OLLAMA_OCR_MODEL = "qwen3-vl:custom-tag";
     expect(resolveModelFromKey("ocr")).toBe("qwen3-vl:custom-tag");
   });
 });
 
 describe("FAST_MODEL_KEEP_ALIVE", () => {
-  it("is the always-resident sentinel Ollama expects", () => {
-    expect(FAST_MODEL_KEEP_ALIVE).toBe(-1);
+  it("is 1h by default when OLLAMA_MODEL_KEEP_ALIVE is unset", () => {
+    expect(FAST_MODEL_KEEP_ALIVE).toBe("1h");
+  });
+
+  // FAST_MODEL_KEEP_ALIVE is a module-level constant, read once at import
+  // time (see every call site: chat/route.ts, warm-model/route.ts) rather
+  // than a function - vi.resetModules() + a fresh dynamic import is the
+  // correct way to exercise that read with the env var actually set,
+  // without changing the exported shape every real caller depends on.
+  it("reads OLLAMA_MODEL_KEEP_ALIVE when set, e.g. this repo's .env value of 2h", async () => {
+    process.env.OLLAMA_MODEL_KEEP_ALIVE = "2h";
+    vi.resetModules();
+    const fresh = await import("./ollamaClient");
+    expect(fresh.FAST_MODEL_KEEP_ALIVE).toBe("2h");
   });
 });

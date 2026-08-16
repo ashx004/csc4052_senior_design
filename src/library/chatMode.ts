@@ -19,15 +19,25 @@ export type UnifiedModelKey = "museGlimmer" | "qwen3A3b" | "fastResident";
 // flashcard/quiz JSON schemas and the actual list_enrolled_classes/
 // search_documents tool-calling chat flow through a full multi-round tool
 // loop) found these 4 differ on more than raw speed - each label names the
-// specific thing that model is actually best at. qwen3A3b's one caveat
-// (occasionally including raw reasoning text in output, see
-// OLLAMA_MODEL_QUALITY's comment) is already handled automatically by
-// wrapDeltaForThinkStripping, so it doesn't count against picking it as the
-// practical default - a fixable/already-fixed issue shouldn't scare off an
-// otherwise-fastest model. `detail` is meant for a title/tooltip showing
-// real numbers on hover. Ordered most practical (top) to least (bottom), so
-// the top of the list is also the default (see DEFAULT_TASK_MODEL).
+// specific thing that model is actually best at. `detail` is meant for a
+// title/tooltip showing real numbers on hover. Ordered most practical (top)
+// to least (bottom), so the top of the list is also the default (see
+// DEFAULT_TASK_MODEL).
+// Changed 2026-08-16: Muse Glimmer promoted to the top/default. It's not the
+// fastest of the 4 in raw tok/s, but it's the only one with a real vision
+// encoder — see ollamaClient.ts's "ocr" case and OLLAMA_OCR_MODEL in
+// env.example — so making it the default for chat/quiz/flashcards too means
+// there's only ever one model resident (chat and OCR share it) instead of
+// two fighting over VRAM. Confirmed live on primary's ~34GB budget with
+// plenty of headroom to spare, and separately confirmed via a 6-image OCR
+// accuracy test (2026-08-16) that its vision quality matches/exceeds the
+// previous dedicated OCR model.
 export const TASK_MODEL_OPTIONS: { key: TaskModelKey; label: string; detail: string }[] = [
+  {
+    key: "museGlimmer",
+    label: "Best writing + built-in OCR — Muse Glimmer",
+    detail: "31.7 tok/s avg. Clearest, best-organized answers in testing, especially for longer explanations. Also the only one of the 4 with native vision — picking it here means chat and document scanning share one resident model instead of two.",
+  },
   {
     key: "qwen3A3b",
     label: "Fastest — Qwen3 30B-A3B",
@@ -43,19 +53,20 @@ export const TASK_MODEL_OPTIONS: { key: TaskModelKey; label: string; detail: str
     label: "Balanced — Nemotron 3.5 Lightning",
     detail: "106.8 tok/s avg. Solid all-around; one minor quiz-formatting issue found in testing.",
   },
-  {
-    key: "museGlimmer",
-    label: "Best writing — Muse Glimmer",
-    detail: "31.7 tok/s avg, slowest of the 4. Clearest, best-organized answers in testing, especially for longer explanations.",
-  },
 ];
 
 // Same per-model strengths as TASK_MODEL_OPTIONS, but for the single model
 // the "reduce cold boots" checkbox pins across every task. Includes the
 // existing Fast-tier model (fastResident) alongside the benchmarked ones,
 // since it's small enough to comfortably coexist with vision/OCR. Same
-// practical-first ordering as TASK_MODEL_OPTIONS.
+// practical-first ordering as TASK_MODEL_OPTIONS — see its comment for why
+// Muse Glimmer leads.
 export const UNIFIED_MODEL_OPTIONS: { key: UnifiedModelKey; label: string; detail: string }[] = [
+  {
+    key: "museGlimmer",
+    label: "Best writing + built-in OCR — Muse Glimmer",
+    detail: "31.7 tok/s avg. Clearest, best-organized answers in testing, especially for longer explanations. Also the only one of the 4 with native vision — the single resident model for everything, chat included.",
+  },
   {
     key: "qwen3A3b",
     label: "Fastest — Qwen3 30B-A3B",
@@ -66,19 +77,14 @@ export const UNIFIED_MODEL_OPTIONS: { key: UnifiedModelKey; label: string; detai
     label: "Zero cold-boot — gpt-oss 20B",
     detail: "Always stays loaded in memory, even alongside document scanning - never has to swap in.",
   },
-  {
-    key: "museGlimmer",
-    label: "Best writing — Muse Glimmer",
-    detail: "31.7 tok/s avg, slowest of the 4. Clearest, best-organized answers in testing, especially for longer explanations.",
-  },
 ];
 
-// qwen3A3b: fastest of the 4, and its one caveat is already handled
-// automatically (see TASK_MODEL_OPTIONS's comment) - the most practical
-// default once that's accounted for. Also what OLLAMA_MODEL_QUALITY already
-// defaults to today, so this is the least disruptive choice, not a new one.
-const DEFAULT_TASK_MODEL: TaskModelKey = "qwen3A3b";
-const DEFAULT_UNIFIED_MODEL: UnifiedModelKey = "qwen3A3b";
+// museGlimmer: the one model with native vision (see the options list's
+// comment above) — defaulting to it means chat/quiz/flashcards/OCR all
+// share a single resident model app-wide, instead of a text model plus a
+// separate vision model fighting over the same VRAM.
+const DEFAULT_TASK_MODEL: TaskModelKey = "museGlimmer";
+const DEFAULT_UNIFIED_MODEL: UnifiedModelKey = "museGlimmer";
 
 function taskModelStorageKey(task: AiTask): string {
   return `chat-task-model-${task}`;

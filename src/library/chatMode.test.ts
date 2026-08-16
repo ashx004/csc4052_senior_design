@@ -45,22 +45,22 @@ beforeEach(() => {
 });
 
 describe("getStoredTaskModel / setStoredTaskModel", () => {
-  it("defaults to qwen3A3b for every task when nothing is stored", () => {
-    expect(getStoredTaskModel("chat")).toBe("qwen3A3b");
-    expect(getStoredTaskModel("quiz")).toBe("qwen3A3b");
-    expect(getStoredTaskModel("flashcards")).toBe("qwen3A3b");
+  it("defaults to museGlimmer for every task when nothing is stored", () => {
+    expect(getStoredTaskModel("chat")).toBe("museGlimmer");
+    expect(getStoredTaskModel("quiz")).toBe("museGlimmer");
+    expect(getStoredTaskModel("flashcards")).toBe("museGlimmer");
   });
 
   it("round-trips a stored value for one task without affecting the others", () => {
-    setStoredTaskModel("quiz", "museGlimmer");
-    expect(getStoredTaskModel("quiz")).toBe("museGlimmer");
-    expect(getStoredTaskModel("chat")).toBe("qwen3A3b");
-    expect(getStoredTaskModel("flashcards")).toBe("qwen3A3b");
+    setStoredTaskModel("quiz", "qwen3A3b");
+    expect(getStoredTaskModel("quiz")).toBe("qwen3A3b");
+    expect(getStoredTaskModel("chat")).toBe("museGlimmer");
+    expect(getStoredTaskModel("flashcards")).toBe("museGlimmer");
   });
 
   it("falls back to the default on a corrupted/unrecognized stored value", () => {
     localStorage.setItem("chat-task-model-chat", "not-a-real-key");
-    expect(getStoredTaskModel("chat")).toBe("qwen3A3b");
+    expect(getStoredTaskModel("chat")).toBe("museGlimmer");
   });
 });
 
@@ -78,18 +78,18 @@ describe("getStoredReduceColdBoots / setStoredReduceColdBoots", () => {
 });
 
 describe("getStoredUnifiedModel / setStoredUnifiedModel", () => {
-  it("defaults to qwen3A3b (fastest, with its one caveat already auto-mitigated)", () => {
-    expect(getStoredUnifiedModel()).toBe("qwen3A3b");
+  it("defaults to museGlimmer (the only one of the 4 with native vision, so chat and OCR share one resident model)", () => {
+    expect(getStoredUnifiedModel()).toBe("museGlimmer");
   });
 
   it("round-trips a stored value", () => {
-    setStoredUnifiedModel("museGlimmer");
-    expect(getStoredUnifiedModel()).toBe("museGlimmer");
+    setStoredUnifiedModel("qwen3A3b");
+    expect(getStoredUnifiedModel()).toBe("qwen3A3b");
   });
 
   it("falls back to the default on a corrupted/unrecognized stored value", () => {
     localStorage.setItem("chat-unified-model", "not-a-real-key");
-    expect(getStoredUnifiedModel()).toBe("qwen3A3b");
+    expect(getStoredUnifiedModel()).toBe("museGlimmer");
   });
 });
 
@@ -131,11 +131,11 @@ describe("resetModelPreferences", () => {
 
     resetModelPreferences();
 
-    expect(getStoredTaskModel("chat")).toBe("qwen3A3b");
-    expect(getStoredTaskModel("quiz")).toBe("qwen3A3b");
-    expect(getStoredTaskModel("flashcards")).toBe("qwen3A3b");
+    expect(getStoredTaskModel("chat")).toBe("museGlimmer");
+    expect(getStoredTaskModel("quiz")).toBe("museGlimmer");
+    expect(getStoredTaskModel("flashcards")).toBe("museGlimmer");
     expect(getStoredReduceColdBoots()).toBe(true);
-    expect(getStoredUnifiedModel()).toBe("qwen3A3b");
+    expect(getStoredUnifiedModel()).toBe("museGlimmer");
   });
 });
 

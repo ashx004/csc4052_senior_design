@@ -66,9 +66,11 @@ function mightBeAmbiguous(message: string): boolean {
 // evicting/reloading whichever of qwen3:4b / qwen3-embedding wasn't most
 // recently used (no OLLAMA_MAX_LOADED_MODELS set, so only one stayed
 // resident). Fixed at the infra level (both models now kept loaded
-// simultaneously, OLLAMA_KEEP_ALIVE=-1) — this extra headroom is just
-// defense-in-depth for real concurrent-request queueing, not the reload
-// case anymore.
+// simultaneously, OLLAMA_KEEP_ALIVE=1h as of 2026-08-15, was -1) — this
+// extra headroom is just defense-in-depth for real concurrent-request
+// queueing, not the reload case anymore. 1h is long enough that this fix
+// still holds for any realistic back-to-back usage; it only lapses after a
+// full hour of total inactivity, at which point both models unload anyway.
 const CLARIFY_TIMEOUT_MS = 20000;
 
 export async function clarifyUserQuery(message: string): Promise<string | null> {

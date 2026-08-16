@@ -12,13 +12,18 @@ type ToolEntry = {
 // Mirrors the tool list actually registered in api/chat/route.ts's `tools`
 // array (LIST_CLASSES_TOOL, SEARCH_DOCUMENTS_TOOL/READ_DOCUMENT_TOOL,
 // CREATE_FLASHCARDS_TOOL, CREATE_QUIZ_TOOL, CREATE_PDF_TOOL, the 4 calendar
-// tools, RECALL_PAST_CHAT_TOOL) — every one of these is always sent with
-// every request, so there's no per-tool toggle for them; only
-// WEB_SEARCH_TOOL/YOUTUBE_SEARCH_TOOL are opt-in (the extraTools flag).
-// Update this list if a tool is added/removed there so it doesn't drift.
+// tools, RECALL_PAST_CHAT_TOOL, and — as of 2026-08-14 — WEB_SEARCH_TOOL/
+// YOUTUBE_SEARCH_TOOL) — every one of these is sent with every request now.
+// Web/video search used to be opt-in (an `extraTools` toggle here), but a
+// student asking to "research X" or "find a video" with the toggle off had
+// no tool that could do either, and the model would silently return empty
+// content and hard-error instead of explaining that (confirmed live) — so
+// it's always-on now, same as everything else. Update this list if a tool
+// is added/removed in route.ts so it doesn't drift.
 const ALWAYS_ON_TOOLS: ToolEntry[] = [
   { icon: GraduationCap, label: "Course lookup", description: "Your classes, instructors, and document lists" },
   { icon: FileSearch, label: "Document search", description: "Finds relevant passages across your uploaded documents" },
+  { icon: Globe, label: "Web & video search", description: "Searches the live web and YouTube, beyond your course materials" },
   { icon: BookOpen, label: "Flashcard creation", description: "Turns a document into a flashcard set you can study" },
   { icon: ListChecks, label: "Quiz creation", description: "Turns a document into a quiz you can take" },
   { icon: FileText, label: "PDF / practice exam creation", description: "Generates a downloadable PDF, saved to your class files" },
@@ -29,14 +34,10 @@ const ALWAYS_ON_TOOLS: ToolEntry[] = [
 export default function ToolboxPanel({
   open,
   onClose,
-  extraTools,
-  onToggleExtraTools,
   anchorRef,
 }: {
   open: boolean;
   onClose: () => void;
-  extraTools: boolean;
-  onToggleExtraTools: () => void;
   anchorRef: RefObject<HTMLElement | null>;
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -65,7 +66,7 @@ export default function ToolboxPanel({
       className="absolute bottom-full left-0 z-20 mb-2 w-80 rounded-xl border border-border-light bg-bg-container p-3 shadow-lg shadow-stone-200/70"
     >
       <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-text-muted">Always available</p>
-      <ul className="mb-3 space-y-1">
+      <ul className="space-y-1">
         {ALWAYS_ON_TOOLS.map((tool) => (
           <li key={tool.label} className="flex items-start gap-2.5 rounded-md px-1.5 py-1.5">
             <tool.icon size={16} strokeWidth={2} className="mt-0.5 shrink-0 text-primary" />
@@ -76,28 +77,6 @@ export default function ToolboxPanel({
           </li>
         ))}
       </ul>
-
-      <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-text-muted">Switchable</p>
-      <button
-        type="button"
-        onClick={onToggleExtraTools}
-        className="flex w-full items-start gap-2.5 rounded-md px-1.5 py-1.5 text-left transition hover:bg-bg-warm"
-      >
-        <Globe size={16} strokeWidth={2} className={`mt-0.5 shrink-0 ${extraTools ? "text-primary" : "text-text-muted"}`} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-medium text-text-main">Web & video search</p>
-            <span
-              className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                extraTools ? "bg-primary text-text-inverse" : "bg-bg-warm text-text-muted"
-              }`}
-            >
-              {extraTools ? "On" : "Off"}
-            </span>
-          </div>
-          <p className="text-xs text-text-muted">Lets the assistant search the live web and YouTube, beyond your course materials</p>
-        </div>
-      </button>
     </div>
   );
 }
