@@ -1827,16 +1827,40 @@ export async function POST(request: NextRequest) {
           UPDATE_CALENDAR_EVENT_TOOL,
           DELETE_CALENDAR_EVENT_TOOL,
           RECALL_PAST_CHAT_TOOL,
-          // Opt-in only (see extraTools in the request body type above) -
-          // these two are the only tools that reach outside the student's
-          // own course materials, and aren't needed for most questions.
-          ...(extraTools ? [WEB_SEARCH_TOOL, YOUTUBE_SEARCH_TOOL] : []),
+          // Always available (changed 2026-08-14 — see the "extraTools"
+          // field's own comment above, kept for backward compatibility but
+          // no longer gating these). Previously opt-in only, but that had
+          // a real failure mode: a student asking to "research X" or "find
+          // a video" with the toggle off had no tool that could do either,
+          // and rather than explaining that, the model would silently
+          // return empty content twice in a row and hard-error (confirmed
+          // live). buildInstructionalLogicLayer already tells the model to
+          // "only call a tool when it materially improves the answer," so
+          // that existing guidance is what keeps this from turning into
+          // unwanted web-search sprawl on ordinary course questions -
+          // no separate gate needed to enforce restraint.
+          WEB_SEARCH_TOOL,
+          YOUTUBE_SEARCH_TOOL,
         ];
 
         let finished = false;
         let emptyRoundRetries = 0;
         let anyToolCalled = false;
         const documentsReadThisTurn: { courseId: string; resourceId: string; name: string }[] = [];
+
+        // Confirmed live 2026-08-14, two real incidents: a model calling
+        // read_document twice on the identical file (burning 2 of the 5
+        // round budget on zero new information, leaving nothing left for an
+        // actual answer), and a model calling create_flashcards 5 times in
+        // a row with the exact same (failing) arguments — the underlying
+        // generation failed the same deterministic way every time, so
+        // retrying was never going to help, it just turned a graceful
+        // one-shot failure into the whole round budget being silently
+        // burned. Tracks every (tool name, arguments) pair actually called
+        // this turn; an exact repeat gets a pointed correction instead of
+        // being executed again, so the model is told directly rather than
+        // left to rediscover the same dead end round after round.
+        const calledToolSignatures = new Map<string, string>();
 
         // The model's first token can legitimately take a while (cold model
         // load after idle — see OLLAMA_TIMEOUT_MS), so this is the last
@@ -1890,7 +1914,21 @@ export async function POST(request: NextRequest) {
               send({ type: "tool", name: fnName });
               let result: string;
 
-              if (fnName === "list_enrolled_classes") {
+              // Exact repeat of an earlier call this same turn (identical
+              // tool, identical arguments) — see calledToolSignatures'
+              // comment above. Skips redoing the actual work (no reason to
+              // re-read the same document or re-attempt the same failing
+              // generation) and instead tells the model plainly, so it
+              // stops looping instead of burning the rest of its round
+              // budget rediscovering the same result.
+              const toolSignature = `${fnName}:${JSON.stringify(args)}`;
+              const priorResult = calledToolSignatures.get(toolSignature);
+
+              if (priorResult !== undefined) {
+                result = priorResult.startsWith("Error:")
+                  ? "Error: this exact request already failed moments ago in this same turn, with the same arguments — retrying it will not produce a different result. Stop retrying it; tell the student what happened and, if a fallback was offered, suggest that instead."
+                  : "Note: you already called this exact tool with these exact arguments earlier this turn — the result is unchanged and already in this conversation above. Do not call it again with the same arguments; use what you already have.";
+              } else if (fnName === "list_enrolled_classes") {
                 result = listEnrolledClasses(context);
               } else if (fnName === "read_document") {
                 const readResult = await readDocument(request, context, args.courseId, args.documentName);
@@ -1950,6 +1988,7 @@ export async function POST(request: NextRequest) {
                 result = `Error: unknown tool "${fnName}".`;
               }
 
+              calledToolSignatures.set(toolSignature, result);
               conversation.push({ role: "tool", tool_call_id: toolCall.id, content: result });
             }
 

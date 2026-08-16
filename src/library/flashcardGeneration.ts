@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { resolveModelFromKey } from "@/src/library/ollamaClient";
-import { stripThinkLeak } from "@/src/library/stripThinkLeak";
+import { stripThinkLeak, extractFirstJsonObject } from "@/src/library/stripThinkLeak";
 
 // Shared between api/generate-flashcards/route.ts (the standalone
 // course-page flow) and api/chat/route.ts's create_flashcards tool - the
@@ -126,7 +126,7 @@ export async function generateFlashcardsWithRetry(
 
       const data = await response.json();
       const content = stripThinkLeak(data?.message?.content ?? "");
-      return FlashcardResponseSchema.parse(JSON.parse(content));
+      return FlashcardResponseSchema.parse(JSON.parse(extractFirstJsonObject(content)));
     } catch (error) {
       lastError = error;
       console.error(`Flashcard generation attempt ${attempt} failed:`, error);

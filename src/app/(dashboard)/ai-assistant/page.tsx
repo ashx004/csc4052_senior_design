@@ -3,7 +3,7 @@
 import { FormEvent, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { FileDown, Globe, History, Loader2, Mic, Paperclip, BookOpen, ListChecks, Wrench } from "lucide-react";
+import { FileDown, History, Loader2, Mic, Paperclip, BookOpen, ListChecks, Wrench } from "lucide-react";
 import ToolboxPanel from "@/src/components/aiAssistant/ToolboxPanel";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -23,7 +23,7 @@ import ChatUploadModal from "@/src/components/aiAssistant/ChatUploadModal";
 import ChatHistoryPanel from "@/src/components/aiAssistant/ChatHistoryPanel";
 import { readChatStream, TOOL_STATUS_LABELS } from "@/src/library/chatStream";
 import { useChatStatus } from "@/src/library/useChatStatus";
-import { getEffectiveModelKey, getStoredExtraTools, setStoredExtraTools } from "@/src/library/chatMode";
+import { getEffectiveModelKey } from "@/src/library/chatMode";
 
 type ChatMessage = StoredChatMessage;
 
@@ -251,30 +251,8 @@ function AIAssistantPageContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [input, setInput] = useState("");
-  // Off by default - web/YouTube search reach outside the student's own
-  // course materials and aren't needed for most questions, so they're kept
-  // out of the tool schema entirely unless explicitly turned on, rather
-  // than always being one of the options the model has to weigh.
-  const [extraTools, setExtraTools] = useState(false);
   const [toolboxOpen, setToolboxOpen] = useState(false);
   const toolboxBtnRef = useRef<HTMLButtonElement | null>(null);
-
-  // Starts false above (SSR-safe - localStorage doesn't exist server-side)
-  // and syncs to whatever was actually saved right after mount, same
-  // pattern AIPanel.tsx uses for its own open/closed persistence. A student
-  // who deliberately turns this on for an ongoing project/study session
-  // shouldn't have it silently reset every time they reload the page.
-  useEffect(() => {
-    setExtraTools(getStoredExtraTools());
-  }, []);
-
-  function toggleExtraTools() {
-    setExtraTools((prev) => {
-      const next = !prev;
-      setStoredExtraTools(next);
-      return next;
-    });
-  }
   const [hasStarted, setHasStarted] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   // Non-null right after resuming a session long enough to cap (see
@@ -578,7 +556,6 @@ function AIAssistantPageContent() {
           summarizedCount: summarizedCountRef.current,
           currentSessionId: sessionId.current,
           modelKey: getEffectiveModelKey("chat"),
-          extraTools,
         }),
       });
 
@@ -845,27 +822,8 @@ function AIAssistantPageContent() {
             <ToolboxPanel
               open={toolboxOpen}
               onClose={() => setToolboxOpen(false)}
-              extraTools={extraTools}
-              onToggleExtraTools={toggleExtraTools}
               anchorRef={toolboxBtnRef}
             />
-
-            <button
-              type="button"
-              onClick={toggleExtraTools}
-              title={
-                extraTools
-                  ? "Web & video search on — the assistant can search the internet"
-                  : "Web & video search off — turn on to let the assistant search beyond your course materials"
-              }
-              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition ${
-                extraTools ? "bg-primary text-text-inverse" : "text-primary hover:bg-bg-warm"
-              }`}
-              aria-label={extraTools ? "Turn off web and video search" : "Turn on web and video search"}
-              aria-pressed={extraTools}
-            >
-              <Globe size={18} strokeWidth={2} />
-            </button>
 
             <button
               type="button"

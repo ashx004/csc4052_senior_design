@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveOllamaBaseUrl } from "@/src/library/ollamaClient";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
+import { stripThinkLeak, extractFirstJsonObject } from "@/src/library/stripThinkLeak";
 import { z } from "zod";
 
 // --- Config ---
@@ -92,11 +93,15 @@ const RequestBodySchema = z.object({
 async function callOllama(prompt: string, count: number): Promise<string> {
   const configuredUrl = process.env.OLLAMA_PRIMARY_URL;
   const token = process.env.OLLAMA_AUTH_TOKEN;
-  const model = process.env.OLLAMA_MODEL_QUALITY;
+  // Changed 2026-08-16: was hard-coded to OLLAMA_MODEL_QUALITY, now the
+  // app-wide default (Muse Glimmer, see chatMode.ts/ollamaClient.ts) so
+  // this reuses whichever model is already resident for chat instead of
+  // potentially loading a second one just for question generation.
+  const model = process.env.OLLAMA_MODEL_MUSE_GLIMMER || "muse-glimmer:latest";
 
   if (!configuredUrl || !token || !model) {
     throw new Error(
-      "Ollama is not configured. Set OLLAMA_PRIMARY_URL, OLLAMA_AUTH_TOKEN, and OLLAMA_MODEL_QUALITY."
+      "Ollama is not configured. Set OLLAMA_PRIMARY_URL, OLLAMA_AUTH_TOKEN, and OLLAMA_MODEL_MUSE_GLIMMER."
     );
   }
 
@@ -217,7 +222,7 @@ export async function POST(req: NextRequest) {
   for (let attempt = 0; attempt < MAX_OLLAMA_ATTEMPTS; attempt++) {
     try {
       const raw = await callOllama(prompt, body.count);
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(extractFirstJsonObject(stripThinkLeak(raw)));
       const validated = GeneratedQuestionsResponseSchema.parse(parsed);
 
       // Semantic filter

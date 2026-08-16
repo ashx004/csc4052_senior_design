@@ -19,10 +19,11 @@ export async function embedTexts(texts: string[], signal?: AbortSignal): Promise
     body: JSON.stringify({
       model: process.env.OLLAMA_EMBED_MODEL || "nomic-embed-text:latest",
       input: texts,
-      // Every search_documents/indexing call needs this model — it should
-      // never sit idle-evicted between uses the way an occasional-use model
-      // reasonably would.
-      keep_alive: -1,
+      // Changed 2026-08-15 from -1 (never unload): an idle model is just GPU
+      // power draw with nobody using it. 1h keeps it loaded through a normal
+      // burst of indexing/search activity without camping in VRAM forever -
+      // matches OLLAMA_KEEP_ALIVE=1h now set as the daemon default.
+      keep_alive: "1h",
     }),
   });
 

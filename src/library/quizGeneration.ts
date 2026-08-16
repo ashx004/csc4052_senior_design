@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { z } from "zod";
 import { resolveModelFromKey } from "@/src/library/ollamaClient";
-import { stripThinkLeak } from "@/src/library/stripThinkLeak";
+import { stripThinkLeak, extractFirstJsonObject } from "@/src/library/stripThinkLeak";
 
 // Shared between api/generate-quiz/route.ts (the standalone course-page
 // flow) and api/chat/route.ts's create_quiz tool - same generation +
@@ -179,7 +179,7 @@ async function generateQuizWithRetry(
       if (!rawContent) throw new Error("Ollama returned an empty message.");
 
       const content = stripThinkLeak(rawContent);
-      return QuizResponseSchema.parse(JSON.parse(content));
+      return QuizResponseSchema.parse(JSON.parse(extractFirstJsonObject(content)));
     } catch (error) {
       lastError = error;
       console.error(`Quiz Ollama attempt ${attempt} failed:`, error);
