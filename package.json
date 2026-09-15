@@ -3,15 +3,14 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "postinstall": "node scripts/copyPdfWorker.mjs",
+    "postinstall": "node scripts/copy-pdf-worker.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "postinstall": "node scripts/copy-pdf-worker.mjs"
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1079.0",
@@ -41,6 +40,7 @@
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.0",
     "remark-math": "^6.0.0",
+    "undici": "^8.10.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^4.4.3"
   },
@@ -61,6 +61,7 @@
   "overrides": {
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "sharp": "^0.35.0",
-    "postcss": "^8.5.10"
+    "postcss": "^8.5.10",
+    "undici": "^8.10.1"
   }
 }

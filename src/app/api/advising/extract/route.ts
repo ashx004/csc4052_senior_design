@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { extractPdfTextFromUrl, resolveInternalUrl, } from "@/src/library/pdfExtract";
 import { extractTranscriptWithOllama, extractCurriculumWithOllama, } from "@/src/library/advisingOllama";
-//import { doc, setDoc, serverTimestamp, } from "firebase/firestore";
-//import { db } from "@/src/library/firebase";
 import { FieldValue, } from "firebase-admin/firestore";
 import { adminDb, } from "@/src/library/firebaseAdmin";
 import { transcriptExtractionSchema, curriculumExtractionSchema, } from "@/src/library/advisingSchemas";
@@ -62,6 +60,12 @@ export async function POST(request: NextRequest) {
 
     //console.log("RAW CURRICULUM TEXT:");
     //console.log(curriculumText);
+
+    console.log("FINAL TRANSCRIPT DATA TO SAVE:");
+    console.dir(transcriptData, { depth: null });
+
+    console.log("FINAL CURRICULUM DATA TO SAVE:");
+    console.dir(curriculumData, { depth: null });
 
 
     // firestore document locations
