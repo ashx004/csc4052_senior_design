@@ -124,40 +124,94 @@ export async function extractPdfTextFromUrl(
           y: item.transform[5],
         }));
 
-    const lines: PositionedText[][] = [];
+        const lines: PositionedText[][] = [];
 
-    for (const item of items) {
-      let line = lines.find(
-        (existingLine) =>
-          Math.abs(
-            existingLine[0].y - item.y
-          ) < 3
-      );
+        for (const item of items) {
+          let line = lines.find(
+            (existingLine) =>
+              Math.abs(
+                existingLine[0].y - item.y
+              ) < 3
+          );
 
-      if (!line) {
-        line = [];
-        lines.push(line);
-      }
+          if (!line) {
+            line = [];
+            lines.push(line);
+          }
 
-      line.push(item);
-    }
+          line.push(item);
+        }
 
-    lines.sort(
-      (a, b) => b[0].y - a[0].y
-    );
+        // Top-to-bottom reading order (PDF y increases upward).
+        lines.sort((a, b) => b[0].y - a[0].y);
 
-    const pageLines = lines.map(
-      (line) => {
-        line.sort(
-          (a, b) => a.x - b.x
+        // Left-to-right within each line, so line[0] is the leftmost item.
+        for (const line of lines) {
+          line.sort((a, b) => a.x - b.x);
+        }
+
+        /*
+          A course title too long for one line wraps onto its own line in
+          the extracted text. That wrapped line has no course code and no
+          grade/credit-hour columns — only leftover title words, indented
+          to roughly the title column's x position rather than the
+          leftmost "course code" column. Detect that pattern and re-merge
+          the wrapped line into the row above it.
+        */
+
+        const NUMERIC_TOKEN = /^\d+(\.\d+)?$/;
+        const GRADE_TOKEN = /^(IP|[A-F][+-]?|P|W|R)$/;
+
+        function hasDataColumns(line: PositionedText[]): boolean {
+          return line.some((item) => {
+            const text = item.text.trim();
+            return NUMERIC_TOKEN.test(text) || GRADE_TOKEN.test(text);
+          });
+        }
+
+        // Establish where real data rows start (the "course code" column)
+        // by averaging the leftmost x of every line that has grade/credit data.
+        const codeColumnXs = lines
+          .filter((line) => hasDataColumns(line))
+          .map((line) => line[0].x);
+
+        const codeColumnX =
+          codeColumnXs.length > 0
+            ? codeColumnXs.reduce((sum, x) => sum + x, 0) / codeColumnXs.length
+            : 0;
+
+        const WRAP_INDENT_THRESHOLD = 10; // points right of the code column
+        const MAX_WRAP_LINE_GAP = 20; // max vertical gap (points) to count as a wrapped continuation
+
+        const mergedLines: PositionedText[][] = [];
+
+        for (const line of lines) {
+          const previous = mergedLines[mergedLines.length - 1];
+
+          const isIndentedPastCodeColumn =
+            line[0].x > codeColumnX + WRAP_INDENT_THRESHOLD;
+
+          const verticalGap = previous
+            ? Math.abs(previous[0].y - line[0].y)
+            : Infinity;
+
+          const looksLikeWrappedTitle =
+            !!previous &&
+            isIndentedPastCodeColumn &&
+            !hasDataColumns(line) &&
+            verticalGap < MAX_WRAP_LINE_GAP;
+
+          if (looksLikeWrappedTitle) {
+            previous.push(...line);
+            previous.sort((a, b) => a.x - b.x);
+          } else {
+            mergedLines.push(line);
+          }
+        }
+
+        const pageLines = mergedLines.map((line) =>
+          line.map((item) => item.text).join(" ").trim()
         );
-
-        return line
-          .map((item) => item.text)
-          .join(" ")
-          .trim();
-      }
-    );
 
     pages.push(
       `--- PAGE ${pageNumber} ---\n${pageLines.join("\n")}`

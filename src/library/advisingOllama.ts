@@ -1,7 +1,41 @@
 import { resolveOllamaBaseUrl } from "@/src/library/ollamaClient";
+import { Agent, setGlobalDispatcher } from "undici";
 
 // tapout at 5 mins
 const OLLAMA_TIMEOUT_MS = 300000;
+
+
+// undici's default headersTimeout (5 min) can be too short over the
+// Cloudflare-tunneled Ollama path, where the first response byte can take
+// longer to arrive than a direct LAN connection would. This raises that
+// ceiling specifically for Ollama calls without touching global fetch
+// behavior elsewhere in the app.
+setGlobalDispatcher(new Agent({ headersTimeout: 600_000 })); // 10 minutes
+
+
+  function stripJsonCodeFences(text: string): string {
+    const trimmed = text.trim();
+
+    // matches ```json ... ``` or plain ``` ... ```
+    const fenceMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+
+    if (fenceMatch) {
+      return fenceMatch[1].trim();
+    }
+
+    return trimmed;
+  }
+
+
+
+
+
+
+
+
+
+
+
 
 async function callAdvisingOllama(
   messages: { role: string; content: string }[]
@@ -16,6 +50,12 @@ async function callAdvisingOllama(
     process.env.OLLAMA_PRIMARY_URL,
     process.env.OLLAMA_PRIMARY_FALLBACK_URL );
 
+  console.log("ADVISING OLLAMA URL:", baseUrl);
+  console.log(
+    "ADVISING OLLAMA MODEL:",
+    process.env.OLLAMA_MODEL || "gpt-oss:20b"
+  );
+
   const controller = new AbortController();
 
   const timeout = setTimeout(() => {
@@ -25,60 +65,92 @@ async function callAdvisingOllama(
   try {
     const response = await fetch(`${baseUrl}/api/chat`, {
       method: "POST",
-
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
       },
-
       body: JSON.stringify({
         model: process.env.OLLAMA_MODEL || "gpt-oss:20b",
-
         messages,
-        stream: false,
-        think: false,
-        format: "json",
-
-        options: { temperature: 0, num_predict: 8000, },
+        stream: true,
+        think: "low",
+        options: { temperature: 0, num_predict: 32000 },
       }),
-
       signal: controller.signal,
     });
 
-    if (!response.ok) {
+    console.log("OLLAMA HTTP STATUS:", response.status);
+    console.log(
+      "OLLAMA CONTENT TYPE:",
+      response.headers.get("content-type")
+    );
+
+    if (!response.ok || !response.body) {
       const errorText = await response.text();
+
+      console.log("OLLAMA ERROR BODY:", errorText);
 
       throw new Error(
         `Ollama request failed (${response.status}): ${errorText}`
       );
     }
 
-    const data = await response.json();
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
 
-    console.log("OLLAMA MODEL:", data?.model);
-    console.log("OLLAMA DONE REASON:", data?.done_reason);
-    console.log("OLLAMA OUTPUT TOKENS:", data?.eval_count);
-    console.log(
-    "OLLAMA THINKING LENGTH:",
-    data?.message?.thinking?.length ?? 0
-    );
-    console.log(
-    "OLLAMA CONTENT LENGTH:",
-    data?.message?.content?.length ?? 0
-    );
+    let fullContent = "";
+    let fullThinking = "";
+    let buffer = "";
+    let chunkCount = 0;
+    let finalPayload: any = null;
 
-    const content = data?.message?.content;
+    while (true) {
+      const { done, value } = await reader.read();
 
-    if (typeof content !== "string" || !content.trim()) {
-    throw new Error("Ollama returned an empty response.");
+      if (done) { break; }
+
+      chunkCount++;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? ""; // keep any partial line for next chunk
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+
+        const parsed = JSON.parse(line); // each line is a JSON object when streaming
+
+        if (parsed.message?.content) {
+          fullContent += parsed.message.content;
+        }
+
+        if (parsed.message?.thinking) {
+          fullThinking += parsed.message.thinking;
+        }
+
+        if (parsed.done) {
+          finalPayload = parsed;
+        }
+      }
     }
 
-    return content.trim();
+    console.log("OLLAMA MODEL:", finalPayload?.model);
+    console.log("OLLAMA DONE REASON:", finalPayload?.done_reason);
+    console.log("OLLAMA OUTPUT TOKENS:", finalPayload?.eval_count);
+    console.log("OLLAMA THINKING LENGTH:", fullThinking.length);
+    console.log("OLLAMA CONTENT LENGTH:", fullContent.length);
 
-  } finally {
-    clearTimeout(timeout);
-  }
+    if (!fullContent.trim()) {
+      throw new Error("Ollama returned an empty response.");
+    }
+
+    return stripJsonCodeFences(fullContent);
+
+  } finally { clearTimeout(timeout); }
 }
+
+
+
 
 
 
@@ -98,7 +170,7 @@ export async function extractTranscriptWithOllama(
   const messages = [
     {
       role: "system",
-      content: ` /no_think
+      content: `
 You are extracting structured academic transcript information.
 
 Return ONLY valid JSON.
@@ -397,6 +469,38 @@ into:
 COURSE A "Capstone I"
 COURSE B "Capstone II"
 COURSE C "Capstone III"
+
+IMPORTANT WRAPPED COURSE TITLE RULE:
+
+Course titles that are too long to fit on one line may wrap onto the
+next line in the extracted text. A wrapped title produces a short line
+by itself that contains ONLY leftover title text — no course code, no
+grade, no credit hours, no quality points.
+
+If a line contains only text with no course code, no grade, and no
+numeric columns, and the immediately preceding line's title appears to
+end mid-phrase (for example ending in "&", "AND", "OR", "OF", "FOR",
+"TO", "IN", or another word that clearly does not end a title), treat
+that line as the continuation of the previous course's title. Append
+it to the previous title with a single space.
+
+Example:
+
+DATA MODEL SELECTION &
+VALIDATION
+
+must be extracted as a single course with:
+
+courseTitle: "DATA MODEL SELECTION & VALIDATION"
+
+Do NOT drop the wrapped continuation line.
+Do NOT treat the wrapped continuation line as a separate course.
+Do NOT truncate the title at the line break.
+
+This same wrapping can happen to any course title, not only specific
+examples shown here. Always check whether a short trailing line is a
+continuation of the previous course's title before deciding it is
+something else.
 
 
       `,
@@ -746,7 +850,7 @@ async function extractConcentrationsWithOllama(
   return callAdvisingOllama([
     {
       role: "system",
-      content: ` /no_think
+      content: `
 
       You are extracting ONLY concentration, track,
       specialization, or emphasis requirements from a
@@ -911,7 +1015,7 @@ async function extractProgramInfoWithOllama(
   return callAdvisingOllama([
     {
       role: "system",
-      content: ` /no_think
+      content: `
 
     Return ONLY valid JSON.
 
@@ -950,7 +1054,7 @@ async function extractProgramInfoWithOllama(
       return callAdvisingOllama([
         {
           role: "system",
-          content: ` /no_think
+          content: `
 
     Return ONLY valid JSON.
 
@@ -1210,7 +1314,7 @@ export async function generateScheduleWithOllama(
     {
       role: "system",
 
-      content: ` /no_think
+      content: `
 
 You are generating a suggested university academic schedule.
 
@@ -1384,3 +1488,16 @@ and explain why in warnings.
 
   return callAdvisingOllama(messages);
 }
+
+// REMOVE : this
+export async function testAdvisingOllama(): Promise<string> {
+  const messages = [
+    {
+      role: "user",
+      content: 'Return exactly this JSON: {"test":true}',
+    },
+  ];
+
+  return callAdvisingOllama(messages);
+}
+// through this
