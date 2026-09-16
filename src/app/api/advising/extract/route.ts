@@ -5,7 +5,7 @@ import { extractTranscriptWithOllama, extractCurriculumWithOllama, } from "@/src
 import { FieldValue, } from "firebase-admin/firestore";
 import { adminDb, } from "@/src/library/firebaseAdmin";
 import { transcriptExtractionSchema, curriculumExtractionSchema, } from "@/src/library/advisingSchemas";
-
+import { cleanTranscriptTextForOllama } from "@/src/library/advisingTranscriptCleanup";
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,8 +29,12 @@ export async function POST(request: NextRequest) {
     const curriculumUrl = resolveInternalUrl(
       request, `/api/download?key=${encodeURIComponent(curriculumPath)}`);
 
-    const transcriptText = await extractPdfTextFromUrl(transcriptUrl);
+    const rawTranscriptText = await extractPdfTextFromUrl(transcriptUrl);
     const curriculumText = await extractPdfTextFromUrl(curriculumUrl);
+
+    // Advising-specific cleanup (PII redaction, summary-noise stripping)
+    const transcriptText = cleanTranscriptTextForOllama(rawTranscriptText);
+
     
     // ask ollama to extract the data 
     const transcriptResponse = await extractTranscriptWithOllama(transcriptText);
@@ -47,19 +51,28 @@ export async function POST(request: NextRequest) {
     const transcriptData = transcriptExtractionSchema.parse(rawTranscriptData);
     const curriculumData = curriculumExtractionSchema.parse(rawCurriculumData);
 
+    // Detect the structured marker so the frontend can prompt the student
+    // to manually enter transfer credit that couldn't be read from the PDF
+    // (e.g. a font-encoding issue stripped course codes/titles from a table
+    // row, leaving only numeric credit/grade columns).
+    const UNREADABLE_TRANSFER_MARKER = /^UNREADABLE_TRANSFER_ROWS: (\d+) rows totaling ([\d.]+) credit hours/;
 
-    /*console.log("PARSED TRANSCRIPT:");
-    console.dir(transcriptData, { depth: null });
+    function findUnreadableTransferWarning(warnings: string[]) {
+      for (const warning of warnings) {
+        const match = warning.match(UNREADABLE_TRANSFER_MARKER);
+        if (match) {
+          return {
+            rowCount: Number(match[1]),
+            totalCreditHours: Number(match[2]),
+            rawWarning: warning,
+          };
+        }
+      }
+      return null;
+    }
 
-    console.log("PARSED CURRICULUM:");
-    console.dir(curriculumData, { depth: null }); */
+    const unreadableTransfer = findUnreadableTransferWarning(transcriptData.warnings);
 
-    
-    //console.log("RAW TRANSCRIPT TEXT:");
-    //console.log(transcriptText);
-
-    //console.log("RAW CURRICULUM TEXT:");
-    //console.log(curriculumText);
 
     console.log("FINAL TRANSCRIPT DATA TO SAVE:");
     console.dir(transcriptData, { depth: null });
@@ -96,6 +109,8 @@ export async function POST(request: NextRequest) {
       message: "Documents were extracted and saved successfully.",
       transcript: transcriptData,
       curriculum: curriculumData,
+      needsManualTransferReview: unreadableTransfer !== null,
+      unreadableTransferInfo: unreadableTransfer,
   });
   } catch (error) {
     console.error("Advising extraction failed:", error);
