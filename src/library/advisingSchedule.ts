@@ -119,6 +119,77 @@ function splitCourseCode(code: string): {
 }
 
 
+// Generic title-similarity check — deliberately NOT a hardcoded abbreviation
+// dictionary, since transcripts/curricula can abbreviate words in ways we
+// can't predict (COMM, INFO, INTRO, STAT, MGMT, ADV, etc., and combinations
+// we haven't seen yet). Instead, compare titles by character-sequence
+// overlap: an abbreviation still shares most of its letters with the full
+// word, so a phrase that differs in only one abbreviated word still scores
+// highly overall, while genuinely different course titles score low.
+
+function normalizeForComparison(title: string): string {
+  return title
+    .toUpperCase()
+    .replace(/\([^)]*\)/g, " ") // strip parentheticals like "(on campus students)"
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim();
+}
+
+function bigrams(text: string): Map<string, number> {
+  const counts = new Map<string, number>();
+
+  for (let i = 0; i < text.length - 1; i++) {
+    const pair = text.slice(i, i + 2);
+    counts.set(pair, (counts.get(pair) ?? 0) + 1);
+  }
+
+  return counts;
+}
+
+// Sørensen–Dice coefficient: 2 * shared bigrams / total bigrams in both
+// strings. Returns 0 (no overlap) to 1 (identical).
+function titleSimilarity(a: string, b: string): number {
+  const normalizedA = normalizeForComparison(a);
+  const normalizedB = normalizeForComparison(b);
+
+  if (normalizedA === normalizedB) {
+    return 1;
+  }
+
+  const bigramsA = bigrams(normalizedA);
+  const bigramsB = bigrams(normalizedB);
+
+  let totalA = 0;
+  for (const count of bigramsA.values()) totalA += count;
+
+  let totalB = 0;
+  for (const count of bigramsB.values()) totalB += count;
+
+  if (totalA === 0 || totalB === 0) {
+    return 0;
+  }
+
+  let shared = 0;
+  for (const [pair, countA] of bigramsA) {
+    const countB = bigramsB.get(pair);
+    if (countB) {
+      shared += Math.min(countA, countB);
+    }
+  }
+
+  return (2 * shared) / (totalA + totalB);
+}
+
+// Threshold chosen so titles differing by one abbreviated word ("COMM" vs
+// "COMMUNICATION") still pass, while genuinely different course titles
+// ("Senior Capstone I" vs "Software Design and Engineering") do not.
+const TITLE_SIMILARITY_THRESHOLD = 0.5;
+
+function titlesLikelyMatch(a: string, b: string): boolean {
+  return titleSimilarity(a, b) >= TITLE_SIMILARITY_THRESHOLD;
+}
+
+
 export function courseCodesEquivalent(
   curriculumCode: string,
   transcriptCourse: TranscriptCourse,
@@ -148,6 +219,7 @@ export function courseCodesEquivalent(
   }
 
   // old 3-digit curriculum code vs newer 4-digit transcript code
+  // (e.g. curriculum "CSC 403" vs transcript "CSC 4033")
   if (
     curriculum.number.length === 3 &&
     transcript.number.length === 4 &&
@@ -168,37 +240,47 @@ export function courseCodesEquivalent(
     // CSC 403 "Senior Capstone I"
     // CSC 4033 "Software Design and Engineering"
     if (
-        curriculumTitle &&
-        transcriptCourse.courseTitle
-        ) {
-        const normalizeTitle = (title: string) =>
-            title
-            .toUpperCase()
-            .replace(/&/g, " AND ")
-            .replace(/\bMGMT\b/g, "MANAGEMENT")
-            .replace(/\bADV\b/g, "ADVANCED")
-            .replace(/\bSCI\b/g, "SCIENCE")
-            .replace(/\bENGR\b/g, "ENGINEERING")
-            .replace(/\bTECH\b/g, "TECHNICAL")
-            .replace(/\./g, "")
-            .replace(/[^A-Z0-9]+/g, " ")
-            .trim();
+      curriculumTitle &&
+      transcriptCourse.courseTitle &&
+      !titlesLikelyMatch(curriculumTitle, transcriptCourse.courseTitle)
+    ) {
+      return false;
+    }
 
-        const curriculumNormalized =
-            normalizeTitle(curriculumTitle);
+    return true;
+  }
 
-        const transcriptNormalized =
-            normalizeTitle(
-            transcriptCourse.courseTitle
-            );
+  // newer 4-digit curriculum code vs old 3-digit transcript code
+  // (the mirror case: e.g. curriculum "BISC 2253" vs transcript "BISC 225",
+  // which happens whenever a student took a course before a renumbering
+  // that the current catalog has since adopted)
+  if (
+    curriculum.number.length === 4 &&
+    transcript.number.length === 3 &&
+    curriculum.number.startsWith(transcript.number)
+  ) {
 
-        if (
-            curriculumNormalized !==
-            transcriptNormalized
-        ) {
-            return false;
-        }
-        }
+    const finalDigit =
+      Number(curriculum.number.slice(-1));
+
+    if (
+      transcriptCourse.creditHours === null ||
+      finalDigit !== transcriptCourse.creditHours
+    ) {
+      return false;
+    }
+
+    // Same title-matching safety net as the other direction, to avoid
+    // false positives like curriculum "BISC 2253" matching transcript
+    // "BISC 225" when they're actually unrelated courses that happen to
+    // share the first three digits.
+    if (
+      curriculumTitle &&
+      transcriptCourse.courseTitle &&
+      !titlesLikelyMatch(curriculumTitle, transcriptCourse.courseTitle)
+    ) {
+      return false;
+    }
 
     return true;
   }

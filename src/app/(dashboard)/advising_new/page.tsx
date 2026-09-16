@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import AdvisingPermissionModal from "@/src/components/advising/AdvisingPermissionModal";
 import AdvisingUploadModal from "@/src/components/advising/AdvisingUploadModal";
 import ExistingDocumentsModal from "@/src/components/advising/ExistingDocumentsModal";
+import TransferCreditForm from "@/src/components/advising/TransferCreditForm";
 import { useAuth } from "@/src/context/AuthContext";
 
 
@@ -43,6 +44,7 @@ export default function AdvisingPage() {
   const [documentsReady, setDocumentsReady] = useState<boolean>(false);
   const [generatedSchedule, setGeneratedSchedule,] = useState<GeneratedSchedule | null>(null);
   const [isGeneratingSchedule, setIsGeneratingSchedule,] = useState<boolean>(false);
+  const [transferReviewInfo, setTransferReviewInfo] = useState<{rowCount: number; totalCreditHours: number;} | null>(null);
 
   useEffect(() => {
   if (loading || !user) {
@@ -154,6 +156,17 @@ export default function AdvisingPage() {
 
           </button>
         </section>
+
+        {transferReviewInfo && (
+          <section className="mt-8">
+            <TransferCreditForm
+              expectedRowCount={transferReviewInfo.rowCount}
+              expectedTotalCreditHours={transferReviewInfo.totalCreditHours}
+              onSaved={() => setTransferReviewInfo(null)}
+              onDismiss={() => setTransferReviewInfo(null)}
+            />
+          </section>
+        )}
 
         {/* Previous Schedule Section */}
         <section 
@@ -391,6 +404,15 @@ export default function AdvisingPage() {
 
     console.log("Transcript:", data.transcript);
     console.log("Curriculum:", data.curriculum);
+
+    if (data.needsManualTransferReview && data.unreadableTransferInfo) {
+      setTransferReviewInfo({
+        rowCount: data.unreadableTransferInfo.rowCount,
+        totalCreditHours: data.unreadableTransferInfo.totalCreditHours,
+      });
+    } else {
+      setTransferReviewInfo(null);
+    }
 
     return true;
 

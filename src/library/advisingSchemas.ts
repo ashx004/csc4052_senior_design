@@ -161,41 +161,6 @@ export const concentrationSchema = z.object({
     .describe("Short document text supporting the concentration"),
 });
 
-export const advisingExtractionSchema = z.object({
-  transcript: z.object({
-
-    studentName: z.string().nullable(),
-
-    major: z.string().nullable(),
-
-    concentration: z.string().nullable().describe(
-        "Student concentration, track, specialization, emphasis, or similar program option exactly as displayed"),
-
-    catalogYear: z.string().nullable(),
-
-    courses: z.array(extractedCourseSchema),
-  }),
-
-  curriculum: z.object({
-    programName: z.string().nullable(),
-
-    degreeName: z.string().nullable(),
-
-    catalogYear: z.string().nullable(),
-
-    totalDegreeCredits: z.number().nullable(),
-
-    requirements: z.array(curriculumRequirementSchema),
-
-    concentrations: z.array(concentrationSchema),
-  }),
-
-  warnings: z
-    .array(z.string())
-    .describe(
-      "Unclear, unreadable, conflicting, or incomplete information requiring review"
-    ),
-});
 
 export type ElectiveEligibilityRules = {
   allowedCourseCodes: string[];

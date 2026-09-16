@@ -134,20 +134,22 @@ async function callAdvisingOllama(
       }
     }
 
-    console.log("OLLAMA MODEL:", finalPayload?.model);
-    console.log("OLLAMA DONE REASON:", finalPayload?.done_reason);
-    console.log("OLLAMA OUTPUT TOKENS:", finalPayload?.eval_count);
-    console.log("OLLAMA THINKING LENGTH:", fullThinking.length);
-    console.log("OLLAMA CONTENT LENGTH:", fullContent.length);
+        console.log("OLLAMA MODEL:", finalPayload?.model);
+        console.log("OLLAMA DONE REASON:", finalPayload?.done_reason);
+        console.log("OLLAMA OUTPUT TOKENS:", finalPayload?.eval_count);
+        console.log("OLLAMA THINKING LENGTH:", fullThinking.length);
+        console.log("OLLAMA CONTENT LENGTH:", fullContent.length);
 
-    if (!fullContent.trim()) {
-      throw new Error("Ollama returned an empty response.");
+        if (!fullContent.trim()) {
+          throw new Error("Ollama returned an empty response.");
+        }
+
+        console.log("FULL CONTENT (may be a refusal):", fullContent);
+
+        return stripJsonCodeFences(fullContent);
+
+      } finally { clearTimeout(timeout); }
     }
-
-    return stripJsonCodeFences(fullContent);
-
-  } finally { clearTimeout(timeout); }
-}
 
 
 
@@ -235,6 +237,23 @@ Rules:
 - D or F means failed.
 - A, B, C, or P means completed.
 - IP means in-progress.
+
+IMPORTANT UNREADABLE TRANSFER ROW RULE:
+
+If the transfer coursework section contains rows showing credit hours,
+grade, and quality points, but NO course code or course title is
+present for that row, do NOT skip it silently and do NOT invent a
+course code or title for it.
+
+Instead, add exactly one warning to the warnings array in this exact
+format:
+
+"UNREADABLE_TRANSFER_ROWS: <count> rows totaling <sum> credit hours could not be matched to a course code or title."
+
+Count every such row and sum their credit hours exactly as shown in
+the transcript. Do not create course objects for these rows.
+
+If there are no unreadable transfer rows, do not add this warning.
 
 IMPORTANT TRANSFER CREDIT RULES:
 
@@ -1488,16 +1507,3 @@ and explain why in warnings.
 
   return callAdvisingOllama(messages);
 }
-
-// REMOVE : this
-export async function testAdvisingOllama(): Promise<string> {
-  const messages = [
-    {
-      role: "user",
-      content: 'Return exactly this JSON: {"test":true}',
-    },
-  ];
-
-  return callAdvisingOllama(messages);
-}
-// through this
