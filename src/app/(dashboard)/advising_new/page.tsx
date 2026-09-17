@@ -45,6 +45,8 @@ export default function AdvisingPage() {
   const [generatedSchedule, setGeneratedSchedule,] = useState<GeneratedSchedule | null>(null);
   const [isGeneratingSchedule, setIsGeneratingSchedule,] = useState<boolean>(false);
   const [transferReviewInfo, setTransferReviewInfo] = useState<{rowCount: number; totalCreditHours: number;} | null>(null);
+  const [showManualCourseForm, setShowManualCourseForm] = useState<boolean>(false);
+  const [scheduleNeedsRegeneration, setScheduleNeedsRegeneration] = useState<boolean>(false);
 
   useEffect(() => {
   if (loading || !user) {
@@ -155,16 +157,46 @@ export default function AdvisingPage() {
             {isGeneratingSchedule ? "Generating Schedule..." : "Generate Schedule"}
 
           </button>
+
+               {scheduleNeedsRegeneration && (
+                  <p className="mt-3 text-sm text-amber-700">
+                    Your courses were updated. Click <strong>Generate Schedule</strong> again to see the changes reflected.
+                  </p>
+                )}
         </section>
 
-        {transferReviewInfo && (
+        {(transferReviewInfo || showManualCourseForm) && (
           <section className="mt-8">
             <TransferCreditForm
-              expectedRowCount={transferReviewInfo.rowCount}
-              expectedTotalCreditHours={transferReviewInfo.totalCreditHours}
-              onSaved={() => setTransferReviewInfo(null)}
-              onDismiss={() => setTransferReviewInfo(null)}
+              expectedRowCount={transferReviewInfo?.rowCount}
+              expectedTotalCreditHours={transferReviewInfo?.totalCreditHours}
+              heading={transferReviewInfo ? undefined : "Add a completed course"}
+              description={
+                transferReviewInfo ? undefined : "Add a course you've already completed elsewhere — transfer credit, AP credit, or anything not reflected above — so it counts toward your remaining requirements."
+              }
+              dismissLabel={transferReviewInfo ? "Skip for now" : "Close"}
+              onSaved={() => {
+                setTransferReviewInfo(null);
+                setShowManualCourseForm(false);
+                setScheduleNeedsRegeneration(true);
+              }}
+              onDismiss={() => {
+                setTransferReviewInfo(null);
+                setShowManualCourseForm(false);
+              }}
             />
+          </section>
+        )}
+
+        {!transferReviewInfo && !showManualCourseForm && (
+          <section className="mt-8">
+            <button
+              type="button"
+              onClick={() => setShowManualCourseForm(true)}
+              className="text-sm font-medium text-[#b08957] hover:underline"
+            >
+              + Add a completed course
+            </button>
           </section>
         )}
 
@@ -206,11 +238,12 @@ export default function AdvisingPage() {
             {generatedSchedule && (
               <div className="space-y-6">
 
-                {generatedSchedule.terms.map(
-                  (term) => (
 
-                    <section
-                      key={`${term.term}-${term.year}`}
+                {generatedSchedule.terms
+                  .filter((term) => term.courses.length > 0)
+                  .map(
+                    (term) => (
+                      <section key={`${term.term}-${term.year}`}
                       className="
                         rounded-xl
                         border
@@ -469,6 +502,7 @@ export default function AdvisingPage() {
       }
 
       setGeneratedSchedule(data.schedule);
+      setScheduleNeedsRegeneration(false);
 
       console.log("Generated Schedule:", data.schedule);
 
