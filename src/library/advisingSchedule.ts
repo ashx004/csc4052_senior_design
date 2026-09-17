@@ -89,6 +89,11 @@ export type CurriculumData = {
   warnings?: string[];
 };
 
+// Both "completed" (taken at this institution) and "transfer" (entered
+// manually or extracted from a transfer-credit section) count as courses
+// the student has actually finished, for every progress/matching purpose.
+const COMPLETED_STATUSES = ["completed", "transfer"];
+
 
 // helps for differientiating courses w/ 3 number codes and 4 number codes //
 
@@ -342,11 +347,10 @@ function satisfiesMinimumGrade(
 }
 
 
-function satisfiesCompletedRequirement(
-  course: TranscriptCourse,
-  minimumGrade?: string | null
+function satisfiesCompletedRequirement(course: TranscriptCourse, minimumGrade?: string | null
 ): boolean {
-  return ( course.status === "completed" && satisfiesMinimumGrade( course, minimumGrade ));
+  return (
+    COMPLETED_STATUSES.includes(course.status) && satisfiesMinimumGrade(course, minimumGrade) );
 }
 
 // separate the transcript statuses | completed & in-progress //
@@ -813,7 +817,7 @@ function evaluateBroadProgramRequirements(
   const completedTranscriptCredits =
     sumTranscriptCredits(
       transcript.courses,
-      ["completed"]
+      [COMPLETED_STATUSES]
     );
 
   const inProgressTranscriptCredits =
@@ -826,7 +830,7 @@ function evaluateBroadProgramRequirements(
   const completedConcentrationCredits =
     sumRequirementCreditsByStatus(
       concentrationResults,
-      ["completed"]
+      [COMPLETED_STATUSES]
     );
 
   const activeConcentrationCredits =
@@ -958,13 +962,8 @@ function evaluateBroadProgramRequirements(
             const match =
               transcript.courses.find(
                 (course) =>
-                  course.status ===
-                    "completed" &&
-                  courseCodesEquivalent(
-                    option.courseCode,
-                    course,
-                    option.courseTitle
-                  )
+                  COMPLETED_STATUSES.includes(course.status) &&
+                  courseCodesEquivalent(option.courseCode, course, option.courseTitle)
               );
 
             if (!match) {

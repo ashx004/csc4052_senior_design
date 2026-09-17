@@ -268,13 +268,10 @@ function buildCandidateCourseCodes(
 
 
 function validateGeneratedSchedule(
-  schedule: ReturnType<
-    typeof generatedAdvisingScheduleSchema.parse
-  >,
-  courseAvailability: ReturnType<
-    typeof buildCourseAvailability
-  >,
-  transcriptCourses: TranscriptData["courses"]
+  schedule: ReturnType<typeof generatedAdvisingScheduleSchema.parse>,
+  courseAvailability: ReturnType<typeof buildCourseAvailability>,
+  transcriptCourses: TranscriptData["courses"],
+  remainingRequirements: CurriculumRequirement[]
 ) {
 
   const alreadyScheduled =
@@ -296,17 +293,21 @@ function validateGeneratedSchedule(
         an already-completed or active course.
       */
 
-      const transcriptMatch =
-        transcriptCourses.some(
+      const matchingRequirement = remainingRequirements.find(
+        (requirement) => requirement.requirementId === plannedCourse.requirementId
+      );
+
+      const requirementTitle =
+        matchingRequirement?.courseCode === plannedCourse.courseCode
+          ? matchingRequirement.courseTitle
+          : matchingRequirement?.courseOptions.find(
+              (option) => option.courseCode === plannedCourse.courseCode
+            )?.courseTitle ?? null;
+
+      const transcriptMatch = transcriptCourses.some(
           (course) =>
-            (
-              course.status === "completed" ||
-              course.status === "in-progress"
-            ) &&
-            courseCodesEquivalent(
-              plannedCourse.courseCode,
-              course
-            )
+            (course.status === "completed" ||course.status === "transfer") &&
+            courseCodesEquivalent(plannedCourse.courseCode, course, requirementTitle)
         );
 
 
@@ -615,7 +616,8 @@ export async function POST(
     validateGeneratedSchedule(
       schedule,
       courseAvailability,
-      transcript.courses
+      transcript.courses,
+      remainingRequirements
     );
 
 

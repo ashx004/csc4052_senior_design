@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useAuth } from "@/src/context/AuthContext";
 
 type TransferCourseRow = {
   courseCode: string;
@@ -32,6 +33,13 @@ type TransferCreditFormProps = {
    */
   onSaved?: (result: { addedCount: number; skippedDuplicates: number }) => void;
   onDismiss?: () => void;
+
+  /** Overridable copy so this form works for both the automatic
+   * "we couldn't read some transfer rows" case and a student manually
+   * adding a completed/prerequisite course at any time. */
+  heading?: string;
+  description?: string;
+  dismissLabel?: string;
 };
 
 export default function TransferCreditForm({
@@ -39,7 +47,11 @@ export default function TransferCreditForm({
   expectedTotalCreditHours,
   onSaved,
   onDismiss,
+  heading = "We couldn't fully read your transfer credit",
+  description,
+  dismissLabel = "Skip for now",
 }: TransferCreditFormProps) {
+  const { user } = useAuth();
   const [rows, setRows] = useState<TransferCourseRow[]>([{ ...EMPTY_ROW }]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,14 +99,22 @@ export default function TransferCreditForm({
       return;
     }
 
+    if (!user) {
+      setError("You must be signed in to save transfer credit.");
+      return;
+    }
+
     setSubmitting(true);
 
     try {
-      // Session auth is a cookie set on this same origin, so the browser
-      // attaches it automatically — no manual Authorization header needed.
+      const token = await user.getIdToken();
+
       const response = await fetch("/api/advising/transfer-credits", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ courses: cleanedRows }),
       });
 
@@ -123,25 +143,29 @@ export default function TransferCreditForm({
   return (
     <div className="rounded-lg border border-amber-300 bg-amber-50 p-4">
       <h3 className="font-semibold text-amber-900">
-        We couldn&apos;t fully read your transfer credit
+        {heading}
       </h3>
 
       <p className="mt-1 text-sm text-amber-800">
-        Some transfer courses on your transcript were missing course codes or
-        titles in the file we processed
-        {typeof expectedRowCount === "number" && expectedRowCount > 0 ? (
+        {description ?? (
           <>
-            {" "}
-            (approximately {expectedRowCount} course
-            {expectedRowCount === 1 ? "" : "s"}
-            {typeof expectedTotalCreditHours === "number"
-              ? `, ${expectedTotalCreditHours} credit hours`
-              : ""}
-            )
+            Some transfer courses on your transcript were missing course codes
+            or titles in the file we processed
+            {typeof expectedRowCount === "number" && expectedRowCount > 0 ? (
+              <>
+                {" "}
+                (approximately {expectedRowCount} course
+                {expectedRowCount === 1 ? "" : "s"}
+                {typeof expectedTotalCreditHours === "number"
+                  ? `, ${expectedTotalCreditHours} credit hours`
+                  : ""}
+                )
+              </>
+            ) : null}
+            . Please enter them below so they&apos;re counted toward your
+            degree progress.
           </>
-        ) : null}
-        . Please enter them below so they&apos;re counted toward your degree
-        progress.
+        )}
       </p>
 
       <form onSubmit={handleSubmit} className="mt-4 space-y-3">
@@ -225,7 +249,7 @@ export default function TransferCreditForm({
               onClick={onDismiss}
               className="rounded px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
             >
-              Skip for now
+              {dismissLabel}
             </button>
           ) : null}
         </div>
