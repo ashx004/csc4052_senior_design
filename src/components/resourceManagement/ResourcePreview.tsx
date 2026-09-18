@@ -74,6 +74,7 @@ const MAX_FILES_PER_BATCH = 5;
 
 export type Category = "classDoc" | "notes" | "assignments";
 type OcrStatus = "processing" | "complete" | "failed";
+type IndexStatus = "processing" | "complete" | "failed";
 
 // Code language syntax highlighting support
 const CODE_TYPES = {
@@ -157,6 +158,8 @@ export interface Resource {
     ocrStatus?: OcrStatus;
     ocrTranscriptUrl?: string;
     ocrError?: string;
+    indexStatus?: IndexStatus;
+    indexError?: string;
 }
 
 const CATEGORY_LABELS: Record<Category, string> = {
@@ -201,6 +204,30 @@ function OcrStatusBadge({ status }: { status: OcrStatus }) {
     );
 }
 
+function isIndexStatus(value: unknown): value is IndexStatus {
+    return value === "processing" || value === "complete" || value === "failed";
+}
+
+function IndexStatusBadge({ status }: { status: IndexStatus }) {
+    const labels: Record<IndexStatus, string> = {
+        processing: "Adding to AI",
+        complete: "AI ready",
+        failed: "AI indexing failed",
+    };
+    const classes: Record<IndexStatus, string> = {
+        processing: "bg-bg-warm text-primary",
+        complete: "bg-bg-warm text-primary",
+        failed: "bg-alert-error-bg text-alert-error",
+    };
+
+    return (
+        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${classes[status]}`}>
+            {status === "processing" ? <Loader2 size={11} className="animate-spin" /> : <ScanText size={11} />}
+            {labels[status]}
+        </span>
+    );
+}
+
 function getFileType(fileName: string): FileType | null {
     const ext = fileName.split(".").pop()?.toLowerCase();
     if (!ext) return null;
@@ -231,6 +258,8 @@ function toResource(raw: any): Resource | null {
         ocrStatus: isOcrStatus(raw.ocrStatus) ? raw.ocrStatus : undefined,
         ocrTranscriptUrl: typeof raw.ocrTranscriptUrl === "string" ? raw.ocrTranscriptUrl : undefined,
         ocrError: typeof raw.ocrError === "string" ? raw.ocrError : undefined,
+        indexStatus: isIndexStatus(raw.indexStatus) ? raw.indexStatus : undefined,
+        indexError: typeof raw.indexError === "string" ? raw.indexError : undefined,
     };
 }
 
@@ -1072,6 +1101,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                                 {CATEGORY_LABELS[resource.category]}
                                             </span>
                                             {resource.ocrStatus ? <OcrStatusBadge status={resource.ocrStatus} /> : resource.ocrScanned && <OcrScannedBadge />}
+                                            {resource.indexStatus && <IndexStatusBadge status={resource.indexStatus} />}
                                         </div>
                                         <p className="mt-1 text-[10px] text-text-muted">
                                             Uploaded {formatRelativeDate(resource.uploadedAt)} &middot; Viewed{" "}
@@ -1145,6 +1175,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                                 {CATEGORY_LABELS[resource.category]}
                                             </span>
                                             {resource.ocrStatus ? <OcrStatusBadge status={resource.ocrStatus} /> : resource.ocrScanned && <OcrScannedBadge />}
+                                            {resource.indexStatus && <IndexStatusBadge status={resource.indexStatus} />}
                                         </div>
                                     </div>
                                 </button>
@@ -1250,6 +1281,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                             </span>
                         )}
                         {activeResource?.ocrStatus ? <OcrStatusBadge status={activeResource.ocrStatus} /> : activeResource?.ocrScanned && <OcrScannedBadge />}
+                        {activeResource?.indexStatus && <IndexStatusBadge status={activeResource.indexStatus} />}
                     </div>
                     {activeResource && (
                         <p className="mt-1 text-center text-xs text-text-muted">

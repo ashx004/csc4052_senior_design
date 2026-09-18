@@ -85,8 +85,8 @@ async function persistImageTranscript(opts: {
 
 }
 
-function getOcrErrorMessage(error: unknown): string {
-  const message = error instanceof Error ? error.message : "OCR transcription failed.";
+function getErrorMessage(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : fallback;
   return message.slice(0, 500);
 }
 
@@ -174,12 +174,23 @@ export async function POST(request: NextRequest) {
       if (isImage) {
         const markedFailed = await firestoreUpdate(idToken, resourceCollectionPath, resourceId, {
           ocrStatus: "failed",
-          ocrError: getOcrErrorMessage(error),
+          ocrError: getErrorMessage(error, "OCR transcription failed."),
           ocrFailedAt: new Date(),
         });
         if (!markedFailed) console.error(`Failed to save OCR failure state for "${resourceName}"`);
       }
       throw error;
+    }
+
+    const markedIndexing = await firestoreUpdate(idToken, resourceCollectionPath, resourceId, {
+      indexStatus: "processing",
+      indexStartedAt: new Date(),
+      indexCompletedAt: null,
+      indexFailedAt: null,
+      indexError: null,
+    });
+    if (!markedIndexing) {
+      throw new Error("Failed to mark AI indexing as processing");
     }
 
     if (text.length > MAX_INDEXABLE_CHARS) {
@@ -188,6 +199,12 @@ export async function POST(request: NextRequest) {
 
     const rawChunkObjs = chunkText(text);
     if (rawChunkObjs.length === 0) {
+      await firestoreUpdate(idToken, resourceCollectionPath, resourceId, {
+        indexed: false,
+        indexStatus: "failed",
+        indexError: "No extractable text.",
+        indexFailedAt: new Date(),
+      });
       return NextResponse.json({ skipped: true, reason: "No extractable text." });
     }
     const rawChunks = rawChunkObjs.map((c) => c.text);
@@ -263,6 +280,10 @@ export async function POST(request: NextRequest) {
         indexedAt: new Date(),
         chunkCount: chunks.contextualized.length,
         vectorIndexed,
+        indexStatus: "complete",
+        indexCompletedAt: new Date(),
+        indexFailedAt: null,
+        indexError: null,
       });
       if (!indexed) throw new Error("Failed to mark resource as indexed");
 
@@ -283,6 +304,12 @@ export async function POST(request: NextRequest) {
         indexingGaveUp: true,
         indexingGaveUpReason: timedOut ? "timeout" : "error",
         indexingGaveUpAt: new Date(),
+        indexStatus: "failed",
+        indexError: getErrorMessage(
+          error,
+          timedOut ? "AI indexing timed out." : "AI indexing failed."
+        ),
+        indexFailedAt: new Date(),
       });
       return NextResponse.json(
         { skipped: true, reason: timedOut ? "Indexing took too long — gave up." : "Failed to index document." },
