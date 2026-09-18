@@ -1,4 +1,4 @@
-# Catalyst Study Workspace Dashboard Design
+# Catalyst Study Plan Workspace Design
 
 ## Status
 
@@ -6,14 +6,14 @@ Draft for review. This document describes the approved visual direction and prod
 
 ## Summary
 
-Catalyst's Dashboard/Home will become a student command center that answers four questions:
+Catalyst's dedicated Study Plan workspace will become a student command center that answers four questions:
 
 1. What should I study today?
 2. How much time have I spent studying?
 3. Am I improving?
 4. What classes, tasks, exams, or deadlines are coming next?
 
-The dashboard will combine the existing Classes, Learning, Calendar, Notes, and AI Assistant areas into one actionable overview. The daily study plan remains the primary action, while progress, schedule, and exam context support the decision.
+The Study Plan workspace will combine data from the existing Classes, Learning, Calendar, Notes, and AI Assistant areas into one actionable overview. The daily study plan remains the primary action, while progress, schedule, and exam context support the decision. The existing Home page remains outside this feature's ownership so it can be developed independently by another contributor.
 
 The visual direction is a calm productivity workspace inspired by the supplied Asana, GetStudy, and learning-dashboard references. It uses Catalyst's existing warm neutral theme instead of the prototype's purple, blue, and pink palette.
 
@@ -35,15 +35,15 @@ The visual direction is a calm productivity workspace inspired by the supplied A
 - Machine-learning recommendations.
 - Team collaboration or shared study plans.
 - Complex project-management features such as pipelines, custom attributes, aggregation tables, or drag-and-drop workspaces.
-- Certificates, premium upsells, social feeds, or community analytics on the dashboard.
+- Certificates, premium upsells, social feeds, or community analytics on the Study Plan page.
 - Device push notifications before the in-app notification behavior is validated.
 - A separate weekly planning workspace as the primary entry point.
 
 ## Product principles
 
-### Dashboard-first, not assistant-first
+### Study-Plan-first, not assistant-first
 
-The Dashboard should show useful context immediately. Catalyst may guide the setup and explain recommendations, but users should not have to begin with an open-ended AI chat.
+The Study Plan page should show useful context immediately. Catalyst may guide the setup and explain recommendations, but users should not have to begin with an open-ended AI chat.
 
 ### Recommendation with user control
 
@@ -59,20 +59,23 @@ Every generated task should include a short reason, such as “Your recent quiz 
 
 ### Focused information density
 
-The dashboard should feel like a professional learning workspace: compact rows, clear hierarchy, thin borders, restrained color, and useful density. Decorative elements must not compete with the study plan.
+The Study Plan workspace should feel like a professional learning workspace: compact rows, clear hierarchy, thin borders, restrained color, and useful density. Decorative elements must not compete with the study plan.
 
 ## Information architecture
 
 The existing primary navigation remains:
 
 - Home
+- Study Plan
 - Classes
 - Learning
 - Calendar
 - Notes
 - AI Assistant
 
-The MVP does not add a separate Study Plan item to the sidebar. Home is the place for today’s plan. A future `/study-plan` page may contain weekly planning, history, and long-term progress.
+Study Plan is a dedicated top-level workspace at `/study-plan`, placed directly below Home in the sidebar. Home remains a separate landing page owned by another feature area and should not be modified as part of this feature.
+
+Future routes may include `/study-plan/setup`, `/study-plan/history`, and `/study-plan/progress`.
 
 Data ownership remains distributed:
 
@@ -80,20 +83,21 @@ Data ownership remains distributed:
 - Learning owns quizzes, flashcards, reading, and activity outcomes.
 - Calendar owns class events, exams, and deadlines.
 - Study Plan owns daily recommendations, tasks, sessions, and task lifecycle.
-- Dashboard reads and summarizes these sources.
+- Study Plan reads and summarizes these sources.
 
-## Dashboard layout
+## Study Plan layout
 
 The desktop layout uses three regions:
 
 ```text
 ┌─────────────┬──────────────────────────────┬──────────────────┐
-│ Sidebar     │ Main dashboard               │ Right panel      │
+│ Sidebar     │ Main Study Plan workspace    │ Right panel      │
 │             │                              │                  │
 │ Home        │ Greeting + actions           │ Today            │
-│ Classes     │ Streak / hours / mastery     │ Mini calendar    │
-│ Learning    │ Hours spent + performance    │ Today schedule   │
-│ Calendar    │ Today's study plan           │ Task list        │
+│ Study Plan  │ Stats + study plan           │ Mini calendar    │
+│ Classes     │ Progress panels              │ Today schedule   │
+│ Learning    │ Task list                    │ Exam schedule    │
+│ Calendar    │                              │                  │
 │ Notes       │                              │ Exam schedule    │
 │ AI Chat     │                              │                  │
 └─────────────┴──────────────────────────────┴──────────────────┘
@@ -133,7 +137,7 @@ The cards use the existing Catalyst palette:
 - Success sage: `#6B8F5E`
 - Error/caution coral: `#C2685A`
 
-Avoid purple, bright blue, and pink as primary dashboard surfaces.
+Avoid purple, bright blue, and pink as primary Study Plan surfaces.
 
 ### Progress panels
 
@@ -189,7 +193,7 @@ Fixed commitments and flexible study tasks should be visually distinguishable, b
 ### First plan of the day
 
 ```text
-Dashboard with no plan
+Study Plan with no plan
   → Plan my study session
   → Choose available time
   → Choose goal
@@ -207,7 +211,7 @@ The setup asks only the minimum needed information:
 - Course/topic: selected course/topic or `Let Catalyst choose`.
 - Optional preferred activity: quiz, flashcards, reading, explanation, or automatic choice.
 
-When a plan already exists, the Dashboard displays it immediately. The user does not repeat setup every time they open Home. `Adjust` allows changing available time or focus.
+When a plan already exists, the Study Plan page displays it immediately. The user does not repeat setup every time they open the page. `Adjust` allows changing available time or focus.
 
 ### Manual task creation
 
@@ -295,7 +299,7 @@ Notification preferences should eventually let the user control reminders. The M
 
 ## Catalyst coach
 
-Catalyst remains the existing AI assistant identity. The 3D boat is not required for the dashboard MVP.
+Catalyst remains the existing AI assistant identity. The 3D boat is not required for the Study Plan MVP.
 
 For this phase, Catalyst appears as:
 
@@ -387,13 +391,13 @@ Mobile:
 ## MVP acceptance criteria
 
 - A student can create a daily plan by answering a short setup flow.
-- The dashboard displays no more than three recommended tasks.
+- The Study Plan page displays no more than three recommended tasks.
 - Every recommended task has a human-readable reason.
 - A student can manually create a task.
 - A task can be started, paused, resumed, completed, skipped, or rescheduled.
 - Active study minutes are tracked separately from paused time.
 - Completion can update topic mastery and the remaining plan.
-- The dashboard shows streak, hours studied, topic mastery, hours chart, study plan, calendar, today’s schedule, task list, and exam schedule.
+- The Study Plan page shows streak, hours studied, topic mastery, hours chart, study plan, calendar, today’s schedule, task list, and exam schedule.
 - In-app notifications can display reminders, encouragement, deadline warnings, and recovery actions.
 - The notification copy remains supportive and non-judgmental.
 - Existing navigation and learning flows continue to work.
