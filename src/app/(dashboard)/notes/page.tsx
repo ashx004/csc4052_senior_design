@@ -34,6 +34,7 @@ import {
 
 type Category = "classDoc" | "notes" | "assignments";
 type OcrStatus = "processing" | "complete" | "failed";
+type IndexStatus = "processing" | "complete" | "failed";
 
 const CATEGORY_LABELS: Record<Category, string> = {
   classDoc: "Class Doc",
@@ -152,6 +153,30 @@ function OcrStatusBadge({ status }: { status: OcrStatus }) {
   );
 }
 
+function isIndexStatus(value: unknown): value is IndexStatus {
+  return value === "processing" || value === "complete" || value === "failed";
+}
+
+function IndexStatusBadge({ status }: { status: IndexStatus }) {
+  const labels: Record<IndexStatus, string> = {
+    processing: "Adding to AI",
+    complete: "AI ready",
+    failed: "AI indexing failed",
+  };
+  const classes: Record<IndexStatus, string> = {
+    processing: "bg-bg-warm text-primary",
+    complete: "bg-bg-warm text-primary",
+    failed: "bg-alert-error-bg text-alert-error",
+  };
+
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${classes[status]}`}>
+      {status === "processing" ? <Loader2 size={11} className="animate-spin" /> : <ScanText size={11} />}
+      {labels[status]}
+    </span>
+  );
+}
+
 interface EnrolledClass {
   id: string;
   className: string;
@@ -171,6 +196,8 @@ interface NoteDoc {
   ocrStatus?: OcrStatus;
   ocrTranscriptUrl?: string;
   ocrError?: string;
+  indexStatus?: IndexStatus;
+  indexError?: string;
 }
 
 function DocumentPreviewModal({
@@ -268,6 +295,7 @@ function DocumentPreviewModal({
             <div className="flex items-center gap-2">
               <p className="truncate text-sm font-semibold text-text-main">{doc.name}</p>
               {ocrStatus && <OcrStatusBadge status={ocrStatus} />}
+              {doc.indexStatus && <IndexStatusBadge status={doc.indexStatus} />}
             </div>
             <p className="text-xs text-text-muted">{CATEGORY_LABELS[doc.category] ?? doc.category}</p>
           </div>
@@ -518,6 +546,8 @@ export default function Notes() {
               ocrTranscriptUrl:
                 typeof resource.ocrTranscriptUrl === "string" ? resource.ocrTranscriptUrl : undefined,
               ocrError: typeof resource.ocrError === "string" ? resource.ocrError : undefined,
+              indexStatus: isIndexStatus(resource.indexStatus) ? resource.indexStatus : undefined,
+              indexError: typeof resource.indexError === "string" ? resource.indexError : undefined,
             });
           });
 
@@ -918,6 +948,7 @@ export default function Notes() {
                               <ScanText size={11} /> OCR
                             </span>
                           ) : null}
+                          {doc.indexStatus && <IndexStatusBadge status={doc.indexStatus} />}
                         </span>
                       </span>
                     </button>
