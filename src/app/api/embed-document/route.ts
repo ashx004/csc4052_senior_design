@@ -34,20 +34,25 @@ const MAX_INDEXABLE_CHARS = 100000;
 const MINIO_BUCKET = "studora";
 
 // Images have no embedded text — the OCR model returns a plain-text
-// transcription. Keep the uploaded picture as the class's resource and store
-// its transcript separately, so students can compare or reprocess the scan.
+// transcription. The text file replaces the image as the class resource, so
+// both students and the AI use the same readable document. The source image
+// remains in object storage, but is no longer listed as a class resource.
 async function persistImageTranscript(opts: {
   idToken: string;
   userId: string;
   courseId: string;
   resourceCollectionPath: string;
   resourceId: string;
+  originalName: string;
+  originalUrl: string;
   transcript: string;
 }): Promise<void> {
-  const { idToken, userId, courseId, resourceCollectionPath, resourceId, transcript } = opts;
+  const { idToken, userId, courseId, resourceCollectionPath, resourceId, originalName, originalUrl, transcript } = opts;
+  const baseName = originalName.replace(/\.[^.]+$/, "") || "transcription";
+  const txtName = `${baseName}.txt`;
   // A stable key lets a retry replace its own transcript rather than leave
   // another orphaned object in storage.
-  const transcriptStoragePath = `users/${userId}/classes/${courseId}/ocr/${resourceId}.txt`;
+  const transcriptStoragePath = `users/${userId}/classes/${courseId}/ocr/${resourceId}_${txtName}`;
 
   const s3Client = await getMinioClient();
   await s3Client.send(
@@ -59,11 +64,17 @@ async function persistImageTranscript(opts: {
     })
   );
 
+  const transcriptUrl = `/api/download?key=${encodeURIComponent(transcriptStoragePath)}`;
   const updated = await firestoreUpdate(idToken, resourceCollectionPath, resourceId, {
-    // Keep name, url, and fileType unchanged: they still describe the image.
+    // The transcription becomes the resource students browse and the AI
+    // indexes. The original upload is removed only after this update succeeds.
+    name: txtName,
+    url: transcriptUrl,
+    fileType: "txt",
     ocrScanned: true,
     ocrStatus: "complete",
-    ocrTranscriptUrl: `/api/download?key=${encodeURIComponent(transcriptStoragePath)}`,
+    ocrSourceUrl: originalUrl,
+    ocrTranscriptUrl: transcriptUrl,
     ocrTextLength: transcript.length,
     ocrModel: process.env.OLLAMA_OCR_MODEL ?? null,
     ocrCompletedAt: new Date(),
@@ -71,6 +82,7 @@ async function persistImageTranscript(opts: {
     ocrError: null,
   });
   if (!updated) throw new Error("Failed to save OCR transcript metadata");
+
 }
 
 function getOcrErrorMessage(error: unknown): string {
@@ -153,6 +165,8 @@ export async function POST(request: NextRequest) {
           courseId,
           resourceCollectionPath,
           resourceId,
+          originalName: resourceName,
+          originalUrl: resourceUrl,
           transcript: text,
         });
       }

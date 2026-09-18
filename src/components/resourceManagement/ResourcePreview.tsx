@@ -28,6 +28,7 @@ import { // import symbols
     Minus,
     Plus,
     ScanText,
+    RotateCcw,
 } from "lucide-react";
 // PrismLight + explicit per-language registration instead of the default
 // `react-syntax-highlighter` import, which bundles all ~300 Prism language
@@ -64,12 +65,15 @@ import nasm from "react-syntax-highlighter/dist/esm/languages/prism/nasm";
     ["ruby", ruby], ["kotlin", kotlin], ["swift", swift], ["bash", bash], ["nasm", nasm],
 ].forEach(([name, lang]) => SyntaxHighlighter.registerLanguage(name as string, lang as any));
 import { renderAsync } from "docx-preview";
+import { collection, onSnapshot } from "firebase/firestore";
 import CircleIconButton from "./CircleIconButton";
 import { uploadUserResource, getCourseResources, deleteUserResource, MAX_FILE_SIZE_BYTES, INDEXABLE_FILE_TYPES } from "./fileUploadService";
+import { db } from "@/src/library/firebase";
 
 const MAX_FILES_PER_BATCH = 5;
 
 export type Category = "classDoc" | "notes" | "assignments";
+type OcrStatus = "processing" | "complete" | "failed";
 
 // Code language syntax highlighting support
 const CODE_TYPES = {
@@ -148,11 +152,11 @@ export interface Resource {
     category: Category;
     uploadedAt: Date;
     lastViewedAt: Date;
-    // Set on the resource doc when it's an OCR transcription of an
-    // uploaded image (see embed-document/route.ts's
-    // persistImageTranscriptionAsResource) — the original image is gone by
-    // then, so this is the only remaining signal it was ever a scan.
+    // Set when a generated text resource came from an uploaded image scan.
     ocrScanned?: boolean;
+    ocrStatus?: OcrStatus;
+    ocrTranscriptUrl?: string;
+    ocrError?: string;
 }
 
 const CATEGORY_LABELS: Record<Category, string> = {
@@ -164,11 +168,35 @@ const CATEGORY_LABELS: Record<Category, string> = {
 function OcrScannedBadge() {
     return (
         <span
-            title="Created from an OCR scan of an uploaded image"
+            title="Created from an OCR scan"
             className="inline-flex items-center gap-1 rounded-full bg-bg-warm px-2 py-0.5 text-[10px] font-medium text-primary"
         >
             <ScanText size={11} strokeWidth={2.25} />
             OCR
+        </span>
+    );
+}
+
+function isOcrStatus(value: unknown): value is OcrStatus {
+    return value === "processing" || value === "complete" || value === "failed";
+}
+
+function OcrStatusBadge({ status }: { status: OcrStatus }) {
+    const labels: Record<OcrStatus, string> = {
+        processing: "OCR processing",
+        complete: "OCR ready",
+        failed: "OCR failed",
+    };
+    const classes: Record<OcrStatus, string> = {
+        processing: "bg-bg-warm text-primary",
+        complete: "bg-bg-warm text-primary",
+        failed: "bg-alert-error-bg text-alert-error",
+    };
+
+    return (
+        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${classes[status]}`}>
+            {status === "processing" ? <Loader2 size={11} className="animate-spin" /> : <ScanText size={11} />}
+            {labels[status]}
         </span>
     );
 }
@@ -186,6 +214,28 @@ function getFileType(fileName: string): FileType | null {
 function toDateSafe(value: any): Date {
     if (value && typeof value.toDate === "function") return value.toDate();
     return new Date();
+}
+
+function toResource(raw: any): Resource | null {
+    const fileType = getFileType(raw.name ?? "");
+    if (!fileType) return null;
+    return {
+        id: raw.id,
+        name: raw.name,
+        url: raw.url,
+        fileType,
+        category: (raw.category as Category) ?? "notes",
+        uploadedAt: toDateSafe(raw.uploadedAt),
+        lastViewedAt: toDateSafe(raw.lastViewedAt),
+        ocrScanned: raw.ocrScanned === true,
+        ocrStatus: isOcrStatus(raw.ocrStatus) ? raw.ocrStatus : undefined,
+        ocrTranscriptUrl: typeof raw.ocrTranscriptUrl === "string" ? raw.ocrTranscriptUrl : undefined,
+        ocrError: typeof raw.ocrError === "string" ? raw.ocrError : undefined,
+    };
+}
+
+function thumbnailCacheKey(resource: Resource): string {
+    return `${resource.fileType}:${resource.url}`;
 }
 
 type ThumbnailData = { kind: "image" | "text"; content: string };
@@ -354,6 +404,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
     const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
     const [activeIndex, setActiveIndex] = useState(0);
     const [previewResource, setPreviewResource] = useState<Resource | null>(null);
+    const [retryingOcrIds, setRetryingOcrIds] = useState<Set<string>>(new Set());
 
     const [selectMode, setSelectMode] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -381,6 +432,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
 
     const [thumbnails, setThumbnails] = useState<Record<string, ThumbnailData>>({});
     const thumbnailInFlight = useRef<Set<string>>(new Set());
+    const thumbnailSourceKeys = useRef<Record<string, string>>({});
 
     // WORD DOC PREVIEW CONSTANTS
     // Track zoom factor as a decimal multiplier (1.0 = 100%)
@@ -391,27 +443,36 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
     const handleZoomOut = () => setZoom((prev) => Math.max(prev - 0.1, 0.5)); // Min 50%
     const handleZoomReset = () => setZoom(1.0);
 
+    function applyResources(nextResources: Resource[]) {
+        setResources(nextResources);
+        setThumbnails((previous) => {
+            const next = { ...previous };
+            const liveIds = new Set(nextResources.map((resource) => resource.id));
+            for (const resource of nextResources) {
+                if (thumbnailSourceKeys.current[resource.id] !== thumbnailCacheKey(resource)) {
+                    delete next[resource.id];
+                    delete thumbnailSourceKeys.current[resource.id];
+                }
+            }
+            for (const id of Object.keys(thumbnailSourceKeys.current)) {
+                if (!liveIds.has(id)) {
+                    delete next[id];
+                    delete thumbnailSourceKeys.current[id];
+                }
+            }
+            return next;
+        });
+    }
+
     async function loadResources() {
         setIsLoadingResources(true);
         setLoadError(null);
         try {
             const raw = await getCourseResources(userId, courseId);
             const mapped: Resource[] = raw
-                .map((r: any) => {
-                    const fileType = getFileType(r.name);
-                    if (!fileType) return null;
-                    return {
-                        id: r.id,
-                        name: r.name,
-                        url: r.url,
-                        fileType,
-                        category: (r.category as Category) ?? "notes",
-                        uploadedAt: toDateSafe(r.uploadedAt),
-                        lastViewedAt: toDateSafe(r.lastViewedAt),
-                    } as Resource;
-                })
+                .map(toResource)
                 .filter((r: Resource | null): r is Resource => r !== null);
-            setResources(mapped);
+            applyResources(mapped);
 
             // Self-healing lazy backfill: any resource that was indexed
             // before the Qdrant collection got recreated at the correct
@@ -444,8 +505,31 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
 
     useEffect(() => {
         loadResources();
+        const unsubscribe = onSnapshot(
+            collection(db, "users", userId, "enrollment", courseId, "resources"),
+            (snapshot) => {
+                const liveResources = snapshot.docs
+                    .map((resourceDoc) => toResource({ id: resourceDoc.id, ...resourceDoc.data() }))
+                    .filter((resource: Resource | null): resource is Resource => resource !== null);
+                applyResources(liveResources);
+                setIsLoadingResources(false);
+                setLoadError(null);
+            },
+            (error) => {
+                console.error("Error watching course resources:", error);
+                setLoadError("Couldn't keep resources up to date.");
+                setIsLoadingResources(false);
+            }
+        );
+        return unsubscribe;
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [userId, courseId]);
+
+    useEffect(() => {
+        setPreviewResource((current) =>
+            current ? resources.find((resource) => resource.id === current.id) ?? current : null
+        );
+    }, [resources]);
 
     const presentFileTypes = Array.from(new Set(resources.map((r) => r.fileType)));
 
@@ -485,9 +569,11 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
             if (DOWNLOAD_ONLY_TYPES.includes(resource.fileType)) return;
 
             thumbnailInFlight.current.add(resource.id);
+            const sourceKey = thumbnailCacheKey(resource);
             generateThumbnail(resource)
                 .then((result) => {
                     if (result) {
+                        thumbnailSourceKeys.current[resource.id] = sourceKey;
                         setThumbnails((prev) => ({ ...prev, [resource.id]: result }));
                     }
                 })
@@ -631,6 +717,45 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
 
     function selectAll() {
         setSelectedIds(new Set(sortedResources.map((r) => r.id)));
+    }
+
+    function handleRetryOcr(resource: Resource) {
+        if (retryingOcrIds.has(resource.id)) return;
+
+        setRetryingOcrIds((previous) => new Set(previous).add(resource.id));
+        const markProcessing = (current: Resource) =>
+            current.id === resource.id
+                ? { ...current, ocrStatus: "processing" as const, ocrError: undefined }
+                : current;
+        setResources((previous) => previous.map(markProcessing));
+        setPreviewResource((previous) => (previous ? markProcessing(previous) : previous));
+
+        fetch("/api/embed-document", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId, courseId, resourceId: resource.id }),
+            keepalive: true,
+        })
+            .then(async (response) => {
+                if (!response.ok) throw new Error(`OCR retry failed (${response.status})`);
+                await loadResources();
+            })
+            .catch((error) => {
+                console.error(`OCR retry failed for "${resource.name}":`, error);
+                const markFailed = (current: Resource) =>
+                    current.id === resource.id
+                        ? { ...current, ocrStatus: "failed" as const, ocrError: "Couldn't start OCR. Please try again." }
+                        : current;
+                setResources((previous) => previous.map(markFailed));
+                setPreviewResource((previous) => (previous ? markFailed(previous) : previous));
+            })
+            .finally(() => {
+                setRetryingOcrIds((previous) => {
+                    const next = new Set(previous);
+                    next.delete(resource.id);
+                    return next;
+                });
+            });
     }
 
     async function handleDownloadSelected() {
@@ -946,7 +1071,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                             <span className="inline-block rounded-full bg-bg-warm px-2 py-0.5 text-[10px] font-medium text-primary">
                                                 {CATEGORY_LABELS[resource.category]}
                                             </span>
-                                            {resource.ocrScanned && <OcrScannedBadge />}
+                                            {resource.ocrStatus ? <OcrStatusBadge status={resource.ocrStatus} /> : resource.ocrScanned && <OcrScannedBadge />}
                                         </div>
                                         <p className="mt-1 text-[10px] text-text-muted">
                                             Uploaded {formatRelativeDate(resource.uploadedAt)} &middot; Viewed{" "}
@@ -1019,7 +1144,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                             <span className="rounded-full bg-bg-warm px-2 py-0.5 text-[10px] font-medium text-primary">
                                                 {CATEGORY_LABELS[resource.category]}
                                             </span>
-                                            {resource.ocrScanned && <OcrScannedBadge />}
+                                            {resource.ocrStatus ? <OcrStatusBadge status={resource.ocrStatus} /> : resource.ocrScanned && <OcrScannedBadge />}
                                         </div>
                                     </div>
                                 </button>
@@ -1124,7 +1249,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                 {CATEGORY_LABELS[activeResource.category]}
                             </span>
                         )}
-                        {activeResource?.ocrScanned && <OcrScannedBadge />}
+                        {activeResource?.ocrStatus ? <OcrStatusBadge status={activeResource.ocrStatus} /> : activeResource?.ocrScanned && <OcrScannedBadge />}
                     </div>
                     {activeResource && (
                         <p className="mt-1 text-center text-xs text-text-muted">
@@ -1151,12 +1276,41 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                             {previewResource.fileType === "pdf" ? (
                                 <iframe src={previewResource.url} title={previewResource.name} className="h-full w-full" />
                             ) : previewResource.fileType === "image" ? (
-                                <div className="flex h-full items-center justify-center bg-bg-main p-6">
-                                    <img
-                                        src={previewResource.url}
-                                        alt={previewResource.name}
-                                        className="max-h-full max-w-full rounded-lg object-contain shadow-sm"
-                                    />
+                                <div className="flex h-full flex-col gap-4 bg-bg-main p-6">
+                                    <div className="flex min-h-0 flex-1 items-center justify-center">
+                                        <img
+                                            src={previewResource.url}
+                                            alt={previewResource.name}
+                                            className="max-h-full max-w-full rounded-lg object-contain shadow-sm"
+                                        />
+                                    </div>
+                                    {previewResource.ocrStatus === "processing" ? (
+                                        <div className="flex items-center justify-center gap-2 rounded-lg border border-border-light bg-bg-container p-4 text-sm text-text-muted">
+                                            <Loader2 size={16} className="animate-spin" />
+                                            Transcription processing… This preview will update automatically when it is ready.
+                                        </div>
+                                    ) : previewResource.ocrStatus === "failed" ? (
+                                        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-alert-error bg-alert-error-bg p-4 text-sm text-alert-error">
+                                            <p>{previewResource.ocrError || "Transcription failed. You can try again."}</p>
+                                            <button
+                                                onClick={() => handleRetryOcr(previewResource)}
+                                                disabled={retryingOcrIds.has(previewResource.id)}
+                                                className="flex items-center gap-1.5 rounded-md border border-alert-error px-3 py-1.5 text-xs font-medium transition hover:bg-bg-container disabled:cursor-not-allowed disabled:opacity-50"
+                                            >
+                                                {retryingOcrIds.has(previewResource.id) ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
+                                                Retry OCR
+                                            </button>
+                                        </div>
+                                    ) : previewResource.ocrStatus === "complete" ? (
+                                        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-light bg-bg-container p-4 text-sm text-text-muted">
+                                            <span className="flex items-center gap-2"><ScanText size={16} /> Transcription ready.</span>
+                                            {previewResource.ocrTranscriptUrl && (
+                                                <a href={previewResource.ocrTranscriptUrl} download className="text-xs font-medium text-primary hover:underline">
+                                                    Download transcription
+                                                </a>
+                                            )}
+                                        </div>
+                                    ) : null}
                                 </div>
                             ) : DOWNLOAD_ONLY_TYPES.includes(previewResource.fileType) ? (
                                 <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
