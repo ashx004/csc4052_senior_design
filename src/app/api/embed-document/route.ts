@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { DeleteObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getIdToken, firestoreGet, firestoreUpdate, firestoreCommitBatch } from "@/src/library/firestoreRest";
 import { getMinioClient } from "@/src/library/minioClient";
 import { resolveInternalUrl } from "@/src/library/pdfExtract";
@@ -34,57 +34,48 @@ const MAX_INDEXABLE_CHARS = 100000;
 const MINIO_BUCKET = "studora";
 
 // Images have no embedded text — the OCR model returns a plain-text
-// transcription. Instead of keeping the uploaded picture as the class's
-// resource (with the transcription tucked away on it as a `transcript`
-// field), persist the transcription as a real, readable .txt document in the
-// class's resources and delete the original picture, which served no purpose
-// once its text was captured.
-async function persistImageTranscriptionAsResource(opts: {
+// transcription. Keep the uploaded picture as the class's resource and store
+// its transcript separately, so students can compare or reprocess the scan.
+async function persistImageTranscript(opts: {
   idToken: string;
   userId: string;
   courseId: string;
   resourceCollectionPath: string;
   resourceId: string;
-  originalName: string;
-  originalUrl: string;
   transcript: string;
 }): Promise<void> {
-  const { idToken, userId, courseId, resourceCollectionPath, resourceId, originalName, originalUrl, transcript } = opts;
-
-  const baseName = originalName.replace(/\.[^.]+$/, "") || "transcription";
-  const txtName = `${baseName}.txt`;
-  const txtStoragePath = `users/${userId}/classes/${courseId}/${Date.now()}_${txtName}`;
+  const { idToken, userId, courseId, resourceCollectionPath, resourceId, transcript } = opts;
+  // A stable key lets a retry replace its own transcript rather than leave
+  // another orphaned object in storage.
+  const transcriptStoragePath = `users/${userId}/classes/${courseId}/ocr/${resourceId}.txt`;
 
   const s3Client = await getMinioClient();
   await s3Client.send(
     new PutObjectCommand({
       Bucket: MINIO_BUCKET,
-      Key: txtStoragePath,
+      Key: transcriptStoragePath,
       Body: Buffer.from(transcript, "utf8"),
       ContentType: "text/plain",
     })
   );
 
   const updated = await firestoreUpdate(idToken, resourceCollectionPath, resourceId, {
-    name: txtName,
-    url: `/api/download?key=${encodeURIComponent(txtStoragePath)}`,
-    fileType: "txt",
-    // Marks this resource as an OCR transcription rather than a plain
-    // uploaded .txt file, so the UI can tag it distinctly (see
-    // ResourcePreview.tsx) — the original image is gone by this point, so
-    // this field is the only remaining signal that it was ever a scan.
+    // Keep name, url, and fileType unchanged: they still describe the image.
     ocrScanned: true,
+    ocrStatus: "complete",
+    ocrTranscriptUrl: `/api/download?key=${encodeURIComponent(transcriptStoragePath)}`,
+    ocrTextLength: transcript.length,
+    ocrModel: process.env.OLLAMA_OCR_MODEL ?? null,
+    ocrCompletedAt: new Date(),
+    ocrFailedAt: null,
+    ocrError: null,
   });
-  if (!updated) throw new Error("Failed to update image resource to transcript text file");
+  if (!updated) throw new Error("Failed to save OCR transcript metadata");
+}
 
-  // The uploaded picture is now orphaned — drop it so the upload doesn't
-  // leave a dead copy in storage. Non-fatal if it can't be removed.
-  const imageKey = decodeURIComponent(originalUrl.split("key=")[1] ?? "");
-  if (imageKey) {
-    await s3Client
-      .send(new DeleteObjectCommand({ Bucket: MINIO_BUCKET, Key: imageKey }))
-      .catch((err) => console.error(`Failed to delete uploaded image "${imageKey}":`, err));
-  }
+function getOcrErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : "OCR transcription failed.";
+  return message.slice(0, 500);
 }
 
 // Indexes a single document for semantic search: extracts its text, splits
@@ -138,23 +129,43 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ skipped: true, reason: "This file type isn't indexed for search yet." });
     }
 
+    const isImage = IMAGE_FILE_TYPES.includes(resourceFileType);
     const fullUrl = resolveInternalUrl(request, resourceUrl);
-    let text = await extractDocumentText(fullUrl, resourceFileType);
+    let text: string;
+    try {
+      if (isImage) {
+        const markedProcessing = await firestoreUpdate(idToken, resourceCollectionPath, resourceId, {
+          ocrStatus: "processing",
+          ocrStartedAt: new Date(),
+          ocrCompletedAt: null,
+          ocrFailedAt: null,
+          ocrError: null,
+        });
+        if (!markedProcessing) throw new Error("Failed to mark OCR as processing");
+      }
 
-    // Images: the OCR transcription becomes the class's actual resource (a
-    // readable .txt document), replacing the uploaded picture. Done before
-    // the length cap below so the saved file holds the full transcription.
-    if (IMAGE_FILE_TYPES.includes(resourceFileType)) {
-      await persistImageTranscriptionAsResource({
-        idToken,
-        userId,
-        courseId,
-        resourceCollectionPath,
-        resourceId,
-        originalName: resourceName,
-        originalUrl: resourceUrl,
-        transcript: text,
-      });
+      text = await extractDocumentText(fullUrl, resourceFileType);
+
+      if (isImage) {
+        await persistImageTranscript({
+          idToken,
+          userId,
+          courseId,
+          resourceCollectionPath,
+          resourceId,
+          transcript: text,
+        });
+      }
+    } catch (error) {
+      if (isImage) {
+        const markedFailed = await firestoreUpdate(idToken, resourceCollectionPath, resourceId, {
+          ocrStatus: "failed",
+          ocrError: getOcrErrorMessage(error),
+          ocrFailedAt: new Date(),
+        });
+        if (!markedFailed) console.error(`Failed to save OCR failure state for "${resourceName}"`);
+      }
+      throw error;
     }
 
     if (text.length > MAX_INDEXABLE_CHARS) {
