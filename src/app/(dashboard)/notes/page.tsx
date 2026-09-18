@@ -12,26 +12,28 @@ import {
   Presentation,
   BookOpen,
   FileImage,
+  ScanText,
   Loader2,
   X,
   Download,
   Trash2,
+  RotateCcw,
   GraduationCap,
 } from "lucide-react";
 import Link from "next/link";
-import { collection, doc as firestoreDoc, getDoc, getDocs } from "firebase/firestore";
+import { collection, getDocs, onSnapshot } from "firebase/firestore";
 import { renderAsync } from "docx-preview";
 import { db } from "@/src/library/firebase";
 import { useAuth } from "@/src/context/AuthContext";
 import { useSetPageContext } from "@/src/context/AIPageContext";
 import {
   uploadUserResource,
-  getCourseResources,
   deleteUserResource,
   MAX_FILE_SIZE_BYTES,
 } from "@/src/components/resourceManagement/fileUploadService";
 
 type Category = "classDoc" | "notes" | "assignments";
+type OcrStatus = "processing" | "complete" | "failed";
 
 const CATEGORY_LABELS: Record<Category, string> = {
   classDoc: "Class Doc",
@@ -126,6 +128,30 @@ function typeIcon(type: string) {
   }
 }
 
+function isOcrStatus(value: unknown): value is OcrStatus {
+  return value === "processing" || value === "complete" || value === "failed";
+}
+
+function OcrStatusBadge({ status }: { status: OcrStatus }) {
+  const labels: Record<OcrStatus, string> = {
+    processing: "OCR processing",
+    complete: "OCR ready",
+    failed: "OCR failed",
+  };
+  const classes: Record<OcrStatus, string> = {
+    processing: "bg-bg-warm text-primary",
+    complete: "bg-bg-warm text-primary",
+    failed: "bg-alert-error-bg text-alert-error",
+  };
+
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${classes[status]}`}>
+      {status === "processing" ? <Loader2 size={11} className="animate-spin" /> : <ScanText size={11} />}
+      {labels[status]}
+    </span>
+  );
+}
+
 interface EnrolledClass {
   id: string;
   className: string;
@@ -141,15 +167,21 @@ interface NoteDoc {
   fileType: string;
   category: Category;
   uploadedAt: Date;
+  ocrScanned?: boolean;
+  ocrStatus?: OcrStatus;
+  ocrTranscriptUrl?: string;
+  ocrError?: string;
 }
 
 function DocumentPreviewModal({
   doc,
-  userId,
+  onRetryOcr,
+  retryingOcr,
   onClose,
 }: {
   doc: NoteDoc;
-  userId: string;
+  onRetryOcr: (doc: NoteDoc) => void;
+  retryingOcr: boolean;
   onClose: () => void;
 }) {
   const isPdf = doc.fileType === "pdf";
@@ -157,16 +189,13 @@ function DocumentPreviewModal({
   const isXlsx = doc.fileType === "xlsx";
   const isImage = IMAGE_TYPES.includes(doc.fileType);
   const isDownloadOnly = doc.fileType === "zip" || doc.fileType === "pptx" || doc.fileType === "one";
+  const ocrStatus = isImage ? doc.ocrStatus ?? "processing" : undefined;
 
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [text, setText] = useState<string | null>(null);
   const [excelHtml, setExcelHtml] = useState<string | null>(null);
   const docxRef = useRef<HTMLDivElement>(null);
-
-  const [transcript, setTranscript] = useState<string | null>(null);
-  const [transcriptLoading, setTranscriptLoading] = useState(false);
-  const [transcriptError, setTranscriptError] = useState(false);
 
   useEffect(() => {
     if (isPdf || isImage || isDownloadOnly) {
@@ -225,43 +254,6 @@ function DocumentPreviewModal({
     };
   }, [doc, isPdf, isDocx, isDownloadOnly, isXlsx, isImage]);
 
-  // Images have no embedded text — pull the OCR transcription that
-  // /api/embed-document stored on the resource doc once indexing finished.
-  useEffect(() => {
-    if (!isImage) return;
-
-    let cancelled = false;
-    setTranscriptLoading(true);
-    setTranscriptError(false);
-
-    const fetchTranscript = async () => {
-      try {
-        const resourceSnap = await getDoc(
-          firestoreDoc(db, "users", userId, "enrollment", doc.classId, "resources", doc.id)
-        );
-        if (cancelled) return;
-        const transcriptValue = resourceSnap.exists()
-          ? (resourceSnap.data().transcript as string | undefined)
-          : undefined;
-        if (transcriptValue) {
-          setTranscript(transcriptValue);
-        } else {
-          setTranscriptError(true);
-        }
-      } catch (err) {
-        console.error("Transcript load error:", err);
-        if (!cancelled) setTranscriptError(true);
-      } finally {
-        if (!cancelled) setTranscriptLoading(false);
-      }
-    };
-
-    fetchTranscript();
-    return () => {
-      cancelled = true;
-    };
-  }, [doc, isImage, userId]);
-
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 sm:p-10"
@@ -273,7 +265,10 @@ function DocumentPreviewModal({
       >
         <div className="flex items-center justify-between border-b border-border-light px-4 py-3">
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-text-main">{doc.name}</p>
+            <div className="flex items-center gap-2">
+              <p className="truncate text-sm font-semibold text-text-main">{doc.name}</p>
+              {ocrStatus && <OcrStatusBadge status={ocrStatus} />}
+            </div>
             <p className="text-xs text-text-muted">{CATEGORY_LABELS[doc.category] ?? doc.category}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -303,35 +298,35 @@ function DocumentPreviewModal({
               <img
                 src={doc.url}
                 alt={doc.name}
-                className="mx-auto max-h-[45vh] max-w-full rounded-lg border border-border-light object-contain shadow-sm"
+                className="mx-auto max-h-[65vh] max-w-full rounded-lg border border-border-light object-contain shadow-sm"
               />
-              <div className="flex-1 overflow-auto rounded-lg border border-border-light bg-bg-main">
-                <div className="flex items-center justify-between border-b border-border-light px-4 py-2.5">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-                    OCR transcription
-                  </h3>
-                  {transcript && (
-                    <span className="rounded-full bg-bg-warm px-2 py-0.5 text-[10px] font-medium text-primary">
-                      scanned
-                    </span>
+              {ocrStatus === "processing" ? (
+                <div className="flex items-center justify-center gap-2 rounded-lg border border-border-light bg-bg-main p-4 text-sm text-text-muted">
+                  <Loader2 size={16} className="animate-spin" />
+                  Transcription processing… This preview will update automatically when it is ready.
+                </div>
+              ) : ocrStatus === "failed" ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-alert-error bg-alert-error-bg p-4 text-sm text-alert-error">
+                  <p>{doc.ocrError || "Transcription failed. You can try again."}</p>
+                  <button
+                    onClick={() => onRetryOcr(doc)}
+                    disabled={retryingOcr}
+                    className="flex items-center gap-1.5 rounded-md border border-alert-error px-3 py-1.5 text-xs font-medium transition hover:bg-bg-container disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {retryingOcr ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
+                    Retry OCR
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-light bg-bg-main p-4 text-sm text-text-muted">
+                  <span className="flex items-center gap-2"><ScanText size={16} /> Transcription ready.</span>
+                  {doc.ocrTranscriptUrl && (
+                    <a href={doc.ocrTranscriptUrl} download className="text-xs font-medium text-primary hover:underline">
+                      Download transcription
+                    </a>
                   )}
                 </div>
-                {transcriptLoading ? (
-                  <div className="flex items-center justify-center gap-2 p-6 text-sm text-text-muted">
-                    <Loader2 size={16} className="animate-spin" />
-                    Loading transcription...
-                  </div>
-                ) : transcriptError ? (
-                  <p className="p-6 text-sm text-text-muted">
-                    No transcription available yet. It&apos;s generated in the background shortly
-                    after upload — close and reopen this document in a minute to see it.
-                  </p>
-                ) : (
-                  <pre className="whitespace-pre-wrap break-words p-4 text-sm leading-relaxed text-text-main">
-                    {transcript}
-                  </pre>
-                )}
-              </div>
+              )}
             </div>
           ) : isDownloadOnly ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
@@ -416,7 +411,7 @@ export default function Notes() {
   const [notes, setNotes] = useState<NoteDoc[]>([]);
   const [notesLoading, setNotesLoading] = useState(true);
   const [notesError, setNotesError] = useState<string | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [retryingOcrIds, setRetryingOcrIds] = useState<Set<string>>(new Set());
   const [classFilter, setClassFilter] = useState("all");
   const [previewDoc, setPreviewDoc] = useState<NoteDoc | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<NoteDoc | null>(null);
@@ -470,47 +465,79 @@ export default function Notes() {
 
   useEffect(() => {
     if (!user) return;
-
-    let cancelled = false;
-    const loadNotes = async () => {
-      setNotesLoading(true);
+    if (classes.length === 0) {
+      setNotes([]);
       setNotesError(null);
-      try {
-        const all: NoteDoc[] = [];
-        for (const cls of classes) {
-          try {
-            const resources = await getCourseResources(user.uid, cls.id);
-            for (const r of resources) {
-              if (r.category !== "notes") continue;
-              all.push({
-                id: r.id,
-                classId: cls.id,
-                name: r.name ?? "Untitled",
-                url: r.url ?? "",
-                fileType: getFileType(r.name ?? "") ?? "txt",
-                category: (r.category as Category) ?? "notes",
-                uploadedAt: toDateSafe(r.uploadedAt),
-              });
-            }
-          } catch (err) {
-            console.error(`Failed to load resources for class ${cls.id}:`, err);
-          }
-        }
-        all.sort((a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime());
-        if (!cancelled) setNotes(all);
-      } catch (err) {
-        console.error("Error loading notes:", err);
-        if (!cancelled) setNotesError("Couldn't load your documents.");
-      } finally {
-        if (!cancelled) setNotesLoading(false);
+      setNotesLoading(false);
+      return;
+    }
+
+    setNotesLoading(true);
+    setNotesError(null);
+
+    const notesByClass = new Map<string, NoteDoc[]>();
+    const initializedClasses = new Set<string>();
+    const failedClasses = new Set<string>();
+
+    const publishNotes = () => {
+      const all = Array.from(notesByClass.values()).flat();
+      all.sort((a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime());
+      setNotes(all);
+
+      if (initializedClasses.size === classes.length) {
+        setNotesLoading(false);
+        setNotesError(
+          failedClasses.size === classes.length ? "Couldn't load your documents." : null
+        );
       }
     };
 
-    loadNotes();
-    return () => {
-      cancelled = true;
-    };
-  }, [user, classes, refreshKey]);
+    const unsubscribers = classes.map((cls) =>
+      onSnapshot(
+        collection(db, "users", user.uid, "enrollment", cls.id, "resources"),
+        (snapshot) => {
+          const classNotes: NoteDoc[] = [];
+          snapshot.forEach((resourceDoc) => {
+            const resource = resourceDoc.data();
+            if (resource.category !== "notes") return;
+
+            const name = resource.name ?? "Untitled";
+            classNotes.push({
+              id: resourceDoc.id,
+              classId: cls.id,
+              name,
+              url: resource.url ?? "",
+              fileType:
+                getFileType(`resource.${resource.fileType ?? ""}`) ??
+                getFileType(name) ??
+                "txt",
+              category: (resource.category as Category) ?? "notes",
+              uploadedAt: toDateSafe(resource.uploadedAt),
+              ocrScanned: resource.ocrScanned === true,
+              ocrStatus: isOcrStatus(resource.ocrStatus) ? resource.ocrStatus : undefined,
+              ocrTranscriptUrl:
+                typeof resource.ocrTranscriptUrl === "string" ? resource.ocrTranscriptUrl : undefined,
+              ocrError: typeof resource.ocrError === "string" ? resource.ocrError : undefined,
+            });
+          });
+
+          notesByClass.set(cls.id, classNotes);
+          initializedClasses.add(cls.id);
+          failedClasses.delete(cls.id);
+          publishNotes();
+        },
+        (error) => {
+          console.error(`Failed to watch resources for class ${cls.id}:`, error);
+          notesByClass.set(cls.id, []);
+          initializedClasses.add(cls.id);
+          failedClasses.add(cls.id);
+          publishNotes();
+        }
+      )
+    );
+
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [user, classes]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -570,13 +597,35 @@ export default function Notes() {
         )
       );
       setSelectedFiles([]);
-      setRefreshKey((k) => k + 1);
     } catch (err) {
       console.error("Upload failed:", err);
       setUploadError(err instanceof Error ? err.message : "Upload failed. Please try again.");
     } finally {
       setIsUploading(false);
     }
+  }
+
+  function handleRetryOcr(doc: NoteDoc) {
+    if (!user || retryingOcrIds.has(doc.id)) return;
+
+    setRetryingOcrIds((previous) => new Set(previous).add(doc.id));
+    fetch("/api/embed-document", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: user.uid, courseId: doc.classId, resourceId: doc.id }),
+      keepalive: true,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`OCR retry failed (${response.status})`);
+      })
+      .catch((error) => console.error(`OCR retry failed for "${doc.name}":`, error))
+      .finally(() => {
+        setRetryingOcrIds((previous) => {
+          const next = new Set(previous);
+          next.delete(doc.id);
+          return next;
+        });
+      });
   }
 
   async function handleDelete() {
@@ -587,7 +636,6 @@ export default function Notes() {
       const key = decodeURIComponent(deleteTarget.url.split("key=")[1] ?? "");
       await deleteUserResource(user.uid, deleteTarget.classId, deleteTarget.id, key);
       setDeleteTarget(null);
-      setRefreshKey((k) => k + 1);
     } catch (err) {
       console.error("Delete failed:", err);
     } finally {
@@ -608,6 +656,10 @@ export default function Notes() {
   const classById = (id: string) => classes.find((c) => c.id === id);
   const visibleNotes =
     classFilter === "all" ? notes : notes.filter((n) => n.classId === classFilter);
+  const syncedPreviewDoc = previewDoc
+    ? notes.find((note) => note.id === previewDoc.id && note.classId === previewDoc.classId) ??
+      previewDoc
+    : null;
 
   return (
     <section className="min-h-screen bg-bg-main px-8 py-8 text-text-main">
@@ -859,9 +911,27 @@ export default function Notes() {
                           <span className="rounded-full bg-bg-warm px-2 py-0.5 text-[10px] font-medium text-text-muted">
                             {CATEGORY_LABELS[doc.category] ?? doc.category}
                           </span>
+                          {doc.ocrStatus ? (
+                            <OcrStatusBadge status={doc.ocrStatus} />
+                          ) : doc.ocrScanned ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-bg-warm px-2 py-0.5 text-[10px] font-medium text-primary">
+                              <ScanText size={11} /> OCR
+                            </span>
+                          ) : null}
                         </span>
                       </span>
                     </button>
+                    {doc.ocrStatus === "failed" && (
+                      <button
+                        onClick={() => handleRetryOcr(doc)}
+                        disabled={retryingOcrIds.has(doc.id)}
+                        className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-primary transition hover:bg-bg-warm disabled:cursor-not-allowed disabled:opacity-50"
+                        aria-label={`Retry OCR for ${doc.name}`}
+                      >
+                        {retryingOcrIds.has(doc.id) ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+                        Retry
+                      </button>
+                    )}
                     <button
                       onClick={() => setDeleteTarget(doc)}
                       className="shrink-0 rounded-md p-2 text-text-muted transition hover:bg-alert-error-bg hover:text-alert-error"
@@ -877,10 +947,11 @@ export default function Notes() {
         </div>
       </div>
 
-      {previewDoc && (
+      {syncedPreviewDoc && (
         <DocumentPreviewModal
-          doc={previewDoc}
-          userId={user.uid}
+          doc={syncedPreviewDoc}
+          onRetryOcr={handleRetryOcr}
+          retryingOcr={retryingOcrIds.has(syncedPreviewDoc.id)}
           onClose={() => setPreviewDoc(null)}
         />
       )}
