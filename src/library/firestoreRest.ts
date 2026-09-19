@@ -43,6 +43,8 @@ export async function getUidFromRequest(req: NextRequest): Promise<string | null
 
 /** Get the user's Firebase ID token from the request cookie. */
 export function getIdToken(req: NextRequest): string | null {
+  const authorization = req.headers.get("authorization");
+  if (authorization?.startsWith("Bearer ")) return authorization.slice("Bearer ".length);
   return req.cookies.get("fb_token")?.value ?? null;
 }
 
