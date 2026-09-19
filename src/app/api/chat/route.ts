@@ -451,7 +451,14 @@ async function searchDocuments(
 
   const candidateDocs = targetClasses.flatMap((c) =>
     c.documents
-      .filter((d) => SUPPORTED_DOCUMENT_TYPES.includes(d.fileType))
+      .filter(
+        (d) =>
+          SUPPORTED_DOCUMENT_TYPES.includes(d.fileType) &&
+          // Legacy resources predate indexStatus, so keep them searchable.
+          // A resource with a known status is safe to search only after its
+          // newest chunk replacement has completed.
+          (d.indexStatus === undefined || d.indexStatus === "complete")
+      )
       .map((d) => ({ ...d, courseId: c.classId, classCode: c.classCode }))
   );
 

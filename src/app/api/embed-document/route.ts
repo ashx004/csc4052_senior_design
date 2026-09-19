@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
-import { getIdToken, firestoreGet, firestoreUpdate, firestoreCommitBatch } from "@/src/library/firestoreRest";
+import {
+  getIdToken,
+  firestoreGet,
+  firestoreUpdate,
+  firestoreCommitBatch,
+  firestoreListCollection,
+} from "@/src/library/firestoreRest";
 import { adminDb } from "@/src/library/firebaseAdmin";
 import { getMinioClient } from "@/src/library/minioClient";
 import { resolveInternalUrl } from "@/src/library/pdfExtract";
@@ -8,7 +14,7 @@ import { extractDocumentText, IMAGE_FILE_TYPES, SUPPORTED_DOCUMENT_TYPES } from 
 import { chunkText } from "@/src/library/chunking";
 import { addChunkContext } from "@/src/library/contextualChunking";
 import { embedTexts } from "@/src/library/ollamaEmbeddings";
-import { upsertChunks, chunkPointId } from "@/src/library/vectorStore";
+import { deleteChunksForResource, upsertChunks, chunkPointId } from "@/src/library/vectorStore";
 import { createTimeoutSignal } from "@/src/library/withTimeout";
 import { isInternalRequest, verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
@@ -163,16 +169,31 @@ export async function POST(request: NextRequest) {
       return firestoreUpdate(idToken!, resourceCollectionPath, resourceId, fields);
     };
 
-    const commitChunks = async (writes: { path: string; fields: Record<string, unknown> }[]): Promise<void> => {
+    const chunkCollectionPath = `${resourceCollectionPath}/${resourceId}/chunks`;
+    const replaceChunks = async (writes: { path: string; fields: Record<string, unknown> }[]): Promise<void> => {
+      const chunkIds = internal
+        ? (await adminDb.collection(chunkCollectionPath).get()).docs.map((doc) => doc.id)
+        : (await firestoreListCollection(idToken!, chunkCollectionPath)).map((doc) => doc.id);
+      const incomingIds = new Set(writes.map((write) => write.path.split("/").pop()));
+      const staleChunkIds = chunkIds.filter((id) => !incomingIds.has(id));
+      if (writes.length + staleChunkIds.length > 500) {
+        throw new Error("Too many chunks to replace atomically.");
+      }
+
+      // One commit writes the new chunks and deletes stale ones. There is no
+      // point at which a completed resource can contain a mixed old/new set.
       if (!internal) {
-        await firestoreCommitBatch(idToken!, writes);
+        await firestoreCommitBatch(
+          idToken!,
+          writes,
+          staleChunkIds.map((id) => `${chunkCollectionPath}/${id}`)
+        );
         return;
       }
 
       const batch = adminDb.batch();
-      for (const write of writes) {
-        batch.set(adminDb.doc(write.path), write.fields);
-      }
+      staleChunkIds.forEach((id) => batch.delete(adminDb.doc(`${chunkCollectionPath}/${id}`)));
+      writes.forEach((write) => batch.set(adminDb.doc(write.path), write.fields));
       await batch.commit();
     };
 
@@ -253,6 +274,8 @@ export async function POST(request: NextRequest) {
     }
 
     const markedIndexing = await updateResource({
+      indexed: false,
+      vectorIndexed: false,
       indexStatus: "processing",
       indexStartedAt: new Date(),
       indexCompletedAt: null,
@@ -269,8 +292,25 @@ export async function POST(request: NextRequest) {
 
     const rawChunkObjs = chunkText(text);
     if (rawChunkObjs.length === 0) {
+      // A failed/empty re-transcription must not leave the old document
+      // searchable. Remove both retrieval representations before reporting
+      // the resource as having no usable text.
+      try {
+        await replaceChunks([]);
+        await deleteChunksForResource(userId, resourceId);
+      } catch (error) {
+        await updateResource({
+          indexed: false,
+          vectorIndexed: false,
+          indexStatus: "failed",
+          indexError: getErrorMessage(error, "Failed to clear old document chunks."),
+          indexFailedAt: new Date(),
+        });
+        return NextResponse.json({ skipped: true, reason: "Failed to clear old document chunks." }, { status: 500 });
+      }
       await updateResource({
         indexed: false,
+        vectorIndexed: false,
         indexStatus: "failed",
         indexError: "No extractable text.",
         indexFailedAt: new Date(),
@@ -301,7 +341,7 @@ export async function POST(request: NextRequest) {
       // that many chunks at the default chunkText size. Chunk IDs are
       // caller-generated (chunk_${index}) rather than Firestore auto-IDs —
       // the REST :commit endpoint requires every write to name its own doc.
-      await commitChunks(
+      await replaceChunks(
         chunks.contextualized.map((chunkValue, index) => ({
           path: `${resourceCollectionPath}/${resourceId}/chunks/chunk_${index}`,
           fields: {
@@ -325,6 +365,10 @@ export async function POST(request: NextRequest) {
       // successful index (or the one-time backfill script) picks it up.
       let vectorIndexed = false;
       try {
+        // Chunk point IDs are deterministic. Upserting a shorter replacement
+        // document would otherwise leave its old higher-numbered points in
+        // Qdrant, so replace this resource's entire vector set first.
+        await deleteChunksForResource(userId, resourceId);
         await upsertChunks(
           chunks.contextualized.map((chunkValue, index) => ({
             id: chunkPointId(resourceId, index),
@@ -370,6 +414,7 @@ export async function POST(request: NextRequest) {
       console.error(`Embed document ${timedOut ? "timed out" : "failed"} for "${resourceName}":`, error);
       await updateResource({
         indexed: false,
+        vectorIndexed: false,
         indexingGaveUp: true,
         indexingGaveUpReason: timedOut ? "timeout" : "error",
         indexingGaveUpAt: new Date(),
