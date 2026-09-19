@@ -294,6 +294,32 @@ export function courseCodesEquivalent(
 }
 
 
+export function prerequisitesSatisfied(
+  prerequisites: string[],
+  transcriptCourses: TranscriptCourse[]
+): { satisfied: boolean; unmetPrerequisites: string[] } {
+
+  const unmetPrerequisites = prerequisites.filter((prerequisiteCode) => {
+
+    // A prerequisite must be genuinely finished (completed at this
+    // institution, or transfer credit) — being currently in-progress does
+    // NOT satisfy a prerequisite, that's what corequisites are for.
+    const isSatisfied = transcriptCourses.some(
+      (course) =>
+        COMPLETED_STATUSES.includes(course.status) &&
+        courseCodesEquivalent(prerequisiteCode, course)
+    );
+
+    return !isSatisfied;
+  });
+
+  return {
+    satisfied: unmetPrerequisites.length === 0,
+    unmetPrerequisites,
+  };
+}
+
+
 
 function gradeRank(
   grade: string | null
@@ -817,7 +843,7 @@ function evaluateBroadProgramRequirements(
   const completedTranscriptCredits =
     sumTranscriptCredits(
       transcript.courses,
-      [COMPLETED_STATUSES]
+      COMPLETED_STATUSES
     );
 
   const inProgressTranscriptCredits =
@@ -830,7 +856,7 @@ function evaluateBroadProgramRequirements(
   const completedConcentrationCredits =
     sumRequirementCreditsByStatus(
       concentrationResults,
-      [COMPLETED_STATUSES]
+      COMPLETED_STATUSES
     );
 
   const activeConcentrationCredits =

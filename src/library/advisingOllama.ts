@@ -37,9 +37,17 @@ setGlobalDispatcher(new Agent({ headersTimeout: 600_000 })); // 10 minutes
 
 
 
+type OllamaCallOptions = {
+  think?: "low" | "medium" | "high";
+  numPredict?: number;
+};
+
 async function callAdvisingOllama(
-  messages: { role: string; content: string }[]
+  messages: { role: string; content: string }[],
+  options: OllamaCallOptions = {}
 ): Promise<string> {
+  const think = options.think ?? "low";
+  const numPredict = options.numPredict ?? 32000;
   if (!process.env.OLLAMA_PRIMARY_URL) {
     throw new Error("OLLAMA_PRIMARY_URL is not configured."); }
 
@@ -73,8 +81,8 @@ async function callAdvisingOllama(
         model: process.env.OLLAMA_MODEL || "gpt-oss:20b",
         messages,
         stream: true,
-        think: "low",
-        options: { temperature: 0, num_predict: 32000 },
+        think,
+        options: { temperature: 0, num_predict: numPredict },
       }),
       signal: controller.signal,
     });
@@ -867,9 +875,7 @@ async function extractConcentrationsWithOllama(
 ): Promise<string> {
 
   return callAdvisingOllama([
-    {
-      role: "system",
-      content: `
+    { role: "system", content: `
 
       You are extracting ONLY concentration, track,
       specialization, or emphasis requirements from a
@@ -1014,11 +1020,10 @@ async function extractConcentrationsWithOllama(
       `,
     },
 
-    {
-      role: "user",
-      content: curriculumText,
-    },
-  ]);
+    { role: "user", content: curriculumText },
+  ],
+    { think: "medium", numPredict: 32000 },
+);
 }
 
 
@@ -1054,10 +1059,7 @@ async function extractProgramInfoWithOllama(
           `,
         },
 
-        {
-          role: "user",
-          content: curriculumText,
-        },
+        { role: "user", content: curriculumText, },
       ]);
     }
 
@@ -1071,9 +1073,7 @@ async function extractProgramInfoWithOllama(
     ): Promise<string> {
 
       return callAdvisingOllama([
-        {
-          role: "system",
-          content: `
+        { role: "system", content: `
 
     Return ONLY valid JSON.
 
@@ -1154,17 +1154,52 @@ async function extractProgramInfoWithOllama(
     - Never omit required fields.
     - Do not use outside knowledge.
 
+    IMPORTANT: DO NOT BORROW A TITLE FROM AN ADJACENT COURSE ROW.
+
+    This rule applies to EVERY subject area in the curriculum — not just one
+    department. Any subject's course table can have this layout problem.
+
+    Some curriculum tables list several course codes on the same line before
+    their titles appear, e.g.:
+
+    CSC 403 * 3 CSC 405 * Senior Capstone I 2 CSC 406 Senior Capstone II 1
+
+    or equally:
+
+    ENGL 200 * 3 ENGL 210 Intro to British Literature 3 ENGL 211 Intro to American Literature 3
+
+    or:
+
+    MATH 100 3 MATH 241 Calculus I 3 MATH 242 Calculus II 3
+
+    In this pattern, each course code is followed by its OWN credit hours
+    (and possibly a footnote marker like "*"), and only SOME of the codes on
+    the line have an actual title attached before the next course code
+    begins. Do NOT assume a title belongs to the earliest course code on the
+    line — a title always belongs to the course code immediately preceding
+    it, never an earlier code on the same row, regardless of subject.
+
+    If a course code is followed directly by a number (credit hours) or a
+    footnote marker with no title text in between, its courseTitle MUST be
+    null. Do not borrow the next course's title to fill the gap, no matter
+    which subject area it belongs to.
+
+    This applies uniformly across ALL subjects in the curriculum: math,
+    English, science, business, engineering, education, or any other
+    department — the same row-parsing rule holds regardless of what the
+    course codes look like.
+
+    Example: in the CSC line above, CSC 403 has courseTitle: null (only a
+    credit-hour value follows it), CSC 405 has courseTitle: "Senior Capstone
+    I", and CSC 406 has courseTitle: "Senior Capstone II" — each title stays
+    attached to the exact code that precedes it, not the one before that.
+
     Return ONLY valid JSON.
           
-
       `,
     },
-
-    {
-      role: "user",
-      content: curriculumText,
-    },
-  ]);
+        { role: "user", content: curriculumText, }, ], 
+        { think: "medium", numPredict: 32000 });
 }
 
 
@@ -1330,10 +1365,7 @@ export async function generateScheduleWithOllama(
 ): Promise<string> {
 
   const messages = [
-    {
-      role: "system",
-
-      content: `
+    { role: "system", content: `
 
 You are generating a suggested university academic schedule.
 
@@ -1493,17 +1525,9 @@ If a requirement cannot safely be scheduled, leave it out of the terms array
 and explain why in warnings.
 `,
     },
-
-    {
-      role: "user",
-
-      content: JSON.stringify(
-        input,
-        null,
-        2
-      ),
-    },
+    { role: "user",
+      content: JSON.stringify(input) },
   ];
 
-  return callAdvisingOllama(messages);
+  return callAdvisingOllama(messages, { think: "medium", numPredict: 32000 });
 }
