@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getIdToken, firestoreGet, firestoreUpdate, firestoreCommitBatch } from "@/src/library/firestoreRest";
+import { adminDb } from "@/src/library/firebaseAdmin";
 import { getMinioClient } from "@/src/library/minioClient";
 import { resolveInternalUrl } from "@/src/library/pdfExtract";
 import { extractDocumentText, IMAGE_FILE_TYPES, SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
@@ -9,12 +10,13 @@ import { addChunkContext } from "@/src/library/contextualChunking";
 import { embedTexts } from "@/src/library/ollamaEmbeddings";
 import { upsertChunks, chunkPointId } from "@/src/library/vectorStore";
 import { createTimeoutSignal } from "@/src/library/withTimeout";
-import { verifyRequestAuth } from "@/src/library/verifyAuth";
+import { isInternalRequest, verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import { generateCourseSummary } from "@/src/library/courseSummary";
 
 const EMBED_RATE_LIMIT_WINDOW_MS = 60_000;
 const EMBED_RATE_LIMIT_MAX = 10; // per user per window — uploads aren't normally rapid-fire
+const JOB_COLLECTION = "documentProcessingJobs";
 
 // Give up on a single document past this long rather than let one slow file
 // hang the whole indexing job — confirmed live 2026-07-21.
@@ -38,16 +40,15 @@ const MINIO_BUCKET = "studora";
 // both students and the AI use the same readable document. The source image
 // remains in object storage, but is no longer listed as a class resource.
 async function persistImageTranscript(opts: {
-  idToken: string;
   userId: string;
   courseId: string;
-  resourceCollectionPath: string;
   resourceId: string;
   originalName: string;
   originalUrl: string;
   transcript: string;
+  updateResource: (fields: Record<string, unknown>) => Promise<boolean>;
 }): Promise<void> {
-  const { idToken, userId, courseId, resourceCollectionPath, resourceId, originalName, originalUrl, transcript } = opts;
+  const { userId, courseId, resourceId, originalName, originalUrl, transcript, updateResource } = opts;
   const baseName = originalName.replace(/\.[^.]+$/, "") || "transcription";
   const txtName = `${baseName}.txt`;
   // A stable key lets a retry replace its own transcript rather than leave
@@ -65,9 +66,9 @@ async function persistImageTranscript(opts: {
   );
 
   const transcriptUrl = `/api/download?key=${encodeURIComponent(transcriptStoragePath)}`;
-  const updated = await firestoreUpdate(idToken, resourceCollectionPath, resourceId, {
+  const updated = await updateResource({
     // The transcription becomes the resource students browse and the AI
-    // indexes. The original upload is removed only after this update succeeds.
+    // indexes. The original upload remains in object storage at ocrSourceUrl.
     name: txtName,
     url: transcriptUrl,
     fileType: "txt",
@@ -96,22 +97,29 @@ function getErrorMessage(error: unknown, fallback: string): string {
 // Called in the background right after a PDF finishes uploading.
 export async function POST(request: NextRequest) {
   try {
-    const auth = await verifyRequestAuth(request);
-    if (!auth) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const internal = isInternalRequest(request);
+    let idToken: string | null = null;
+    let userAuth: { uid: string } | null = null;
+    if (!internal) {
+      userAuth = await verifyRequestAuth(request);
+      if (!userAuth) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      idToken = getIdToken(request);
+      if (!idToken) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
     }
 
-    const idToken = getIdToken(request);
-    if (!idToken) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const rateLimit = checkRateLimit(auth.uid, EMBED_RATE_LIMIT_WINDOW_MS, EMBED_RATE_LIMIT_MAX);
-    if (!rateLimit.allowed) {
-      return NextResponse.json(
-        { error: "Too many documents being indexed at once — please wait a moment." },
-        { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
-      );
+    if (!internal) {
+      const rateLimit = checkRateLimit(userAuth!.uid, EMBED_RATE_LIMIT_WINDOW_MS, EMBED_RATE_LIMIT_MAX);
+      if (!rateLimit.allowed) {
+        return NextResponse.json(
+          { error: "Too many documents being queued at once — please wait a moment." },
+          { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+        );
+      }
     }
 
     const { userId, courseId, resourceId } = await request.json();
@@ -122,12 +130,15 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    if (userId !== auth.uid) {
+    if (!internal && userId !== userAuth!.uid) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const resourceCollectionPath = `users/${userId}/enrollment/${courseId}/resources`;
-    const resource = await firestoreGet(idToken, resourceCollectionPath, resourceId);
+    const resourceRef = adminDb.doc(`${resourceCollectionPath}/${resourceId}`);
+    const resource = internal
+      ? ((await resourceRef.get()).data() ?? null)
+      : await firestoreGet(idToken!, resourceCollectionPath, resourceId);
 
     if (!resource) {
       return NextResponse.json({ error: "Resource not found" }, { status: 404 });
@@ -141,12 +152,72 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ skipped: true, reason: "This file type isn't indexed for search yet." });
     }
 
+    // Browser requests keep using their Firebase ID token and Firestore
+    // rules. A request bearing the server-only internal secret is a claimed
+    // queue job, so it uses Firebase Admin instead of minting a client token.
+    const updateResource = async (fields: Record<string, unknown>): Promise<boolean> => {
+      if (internal) {
+        await resourceRef.set(fields, { merge: true });
+        return true;
+      }
+      return firestoreUpdate(idToken!, resourceCollectionPath, resourceId, fields);
+    };
+
+    const commitChunks = async (writes: { path: string; fields: Record<string, unknown> }[]): Promise<void> => {
+      if (!internal) {
+        await firestoreCommitBatch(idToken!, writes);
+        return;
+      }
+
+      const batch = adminDb.batch();
+      for (const write of writes) {
+        batch.set(adminDb.doc(write.path), write.fields);
+      }
+      await batch.commit();
+    };
+
+    if (!internal) {
+      const jobId = `${userId}_${courseId}_${resourceId}`;
+      const jobRef = adminDb.collection(JOB_COLLECTION).doc(jobId);
+      const existingStatus = (await jobRef.get()).data()?.status;
+      if (existingStatus === "queued" || existingStatus === "processing") {
+        return NextResponse.json({ queued: true, jobId, status: existingStatus }, { status: 202 });
+      }
+
+      const queuedStatus = IMAGE_FILE_TYPES.includes(resourceFileType)
+        ? { ocrStatus: "queued", ocrError: null }
+        : { indexStatus: "queued", indexError: null };
+      const markedQueued = await updateResource(queuedStatus);
+      if (!markedQueued) throw new Error("Failed to mark document processing as queued");
+
+      await jobRef.set({
+        userId,
+        courseId,
+        resourceId,
+        status: "queued",
+        attempts: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        lastError: null,
+      });
+
+      // Best-effort immediate pickup; the dedicated worker process also
+      // drains any jobs that survive a server restart or temporary failure.
+      if (process.env.INTERNAL_API_SECRET) {
+        fetch(resolveInternalUrl(request, "/api/document-jobs/worker"), {
+          method: "POST",
+          headers: { "x-internal-secret": process.env.INTERNAL_API_SECRET },
+        }).catch((error) => console.error(`Failed to start document worker for ${jobId}:`, error));
+      }
+      return NextResponse.json({ queued: true, jobId, status: "queued" }, { status: 202 });
+    }
+
     const isImage = IMAGE_FILE_TYPES.includes(resourceFileType);
     const fullUrl = resolveInternalUrl(request, resourceUrl);
     let text: string;
     try {
       if (isImage) {
-        const markedProcessing = await firestoreUpdate(idToken, resourceCollectionPath, resourceId, {
+        const markedProcessing = await updateResource({
           ocrStatus: "processing",
           ocrStartedAt: new Date(),
           ocrCompletedAt: null,
@@ -160,19 +231,18 @@ export async function POST(request: NextRequest) {
 
       if (isImage) {
         await persistImageTranscript({
-          idToken,
           userId,
           courseId,
-          resourceCollectionPath,
           resourceId,
           originalName: resourceName,
           originalUrl: resourceUrl,
           transcript: text,
+          updateResource,
         });
       }
     } catch (error) {
       if (isImage) {
-        const markedFailed = await firestoreUpdate(idToken, resourceCollectionPath, resourceId, {
+        const markedFailed = await updateResource({
           ocrStatus: "failed",
           ocrError: getErrorMessage(error, "OCR transcription failed."),
           ocrFailedAt: new Date(),
@@ -182,7 +252,7 @@ export async function POST(request: NextRequest) {
       throw error;
     }
 
-    const markedIndexing = await firestoreUpdate(idToken, resourceCollectionPath, resourceId, {
+    const markedIndexing = await updateResource({
       indexStatus: "processing",
       indexStartedAt: new Date(),
       indexCompletedAt: null,
@@ -199,7 +269,7 @@ export async function POST(request: NextRequest) {
 
     const rawChunkObjs = chunkText(text);
     if (rawChunkObjs.length === 0) {
-      await firestoreUpdate(idToken, resourceCollectionPath, resourceId, {
+      await updateResource({
         indexed: false,
         indexStatus: "failed",
         indexError: "No extractable text.",
@@ -231,8 +301,7 @@ export async function POST(request: NextRequest) {
       // that many chunks at the default chunkText size. Chunk IDs are
       // caller-generated (chunk_${index}) rather than Firestore auto-IDs —
       // the REST :commit endpoint requires every write to name its own doc.
-      await firestoreCommitBatch(
-        idToken,
+      await commitChunks(
         chunks.contextualized.map((chunkValue, index) => ({
           path: `${resourceCollectionPath}/${resourceId}/chunks/chunk_${index}`,
           fields: {
@@ -275,7 +344,7 @@ export async function POST(request: NextRequest) {
         console.error(`Qdrant upsert failed for "${resourceName}" (falling back to Firestore search for it):`, error);
       }
 
-      const indexed = await firestoreUpdate(idToken, resourceCollectionPath, resourceId, {
+      const indexed = await updateResource({
         indexed: true,
         indexedAt: new Date(),
         chunkCount: chunks.contextualized.length,
@@ -290,7 +359,7 @@ export async function POST(request: NextRequest) {
       // Fire-and-forget — regenerates the course's AI summary from all its
       // current documents, not just this one. Must never delay or fail the
       // upload response the student is waiting on.
-      generateCourseSummary(request, userId, courseId).catch((error) =>
+      generateCourseSummary(request, userId, courseId, { useAdmin: internal }).catch((error) =>
         console.error("Unhandled course summary generation error:", error)
       );
 
@@ -299,7 +368,7 @@ export async function POST(request: NextRequest) {
       cancel();
       const timedOut = signal.aborted;
       console.error(`Embed document ${timedOut ? "timed out" : "failed"} for "${resourceName}":`, error);
-      await firestoreUpdate(idToken, resourceCollectionPath, resourceId, {
+      await updateResource({
         indexed: false,
         indexingGaveUp: true,
         indexingGaveUpReason: timedOut ? "timeout" : "error",
