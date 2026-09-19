@@ -27,6 +27,7 @@ import { db } from "@/src/library/firebase";
 import { useAuth } from "@/src/context/AuthContext";
 import { useSetPageContext } from "@/src/context/AIPageContext";
 import {
+  uploadOcrDocument,
   uploadUserResource,
   deleteUserResource,
   MAX_FILE_SIZE_BYTES,
@@ -435,6 +436,9 @@ export default function Notes() {
   const [selectedClassId, setSelectedClassId] = useState("");
   const [category, setCategory] = useState<Category>("notes");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [combineOcrImages, setCombineOcrImages] = useState(false);
+  const [ocrDocumentName, setOcrDocumentName] = useState("");
+  const [ocrPageNames, setOcrPageNames] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -609,6 +613,10 @@ export default function Notes() {
 
     setUploadError(error);
     setSelectedFiles(remaining);
+    setOcrPageNames(remaining.map((file) => file.name));
+    if (!remaining.every((file) => IMAGE_TYPES.includes(getFileType(file.name) ?? ""))) {
+      setCombineOcrImages(false);
+    }
   }
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -625,12 +633,28 @@ export default function Notes() {
     setIsUploading(true);
     setUploadError(null);
     try {
-      await Promise.all(
-        selectedFiles.map((file) =>
-          uploadUserResource({ userId: user.uid, classDocId: selectedClassId, file, category })
-        )
-      );
+      const allImages = selectedFiles.every((file) => IMAGE_TYPES.includes(getFileType(file.name) ?? ""));
+      if (combineOcrImages) {
+        if (!allImages) throw new Error("An OCR document can contain image files only.");
+        await uploadOcrDocument({
+          userId: user.uid,
+          classDocId: selectedClassId,
+          files: selectedFiles,
+          category,
+          name: ocrDocumentName,
+          pageNames: ocrPageNames,
+        });
+      } else {
+        await Promise.all(
+          selectedFiles.map((file) =>
+            uploadUserResource({ userId: user.uid, classDocId: selectedClassId, file, category })
+          )
+        );
+      }
       setSelectedFiles([]);
+      setCombineOcrImages(false);
+      setOcrDocumentName("");
+      setOcrPageNames([]);
     } catch (err) {
       console.error("Upload failed:", err);
       setUploadError(err instanceof Error ? err.message : "Upload failed. Please try again.");
@@ -828,9 +852,10 @@ export default function Notes() {
                     </span>
                     <button
                       type="button"
-                      onClick={() =>
-                        setSelectedFiles((prev) => prev.filter((_, i) => i !== index))
-                      }
+                      onClick={() => {
+                        setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
+                        setOcrPageNames((prev) => prev.filter((_, i) => i !== index));
+                      }}
                       disabled={isUploading}
                       className="shrink-0 text-text-muted transition hover:text-alert-error"
                       aria-label={`Remove ${file.name}`}
@@ -840,6 +865,54 @@ export default function Notes() {
                   </li>
                 ))}
               </ul>
+            )}
+
+            {selectedFiles.length > 0 && selectedFiles.every((file) => IMAGE_TYPES.includes(getFileType(file.name) ?? "")) && (
+              <div className="mt-4 rounded-xl border border-border-light bg-bg-main p-4">
+                <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-text-main">
+                  <input
+                    type="checkbox"
+                    checked={combineOcrImages}
+                    onChange={(event) => setCombineOcrImages(event.target.checked)}
+                    disabled={isUploading}
+                  />
+                  Combine these images into one OCR document
+                </label>
+                <p className="mt-1 text-xs text-text-muted">
+                  The combined transcript will be the one class resource the AI uses.
+                </p>
+                {combineOcrImages && (
+                  <div className="mt-4 space-y-3">
+                    <label className="block text-xs font-medium text-text-main">
+                      Class resource title
+                      <input
+                        value={ocrDocumentName}
+                        onChange={(event) => setOcrDocumentName(event.target.value)}
+                        placeholder="Homework 3 notes"
+                        disabled={isUploading}
+                        className="mt-1 w-full rounded-lg border border-border-light bg-bg-container px-3 py-2 text-sm outline-none focus:border-primary"
+                      />
+                    </label>
+                    <div>
+                      <p className="text-xs font-medium text-text-main">Source-image names</p>
+                      <p className="mt-0.5 text-xs text-text-muted">These label the pages in the combined transcript.</p>
+                      <div className="mt-2 space-y-2">
+                        {selectedFiles.map((file, index) => (
+                          <label key={`${file.name}-${index}`} className="block text-xs text-text-muted">
+                            Image {index + 1}
+                            <input
+                              value={ocrPageNames[index] ?? file.name}
+                              onChange={(event) => setOcrPageNames((previous) => previous.map((value, itemIndex) => itemIndex === index ? event.target.value : value))}
+                              disabled={isUploading}
+                              className="mt-1 w-full rounded-lg border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main outline-none focus:border-primary"
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
 
             {uploadError && <p className="mt-3 text-xs text-alert-error">{uploadError}</p>}

@@ -29,6 +29,7 @@ import { // import symbols
     Plus,
     ScanText,
     RotateCcw,
+    Pencil,
 } from "lucide-react";
 // PrismLight + explicit per-language registration instead of the default
 // `react-syntax-highlighter` import, which bundles all ~300 Prism language
@@ -65,9 +66,9 @@ import nasm from "react-syntax-highlighter/dist/esm/languages/prism/nasm";
     ["ruby", ruby], ["kotlin", kotlin], ["swift", swift], ["bash", bash], ["nasm", nasm],
 ].forEach(([name, lang]) => SyntaxHighlighter.registerLanguage(name as string, lang as any));
 import { renderAsync } from "docx-preview";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import CircleIconButton from "./CircleIconButton";
-import { uploadUserResource, getCourseResources, deleteUserResource, MAX_FILE_SIZE_BYTES, INDEXABLE_FILE_TYPES } from "./fileUploadService";
+import { addOcrDocumentPages, uploadUserResource, getCourseResources, deleteUserResource, MAX_FILE_SIZE_BYTES, INDEXABLE_FILE_TYPES } from "./fileUploadService";
 import { db } from "@/src/library/firebase";
 
 const MAX_FILES_PER_BATCH = 5;
@@ -75,6 +76,7 @@ const MAX_FILES_PER_BATCH = 5;
 export type Category = "classDoc" | "notes" | "assignments";
 type OcrStatus = "queued" | "processing" | "complete" | "failed";
 type IndexStatus = "queued" | "processing" | "complete" | "failed";
+type OcrPage = { id: string; name: string; order: number };
 
 // Code language syntax highlighting support
 const CODE_TYPES = {
@@ -160,6 +162,9 @@ export interface Resource {
     ocrError?: string;
     indexStatus?: IndexStatus;
     indexError?: string;
+    resourceKind?: "ocr_document";
+    pageCount?: number;
+    manualTranscript?: boolean;
 }
 
 const CATEGORY_LABELS: Record<Category, string> = {
@@ -248,7 +253,9 @@ function toDateSafe(value: any): Date {
 }
 
 function toResource(raw: any): Resource | null {
-    const fileType = getFileType(raw.name ?? "");
+    const fileType = raw.resourceKind === "ocr_document"
+        ? "txt"
+        : getFileType(raw.name ?? "") ?? getFileType(`resource.${raw.fileType ?? ""}`);
     if (!fileType) return null;
     return {
         id: raw.id,
@@ -264,6 +271,9 @@ function toResource(raw: any): Resource | null {
         ocrError: typeof raw.ocrError === "string" ? raw.ocrError : undefined,
         indexStatus: isIndexStatus(raw.indexStatus) ? raw.indexStatus : undefined,
         indexError: typeof raw.indexError === "string" ? raw.indexError : undefined,
+        resourceKind: raw.resourceKind === "ocr_document" ? "ocr_document" : undefined,
+        pageCount: typeof raw.pageCount === "number" ? raw.pageCount : undefined,
+        manualTranscript: raw.manualTranscript === true,
     };
 }
 
@@ -275,6 +285,7 @@ type ThumbnailData = { kind: "image" | "text"; content: string };
 
 async function generateThumbnail(resource: Resource): Promise<ThumbnailData | null> {
     try {
+        if (!resource.url) return null;
         if (resource.fileType === "image") {
             const res = await fetch(resource.url);
             if (!res.ok) return null;
@@ -438,6 +449,8 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
     const [activeIndex, setActiveIndex] = useState(0);
     const [previewResource, setPreviewResource] = useState<Resource | null>(null);
     const [retryingOcrIds, setRetryingOcrIds] = useState<Set<string>>(new Set());
+    const [ocrPages, setOcrPages] = useState<OcrPage[]>([]);
+    const [showOcrPages, setShowOcrPages] = useState(false);
 
     const [selectMode, setSelectMode] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -449,6 +462,11 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
     const [newCategory, setNewCategory] = useState<Category>("classDoc");
     const [isUploading, setIsUploading] = useState(false);
     const [uploadError, setUploadError] = useState<string | null>(null);
+    const pageUploadRef = useRef<HTMLInputElement | null>(null);
+    const [addingPages, setAddingPages] = useState(false);
+    const [editingTranscript, setEditingTranscript] = useState(false);
+    const [editedTranscript, setEditedTranscript] = useState("");
+    const [savingTranscript, setSavingTranscript] = useState(false);
 
     const [searchQuery, setSearchQuery] = useState("");
     const [categoryFilter, setCategoryFilter] = useState<Category | "all">("all");
@@ -563,6 +581,29 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
             current ? resources.find((resource) => resource.id === current.id) ?? current : null
         );
     }, [resources]);
+
+    useEffect(() => {
+        if (!previewResource || previewResource.resourceKind !== "ocr_document") {
+            setOcrPages([]);
+            setShowOcrPages(false);
+            return;
+        }
+        return onSnapshot(
+            query(
+                collection(db, "users", userId, "enrollment", courseId, "resources", previewResource.id, "pages"),
+                orderBy("order", "asc")
+            ),
+            (snapshot) => setOcrPages(snapshot.docs.map((page) => ({
+                id: page.id,
+                name: typeof page.data().name === "string" ? page.data().name : "Untitled image",
+                order: typeof page.data().order === "number" ? page.data().order : 0,
+            }))),
+            (error) => {
+                console.error("Couldn't load OCR source images:", error);
+                setPreviewError("Couldn't load the OCR source-image list.");
+            }
+        );
+    }, [previewResource?.id, previewResource?.resourceKind, userId, courseId]);
 
     const presentFileTypes = Array.from(new Set(resources.map((r) => r.fileType)));
 
@@ -839,18 +880,9 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
         setUploadError(null);
         
         try {
-            // Map file array into an array of concurrent upload executions
-            const uploadPromises = selectedFiles.map((file) =>
-                uploadUserResource({
-                    userId,
-                    classDocId: courseId,
-                    file: file,
-                    category: newCategory,
-                })
-            );
-
-            // Execute all uploads simultaneously
-            await Promise.all(uploadPromises);
+            await Promise.all(selectedFiles.map((file) =>
+                uploadUserResource({ userId, classDocId: courseId, file, category: newCategory })
+            ));
 
             // Refresh the course UI data view list 
             await loadResources();
@@ -863,6 +895,94 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
             setUploadError(err.message || "Upload failed. Please try again.");
         } finally {
             setIsUploading(false);
+        }
+    }
+
+    async function handleAddPages(files: File[]) {
+        if (!previewResource || files.length === 0) return;
+        if (previewResource.manualTranscript && !window.confirm(
+            "Adding pages will regenerate this document from its images and replace your manual transcript edits. Continue?"
+        )) return;
+        setAddingPages(true);
+        try {
+            await addOcrDocumentPages({ userId, classDocId: courseId, resourceId: previewResource.id, files });
+            await loadResources();
+        } catch (error) {
+            console.error("Adding OCR pages failed:", error);
+            setPreviewError(error instanceof Error ? error.message : "Couldn't add image pages.");
+        } finally {
+            setAddingPages(false);
+        }
+    }
+
+    async function renameOcrDocument() {
+        if (!previewResource?.resourceKind) return;
+        const name = window.prompt("Resource name", previewResource.name)?.trim();
+        if (!name || name === previewResource.name) return;
+        const response = await fetch("/api/ocr-documents", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId, courseId, resourceId: previewResource.id, action: "rename", name }),
+        });
+        if (!response.ok) throw new Error("Couldn't rename OCR document.");
+        await loadResources();
+    }
+
+    async function renameOcrPage(page: OcrPage) {
+        if (!previewResource) return;
+        const name = window.prompt(`Name for source image ${page.order + 1}`, page.name)?.trim();
+        if (!name || name === page.name) return;
+        const response = await fetch("/api/ocr-documents", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                userId,
+                courseId,
+                resourceId: previewResource.id,
+                action: "renamePage",
+                pageId: page.id,
+                name,
+            }),
+        });
+        if (!response.ok) throw new Error("Couldn't rename source image.");
+        const queued = await fetch("/api/embed-document", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId, courseId, resourceId: previewResource.id }),
+            keepalive: true,
+        });
+        if (!queued.ok) throw new Error("Source image renamed, but the transcript could not be refreshed.");
+        await loadResources();
+    }
+
+    async function saveTranscriptEdit() {
+        if (!previewResource?.resourceKind) return;
+        setSavingTranscript(true);
+        try {
+            const response = await fetch("/api/ocr-documents", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    userId,
+                    courseId,
+                    resourceId: previewResource.id,
+                    action: "editTranscript",
+                    transcript: editedTranscript,
+                }),
+            });
+            if (!response.ok) throw new Error("Couldn't save transcript changes.");
+            setEditingTranscript(false);
+            await fetch("/api/embed-document", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ userId, courseId, resourceId: previewResource.id }),
+                keepalive: true,
+            });
+            await loadResources();
+        } catch (error) {
+            setPreviewError(error instanceof Error ? error.message : "Couldn't save transcript changes.");
+        } finally {
+            setSavingTranscript(false);
         }
     }
 
@@ -1304,11 +1424,77 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 sm:p-10" onClick={() => setPreviewResource(null)}>
                     <div className="flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-bg-container shadow-xl" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-between border-b border-border-light px-4 py-3">
-                            <p className="truncate text-sm font-semibold text-text-main">{previewResource.name}</p>
-                            <CircleIconButton icon={<X size={16} />} ariaLabel="Close preview" size="sm" onClick={() => setPreviewResource(null)} />
+                            <p className="truncate text-sm font-semibold text-text-main">
+                                {previewResource.name}{previewResource.resourceKind === "ocr_document" && typeof previewResource.pageCount === "number" ? ` · ${previewResource.pageCount} page${previewResource.pageCount === 1 ? "" : "s"}` : ""}
+                            </p>
+                            <div className="flex items-center gap-2">
+                                {previewResource.resourceKind === "ocr_document" && (
+                                    <>
+                                        <input
+                                            ref={pageUploadRef}
+                                            type="file"
+                                            accept={IMAGE_EXTENSIONS.map((extension) => `.${extension}`).join(",")}
+                                            multiple
+                                            className="hidden"
+                                            onChange={(event) => {
+                                                const files = event.target.files ? Array.from(event.target.files) : [];
+                                                event.currentTarget.value = "";
+                                                void handleAddPages(files);
+                                            }}
+                                        />
+                                        <button
+                                            onClick={() => pageUploadRef.current?.click()}
+                                            disabled={addingPages}
+                                            className="rounded-md border border-border-light px-2 py-1 text-xs font-medium text-primary hover:bg-bg-main disabled:opacity-50"
+                                        >
+                                            {addingPages ? "Adding…" : "Add pages"}
+                                        </button>
+                                        <button
+                                            onClick={() => setShowOcrPages((visible) => !visible)}
+                                            className="rounded-md border border-border-light px-2 py-1 text-xs font-medium text-primary hover:bg-bg-main"
+                                        >
+                                            {showOcrPages ? "Hide pages" : "Source images"}
+                                        </button>
+                                        <button
+                                            onClick={() => void renameOcrDocument().catch((error) => setPreviewError(error.message))}
+                                            className="rounded-md border border-border-light p-1 text-text-muted hover:bg-bg-main"
+                                            aria-label="Rename OCR document"
+                                        >
+                                            <Pencil size={14} />
+                                        </button>
+                                        {previewText !== null && !editingTranscript && (
+                                            <button
+                                                onClick={() => { setEditedTranscript(previewText); setEditingTranscript(true); }}
+                                                className="rounded-md border border-border-light px-2 py-1 text-xs font-medium text-primary hover:bg-bg-main"
+                                            >
+                                                Edit text
+                                            </button>
+                                        )}
+                                    </>
+                                )}
+                                <CircleIconButton icon={<X size={16} />} ariaLabel="Close preview" size="sm" onClick={() => setPreviewResource(null)} />
+                            </div>
                         </div>
 
                         <div className="relative flex-1 overflow-auto bg-bg-container">
+                            {previewResource.resourceKind === "ocr_document" && showOcrPages && (
+                                <div className="border-b border-border-light bg-bg-main p-4">
+                                    <p className="text-xs text-text-muted">These labels become the page headings in the combined transcript.</p>
+                                    <div className="mt-2 space-y-2">
+                                        {ocrPages.map((page) => (
+                                            <div key={page.id} className="flex items-center justify-between gap-3 rounded-md border border-border-light bg-bg-container px-3 py-2">
+                                                <span className="min-w-0 truncate text-sm text-text-main">{page.order + 1}. {page.name}</span>
+                                                <button
+                                                    onClick={() => void renameOcrPage(page).catch((error) => setPreviewError(error.message))}
+                                                    className="shrink-0 text-xs font-medium text-primary hover:underline"
+                                                >
+                                                    Rename
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                             {previewResource.fileType === "pdf" ? (
                                 <iframe src={previewResource.url} title={previewResource.name} className="h-full w-full" />
                             ) : previewResource.fileType === "image" ? (
@@ -1473,6 +1659,20 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                             ) : previewError ? (
                                 <div className="flex h-full items-center justify-center p-6 text-center text-sm text-alert-error">
                                     {previewError}
+                                </div>
+                            ) : editingTranscript && previewResource.resourceKind === "ocr_document" ? (
+                                <div className="flex h-full flex-col gap-3 p-4">
+                                    <textarea
+                                        value={editedTranscript}
+                                        onChange={(event) => setEditedTranscript(event.target.value)}
+                                        className="min-h-0 flex-1 resize-none rounded-md border border-border-light bg-bg-container p-3 font-mono text-sm text-text-main outline-none focus:border-primary"
+                                    />
+                                    <div className="flex justify-end gap-2">
+                                        <button onClick={() => setEditingTranscript(false)} disabled={savingTranscript} className="rounded-md border border-border-light px-3 py-1.5 text-xs font-medium">Cancel</button>
+                                        <button onClick={() => void saveTranscriptEdit()} disabled={savingTranscript} className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-text-inverse disabled:opacity-50">
+                                            {savingTranscript ? "Saving…" : "Save and re-index"}
+                                        </button>
+                                    </div>
                                 </div>
                             ) : previewText !== null ? (
                                 <SyntaxHighlighter

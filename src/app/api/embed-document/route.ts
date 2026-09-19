@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
+import type { DocumentReference } from "firebase-admin/firestore";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import {
   getIdToken,
@@ -49,6 +50,16 @@ type SourceSnapshot = {
   version: string;
 };
 
+type OcrPage = {
+  id: string;
+  name: string;
+  url: string;
+  fileType: string;
+  order: number;
+  ocrText?: string;
+  editedText?: string;
+};
+
 function getSourceSnapshot(resource: Record<string, unknown>): SourceSnapshot {
   // Once OCR succeeds, the class resource points to the .txt transcript.
   // Keep comparing a job against the immutable original image identity.
@@ -62,6 +73,50 @@ function getSourceSnapshot(resource: Record<string, unknown>): SourceSnapshot {
     .update(JSON.stringify({ url, name, fileType }))
     .digest("hex");
   return { url, name, fileType, version };
+}
+
+async function getOcrDocumentSourceSnapshot(
+  resourceRef: DocumentReference,
+  parentData?: Record<string, unknown>
+): Promise<SourceSnapshot> {
+  const parent = parentData ?? ((await resourceRef.get()).data() ?? {});
+  const pages = (await resourceRef.collection("pages").orderBy("order", "asc").get()).docs.map((page) => {
+    const data = page.data();
+    return {
+      id: page.id,
+      url: typeof data.url === "string" ? data.url : "",
+      name: typeof data.name === "string" ? data.name : "",
+      fileType: typeof data.fileType === "string" ? data.fileType : "",
+      order: typeof data.order === "number" ? data.order : 0,
+    };
+  });
+  // A manual transcript is a new source for indexing even if its images have
+  // not changed. Automatic OCR output, by contrast, is derived from pages.
+  const manualRevision = parent.manualTranscript === true && typeof parent.manualTranscriptVersion === "number"
+    ? parent.manualTranscriptVersion
+    : null;
+  const version = createHash("sha256").update(JSON.stringify({ pages, manualRevision })).digest("hex");
+  return {
+    url: `ocr-document://${resourceRef.id}`,
+    name: "OCR document",
+    fileType: "txt",
+    version,
+  };
+}
+
+async function getOcrPages(resourceRef: DocumentReference): Promise<OcrPage[]> {
+  return (await resourceRef.collection("pages").orderBy("order", "asc").get()).docs.map((page) => {
+    const data = page.data();
+    return {
+      id: page.id,
+      name: typeof data.name === "string" ? data.name : "Untitled page",
+      url: typeof data.url === "string" ? data.url : "",
+      fileType: typeof data.fileType === "string" ? data.fileType : "",
+      order: typeof data.order === "number" ? data.order : 0,
+      ocrText: typeof data.ocrText === "string" ? data.ocrText : undefined,
+      editedText: typeof data.editedText === "string" ? data.editedText : undefined,
+    };
+  });
 }
 
 // Images have no embedded text — the OCR model returns a plain-text
@@ -118,6 +173,46 @@ async function persistImageTranscript(opts: {
   });
   if (!updated) throw new Error("Failed to save OCR transcript metadata");
 
+}
+
+async function persistOcrDocumentTranscript(opts: {
+  userId: string;
+  courseId: string;
+  resourceId: string;
+  transcript: string;
+  pageManifestVersion: string;
+  pageCount: number;
+  updateResource: (fields: Record<string, unknown>) => Promise<boolean>;
+}): Promise<void> {
+  const { userId, courseId, resourceId, transcript, pageManifestVersion, pageCount, updateResource } = opts;
+  const transcriptStoragePath = `users/${userId}/classes/${courseId}/ocr/${resourceId}_transcript.txt`;
+  const s3Client = await getMinioClient();
+  await s3Client.send(new PutObjectCommand({
+    Bucket: MINIO_BUCKET,
+    Key: transcriptStoragePath,
+    Body: Buffer.from(transcript, "utf8"),
+    ContentType: "text/plain",
+  }));
+
+  const transcriptUrl = `/api/download?key=${encodeURIComponent(transcriptStoragePath)}`;
+  const updated = await updateResource({
+    url: transcriptUrl,
+    fileType: "txt",
+    resourceKind: "ocr_document",
+    ocrScanned: true,
+    ocrStatus: "complete",
+    ocrTranscriptUrl: transcriptUrl,
+    ocrTextLength: transcript.length,
+    ocrModel: process.env.OLLAMA_OCR_MODEL ?? null,
+    pageManifestVersion,
+    pageCount,
+    manualTranscript: false,
+    manualTranscriptVersion: null,
+    ocrCompletedAt: new Date(),
+    ocrFailedAt: null,
+    ocrError: null,
+  });
+  if (!updated) throw new Error("Failed to save OCR document transcript metadata");
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {
@@ -181,7 +276,10 @@ export async function POST(request: NextRequest) {
     const resourceFileType = resource.fileType as string;
     const resourceUrl = resource.url as string;
     const resourceName = resource.name as string;
-    const source = getSourceSnapshot(resource);
+    const isOcrDocument = resource.resourceKind === "ocr_document";
+    const source = isOcrDocument
+      ? await getOcrDocumentSourceSnapshot(resourceRef, resource)
+      : getSourceSnapshot(resource);
 
     // An old worker may wake up after a resource has been replaced. Do not
     // let it transcribe/index the previous upload over the current one.
@@ -199,10 +297,14 @@ export async function POST(request: NextRequest) {
     const sourceIsCurrent = async (): Promise<boolean> => {
       if (!expectedSourceVersion) return true;
       const latest = await resourceRef.get();
-      return latest.exists && getSourceSnapshot(latest.data() ?? {}).version === expectedSourceVersion;
+      if (!latest.exists) return false;
+      const currentSource = latest.data()?.resourceKind === "ocr_document"
+        ? await getOcrDocumentSourceSnapshot(resourceRef, latest.data() ?? {})
+        : getSourceSnapshot(latest.data() ?? {});
+      return currentSource.version === expectedSourceVersion;
     };
 
-    if (!SUPPORTED_DOCUMENT_TYPES.includes(resourceFileType)) {
+    if (!isOcrDocument && !SUPPORTED_DOCUMENT_TYPES.includes(resourceFileType)) {
       return NextResponse.json({ skipped: true, reason: "This file type isn't indexed for search yet." });
     }
 
@@ -217,7 +319,12 @@ export async function POST(request: NextRequest) {
         }
         return adminDb.runTransaction(async (transaction) => {
           const latest = await transaction.get(resourceRef);
-          if (!latest.exists || getSourceSnapshot(latest.data() ?? {}).version !== expectedSourceVersion) {
+          if (!latest.exists) return false;
+          const latestData = latest.data() ?? {};
+          const latestSource = latestData.resourceKind === "ocr_document"
+            ? await getOcrDocumentSourceSnapshot(resourceRef, latestData)
+            : getSourceSnapshot(latestData);
+          if (latestSource.version !== expectedSourceVersion) {
             return false;
           }
           transaction.set(resourceRef, fields, { merge: true });
@@ -270,7 +377,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ queued: true, jobId, status: existingStatus }, { status: 202 });
       }
 
-      const queuedStatus = IMAGE_FILE_TYPES.includes(resourceFileType)
+      const queuedStatus = (isOcrDocument && resource.manualTranscript !== true) || IMAGE_FILE_TYPES.includes(resourceFileType)
         ? { ocrStatus: "queued", ocrError: null }
         : { indexStatus: "queued", indexError: null };
       const markedQueued = await updateResource(queuedStatus);
@@ -303,10 +410,12 @@ export async function POST(request: NextRequest) {
     }
 
     const isImage = IMAGE_FILE_TYPES.includes(resourceFileType);
+    const usesManualTranscript = isOcrDocument && resource.manualTranscript === true;
+    const needsOcr = isImage || (isOcrDocument && !usesManualTranscript);
     const fullUrl = resolveInternalUrl(request, resourceUrl);
     let text: string;
     try {
-      if (isImage) {
+      if (needsOcr) {
         const markedProcessing = await updateResource({
           ocrStatus: "processing",
           ocrStartedAt: new Date(),
@@ -317,7 +426,48 @@ export async function POST(request: NextRequest) {
         if (!markedProcessing) throw new Error("Failed to mark OCR as processing");
       }
 
-      text = await extractDocumentText(fullUrl, resourceFileType);
+      if (isOcrDocument && !usesManualTranscript) {
+        const pages = await getOcrPages(resourceRef);
+        if (pages.length === 0) throw new Error("Add at least one image page before transcribing this document.");
+
+        const pageTexts: string[] = [];
+        for (const page of pages) {
+          let pageText = page.editedText ?? page.ocrText;
+          if (!pageText) {
+            if (!IMAGE_FILE_TYPES.includes(page.fileType)) {
+              throw new Error(`Page "${page.name}" is not a supported image type.`);
+            }
+            await resourceRef.collection("pages").doc(page.id).set({
+              ocrStatus: "processing",
+              ocrStartedAt: new Date(),
+              ocrError: null,
+            }, { merge: true });
+            pageText = await extractDocumentText(resolveInternalUrl(request, page.url), page.fileType);
+            await resourceRef.collection("pages").doc(page.id).set({
+              ocrText: pageText,
+              ocrStatus: "complete",
+              ocrCompletedAt: new Date(),
+              ocrError: null,
+            }, { merge: true });
+          }
+          pageTexts.push(`--- Page ${page.order + 1}: ${page.name} ---\n${pageText.trim()}`);
+        }
+        if (!(await sourceIsCurrent())) {
+          return NextResponse.json({ success: true, skipped: true, superseded: true, reason: "The page set changed during OCR." });
+        }
+        text = pageTexts.join("\n\n").trim();
+        await persistOcrDocumentTranscript({
+          userId,
+          courseId,
+          resourceId,
+          transcript: text,
+          pageManifestVersion: source.version,
+          pageCount: pages.length,
+          updateResource,
+        });
+      } else {
+        text = await extractDocumentText(fullUrl, resourceFileType);
+      }
 
       if (isImage) {
         if (!(await sourceIsCurrent())) {
@@ -336,7 +486,7 @@ export async function POST(request: NextRequest) {
         });
       }
     } catch (error) {
-      if (isImage) {
+      if (needsOcr) {
         const markedFailed = await updateResource({
           ocrStatus: "failed",
           ocrError: getErrorMessage(error, "OCR transcription failed."),
