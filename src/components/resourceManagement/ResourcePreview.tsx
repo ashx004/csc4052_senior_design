@@ -73,8 +73,8 @@ import { db } from "@/src/library/firebase";
 const MAX_FILES_PER_BATCH = 5;
 
 export type Category = "classDoc" | "notes" | "assignments";
-type OcrStatus = "processing" | "complete" | "failed";
-type IndexStatus = "processing" | "complete" | "failed";
+type OcrStatus = "queued" | "processing" | "complete" | "failed";
+type IndexStatus = "queued" | "processing" | "complete" | "failed";
 
 // Code language syntax highlighting support
 const CODE_TYPES = {
@@ -181,16 +181,18 @@ function OcrScannedBadge() {
 }
 
 function isOcrStatus(value: unknown): value is OcrStatus {
-    return value === "processing" || value === "complete" || value === "failed";
+    return value === "queued" || value === "processing" || value === "complete" || value === "failed";
 }
 
 function OcrStatusBadge({ status }: { status: OcrStatus }) {
     const labels: Record<OcrStatus, string> = {
+        queued: "OCR queued",
         processing: "OCR processing",
         complete: "OCR ready",
         failed: "OCR failed",
     };
     const classes: Record<OcrStatus, string> = {
+        queued: "bg-bg-warm text-text-muted",
         processing: "bg-bg-warm text-primary",
         complete: "bg-bg-warm text-primary",
         failed: "bg-alert-error-bg text-alert-error",
@@ -205,16 +207,18 @@ function OcrStatusBadge({ status }: { status: OcrStatus }) {
 }
 
 function isIndexStatus(value: unknown): value is IndexStatus {
-    return value === "processing" || value === "complete" || value === "failed";
+    return value === "queued" || value === "processing" || value === "complete" || value === "failed";
 }
 
 function IndexStatusBadge({ status }: { status: IndexStatus }) {
     const labels: Record<IndexStatus, string> = {
+        queued: "Queued for AI",
         processing: "Adding to AI",
         complete: "AI ready",
         failed: "AI indexing failed",
     };
     const classes: Record<IndexStatus, string> = {
+        queued: "bg-bg-warm text-text-muted",
         processing: "bg-bg-warm text-primary",
         complete: "bg-bg-warm text-primary",
         failed: "bg-alert-error-bg text-alert-error",
@@ -1316,10 +1320,10 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                             className="max-h-full max-w-full rounded-lg object-contain shadow-sm"
                                         />
                                     </div>
-                                    {previewResource.ocrStatus === "processing" ? (
+                                    {previewResource.ocrStatus === "queued" || previewResource.ocrStatus === "processing" ? (
                                         <div className="flex items-center justify-center gap-2 rounded-lg border border-border-light bg-bg-container p-4 text-sm text-text-muted">
                                             <Loader2 size={16} className="animate-spin" />
-                                            Transcription processing… This preview will update automatically when it is ready.
+                                            {previewResource.ocrStatus === "queued" ? "Transcription queued…" : "Transcription processing…"} This preview will update automatically when it is ready.
                                         </div>
                                     ) : previewResource.ocrStatus === "failed" ? (
                                         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-alert-error bg-alert-error-bg p-4 text-sm text-alert-error">
