@@ -16,6 +16,10 @@ export type ChatDocument = {
   // anything," which would wrongly re-scan Firestore for every document a
   // given query just didn't match.
   vectorIndexed?: boolean;
+  // Documents remain visible in the class, but are excluded from AI search
+  // until their newest indexing run is complete. This prevents a retry from
+  // surfacing old chunks while its replacement is still being written.
+  indexStatus?: "queued" | "processing" | "complete" | "failed";
   // True when this document's text came from OCR-transcribing an uploaded
   // image rather than a native text/PDF file — see
   // embed-document/route.ts's persistImageTranscriptionAsResource.
@@ -116,6 +120,13 @@ export async function buildChatContext(userId: string, email: string): Promise<C
             category: resourceData.category ?? "",
             url: resourceData.url ?? "",
             vectorIndexed: resourceData.vectorIndexed === true,
+            indexStatus:
+              resourceData.indexStatus === "queued" ||
+              resourceData.indexStatus === "processing" ||
+              resourceData.indexStatus === "complete" ||
+              resourceData.indexStatus === "failed"
+                ? resourceData.indexStatus
+                : undefined,
             ocrScanned: resourceData.ocrScanned === true,
           });
         });
