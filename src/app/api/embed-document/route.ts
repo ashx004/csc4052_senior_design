@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "crypto";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import {
   getIdToken,
@@ -41,6 +42,28 @@ const MAX_INDEXABLE_CHARS = 100000;
 
 const MINIO_BUCKET = "studora";
 
+type SourceSnapshot = {
+  url: string;
+  name: string;
+  fileType: string;
+  version: string;
+};
+
+function getSourceSnapshot(resource: Record<string, unknown>): SourceSnapshot {
+  // Once OCR succeeds, the class resource points to the .txt transcript.
+  // Keep comparing a job against the immutable original image identity.
+  const url = typeof resource.ocrSourceUrl === "string" ? resource.ocrSourceUrl : String(resource.url ?? "");
+  const name = typeof resource.ocrSourceName === "string" ? resource.ocrSourceName : String(resource.name ?? "");
+  const fileType = typeof resource.ocrSourceFileType === "string"
+    ? resource.ocrSourceFileType
+    : String(resource.fileType ?? "");
+  const storedVersion = typeof resource.ocrSourceVersion === "string" ? resource.ocrSourceVersion : null;
+  const version = storedVersion ?? createHash("sha256")
+    .update(JSON.stringify({ url, name, fileType }))
+    .digest("hex");
+  return { url, name, fileType, version };
+}
+
 // Images have no embedded text — the OCR model returns a plain-text
 // transcription. The text file replaces the image as the class resource, so
 // both students and the AI use the same readable document. The source image
@@ -50,11 +73,13 @@ async function persistImageTranscript(opts: {
   courseId: string;
   resourceId: string;
   originalName: string;
+  originalFileType: string;
   originalUrl: string;
+  sourceVersion: string;
   transcript: string;
   updateResource: (fields: Record<string, unknown>) => Promise<boolean>;
 }): Promise<void> {
-  const { userId, courseId, resourceId, originalName, originalUrl, transcript, updateResource } = opts;
+  const { userId, courseId, resourceId, originalName, originalFileType, originalUrl, sourceVersion, transcript, updateResource } = opts;
   const baseName = originalName.replace(/\.[^.]+$/, "") || "transcription";
   const txtName = `${baseName}.txt`;
   // A stable key lets a retry replace its own transcript rather than leave
@@ -81,6 +106,9 @@ async function persistImageTranscript(opts: {
     ocrScanned: true,
     ocrStatus: "complete",
     ocrSourceUrl: originalUrl,
+    ocrSourceName: originalName,
+    ocrSourceFileType: originalFileType,
+    ocrSourceVersion: sourceVersion,
     ocrTranscriptUrl: transcriptUrl,
     ocrTextLength: transcript.length,
     ocrModel: process.env.OLLAMA_OCR_MODEL ?? null,
@@ -128,7 +156,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const { userId, courseId, resourceId } = await request.json();
+    const { userId, courseId, resourceId, sourceVersion: requestedSourceVersion } = await request.json();
 
     if (!userId || !courseId || !resourceId) {
       return NextResponse.json(
@@ -153,6 +181,26 @@ export async function POST(request: NextRequest) {
     const resourceFileType = resource.fileType as string;
     const resourceUrl = resource.url as string;
     const resourceName = resource.name as string;
+    const source = getSourceSnapshot(resource);
+
+    // An old worker may wake up after a resource has been replaced. Do not
+    // let it transcribe/index the previous upload over the current one.
+    if (internal && typeof requestedSourceVersion === "string" && requestedSourceVersion !== source.version) {
+      return NextResponse.json({
+        success: true,
+        skipped: true,
+        superseded: true,
+        reason: "The source document changed before this job started.",
+      });
+    }
+    const expectedSourceVersion = internal && typeof requestedSourceVersion === "string"
+      ? requestedSourceVersion
+      : null;
+    const sourceIsCurrent = async (): Promise<boolean> => {
+      if (!expectedSourceVersion) return true;
+      const latest = await resourceRef.get();
+      return latest.exists && getSourceSnapshot(latest.data() ?? {}).version === expectedSourceVersion;
+    };
 
     if (!SUPPORTED_DOCUMENT_TYPES.includes(resourceFileType)) {
       return NextResponse.json({ skipped: true, reason: "This file type isn't indexed for search yet." });
@@ -163,14 +211,27 @@ export async function POST(request: NextRequest) {
     // queue job, so it uses Firebase Admin instead of minting a client token.
     const updateResource = async (fields: Record<string, unknown>): Promise<boolean> => {
       if (internal) {
-        await resourceRef.set(fields, { merge: true });
-        return true;
+        if (!expectedSourceVersion) {
+          await resourceRef.set(fields, { merge: true });
+          return true;
+        }
+        return adminDb.runTransaction(async (transaction) => {
+          const latest = await transaction.get(resourceRef);
+          if (!latest.exists || getSourceSnapshot(latest.data() ?? {}).version !== expectedSourceVersion) {
+            return false;
+          }
+          transaction.set(resourceRef, fields, { merge: true });
+          return true;
+        });
       }
       return firestoreUpdate(idToken!, resourceCollectionPath, resourceId, fields);
     };
 
     const chunkCollectionPath = `${resourceCollectionPath}/${resourceId}/chunks`;
     const replaceChunks = async (writes: { path: string; fields: Record<string, unknown> }[]): Promise<void> => {
+      if (!(await sourceIsCurrent())) {
+        throw new Error("The source document changed before its chunks could be replaced.");
+      }
       const chunkIds = internal
         ? (await adminDb.collection(chunkCollectionPath).get()).docs.map((doc) => doc.id)
         : (await firestoreListCollection(idToken!, chunkCollectionPath)).map((doc) => doc.id);
@@ -200,8 +261,12 @@ export async function POST(request: NextRequest) {
     if (!internal) {
       const jobId = `${userId}_${courseId}_${resourceId}`;
       const jobRef = adminDb.collection(JOB_COLLECTION).doc(jobId);
-      const existingStatus = (await jobRef.get()).data()?.status;
-      if (existingStatus === "queued" || existingStatus === "processing") {
+      const existingJob = (await jobRef.get()).data();
+      const existingStatus = existingJob?.status;
+      if (
+        (existingStatus === "queued" || existingStatus === "processing") &&
+        existingJob?.sourceVersion === source.version
+      ) {
         return NextResponse.json({ queued: true, jobId, status: existingStatus }, { status: 202 });
       }
 
@@ -215,6 +280,10 @@ export async function POST(request: NextRequest) {
         userId,
         courseId,
         resourceId,
+        sourceVersion: source.version,
+        sourceUrl: source.url,
+        sourceName: source.name,
+        sourceFileType: source.fileType,
         status: "queued",
         attempts: 0,
         createdAt: new Date(),
@@ -251,12 +320,17 @@ export async function POST(request: NextRequest) {
       text = await extractDocumentText(fullUrl, resourceFileType);
 
       if (isImage) {
+        if (!(await sourceIsCurrent())) {
+          return NextResponse.json({ success: true, skipped: true, superseded: true, reason: "The source document changed during OCR." });
+        }
         await persistImageTranscript({
           userId,
           courseId,
           resourceId,
           originalName: resourceName,
+          originalFileType: resourceFileType,
           originalUrl: resourceUrl,
+          sourceVersion: source.version,
           transcript: text,
           updateResource,
         });
@@ -334,6 +408,10 @@ export async function POST(request: NextRequest) {
       const chunks = { contextualized, embeddings };
       cancel();
 
+      if (!(await sourceIsCurrent())) {
+        return NextResponse.json({ success: true, skipped: true, superseded: true, reason: "The source document changed during indexing." });
+      }
+
       // A single atomic commit, not one write per chunk: fewer round trips,
       // and a crash mid-write can no longer leave a resource with only some
       // of its chunks persisted. Safe as one batch (Firestore's limit is 500
@@ -368,6 +446,9 @@ export async function POST(request: NextRequest) {
         // Chunk point IDs are deterministic. Upserting a shorter replacement
         // document would otherwise leave its old higher-numbered points in
         // Qdrant, so replace this resource's entire vector set first.
+        if (!(await sourceIsCurrent())) {
+          return NextResponse.json({ success: true, skipped: true, superseded: true, reason: "The source document changed during indexing." });
+        }
         await deleteChunksForResource(userId, resourceId);
         await upsertChunks(
           chunks.contextualized.map((chunkValue, index) => ({

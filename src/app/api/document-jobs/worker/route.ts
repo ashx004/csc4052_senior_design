@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { DocumentData, UpdateData } from "firebase-admin/firestore";
 import { adminDb } from "@/src/library/firebaseAdmin";
 import { resolveInternalUrl } from "@/src/library/pdfExtract";
 import { isInternalRequest } from "@/src/library/verifyAuth";
@@ -10,6 +11,10 @@ type DocumentJob = {
   userId: string;
   courseId: string;
   resourceId: string;
+  sourceVersion?: string;
+  sourceUrl?: string;
+  sourceName?: string;
+  sourceFileType?: string;
   attempts?: number;
   nextAttemptAt?: { toDate?: () => Date } | Date;
   leaseExpiresAt?: { toDate?: () => Date } | Date;
@@ -65,6 +70,20 @@ async function claimNextJob(): Promise<{ id: string; data: DocumentJob; attempts
   return null;
 }
 
+async function updateActiveClaim(
+  job: { id: string; data: DocumentJob },
+  fields: UpdateData<DocumentData>
+): Promise<boolean> {
+  const jobRef = adminDb.collection(JOB_COLLECTION).doc(job.id);
+  return adminDb.runTransaction(async (transaction) => {
+    const fresh = await transaction.get(jobRef);
+    if (!fresh.exists || fresh.data()?.status !== "processing") return false;
+    if (fresh.data()?.sourceVersion !== job.data.sourceVersion) return false;
+    transaction.update(jobRef, fields);
+    return true;
+  });
+}
+
 export async function POST(request: NextRequest) {
   if (!isInternalRequest(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -93,25 +112,39 @@ export async function POST(request: NextRequest) {
       throw new Error(result.error || result.reason || `Document processing failed (${processingResponse.status}).`);
     }
 
-    await adminDb.collection(JOB_COLLECTION).doc(job.id).update({
-      status: "complete",
-      completedAt: new Date(),
-      updatedAt: new Date(),
-      lastError: null,
-      leaseExpiresAt: null,
-    });
-    return NextResponse.json({ processed: true, jobId: job.id });
+    const completed = await updateActiveClaim(job, result.superseded
+      ? {
+          status: "superseded",
+          supersededAt: new Date(),
+          updatedAt: new Date(),
+          lastError: result.reason ?? "The source document changed.",
+          leaseExpiresAt: null,
+        }
+      : {
+          status: "complete",
+          completedAt: new Date(),
+          updatedAt: new Date(),
+          lastError: null,
+          leaseExpiresAt: null,
+        });
+    // A newer upload can replace the job while this worker is running. The
+    // transaction above leaves that replacement untouched and lets the
+    // polling loop move immediately to the next job.
+    return NextResponse.json({ processed: true, jobId: job.id, superseded: !completed || result.superseded });
   } catch (error) {
     const message = error instanceof Error ? error.message.slice(0, 500) : "Document processing failed.";
     const willRetry = job.attempts < 3;
     const retryDelayMs = 30_000 * 2 ** Math.max(0, job.attempts - 1);
-    await adminDb.collection(JOB_COLLECTION).doc(job.id).update({
+    const updated = await updateActiveClaim(job, {
       status: willRetry ? "queued" : "failed",
       ...(willRetry ? { nextAttemptAt: new Date(Date.now() + retryDelayMs) } : { failedAt: new Date() }),
       leaseExpiresAt: null,
       updatedAt: new Date(),
       lastError: message,
     });
+    if (!updated) {
+      return NextResponse.json({ processed: true, jobId: job.id, superseded: true });
+    }
     console.error(`Document job ${job.id} failed:`, error);
     return NextResponse.json({
       processed: false,
