@@ -160,10 +160,8 @@ export async function deleteChunksForResource(userId: string, resourceId: string
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      console.error(`Qdrant delete failed (${response.status}): ${text}`);
+      throw new Error(`Qdrant delete failed (${response.status}): ${text}`);
     }
-  } catch (error) {
-    console.error("Qdrant delete request failed:", error);
   } finally {
     cancel();
   }

@@ -3,7 +3,6 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "postinstall": "node scripts/copyPdfWorker.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -11,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "worker:ocr": "tsx scripts/ocrWorker.ts",
     "postinstall": "node scripts/copy-pdf-worker.mjs"
   },
   "dependencies": {

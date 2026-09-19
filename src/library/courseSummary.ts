@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { getIdToken, firestoreGet, firestoreListCollection, firestoreUpdate } from "./firestoreRest";
+import { adminDb } from "./firebaseAdmin";
 import { resolveInternalUrl } from "./pdfExtract";
 import { extractDocumentText, SUPPORTED_DOCUMENT_TYPES } from "./documentExtract";
 import { resolveOllamaBaseUrl } from "./ollamaClient";
@@ -68,19 +69,27 @@ async function callOllamaForSummary(prompt: string): Promise<string> {
 export async function generateCourseSummary(
   request: NextRequest,
   userId: string,
-  courseId: string
+  courseId: string,
+  options: { useAdmin?: boolean } = {}
 ): Promise<void> {
   try {
-    const idToken = getIdToken(request);
-    if (!idToken) return;
+    const enrollmentPath = `users/${userId}/enrollment`;
+    const resourceCollectionPath = `${enrollmentPath}/${courseId}/resources`;
+    const useAdmin = options.useAdmin === true;
+    const idToken = useAdmin ? null : getIdToken(request);
+    if (!useAdmin && !idToken) return;
 
-    const enrollment = await firestoreGet(idToken, `users/${userId}/enrollment`, courseId);
+    const enrollment = useAdmin
+      ? ((await adminDb.doc(`${enrollmentPath}/${courseId}`).get()).data() ?? null)
+      : await firestoreGet(idToken!, enrollmentPath, courseId);
     if (!enrollment) return;
 
-    const resourceDocs = await firestoreListCollection(
-      idToken,
-      `users/${userId}/enrollment/${courseId}/resources`
-    );
+    const resourceDocs = useAdmin
+      ? (await adminDb.collection(resourceCollectionPath).get()).docs.map((doc) => ({
+          id: doc.id,
+          data: doc.data() as Record<string, unknown>,
+        }))
+      : await firestoreListCollection(idToken!, resourceCollectionPath);
     const supportedDocs = resourceDocs
       .map((d) => d.data)
       .filter((d) => typeof d.fileType === "string" && SUPPORTED_DOCUMENT_TYPES.includes(d.fileType))
@@ -90,10 +99,9 @@ export async function generateCourseSummary(
       // No summarizable material (yet) — clear out any stale summary from
       // before the student removed their last document, rather than
       // leaving it describing content that's no longer there.
-      await firestoreUpdate(idToken, `users/${userId}/enrollment`, courseId, {
-        courseSummary: "",
-        courseSummaryUpdatedAt: new Date(),
-      });
+      const fields = { courseSummary: "", courseSummaryUpdatedAt: new Date() };
+      if (useAdmin) await adminDb.doc(`${enrollmentPath}/${courseId}`).set(fields, { merge: true });
+      else await firestoreUpdate(idToken!, enrollmentPath, courseId, fields);
       return;
     }
 
@@ -119,10 +127,9 @@ export async function generateCourseSummary(
     const summary = await callOllamaForSummary(prompt);
     if (!summary) return;
 
-    await firestoreUpdate(idToken, `users/${userId}/enrollment`, courseId, {
-      courseSummary: summary,
-      courseSummaryUpdatedAt: new Date(),
-    });
+    const fields = { courseSummary: summary, courseSummaryUpdatedAt: new Date() };
+    if (useAdmin) await adminDb.doc(`${enrollmentPath}/${courseId}`).set(fields, { merge: true });
+    else await firestoreUpdate(idToken!, enrollmentPath, courseId, fields);
   } catch (error) {
     console.error(`Course summary generation failed for course ${courseId}:`, error);
   }
