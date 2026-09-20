@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Trash2 } from "lucide-react";
+import { Plus } from "lucide-react";
 import type { DailyPlan } from "@/src/library/studyPlan/types";
 
 interface PlanHeaderProps {
@@ -60,18 +60,7 @@ export default function PlanHeader({
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={onClearPlan}
-            aria-label="Clear today's plan"
-            className="rounded-full p-2 text-gray-secondary transition-colors hover:bg-alert-error-bg hover:text-alert-error focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-alert-error"
-          >
-            <Trash2 size={16} aria-hidden="true" />
-          </button>
-
-          <span aria-hidden="true" className="h-6 w-px bg-gray-light" />
-
+        <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={onAddTask}
@@ -89,6 +78,14 @@ export default function PlanHeader({
           >
             Start next task
           </button>
+
+          <button
+            type="button"
+            onClick={onClearPlan}
+            className="text-xs font-medium text-gray-secondary underline-offset-4 hover:text-navy hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+          >
+            Clear plan
+          </button>
         </div>
       </div>
 
@@ -96,7 +93,7 @@ export default function PlanHeader({
         {stats.map((stat) => (
           <div
             key={stat.label}
-            className="rounded-xl border border-gray-light bg-white p-5"
+            className="rounded-xl bg-white px-5 py-5"
           >
             <dd className="text-2xl font-bold tabular-nums text-navy">
               {stat.value}

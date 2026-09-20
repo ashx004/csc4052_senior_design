@@ -20,15 +20,15 @@ export default function HeroBanner({
   onStartPlan,
 }: HeroBannerProps) {
   return (
-    <section className="relative overflow-hidden rounded-2xl bg-navy px-6 py-7 sm:px-8">
+    <section className="relative overflow-hidden rounded-2xl bg-navy px-6 py-8 sm:px-8 sm:py-10">
       <svg
         aria-hidden="true"
-        className="pointer-events-none absolute -top-24 right-16 h-64 w-64 text-white/10"
+        className="pointer-events-none absolute -right-8 -top-28 h-[22rem] w-[22rem] text-white/10"
         viewBox="0 0 200 200"
         fill="none"
       >
-        <circle cx="100" cy="100" r="99" stroke="currentColor" strokeWidth="1.5" />
-        <circle cx="100" cy="100" r="70" stroke="currentColor" strokeWidth="1.5" />
+        <circle cx="100" cy="100" r="99" stroke="currentColor" strokeWidth="1" />
+        <circle cx="100" cy="100" r="72" stroke="currentColor" strokeWidth="1" />
       </svg>
 
       <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
@@ -52,14 +52,14 @@ export default function HeroBanner({
           <button
             type="button"
             onClick={onExploreClasses}
-            className="rounded-full bg-white/15 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-white/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            className="cursor-pointer rounded-full bg-white/15 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-white/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
           >
             Explore classes
           </button>
           <button
             type="button"
             onClick={onStartPlan}
-            className={`flex items-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-semibold text-navy transition-colors hover:bg-beige-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${
+            className={`flex cursor-pointer items-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-semibold text-navy transition-colors hover:bg-beige-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${
               hasPlan ? "ring-2 ring-white ring-offset-2 ring-offset-navy" : ""
             }`}
           >

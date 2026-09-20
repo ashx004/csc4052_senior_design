@@ -39,7 +39,7 @@ export default function BoardView({
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
       {columns.map((col) => (
         <div key={col.title}>
-          <h3 className="mb-3 text-sm font-semibold text-text-muted">
+          <h3 className="mb-3 text-sm font-semibold text-gray-secondary">
             {col.title}{" "}
             <span className="text-xs font-normal">({col.tasks.length})</span>
           </h3>
@@ -64,8 +64,9 @@ export default function BoardView({
             ))}
             {col.showAdd && (
               <button
+                type="button"
                 onClick={onAddTask}
-                className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-border-light py-3 text-sm text-text-muted hover:border-primary hover:text-primary"
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-gray-light py-3 text-sm text-gray-secondary hover:border-navy hover:text-navy"
               >
                 <Plus size={16} /> Add task
               </button>

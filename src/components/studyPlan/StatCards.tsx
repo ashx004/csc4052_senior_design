@@ -54,13 +54,13 @@ export default function StatCards({
       {stats.map((stat) => (
         <div
           key={stat.label}
-          className={`rounded-xl border border-gray-light p-5 ${stat.surface}`}
+          className={`rounded-xl p-5 ${stat.surface}`}
         >
           <dt className="text-xs font-medium text-gray-secondary">
             {stat.label}
           </dt>
           <dd className="mt-3 flex items-baseline gap-1.5">
-            <span className="text-2xl font-bold tabular-nums text-navy">
+            <span className="text-3xl font-bold tabular-nums text-navy">
               {stat.value}
             </span>
             <span className="text-sm text-gray-secondary">{stat.unit}</span>

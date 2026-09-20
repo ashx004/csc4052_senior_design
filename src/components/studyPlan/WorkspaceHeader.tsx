@@ -34,7 +34,7 @@ export default function WorkspaceHeader({
           type="button"
           onClick={onNotifications}
           aria-label="Notifications"
-          className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-gray-secondary transition-colors hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+          className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-white text-gray-secondary transition-colors hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
         >
           <Bell size={18} aria-hidden="true" />
         </button>
@@ -42,7 +42,7 @@ export default function WorkspaceHeader({
         <button
           type="button"
           onClick={onProfile}
-          className="flex items-center gap-2 rounded-full bg-white py-1.5 pl-1.5 pr-3 transition-colors hover:bg-beige-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+          className="flex min-h-11 cursor-pointer items-center gap-2 rounded-full bg-white py-1.5 pl-1.5 pr-3 transition-colors hover:bg-beige-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
         >
           <span
             aria-hidden="true"

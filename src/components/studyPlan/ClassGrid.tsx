@@ -18,7 +18,12 @@ interface ClassGridProps {
   onClassClick: (id: string) => void;
 }
 
-const accents = ["bg-accent-lavender", "bg-accent-peach", "bg-accent-sage"];
+const accents = [
+  "bg-accent-lavender",
+  "bg-accent-peach",
+  "bg-accent-sage",
+  "bg-beige-canvas",
+];
 
 type Layout = "cards" | "list";
 
@@ -26,7 +31,7 @@ export default function ClassGrid({ classes, onClassClick }: ClassGridProps) {
   const [layout, setLayout] = useState<Layout>("cards");
 
   return (
-    <section className="rounded-2xl border border-gray-light bg-white p-6">
+    <section className="rounded-2xl bg-white p-6">
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-base font-semibold text-navy">My classes</h3>
 
@@ -76,7 +81,7 @@ export default function ClassGrid({ classes, onClassClick }: ClassGridProps) {
               key={cls.id}
               type="button"
               onClick={() => onClassClick(cls.id)}
-              className={`group flex flex-col rounded-xl p-5 text-left transition-shadow hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${
+              className={`group flex min-h-[148px] cursor-pointer flex-col rounded-xl p-5 text-left transition-shadow hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${
                 accents[index % accents.length]
               }`}
             >
