@@ -19,7 +19,7 @@ export default function TodayPlanSidebar({
   const progress = totalMinutes > 0 ? (doneMinutes / totalMinutes) * 100 : 0;
 
   return (
-    <section className="rounded-2xl border border-gray-light bg-white p-5">
+    <section className="rounded-2xl bg-white p-5">
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-base font-semibold text-navy">Today&apos;s plan</h3>
         <button
@@ -33,43 +33,44 @@ export default function TodayPlanSidebar({
       </div>
 
       {visible.length === 0 ? (
-        <p className="mt-6 text-sm text-gray-secondary">
-          No tasks yet. Start a study plan and Catalyst will suggest what to work
-          on first.
-        </p>
+        <div className="mt-4">
+          <p className="text-sm text-gray-secondary">
+            No tasks yet. Catalyst will suggest what to work on first, based on
+            your weak topics and deadlines.
+          </p>
+          <button
+            type="button"
+            onClick={onViewFullPlan}
+            className="mt-4 w-full rounded-full bg-navy py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+          >
+            Start study plan
+          </button>
+        </div>
       ) : (
         <>
-          <ul className="mt-4 space-y-2">
+          <ul className="mt-4 divide-y divide-gray-light">
             {visible.map((task) => {
               const isDone = task.status === "completed";
               return (
-                <li
-                  key={task.id}
-                  className="flex items-start gap-3 rounded-xl bg-beige-light p-3"
-                >
+                <li key={task.id} className="flex items-start gap-3 py-3">
                   <span
                     aria-hidden="true"
-                    className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border ${
+                    className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border ${
                       isDone
                         ? "border-navy bg-navy text-white"
                         : "border-gray-light bg-white"
                     }`}
                   >
-                    {isDone && <Check size={12} strokeWidth={3} />}
+                    {isDone && <Check size={11} strokeWidth={3} />}
                   </span>
 
                   <div className="min-w-0 flex-1">
-                    <p
-                      className={`text-sm font-semibold text-navy ${
-                        isDone ? "line-through decoration-gray-secondary" : ""
-                      }`}
-                    >
+                    <p className="text-sm font-semibold text-navy">
                       {task.title}
                     </p>
                     <p className="mt-0.5 text-xs text-gray-secondary">
                       {task.courseName}
                       {task.reason ? ` · ${task.reason}` : ""}
-                      {isDone ? " · Done" : ""}
                     </p>
                   </div>
 
@@ -81,7 +82,7 @@ export default function TodayPlanSidebar({
             })}
           </ul>
 
-          <div className="mt-5">
+          <div className="mt-3">
             <div
               className="h-1.5 w-full overflow-hidden rounded-full bg-gray-light"
               role="progressbar"

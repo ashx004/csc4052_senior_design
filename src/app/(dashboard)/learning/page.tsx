@@ -19,27 +19,44 @@ import type {
   EligibleTopic,
   ActivityType,
 } from "@/src/library/studyPlan/types";
-import Link from "next/link";
-import { Briefcase, GraduationCap, Loader2 } from "lucide-react";
-import PlanEmptyState from "@/src/components/studyPlan/PlanEmptyState";
+import { Loader2 } from "lucide-react";
+import WorkspaceHeader from "@/src/components/studyPlan/WorkspaceHeader";
+import HeroBanner from "@/src/components/studyPlan/HeroBanner";
+import StatCards from "@/src/components/studyPlan/StatCards";
+import ClassGrid from "@/src/components/studyPlan/ClassGrid";
+import TodayPlanSidebar from "@/src/components/studyPlan/TodayPlanSidebar";
+import PlanSection from "@/src/components/studyPlan/PlanSection";
+import FocusModeCard from "@/src/components/studyPlan/FocusModeCard";
 import PlanCompletedState from "@/src/components/studyPlan/PlanCompletedState";
-import PlanHeader from "@/src/components/studyPlan/PlanHeader";
 import CarryoverPrompt from "@/src/components/studyPlan/CarryoverPrompt";
 import ClearPlanModal from "@/src/components/studyPlan/ClearPlanModal";
 import AddTaskModal from "@/src/components/studyPlan/AddTaskModal";
 import SkipConfirmModal from "@/src/components/studyPlan/SkipConfirmModal";
 import RescheduleModal from "@/src/components/studyPlan/RescheduleModal";
 import SetupModal from "@/src/components/studyPlan/SetupFlow/SetupModal";
-import ViewSwitcher from "@/src/components/studyPlan/Views/ViewSwitcher";
 import ListView from "@/src/components/studyPlan/Views/ListView";
 import BoardView from "@/src/components/studyPlan/Views/BoardView";
 import ScheduleView from "@/src/components/studyPlan/Views/ScheduleView";
+
+const CLASSES_ANCHOR = "learning-classes";
+const PLAN_ANCHOR = "learning-study-plan";
 
 interface EnrolledClass {
   id: string;
   classCode: string;
   className: string;
   term: string;
+}
+
+function scrollToAnchor(id: string): boolean {
+  const target = document.getElementById(id);
+  if (!target) return false;
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  target.scrollIntoView({
+    behavior: reduceMotion ? "auto" : "smooth",
+    block: "start",
+  });
+  return true;
 }
 
 export default function LearningPage() {
@@ -342,27 +359,127 @@ export default function LearningPage() {
     }
   }, [carryoverTasks, updateTaskStatus]);
 
+  const activeTasks = useMemo(
+    () =>
+      tasks.filter((t) => t.status !== "skipped" && t.status !== "rescheduled"),
+    [tasks]
+  );
+
+  const nextTask = useMemo(
+    () =>
+      activeTasks.find((t) => t.status === "in_progress") ??
+      activeTasks.find((t) => t.status === "recommended") ??
+      null,
+    [activeTasks]
+  );
+
+  const remainingMinutes = useMemo(
+    () =>
+      activeTasks
+        .filter((t) => t.status !== "completed")
+        .reduce((sum, t) => sum + t.estimatedMinutes, 0),
+    [activeTasks]
+  );
+
+  // Streak and cross-week mastery aggregation are not persisted yet, so the
+  // workspace metrics summarize today's tasks until those sources land.
+  const workspaceStats = useMemo(() => {
+    const completed = activeTasks.filter((t) => t.status === "completed");
+    const minutesStudied = tasks.reduce(
+      (sum, t) => sum + (t.totalActiveMinutes ?? 0),
+      0
+    );
+    const topics = new Set(activeTasks.map((t) => t.topicLabel));
+    const masteredTopics = new Set(completed.map((t) => t.topicLabel));
+    return {
+      streak: completed.length > 0 ? 1 : 0,
+      hoursThisWeek: Math.round((minutesStudied / 60) * 10) / 10,
+      topicsMastered: masteredTopics.size,
+      topicsTotal: topics.size,
+      dailyProgress:
+        activeTasks.length > 0
+          ? Math.round((completed.length / activeTasks.length) * 100)
+          : 0,
+    };
+  }, [activeTasks, tasks]);
+
+  const handleExploreClasses = useCallback(() => {
+    if (!scrollToAnchor(CLASSES_ANCHOR)) router.push("/classes");
+  }, [router]);
+
+  const handleHeroStartPlan = useCallback(() => {
+    if (plan) {
+      scrollToAnchor(PLAN_ANCHOR);
+    } else {
+      setShowSetup(true);
+    }
+  }, [plan]);
+
+  const handleStartNextTask = useCallback(() => {
+    if (nextTask) handleStartTask(nextTask.id);
+  }, [nextTask, handleStartTask]);
+
   if (authLoading || classesLoading || planLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-bg-main">
-        <Loader2 size={32} className="animate-spin text-primary" />
+      <div className="flex min-h-screen items-center justify-center bg-beige-canvas">
+        <Loader2 size={32} className="animate-spin text-brown-label" />
+        <span className="sr-only">Loading your learning workspace</span>
       </div>
     );
   }
 
-  const activeTasks = tasks.filter(
-    (t) => t.status !== "skipped" && t.status !== "rescheduled"
-  );
   const isCompleted =
     plan?.state === "completed" ||
     (plan &&
       activeTasks.length > 0 &&
       activeTasks.every((t) => t.status === "completed"));
 
+  const planView =
+    viewMode === "board" ? (
+      <BoardView
+        tasks={tasks}
+        onStart={handleStartTask}
+        onSkip={handleSkipTask}
+        onReschedule={(id) => setRescheduleTarget(id)}
+        onDelete={handleDeleteTask}
+        onPause={pauseSession}
+        onComplete={handleCompleteTask}
+        onAddTask={() => setShowAddTask(true)}
+      />
+    ) : viewMode === "schedule" ? (
+      <ScheduleView
+        tasks={tasks}
+        calendarEvents={allEvents}
+        onStart={handleStartTask}
+        onSkip={handleSkipTask}
+        onReschedule={(id) => setRescheduleTarget(id)}
+        onComplete={handleCompleteTask}
+        onPause={pauseSession}
+      />
+    ) : (
+      <ListView
+        tasks={tasks}
+        onStart={handleStartTask}
+        onSkip={handleSkipTask}
+        onReschedule={(id) => setRescheduleTarget(id)}
+        onDelete={handleDeleteTask}
+        onPause={pauseSession}
+        onComplete={handleCompleteTask}
+        onAddTask={() => setShowAddTask(true)}
+      />
+    );
+
   return (
-    <div className="min-h-screen bg-bg-main px-6 py-10 sm:px-10">
-      <div className="mx-auto max-w-5xl">
-        {/* Carryover prompt */}
+    <div className="min-h-screen bg-beige-canvas px-6 py-8 sm:px-10">
+      <div className="mx-auto max-w-6xl space-y-8">
+        <WorkspaceHeader
+          userName={user?.displayName?.split(" ")[0] ?? "Student"}
+          userInitial={(user?.displayName ?? user?.email ?? "S")
+            .charAt(0)
+            .toUpperCase()}
+          onProfile={() => router.push("/profile")}
+        />
+
         {!plan && carryoverChecked && carryoverTasks.length > 0 && (
           <CarryoverPrompt
             taskCount={carryoverTasks.length}
@@ -371,100 +488,55 @@ export default function LearningPage() {
           />
         )}
 
-        {/* No plan state */}
+        <HeroBanner
+          hasPlan={!!plan}
+          onExploreClasses={handleExploreClasses}
+          onStartPlan={handleHeroStartPlan}
+        />
+
         {!plan && (
           <>
-            <h1 className="mb-8 text-center text-2xl font-bold tracking-tight text-text-main md:text-3xl">
-              Choose a class to get started.
-            </h1>
+            <StatCards {...workspaceStats} />
 
-            {classes.length === 0 ? (
-              <div className="py-16 text-center text-text-muted">
-                <Briefcase size={48} className="mx-auto mb-4 opacity-50" />
-                <p className="text-lg font-medium text-text-main">
-                  No classes enrolled yet. Add a class to get started.
-                </p>
-                <Link
-                  href="/classes"
-                  className="mt-4 inline-block rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary-hover"
-                >
-                  Go to Classes
-                </Link>
+            <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[2fr_1fr]">
+              <div id={CLASSES_ANCHOR} className="min-w-0 scroll-mt-8">
+                <ClassGrid
+                  classes={classes}
+                  onClassClick={(id) => router.push(`/courses/${id}/learning`)}
+                />
               </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {classes.map((cls) => (
-                  <button
-                    key={cls.id}
-                    onClick={() => router.push(`/courses/${cls.id}/learning`)}
-                    className="rounded-xl bg-bg-container p-6 text-left shadow-sm ring-1 ring-border-light transition-all hover:shadow-md hover:ring-primary"
-                  >
-                    <GraduationCap size={22} className="mb-3 text-primary" />
-                    <h2 className="text-sm font-semibold text-text-main">
-                      {cls.className || "Untitled class"}
-                    </h2>
-                    <p className="mt-1 text-sm text-text-muted">
-                      {cls.classCode}
-                    </p>
-                    {cls.term && (
-                      <p className="mt-0.5 text-xs text-text-muted">
-                        {cls.term}
-                      </p>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <PlanEmptyState onStartSetup={() => setShowSetup(true)} />
+              <TodayPlanSidebar
+                tasks={activeTasks}
+                onViewFullPlan={() => setShowSetup(true)}
+              />
+            </div>
           </>
         )}
 
-        {/* Active plan */}
         {plan && !isCompleted && (
-          <>
-            <PlanHeader plan={plan} onClearPlan={() => setShowClearModal(true)} />
-            <ViewSwitcher current={viewMode} onChange={setViewMode} />
-
-            {viewMode === "list" && (
-              <ListView
-                tasks={tasks}
-                onStart={handleStartTask}
-                onSkip={handleSkipTask}
-                onReschedule={(id) => setRescheduleTarget(id)}
-                onDelete={handleDeleteTask}
-                onPause={pauseSession}
-                onComplete={handleCompleteTask}
-                onAddTask={() => setShowAddTask(true)}
-              />
-            )}
-            {viewMode === "board" && (
-              <BoardView
-                tasks={tasks}
-                onStart={handleStartTask}
-                onSkip={handleSkipTask}
-                onReschedule={(id) => setRescheduleTarget(id)}
-                onDelete={handleDeleteTask}
-                onPause={pauseSession}
-                onComplete={handleCompleteTask}
-                onAddTask={() => setShowAddTask(true)}
-              />
-            )}
-            {viewMode === "schedule" && (
-              <ScheduleView
-                tasks={tasks}
-                calendarEvents={allEvents}
-                onStart={handleStartTask}
-                onSkip={handleSkipTask}
-                onReschedule={(id) => setRescheduleTarget(id)}
-                onComplete={handleCompleteTask}
-                onPause={pauseSession}
-              />
-            )}
-          </>
+          <div id={PLAN_ANCHOR} className="scroll-mt-8">
+            <PlanSection
+              plan={plan}
+              remainingMinutes={remainingMinutes}
+              canStartNext={!!nextTask}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+              onAddTask={() => setShowAddTask(true)}
+              onStartNextTask={handleStartNextTask}
+              onClearPlan={() => setShowClearModal(true)}
+              sidebar={
+                <FocusModeCard
+                  recommendedMinutes={nextTask?.estimatedMinutes ?? 25}
+                  onStartSession={handleStartNextTask}
+                  disabled={!nextTask}
+                />
+              }
+            >
+              {planView}
+            </PlanSection>
+          </div>
         )}
 
-        {/* Completed */}
         {plan && isCompleted && (
           <PlanCompletedState
             completedCount={plan.completedCount}
@@ -472,7 +544,6 @@ export default function LearningPage() {
           />
         )}
 
-        {/* Modals */}
         <SetupModal
           open={showSetup}
           onClose={() => setShowSetup(false)}

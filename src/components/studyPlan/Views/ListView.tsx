@@ -30,10 +30,23 @@ const statusOrder: Record<StudyTask["status"], number> = {
   rescheduled: 4,
 };
 
+function formatCompletedAt(task: StudyTask): string | null {
+  const raw = task.completedAt;
+  if (!raw) return null;
+  const date =
+    typeof raw.toDate === "function" ? raw.toDate() : new Date(String(raw));
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function subtitleFor(task: StudyTask): string {
   const parts = [task.courseName || task.courseCode];
   if (task.status === "completed") {
-    parts.push("completed");
+    const time = formatCompletedAt(task);
+    parts.push(time ? `completed ${time}` : "completed");
   } else if (task.status === "skipped") {
     parts.push("skipped");
   } else if (task.status === "rescheduled") {
@@ -59,7 +72,7 @@ export default function ListView({
   );
 
   return (
-    <section className="rounded-2xl border border-gray-light bg-white p-5">
+    <section className="rounded-2xl bg-white p-5">
       <div className="flex items-center justify-between gap-3">
         <h4 className="text-base font-semibold text-navy">Focus queue</h4>
         <span className="text-xs font-semibold uppercase tracking-[0.14em] text-brown-label">
@@ -81,27 +94,27 @@ export default function ListView({
             return (
               <li
                 key={task.id}
-                className="flex flex-wrap items-center gap-x-3 gap-y-2 py-4"
+                className="group flex flex-wrap items-center gap-x-3 gap-y-2 py-4"
               >
                 {isClosed ? (
                   <span
                     aria-hidden="true"
-                    className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border ${
+                    className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border ${
                       isDone
                         ? "border-navy bg-navy text-white"
                         : "border-gray-light bg-gray-input"
                     }`}
                   >
-                    {isDone && <Check size={12} strokeWidth={3} />}
+                    {isDone && <Check size={11} strokeWidth={3} />}
                   </span>
                 ) : (
                   <button
                     type="button"
                     onClick={() => onComplete(task.id)}
                     aria-label={`Mark ${task.title} as complete`}
-                    className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border border-gray-light bg-white text-transparent transition-colors hover:border-navy hover:text-navy/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+                    className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border border-gray-light bg-white text-transparent transition-colors hover:border-navy hover:text-navy/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
                   >
-                    <Check size={12} strokeWidth={3} aria-hidden="true" />
+                    <Check size={11} strokeWidth={3} aria-hidden="true" />
                   </button>
                 )}
 
@@ -118,16 +131,20 @@ export default function ListView({
                   </p>
                 </div>
 
-                <span className="flex-shrink-0 rounded-full bg-accent-peach px-2.5 py-1 text-xs font-medium tabular-nums text-brown-label">
-                  {isDone
-                    ? "Done"
-                    : task.status === "skipped"
+                {isDone ? (
+                  <span className="flex-shrink-0 rounded-full bg-accent-peach px-2.5 py-1 text-xs font-medium text-brown-label">
+                    Done
+                  </span>
+                ) : (
+                  <span className="flex-shrink-0 text-xs font-medium tabular-nums text-brown-label">
+                    {task.status === "skipped"
                       ? "Skipped"
                       : `${task.estimatedMinutes} min`}
-                </span>
+                  </span>
+                )}
 
                 {!isClosed && (
-                  <div className="flex flex-shrink-0 items-center gap-1">
+                  <div className="flex flex-shrink-0 items-center gap-1 opacity-100 transition-opacity lg:opacity-0 lg:focus-within:opacity-100 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
                     {isActive ? (
                       <button
                         type="button"
@@ -189,7 +206,7 @@ export default function ListView({
       <button
         type="button"
         onClick={onAddTask}
-        className="mt-2 flex w-full items-center justify-center gap-1.5 border-t border-gray-light pt-4 text-sm font-medium text-brown-label transition-colors hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+        className="mt-2 flex w-full items-center justify-center gap-1.5 border-t border-gray-light pt-4 text-sm font-medium text-gray-secondary transition-colors hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
       >
         <Plus size={14} aria-hidden="true" />
         Add a personal task
