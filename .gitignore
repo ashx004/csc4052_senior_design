@@ -34,3 +34,7 @@ package-lock.json
 .env.local
 .env
 .worktrees/
+
+# Local Codex/Superpowers artifacts
+.superpowers/
+docs/superpowers/
