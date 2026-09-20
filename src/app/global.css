@@ -32,6 +32,20 @@
   --color-alert-success: #6b8f5e;      /* Muted sage green for success messages */
   --color-alert-success-bg: #e8efe3;   /* Soft tint for success hover/highlight backgrounds */
   --color-alert-success-hover: #557549; /* Darker sage for success button hover states */
+
+  /* --- Learning Workspace Palette ---
+     Fixed across themes: the approved Learning workspace direction is a warm
+     light canvas, so these do not get dark-mode overrides. */
+  --color-navy: #1A1A30;              /* Hero banner, primary actions, focus mode card */
+  --color-brown-label: #B49080;       /* Section labels, metadata, progress accents */
+  --color-beige-canvas: #F0EBE8;      /* Learning workspace canvas */
+  --color-beige-light: #FAF9F9;       /* Soft card surfaces */
+  --color-gray-secondary: #54555C;    /* Secondary text */
+  --color-gray-light: #E4E5E7;        /* Dividers and card borders */
+  --color-gray-input: #F4F4F5;        /* Segmented controls and inactive fields */
+  --color-accent-lavender: #E4E7FF;   /* Class / metric accent */
+  --color-accent-peach: #FFECE1;      /* Class / metric accent */
+  --color-accent-sage: #DCE8D8;       /* Class / metric accent */
 }
 
 /* ==========================================================================
