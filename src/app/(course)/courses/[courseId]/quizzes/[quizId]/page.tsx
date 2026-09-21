@@ -467,18 +467,18 @@ export default function QuizTakingPage() {
   return (
     <div className="min-h-screen bg-[#FAFAF8]">
       {/* Header */}
-      <div className="flex h-[60px] items-center justify-between border-b border-border-light px-6 md:px-14">
-        <div className="flex min-w-0 items-center gap-3">
+      <div className="relative flex h-[60px] items-center border-b border-border-light px-6 md:px-14">
+        <div className="relative z-10 flex min-w-0 items-center gap-3">
           <button
             onClick={() => router.push(`/courses/${courseId}/learning`)}
             className="shrink-0 rounded-md p-1.5 transition-colors hover:bg-[#F5F0EB]"
           >
             <ArrowLeft size={20} className="text-text-main" />
           </button>
-          <div className="min-w-0">
-            <p className="truncate text-xs text-text-muted">{courseDisplayName}</p>
-            <h1 className="truncate text-xl font-bold text-[#1a1a2e]">{quizName}</h1>
-          </div>
+        </div>
+        <div className="pointer-events-none absolute inset-x-16 min-w-0 text-center md:inset-x-28">
+          <p className="truncate text-xs text-text-muted">{courseDisplayName}</p>
+          <h1 className="truncate text-xl font-bold text-[#1a1a2e]">{quizName}</h1>
         </div>
       </div>
 

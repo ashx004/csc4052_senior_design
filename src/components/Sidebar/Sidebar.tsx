@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Menu, X, Settings } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { Menu, Settings, ChevronLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 interface SidebarProps {
@@ -11,6 +11,20 @@ interface SidebarProps {
 export default function Sidebar({ children }: SidebarProps) {
   const [isOpen, setIsOpen] = useState(true);
   const router = useRouter();
+  const sidebarRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function handleClickOutside(e: MouseEvent) {
+      if (sidebarRef.current && !sidebarRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen]);
 
   return (
     <>
@@ -18,48 +32,52 @@ export default function Sidebar({ children }: SidebarProps) {
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed top-6 left-6 z-10 p-2 rounded-full hover:bg-bg-warm transition-colors"
+          className="fixed top-6 left-6 z-50 flex h-10 w-10 items-center justify-center rounded-lg bg-navy text-white shadow-md transition-colors hover:bg-navy/90"
           aria-label="Open menu"
         >
-          <Menu className="w-6 h-6 text-text-main" />
+          <Menu className="h-5 w-5" />
         </button>
       )}
 
       {/* Sidebar panel — in document flow, pushes content right */}
       <aside
-        className={`h-screen bg-bg-container shrink-0 flex flex-col overflow-hidden transition-[width] duration-300 ease-in-out ${
-          isOpen ? "w-72 border-r border-border-light" : "w-0"
+        ref={sidebarRef}
+        className={`h-screen shrink-0 overflow-hidden bg-navy text-white transition-[width] duration-300 ease-in-out ${
+          isOpen ? "w-72" : "w-0"
         }`}
       >
         {/* Inner wrapper — fixed width prevents text from wrapping during the width animation */}
         <div className="min-w-[18rem] h-full flex flex-col">
           {/* Header: logo + close */}
-          <div className="flex h-[60px] shrink-0 items-center justify-between border-b border-border-light px-6">
-            <h1 className="text-xl font-bold tracking-[0.15em] text-text-main">
+          <div className="flex h-[68px] shrink-0 items-center justify-between px-5">
+            <h1 className="text-xl font-bold tracking-[0.15em] text-white">
               C a t a l y s t.
             </h1>
             <button
               onClick={() => setIsOpen(false)}
-              className="p-2 text-text-muted hover:text-text-main rounded-full transition-colors"
-              aria-label="Close menu"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/15 bg-white/10 text-sm text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+              aria-label="Collapse navigation"
             >
-              <X className="w-5 h-5" />
+              <ChevronLeft size={16} />
             </button>
           </div>
 
           {/* Navigation content (from GeneralSidebar or CourseSidebar) */}
-          <nav className="flex-1 overflow-y-auto px-4 py-4">
+          <nav className="flex-1 overflow-y-auto px-3 py-4">
             {children}
           </nav>
 
-          {/* Footer: settings gear */}
-          <div className="flex justify-end px-3 py-1 border-t border-border-light">
-            <button 
+          <div className="mx-3 mb-4 rounded-2xl bg-white/10 px-4 py-4 text-xs leading-relaxed text-white/75">
+            <strong className="mb-1 block text-white">Study companion</strong>
+            Keep your focus gentle and consistent. One useful session at a time.
+            <button
+              type="button"
               onClick={() => router.push("/settings")}
-              className="p-1 text-text-muted hover:text-text-main transition-colors"
+              className="mt-3 flex min-h-9 items-center gap-2 rounded-lg text-white/65 transition-colors hover:text-white"
               aria-label="Open settings"
-              >
-              <Settings className="w-5 h-5" />
+            >
+              <Settings size={15} aria-hidden="true" />
+              Settings
             </button>
           </div>
         </div>

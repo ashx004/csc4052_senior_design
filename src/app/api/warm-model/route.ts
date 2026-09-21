@@ -8,11 +8,11 @@ const WARM_RATE_LIMIT_MAX = 10; // one toggle click each way, generously
 
 const WARM_TIMEOUT_MS = 120000; // matches OLLAMA_TIMEOUT_MS in api/chat/route.ts — a genuine cold load can take a while
 
-// "ocr" isn't a real TaskModelKey/UnifiedModelKey (see resolveModelFromKey) -
-// it's included here only so the settings page can eagerly co-warm vision
-// alongside fastResident (gpt-oss:20b), the one selection small enough for
-// both to sit resident together.
-const VALID_MODEL_KEYS = ["museGlimmer", "nemotron", "qwenCoder", "qwen3A3b", "fastResident", "ocr"];
+// Both keys resolve to the same model now (see resolveModelFromKey) - Muse
+// Glimmer is the only main model, used for chat/quiz/flashcards and for
+// OCR/vision alike. "ocr" is kept as a distinct accepted key only so a
+// caller can still explicitly ask to warm the OCR path by name.
+const VALID_MODEL_KEYS = ["museGlimmer", "ocr"];
 
 // Pre-loads the settings page's currently-effective chat model into VRAM,
 // so a change a student makes there pays its cold-boot cost right then
