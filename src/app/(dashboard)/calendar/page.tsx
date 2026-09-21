@@ -95,20 +95,27 @@ export default function CalendarPage() {
 
   // ── Navigation handlers ──────────────────────────────────────────────────
 
-  function goToPrev() {
-    const d = new Date(currentDate);
-    if (view === "month") d.setMonth(d.getMonth() - 1);
-    else if (view === "week") d.setDate(d.getDate() - 7);
-    else d.setDate(d.getDate() - 1);
-    setCurrentDate(d);
+  function navigateDate(direction: -1 | 1) {
+    const nextDate = new Date(currentDate);
+    if (view === "month") {
+      // Start from the first so January 29–31 cannot overflow past February.
+      nextDate.setDate(1);
+      nextDate.setMonth(nextDate.getMonth() + direction);
+    }
+    else if (view === "week") nextDate.setDate(nextDate.getDate() + direction * 7);
+    else nextDate.setDate(nextDate.getDate() + direction);
+
+    setCurrentDate(nextDate);
+    // WeekView and DayView render selectedDate, so navigation must keep it
+    // aligned with the date used for the header and event range.
+    if (view !== "month") setSelectedDate(new Date(nextDate));
   }
 
-  function goToNext() {
-    const d = new Date(currentDate);
-    if (view === "month") d.setMonth(d.getMonth() + 1);
-    else if (view === "week") d.setDate(d.getDate() + 7);
-    else d.setDate(d.getDate() + 1);
-    setCurrentDate(d);
+  function changeView(nextView: CalendarView) {
+    setView(nextView);
+    // A month can be navigated without changing its selected day. When moving
+    // into a date-driven view, begin at the month currently on screen.
+    if (nextView !== "month") setSelectedDate(new Date(currentDate));
   }
 
   function goToToday() {
@@ -212,7 +219,7 @@ export default function CalendarPage() {
                   border border-border-light bg-bg-container" >
                 <button
                   type="button"
-                  onClick={goToPrev}
+                  onClick={() => navigateDate(-1)}
                   className="flex h-9 w-10 items-center justify-center border-r border-border-light text-text-muted transition hover:bg-bg-warm"
                   aria-label="Previous"
                 >
@@ -227,7 +234,7 @@ export default function CalendarPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={goToNext}
+                  onClick={() => navigateDate(1)}
                   className="flex h-9 w-10 items-center justify-center border-l border-border-light text-text-muted transition hover:bg-bg-warm"
                   aria-label="Next"
                 >
@@ -242,21 +249,21 @@ export default function CalendarPage() {
                 border border-border-light bg-bg-container" >
               <button
                 type="button"
-                onClick={() => setView("month")}
+                onClick={() => changeView("month")}
                 className={`${getViewButtonClass("month")} border-r border-border-light`}
               >
                 Monthly
               </button>
               <button
                 type="button"
-                onClick={() => setView("week")}
+                onClick={() => changeView("week")}
                 className={`${getViewButtonClass("week")} border-r border-border-light`}
               >
                 Weekly
               </button>
               <button
                 type="button"
-                onClick={() => setView("day")}
+                onClick={() => changeView("day")}
                 className={getViewButtonClass("day")}
               >
                 Daily
