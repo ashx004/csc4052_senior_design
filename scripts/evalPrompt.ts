@@ -25,7 +25,7 @@ if (fs.existsSync(envPath)) {
 }
 
 import { buildSystemPrompt, ChatContext } from "../src/library/systemPrompt";
-import { resolveOllamaBaseUrl } from "../src/library/ollamaClient";
+import { resolveOllamaBaseUrl, resolveModelFromKey } from "../src/library/ollamaClient";
 
 type EvalMessage = { role: string; content: string | null; tool_calls?: any[]; tool_call_id?: string };
 
@@ -145,7 +145,7 @@ async function callPrimary(systemPrompt: string, messages: EvalMessage[]): Promi
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}` },
     signal: AbortSignal.timeout(120000),
     body: JSON.stringify({
-      model: process.env.OLLAMA_MODEL || "qwen3:14b",
+      model: resolveModelFromKey("museGlimmer"),
       stream: false,
       options: { temperature: 0.3 },
       messages: [{ role: "system", content: systemPrompt }, ...messages],
