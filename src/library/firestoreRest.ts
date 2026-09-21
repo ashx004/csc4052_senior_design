@@ -43,6 +43,8 @@ export async function getUidFromRequest(req: NextRequest): Promise<string | null
 
 /** Get the user's Firebase ID token from the request cookie. */
 export function getIdToken(req: NextRequest): string | null {
+  const authorization = req.headers.get("authorization");
+  if (authorization?.startsWith("Bearer ")) return authorization.slice("Bearer ".length);
   return req.cookies.get("fb_token")?.value ?? null;
 }
 
@@ -195,7 +197,8 @@ export async function firestoreRunQuery(
 /** Atomic multi-document write. Every write is a full-document replace-or-create — callers supply the doc ID (no auto-ID support in the REST :commit endpoint). */
 export async function firestoreCommitBatch(
   idToken: string,
-  writes: { path: string; fields: Record<string, unknown> }[]
+  writes: { path: string; fields: Record<string, unknown> }[],
+  deletePaths: string[] = []
 ): Promise<void> {
   const res = await fetchWithTimeout(`${FIRESTORE_BASE}:commit`, {
     method: "POST",
@@ -204,12 +207,17 @@ export async function firestoreCommitBatch(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      writes: writes.map((w) => ({
-        update: {
-          name: `projects/${PROJECT_ID}/databases/(default)/documents/${w.path}`,
-          fields: serializeFirestoreFields(w.fields),
-        },
-      })),
+      writes: [
+        ...writes.map((w) => ({
+          update: {
+            name: `projects/${PROJECT_ID}/databases/(default)/documents/${w.path}`,
+            fields: serializeFirestoreFields(w.fields),
+          },
+        })),
+        ...deletePaths.map((path) => ({
+          delete: `projects/${PROJECT_ID}/databases/(default)/documents/${path}`,
+        })),
+      ],
     }),
   });
   if (!res.ok) {

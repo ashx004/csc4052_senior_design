@@ -3,6 +3,7 @@ import AIPanel from "@/src/components/aiPanel/AIPanel";
 import { AIPageContextProvider } from "@/src/context/AIPageContext";
 import { AdvisingCacheProvider } from "@/src/context/AdvisingCacheContext";
 import { CalendarCacheProvider } from "@/src/context/CalendarCacheContext";
+import NotificationToast from "@/src/components/studyPlan/NotificationToast";
 
 export default function DashboardLayout({
   children,
@@ -11,6 +12,7 @@ export default function DashboardLayout({
     <AIPageContextProvider>
       <AdvisingCacheProvider>
         <CalendarCacheProvider>
+          <NotificationToast />
           <div className="flex h-screen">
             <GeneralSidebar />
             <main className="flex-1 overflow-y-auto">{children}</main>
@@ -21,4 +23,3 @@ export default function DashboardLayout({
     </AIPageContextProvider>
   );
 }
- 

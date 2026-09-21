@@ -15,3 +15,8 @@
 5.) Run `npm run dev` at the root of the project directory
 
 6.) Navigate to localhost at the port exposed in the output window (typically 3000)
+
+For durable OCR and document-indexing jobs, run `npm run worker:ocr` as a
+separate managed process. Set `OCR_WORKER_URL` to the deployed
+`/api/document-jobs/worker` endpoint and provide the same `INTERNAL_API_SECRET`
+used by the web application.

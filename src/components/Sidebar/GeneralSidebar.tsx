@@ -12,6 +12,7 @@ const links = [
   { label: "Calendar", href: "/calendar", icon: Calendar },
   { label: "AI Assistant", href: "/ai-assistant", icon: MessageSquare },
   { label: "Advising", href: "/advising", icon: Users },
+  { label: "Advising New & Improved", href: "/advising_new", icon: Users },
   { label: "Profile", href: "/profile", icon: User },
   { label: "Notes", href: "/notes", icon: Notebook },
 ];
@@ -29,10 +30,10 @@ export default function GeneralSidebar() {
             <li key={href}>
               <Link
                 href={href}
-                className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
+                className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm transition-colors ${
                   isActive
-                    ? "bg-bg-warm font-semibold text-text-main"
-                    : "text-text-muted hover:bg-bg-warm"
+                    ? "bg-white/15 font-semibold text-white"
+                    : "text-white/65 hover:bg-white/10 hover:text-white"
                 }`}
               >
                 <Icon size={20} strokeWidth={1.5} />

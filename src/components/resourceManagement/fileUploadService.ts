@@ -1,6 +1,6 @@
-import { collection, addDoc, getDocs, query, orderBy, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, getDoc, getDocs, query, orderBy, serverTimestamp, updateDoc, doc } from "firebase/firestore";
 import { db } from "../../library/firebase"; 
-import { doc, deleteDoc } from "firebase/firestore";
+import { deleteDoc } from "firebase/firestore";
 
 const BUCKET_NAME = "studora";
 
@@ -28,13 +28,147 @@ interface UploadFileProps {
   category: string;
 }
 
+const OCR_IMAGE_TYPES = ["png", "jpg", "jpeg", "webp"];
+
+function fileExtensionFor(file: File): string {
+  return file.name.split(".").pop()?.toLowerCase() || "";
+}
+
+async function uploadOcrPage(
+  userId: string,
+  courseId: string,
+  resourceId: string,
+  file: File,
+  order: number,
+  displayName?: string
+) {
+  const fileExtension = fileExtensionFor(file);
+  if (!OCR_IMAGE_TYPES.includes(fileExtension)) {
+    throw new Error(`"${file.name}" is not a supported OCR image.`);
+  }
+  if (file.size > MAX_FILE_SIZE_BYTES) {
+    throw new Error(`"${file.name}" is too large (${(file.size / 1024 / 1024).toFixed(1)}MB) â€” the limit is 20MB.`);
+  }
+
+  const storagePath = `users/${userId}/classes/${courseId}/ocr-pages/${resourceId}/${Date.now()}_${order}_${file.name}`;
+  const response = await fetch("/api/upload", {
+    method: "POST",
+    headers: {
+      "Content-Type": file.type || "application/octet-stream",
+      "x-storage-path": storagePath,
+    },
+    body: await file.arrayBuffer(),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || `Failed to upload "${file.name}".`);
+  }
+
+  const pageUrl = `/api/download?key=${encodeURIComponent(storagePath)}`;
+  const pageCollection = collection(db, "users", userId, "enrollment", courseId, "resources", resourceId, "pages");
+  await addDoc(pageCollection, {
+    name: displayName?.trim() || file.name,
+    url: pageUrl,
+    fileType: fileExtension,
+    order,
+    uploadedAt: serverTimestamp(),
+    ocrStatus: "queued",
+  });
+}
+
+async function queueOcrDocument(userId: string, courseId: string, resourceId: string) {
+  const response = await fetch("/api/embed-document", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId, courseId, resourceId }),
+    keepalive: true,
+  });
+  if (!response.ok) throw new Error(`Failed to queue OCR document (${response.status}).`);
+}
+
+export async function uploadOcrDocument({
+  userId,
+  classDocId,
+  files,
+  category,
+  name,
+  pageNames,
+}: {
+  userId: string;
+  classDocId: string;
+  files: File[];
+  category: string;
+  name: string;
+  pageNames?: string[];
+}) {
+  if (files.length === 0) throw new Error("Choose at least one image.");
+  if (!files.every((file) => OCR_IMAGE_TYPES.includes(fileExtensionFor(file)))) {
+    throw new Error("OCR documents can contain PNG, JPG, JPEG, or WEBP images only.");
+  }
+
+  const resourceCollection = collection(db, "users", userId, "enrollment", classDocId, "resources");
+  const resource = await addDoc(resourceCollection, {
+    name: name.trim() || "Untitled OCR document",
+    url: "",
+    fileType: "txt",
+    resourceKind: "ocr_document",
+    category,
+    uploadedAt: serverTimestamp(),
+    lastViewedAt: serverTimestamp(),
+    ocrStatus: "queued",
+    indexStatus: "queued",
+    pageCount: 0,
+    manualTranscript: false,
+  });
+
+  await Promise.all(files.map((file, index) =>
+    uploadOcrPage(userId, classDocId, resource.id, file, index, pageNames?.[index])
+  ));
+  await updateDoc(resource, { pageCount: files.length, ocrStatus: "queued", indexStatus: "queued" });
+  await queueOcrDocument(userId, classDocId, resource.id);
+  return { success: true, id: resource.id };
+}
+
+export async function addOcrDocumentPages({
+  userId,
+  classDocId,
+  resourceId,
+  files,
+  pageNames,
+}: {
+  userId: string;
+  classDocId: string;
+  resourceId: string;
+  files: File[];
+  pageNames?: string[];
+}) {
+  if (files.length === 0) return;
+  const resourceRef = doc(db, "users", userId, "enrollment", classDocId, "resources", resourceId);
+  const resource = await getDoc(resourceRef);
+  if (!resource.exists() || resource.data().resourceKind !== "ocr_document") {
+    throw new Error("OCR document not found.");
+  }
+  const pages = await getDocs(collection(resourceRef, "pages"));
+  await Promise.all(files.map((file, index) =>
+    uploadOcrPage(userId, classDocId, resourceId, file, pages.size + index, pageNames?.[index])
+  ));
+  await updateDoc(resourceRef, {
+    pageCount: pages.size + files.length,
+    manualTranscript: false,
+    ocrStatus: "queued",
+    indexStatus: "queued",
+    vectorIndexed: false,
+  });
+  await queueOcrDocument(userId, classDocId, resourceId);
+}
+
 // ─── FUNCTION 1: UPLOAD A FILE ───
 export const uploadUserResource = async ({ userId, classDocId, file, category }: UploadFileProps) => {
   if (file.size > MAX_FILE_SIZE_BYTES) {
     throw new Error(`"${file.name}" is too large (${(file.size / 1024 / 1024).toFixed(1)}MB) — the limit is 20MB.`);
   }
 
-  const fileExtension = file.name.split('.').pop()?.toLowerCase() || "";
+  const fileExtension = fileExtensionFor(file);
   const uniqueFileName = `${Date.now()}_${file.name}`;
   const storagePath = `users/${userId}/classes/${classDocId}/${uniqueFileName}`;
 
