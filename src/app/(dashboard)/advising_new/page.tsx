@@ -95,6 +95,29 @@ export default function AdvisingPage() {
  }, [user, loading]);
 
 
+  // Give the advising model a head start loading into VRAM as soon as the
+  // upload modal opens, so cold-load time overlaps with the student's file
+  // upload instead of sitting on the extraction call's critical path (where
+  // it risks the Cloudflare tunnel's ~100s timeout - see advisingOllama.ts).
+  // Best-effort: extraction still works if this fails, just slower.
+  useEffect(() => {
+    if (!showUploadModal || !user) { return; }
+
+    user.getIdToken()
+      .then((token) =>
+        fetch("/api/warm-model", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ modelKey: "museGlimmer" }),
+        })
+      )
+      .catch(() => {});
+  }, [showUploadModal, user]);
+
+
   function handleAcceptUpload() {
     setShowPermissionModal(false);
     setShowUploadModal(true);

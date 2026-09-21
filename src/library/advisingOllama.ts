@@ -2,7 +2,31 @@ import { Agent, setGlobalDispatcher } from "undici";
 import { resolveOllamaBaseUrl, resolveModelFromKey } from "@/src/library/ollamaClient";
 
 // tapout at 5 mins
-const OLLAMA_TIMEOUT_MS = 300000;
+const OLLAMA_TIMEOUT_MS = Number(process.env.ADVISING_OLLAMA_TIMEOUT_MS) || 300000;
+
+// Which model advising uses. One place to change it. Set OLLAMA_MODEL_ADVISING in
+// .env to override without touching code.
+const ADVISING_MODEL =
+  process.env.OLLAMA_MODEL_ADVISING || resolveModelFromKey("museGlimmer");
+
+// Context window. Ollama silently TRUNCATES input that does not fit, so it must
+// cover prompt + transcript/curriculum text + the model's 15-20k-token JSON reply.
+// Only sent when ADVISING_NUM_CTX is set (e.g. 32768).
+const ADVISING_NUM_CTX = Number(process.env.ADVISING_NUM_CTX) || undefined;
+
+// gpt-oss takes "low" | "medium" | "high". Other thinking models take true/false.
+// Models WITHOUT thinking support reject the field, so "omit" sends nothing.
+// ADVISING_THINK_MODE: "off" (send false - thinking disabled, fastest)
+//                      "on"  (send true)
+//                      "levels" (gpt-oss: low/medium/high)
+//                      "omit" (default: send nothing, model decides)
+function thinkPayload(level: "low" | "medium" | "high"): string | boolean | undefined {
+  const mode = process.env.ADVISING_THINK_MODE ?? "omit";
+  if (mode === "levels") return level;
+  if (mode === "on") return true;
+  if (mode === "off") return false;
+  return undefined;
+}
 
 
 // undici's default headersTimeout (5 min) can be too short over the
@@ -13,17 +37,35 @@ const OLLAMA_TIMEOUT_MS = 300000;
 setGlobalDispatcher(new Agent({ headersTimeout: 600_000 })); // 10 minutes
 
 
+  // Returns just the JSON object from a model reply: handles ```json fences,
+  // prose before/after, and braces inside strings.
   function stripJsonCodeFences(text: string): string {
-    const trimmed = text.trim();
+    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const candidate = (fenced ? fenced[1] : text).trim();
 
-    // matches ```json ... ``` or plain ``` ... ```
-    const fenceMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    const start = candidate.indexOf("{");
+    if (start === -1) { return candidate; }
 
-    if (fenceMatch) {
-      return fenceMatch[1].trim();
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let i = start; i < candidate.length; i++) {
+      const ch = candidate[i];
+      if (inString) {
+        if (escaped) { escaped = false; }
+        else if (ch === "\\") { escaped = true; }
+        else if (ch === '"') { inString = false; }
+        continue;
+      }
+      if (ch === '"') { inString = true; }
+      else if (ch === "{") { depth++; }
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) { return candidate.slice(start, i + 1); }
+      }
     }
-
-    return trimmed;
+    return candidate; // unbalanced (truncated) - let JSON.parse report it
   }
 
 
@@ -72,12 +114,15 @@ async function callAdvisingOllama(
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
       },
       body: JSON.stringify({
-        model: resolveModelFromKey("museGlimmer"),
-
+        model: ADVISING_MODEL,
         messages,
         stream: true,
-        think,
-        options: { temperature: 0, num_predict: numPredict },
+        ...(thinkPayload(think) === undefined ? {} : { think: thinkPayload(think) }),
+        options: {
+          temperature: 0,
+          num_predict: numPredict,
+          ...(ADVISING_NUM_CTX ? { num_ctx: ADVISING_NUM_CTX } : {}),
+        },
       }),
       signal: controller.signal,
     });
@@ -85,8 +130,18 @@ async function callAdvisingOllama(
     if (!response.ok || !response.body) {
       const errorText = await response.text();
 
+      // 502/504/524 come from the proxy in front of Ollama (e.g. Cloudflare's
+      // 100-second limit while the model is still loading), and their body is a
+      // full HTML error page that would otherwise be shown to the student.
+      if ([502, 504, 524].includes(response.status)) {
+        throw new Error(
+          "The AI server took too long to start responding (the connection timed out). The model may still be loading. Please wait a minute and try again."
+        );
+      }
+
+      const looksLikeHtml = /<\s*(!doctype|html)/i.test(errorText);
       throw new Error(
-        `Ollama request failed (${response.status}): ${errorText}`
+        `Ollama request failed (${response.status}): ${looksLikeHtml ? "(HTML error page omitted)" : errorText.slice(0, 300)}`
       );
     }
 
@@ -121,7 +176,18 @@ async function callAdvisingOllama(
       }
     }  // end of while loop
 
-       console.log(`Ollama ${finalPayload?.model}: done=${finalPayload?.done_reason}, tokens=${finalPayload?.eval_count}`);
+       const tokensPerSecond = finalPayload?.eval_duration
+         ? (finalPayload.eval_count / (finalPayload.eval_duration / 1e9)).toFixed(1)
+         : "?";
+       console.log(`Ollama ${finalPayload?.model}: done=${finalPayload?.done_reason}, tokens=${finalPayload?.eval_count}, ${tokensPerSecond} tok/s`);
+
+       // "length" means the model was cut off (output limit or context window),
+       // so the JSON is incomplete. Fail clearly instead of a confusing parse error.
+       if (finalPayload?.done_reason === "length") {
+         throw new Error(
+           "Ollama stopped early (output or context limit reached), so the result is incomplete. Try raising ADVISING_NUM_CTX."
+         );
+       }
 
        if (!fullContent.trim()) {
          throw new Error("Ollama returned an empty response.");
