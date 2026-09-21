@@ -1,7 +1,6 @@
 // Per-task AI model preference. Unified 2026-09-21: this used to store a
 // separate per-task pick plus a "reduce cold boots" unified-model override
-// across 5 possible models (museGlimmer/nemotron/qwenCoder/qwen3A3b/
-// fastResident) - now there's exactly one main model app-wide (Muse
+// across several possible models - now there's exactly one main model app-wide (Muse
 // Glimmer, see ollamaClient.ts's resolveModelFromKey), so there's nothing
 // left to store or choose between. Kept as a function (not a bare export)
 // so every existing call site (chat/quiz/flashcards request bodies) keeps

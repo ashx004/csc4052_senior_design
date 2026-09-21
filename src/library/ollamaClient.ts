@@ -18,7 +18,7 @@ export async function resolveOllamaBaseUrl(baseUrl: string, fallbackUrl?: string
 // quiz generation, flashcard generation, AI advising, discover question
 // generation, and OCR/vision - it's multimodal enough to cover that too).
 // Unified 2026-09-21: previously a per-task/per-client-preference allow-list
-// picking between museGlimmer/nemotron/qwenCoder/qwen3A3b/fastResident: now
+// picking between several large models: now
 // there's only one main model, so every key (including the legacy ones and
 // the internal-only "ocr" key) resolves to the same place. `key` is kept as
 // a parameter only because callers still pass one through (client-stored
