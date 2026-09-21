@@ -32,7 +32,7 @@ export function buildDedupeKey(
   return contextId ? `${type}:${date}:${contextId}` : `${type}:${date}`;
 }
 
-interface NotificationContext {
+export interface NotificationContext {
   completedCount?: number;
   taskTitle?: string;
   courseName?: string;

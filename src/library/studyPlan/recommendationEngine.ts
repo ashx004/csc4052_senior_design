@@ -15,6 +15,9 @@ export const ESTIMATED_MINUTES: Record<ActivityType, number> = {
   ai_explanation: 15,
 };
 
+const REQUIRED_ACTIVITY_MINUTES =
+  ESTIMATED_MINUTES.reading + ESTIMATED_MINUTES.quiz + ESTIMATED_MINUTES.flashcards;
+
 export function scoreTopic(
   topic: EligibleTopic,
   examsWithinDays: number | null,
@@ -99,6 +102,7 @@ export function chooseActivityType(
   topic: EligibleTopic,
   preference: ActivityPreference
 ): ActivityType {
+  if (topic.targetId === null) return "reading";
   if (preference !== "auto") return preference as ActivityType;
 
   if (topic.quizMastery === null && topic.flashcardEngagement === null) {
@@ -130,7 +134,13 @@ function buildReason(scored: ScoredTopic, activityType: ActivityType): string {
   }
 
   if (scored.quizMastery === null && scored.flashcardEngagement === null) {
-    return `Explore ${scored.courseName} — try your first ${activityType === "quiz" ? "quiz" : "flashcard set"}`;
+    const activityLabel =
+      activityType === "quiz"
+        ? "quiz"
+        : activityType === "flashcards"
+          ? "flashcard set"
+          : "course materials";
+    return `Explore ${scored.courseName} — try your first ${activityLabel}`;
   }
 
   if (parts.length === 0) {
@@ -183,16 +193,16 @@ export function generateTasks(
   let remainingMinutes = config.availableMinutes;
   const usedTopics = new Set<string>();
 
-  for (const topic of scored) {
-    if (tasks.length >= 3) break;
+  const addTask = (
+    topic: ScoredTopic,
+    activityType: ActivityType,
+    targetId = topic.targetId
+  ) => {
+    const topicKey = `${topic.courseId}:${topic.topicLabel}:${activityType}`;
+    if (usedTopics.has(topicKey)) return false;
 
-    const topicKey = `${topic.courseId}:${topic.topicLabel}`;
-    if (usedTopics.has(topicKey)) continue;
-
-    const activityType = chooseActivityType(topic, config.activityPreference);
     const estMinutes = ESTIMATED_MINUTES[activityType];
-
-    if (estMinutes > remainingMinutes) continue;
+    if (estMinutes > remainingMinutes) return false;
 
     tasks.push({
       title: buildTitle(activityType, topic.topicLabel),
@@ -201,7 +211,7 @@ export function generateTasks(
       courseCode: topic.courseCode,
       topicLabel: topic.topicLabel,
       activityType,
-      targetId: topic.targetId,
+      targetId,
       estimatedMinutes: estMinutes,
       reason: buildReason(topic, activityType),
       priorityScore: topic.totalScore,
@@ -209,6 +219,36 @@ export function generateTasks(
 
     remainingMinutes -= estMinutes;
     usedTopics.add(topicKey);
+    return true;
+  };
+
+  if (
+    config.activityPreference === "auto" &&
+    config.availableMinutes >= REQUIRED_ACTIVITY_MINUTES
+  ) {
+    const quizTopic = scored.find(
+      (topic) => topic.activityType === "quiz" && topic.targetId !== null
+    );
+    const flashcardTopic = scored.find(
+      (topic) => topic.activityType === "flashcards" && topic.targetId !== null
+    );
+    const readingTopic = scored[0];
+
+    if (quizTopic && flashcardTopic && readingTopic) {
+      addTask(readingTopic, "reading", null);
+      addTask(quizTopic, "quiz");
+      addTask(flashcardTopic, "flashcards");
+    }
+  }
+
+  for (const topic of scored) {
+    if (tasks.length >= 3) break;
+
+    const topicKey = `${topic.courseId}:${topic.topicLabel}`;
+    if ([...usedTopics].some((key) => key.startsWith(`${topicKey}:`))) continue;
+
+    const activityType = chooseActivityType(topic, config.activityPreference);
+    addTask(topic, activityType);
   }
 
   return tasks;
