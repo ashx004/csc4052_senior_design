@@ -72,7 +72,7 @@ export default function ListView({
   );
 
   return (
-    <section className="rounded-2xl bg-white p-5">
+    <section className="rounded-[19px] bg-beige-light p-5">
       <div className="flex items-center justify-between gap-3">
         <h4 className="text-base font-semibold text-navy">Focus queue</h4>
         <span className="text-xs font-semibold uppercase tracking-[0.14em] text-brown-label">
@@ -99,7 +99,7 @@ export default function ListView({
                 {isClosed ? (
                   <span
                     aria-hidden="true"
-                    className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border ${
+                    className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-lg border ${
                       isDone
                         ? "border-navy bg-navy text-white"
                         : "border-gray-light bg-gray-input"
@@ -112,7 +112,7 @@ export default function ListView({
                     type="button"
                     onClick={() => onComplete(task.id)}
                     aria-label={`Mark ${task.title} as complete`}
-                    className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border border-gray-light bg-white text-transparent transition-colors hover:border-navy hover:text-navy/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+                    className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-lg border border-brown-label bg-transparent text-transparent transition-colors hover:border-navy hover:text-navy/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
                   >
                     <Check size={11} strokeWidth={3} aria-hidden="true" />
                   </button>

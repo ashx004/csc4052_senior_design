@@ -26,10 +26,10 @@ export default function PreferenceStep({
 }: PreferenceStepProps) {
   return (
     <div>
-      <h3 className="mb-1 text-lg font-semibold text-text-main">
+      <h3 className="mb-1 text-lg font-bold tracking-[-0.03em] text-navy">
         Activity preference
       </h3>
-      <p className="mb-4 text-sm text-text-muted">
+      <p className="mb-4 text-sm text-gray-secondary">
         Choose a study method or let us pick the best one.
       </p>
       <div className="flex flex-col gap-2">
@@ -41,8 +41,8 @@ export default function PreferenceStep({
               onClick={() => onSelect(opt.value)}
               className={`flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium transition-colors ${
                 selected === opt.value
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border-light text-text-main hover:border-primary/50"
+                  ? "border-brown-label bg-accent-peach/50 text-navy"
+                  : "border-gray-light text-navy hover:border-brown-label"
               }`}
             >
               <Icon size={16} />

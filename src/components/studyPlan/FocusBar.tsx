@@ -23,10 +23,10 @@ export default function FocusBar() {
   };
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-50 flex h-12 items-center justify-between bg-[#1A1A30] px-4 text-sm text-white shadow-md transition-transform">
+    <div className="fixed top-0 left-0 right-0 z-50 flex h-12 items-center justify-between bg-navy px-5 text-sm text-white shadow-md">
       <div className="flex items-center gap-3">
-        <span className="font-medium">{focusBar.taskTitle}</span>
-        <span className="text-white/60">{focusBar.courseCode}</span>
+        <span className="truncate font-semibold">{focusBar.taskTitle}</span>
+        <span className="hidden text-white/60 sm:inline">{focusBar.courseCode}</span>
       </div>
 
       <div className="flex items-center gap-3">

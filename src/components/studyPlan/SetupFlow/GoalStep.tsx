@@ -18,10 +18,10 @@ interface GoalStepProps {
 export default function GoalStep({ selected, onSelect }: GoalStepProps) {
   return (
     <div>
-      <h3 className="mb-1 text-lg font-semibold text-text-main">
+      <h3 className="mb-1 text-lg font-bold tracking-[-0.03em] text-navy">
         What&apos;s your goal?
       </h3>
-      <p className="mb-4 text-sm text-text-muted">
+      <p className="mb-4 text-sm text-gray-secondary">
         This helps us pick the right tasks for you.
       </p>
       <div className="grid grid-cols-2 gap-3">
@@ -33,8 +33,8 @@ export default function GoalStep({ selected, onSelect }: GoalStepProps) {
               onClick={() => onSelect(opt.value)}
               className={`flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium transition-colors ${
                 selected === opt.value
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border-light text-text-main hover:border-primary/50"
+                  ? "border-brown-label bg-accent-peach/50 text-navy"
+                  : "border-gray-light text-navy hover:border-brown-label"
               }`}
             >
               <Icon size={16} />

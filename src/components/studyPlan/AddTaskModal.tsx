@@ -67,34 +67,35 @@ export default function AddTaskModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="relative w-full max-w-md rounded-2xl bg-bg-container p-6 shadow-xl ring-1 ring-border-light">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/35 p-4">
+      <div className="relative w-full max-w-[500px] rounded-[20px] bg-beige-light p-6 shadow-[0_18px_50px_rgba(26,26,48,.08)]">
         <button
           onClick={onClose}
-          className="absolute right-4 top-4 text-text-muted hover:text-text-main"
+          className="absolute right-4 top-4 rounded-lg p-1 text-gray-secondary hover:bg-gray-input hover:text-navy"
+          aria-label="Close add task dialog"
         >
           <X size={20} />
         </button>
 
-        <h3 className="text-lg font-semibold text-text-main">Add a task</h3>
+        <h3 className="text-xl font-bold tracking-[-0.04em] text-navy">New study task</h3>
 
         <div className="mt-4 space-y-4">
           <div>
-            <label className="text-sm font-medium text-text-main">Title</label>
+            <label className="text-xs font-bold text-gray-secondary">Task name</label>
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Review Chapter 5"
-              className="mt-1 w-full rounded-lg border border-border-light bg-bg-main px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-primary focus:outline-none"
+              className="mt-1 w-full rounded-[10px] border-0 bg-gray-input px-3 py-3 text-sm text-navy outline-none"
             />
           </div>
 
           <div>
-            <label className="text-sm font-medium text-text-main">Course</label>
+            <label className="text-xs font-bold text-gray-secondary">Course</label>
             <select
               value={courseId}
               onChange={(e) => setCourseId(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-border-light bg-bg-main px-3 py-2 text-sm text-text-main focus:border-primary focus:outline-none"
+              className="mt-1 w-full rounded-[10px] border-0 bg-gray-input px-3 py-3 text-sm text-navy outline-none"
             >
               {courses.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -105,11 +106,11 @@ export default function AddTaskModal({
           </div>
 
           <div>
-            <label className="text-sm font-medium text-text-main">Type</label>
+            <label className="text-xs font-bold text-gray-secondary">Activity</label>
             <select
               value={activityType}
               onChange={(e) => setActivityType(e.target.value as ActivityType)}
-              className="mt-1 w-full rounded-lg border border-border-light bg-bg-main px-3 py-2 text-sm text-text-main focus:border-primary focus:outline-none"
+              className="mt-1 w-full rounded-[10px] border-0 bg-gray-input px-3 py-3 text-sm text-navy outline-none"
             >
               <option value="quiz">Quiz</option>
               <option value="flashcards">Flashcards</option>
@@ -119,7 +120,7 @@ export default function AddTaskModal({
           </div>
 
           <div>
-            <label className="text-sm font-medium text-text-main">
+            <label className="text-xs font-bold text-gray-secondary">
               Duration (minutes)
             </label>
             <input
@@ -128,7 +129,7 @@ export default function AddTaskModal({
               onChange={(e) => setDuration(Number(e.target.value))}
               min={5}
               max={120}
-              className="mt-1 w-full rounded-lg border border-border-light bg-bg-main px-3 py-2 text-sm text-text-main focus:border-primary focus:outline-none"
+              className="mt-1 w-full rounded-[10px] border-0 bg-gray-input px-3 py-3 text-sm text-navy outline-none"
             />
           </div>
         </div>
@@ -136,16 +137,16 @@ export default function AddTaskModal({
         <div className="mt-6 flex justify-end gap-3">
           <button
             onClick={onClose}
-            className="rounded-lg px-4 py-2 text-sm font-medium text-text-muted hover:text-text-main"
+            className="rounded-[10px] border border-brown-label px-4 py-2.5 text-sm font-semibold text-navy transition-colors hover:bg-beige-canvas"
           >
             Cancel
           </button>
           <button
             onClick={handleSubmit}
             disabled={!title.trim() || !courseId}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-50"
+            className="rounded-[10px] bg-navy px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-navy/90 disabled:opacity-50"
           >
-            Add task
+            Add to plan
           </button>
         </div>
       </div>

@@ -19,9 +19,9 @@ export default function WorkspaceHeader({
     <header className="flex flex-wrap items-start justify-between gap-4">
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brown-label">
-          Learning workspace
+          Learning workspace · {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
         </p>
-        <h1 className="mt-2 text-2xl font-bold tracking-tight text-navy sm:text-3xl">
+        <h1 className="mt-2 text-2xl font-bold tracking-[-0.04em] text-navy sm:text-3xl">
           Your learning, with a plan.
         </h1>
         <p className="mt-1 text-sm text-gray-secondary">
