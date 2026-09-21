@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import './global.css';
 import { AuthProvider } from "@/src/context/AuthContext";
+import { StudyPlanProvider } from "@/src/context/StudyPlanContext";
+import FocusBar from "@/src/components/studyPlan/FocusBar";
 import ThemeInitializer from "@/src/components/ThemeInitializer";
 
 const jakarta = Plus_Jakarta_Sans({
@@ -32,7 +34,13 @@ export default function RootLayout({
         <ThemeInitializer />
 
         <AuthProvider>
-          {children}
+          {/* Study sessions outlive any single route group — the focus bar
+              lives here so it stays visible on the course pages a started
+              task navigates to, not just the dashboard. */}
+          <StudyPlanProvider>
+            <FocusBar />
+            {children}
+          </StudyPlanProvider>
         </AuthProvider>
       </body>
     </html>
