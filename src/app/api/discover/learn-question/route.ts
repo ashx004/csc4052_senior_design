@@ -4,7 +4,7 @@
 // The client keeps them in React state only.
 
 import { NextRequest, NextResponse } from "next/server";
-import { resolveOllamaBaseUrl } from "@/src/library/ollamaClient";
+import { resolveOllamaBaseUrl, resolveModelFromKey } from "@/src/library/ollamaClient";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import { z } from "zod";
@@ -92,11 +92,11 @@ const RequestBodySchema = z.object({
 async function callOllama(prompt: string, count: number): Promise<string> {
   const configuredUrl = process.env.OLLAMA_PRIMARY_URL;
   const token = process.env.OLLAMA_AUTH_TOKEN;
-  const model = process.env.OLLAMA_MODEL_QUALITY;
+  const model = resolveModelFromKey("museGlimmer");
 
-  if (!configuredUrl || !token || !model) {
+  if (!configuredUrl || !token) {
     throw new Error(
-      "Ollama is not configured. Set OLLAMA_PRIMARY_URL, OLLAMA_AUTH_TOKEN, and OLLAMA_MODEL_QUALITY."
+      "Ollama is not configured. Set OLLAMA_PRIMARY_URL and OLLAMA_AUTH_TOKEN."
     );
   }
 
