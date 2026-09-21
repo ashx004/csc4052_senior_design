@@ -109,12 +109,10 @@ export async function maybeUpdateStudentProfile(
       },
       signal: controller.signal,
       body: JSON.stringify({
-        model: process.env.OLLAMA_SUMMARY_MODEL || "qwen3:4b",
+        model: process.env.OLLAMA_SUMMARY_MODEL || "llama3.2:3b",
         stream: false,
-        // qwen3:4b ignores this at the model-weights level (confirmed via
-        // direct testing) - stripThinkLeak below is the real fix; setting
-        // this explicitly still costs nothing and helps any future model
-        // swapped into OLLAMA_SUMMARY_MODEL that does respect it.
+        // Explicit, costs nothing; stripThinkLeak below stays as the safety
+        // net for any model swapped into OLLAMA_SUMMARY_MODEL that ignores it.
         think: false,
         options: { temperature: 0.2 },
         messages: [

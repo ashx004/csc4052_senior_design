@@ -1,4 +1,4 @@
-import { resolveOllamaBaseUrl } from "@/src/library/ollamaClient";
+import { resolveOllamaBaseUrl, resolveModelFromKey } from "@/src/library/ollamaClient";
 
 // tapout at 5 mins
 const OLLAMA_TIMEOUT_MS = 300000;
@@ -32,7 +32,7 @@ async function callAdvisingOllama(
       },
 
       body: JSON.stringify({
-        model: process.env.OLLAMA_MODEL || "gpt-oss:20b",
+        model: resolveModelFromKey("museGlimmer"),
 
         messages,
         stream: false,

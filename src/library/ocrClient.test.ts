@@ -19,7 +19,7 @@ describe("ocrImage", () => {
   beforeEach(() => {
     vi.stubEnv("OLLAMA_PRIMARY_URL", "http://localhost:11434");
     vi.stubEnv("OLLAMA_AUTH_TOKEN", "test-token");
-    vi.stubEnv("OLLAMA_OCR_MODEL", "moondream:latest");
+    vi.stubEnv("OLLAMA_MODEL_MUSE_GLIMMER", "muse-glimmer:custom-tag");
   });
 
   afterEach(() => {
@@ -39,7 +39,7 @@ describe("ocrImage", () => {
     expect(url).toBe("http://localhost:11434/api/chat");
     expect(init?.headers).toMatchObject({ Authorization: "Bearer test-token" });
     const body = JSON.parse((init as RequestInit).body as string);
-    expect(body.model).toBe("moondream:latest");
+    expect(body.model).toBe("muse-glimmer:custom-tag");
     expect(body.stream).toBe(false);
     expect(body.messages[0].role).toBe("system");
     expect(body.messages[1].images[0]).toBe(IMAGE_BYTES.toString("base64"));
@@ -58,9 +58,21 @@ describe("ocrImage", () => {
   });
 
   it("throws when the service isn't configured", async () => {
-    vi.stubEnv("OLLAMA_OCR_MODEL", "");
+    vi.stubEnv("OLLAMA_AUTH_TOKEN", "");
 
     await expect(ocrImage(IMAGE_BYTES)).rejects.toThrow("OCR service is not configured.");
+  });
+
+  it("falls back to the literal Muse Glimmer tag when OLLAMA_MODEL_MUSE_GLIMMER isn't set", async () => {
+    vi.stubEnv("OLLAMA_MODEL_MUSE_GLIMMER", "");
+    stubFetch({ ok: true, json: { message: { content: "text" } } });
+
+    await ocrImage(IMAGE_BYTES);
+
+    const fetchMock = vi.mocked(fetch);
+    const [, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse((init as RequestInit).body as string);
+    expect(body.model).toBe("muse-glimmer:latest");
   });
 
   it("times out with a clear message if the request hangs, instead of waiting forever", async () => {

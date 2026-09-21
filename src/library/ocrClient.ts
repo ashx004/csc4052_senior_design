@@ -1,10 +1,11 @@
-import { resolveOllamaBaseUrl } from "./ollamaClient";
+import { resolveOllamaBaseUrl, resolveModelFromKey } from "./ollamaClient";
 import { createTimeoutSignal } from "./withTimeout";
 
-// Server-only: transcribes an image via the OCR-capable Ollama vision model
-// already running on the primary box. Never import this from a client
-// component — OLLAMA_PRIMARY_URL / OLLAMA_AUTH_TOKEN / OLLAMA_OCR_MODEL are
-// not NEXT_PUBLIC_ and must stay server-side.
+// Server-only: transcribes an image via Muse Glimmer (the app's one main
+// model - multimodal enough to cover OCR too, see resolveModelFromKey)
+// running on the primary box. Never import this from a client component —
+// OLLAMA_PRIMARY_URL / OLLAMA_AUTH_TOKEN are not NEXT_PUBLIC_ and must stay
+// server-side.
 //
 // Uses the same /api/chat endpoint, bearer auth, and `data.message.content`
 // response shape as every other model call in this codebase (chat, chunk
@@ -29,7 +30,7 @@ const OCR_SYSTEM_PROMPT = `You are an OCR engine for college notes. Transcribe A
 const OCR_TIMEOUT_MS = 120_000;
 
 export async function ocrImage(imageBytes: Buffer, signal?: AbortSignal): Promise<string> {
-  if (!process.env.OLLAMA_PRIMARY_URL || !process.env.OLLAMA_AUTH_TOKEN || !process.env.OLLAMA_OCR_MODEL) {
+  if (!process.env.OLLAMA_PRIMARY_URL || !process.env.OLLAMA_AUTH_TOKEN) {
     throw new Error("OCR service is not configured.");
   }
 
@@ -50,7 +51,7 @@ export async function ocrImage(imageBytes: Buffer, signal?: AbortSignal): Promis
       },
       signal: combinedSignal,
       body: JSON.stringify({
-        model: process.env.OLLAMA_OCR_MODEL,
+        model: resolveModelFromKey("ocr"),
         stream: false,
         options: { temperature: 0.1 },
         messages: [
