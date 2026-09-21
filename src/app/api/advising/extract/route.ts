@@ -6,6 +6,7 @@ import { FieldValue, } from "firebase-admin/firestore";
 import { adminDb, } from "@/src/library/firebaseAdmin";
 import { transcriptExtractionSchema, curriculumExtractionSchema, } from "@/src/library/advisingSchemas";
 import { cleanTranscriptTextForOllama } from "@/src/library/advisingTranscriptCleanup";
+import { findTermCreditMismatches } from "@/src/library/advisingTranscriptChecks";
 
 export async function POST(request: NextRequest) {
   try {
@@ -49,6 +50,25 @@ export async function POST(request: NextRequest) {
        gets saved to Firestore. */
 
     const transcriptData = transcriptExtractionSchema.parse(rawTranscriptData);
+    const creditMismatches = findTermCreditMismatches(rawTranscriptText, transcriptData.courses);
+
+    // "B R" becomes "B". A lone "R" is not a grade.
+    for (const course of transcriptData.courses) {
+      if (!course.grade) continue;
+      const cleaned = course.grade.trim().replace(/\s+R$/i, "");
+      course.grade = cleaned === "" || cleaned.toUpperCase() === "R" ? null : cleaned;
+    }
+
+    transcriptData.warnings.push(...creditMismatches);
+    
+    // Never save an empty read over good data.
+    if (transcriptData.courses.length === 0) {
+      return NextResponse.json(
+        { error: "No courses could be read from your transcript. Please check that you uploaded the right file." },
+        { status: 422 }
+      );
+    }
+
     const curriculumData = curriculumExtractionSchema.parse(rawCurriculumData);
 
     // Detect the structured marker so the frontend can prompt the student
@@ -73,12 +93,8 @@ export async function POST(request: NextRequest) {
 
     const unreadableTransfer = findUnreadableTransferWarning(transcriptData.warnings);
 
-
-    console.log("FINAL TRANSCRIPT DATA TO SAVE:");
-    console.dir(transcriptData, { depth: null });
-
-    console.log("FINAL CURRICULUM DATA TO SAVE:");
-    console.dir(curriculumData, { depth: null });
+    
+    console.log(`Extracted ${transcriptData.courses.length} courses, ${curriculumData.requirements.length} requirements, ${creditMismatches.length} credit warnings`);
 
 
     // firestore document locations

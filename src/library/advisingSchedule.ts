@@ -262,17 +262,6 @@ export function courseCodesEquivalent(
     return false;
   }
 
-  // Extra protection against false matches such as:
-  // CSC 403 "Senior Capstone I"
-  // CSC 4033 "Software Design and Engineering"
-  if (
-    curriculumTitle &&
-    transcriptCourse.courseTitle &&
-    !titlesLikelyMatch(curriculumTitle, transcriptCourse.courseTitle)
-  ) {
-    return false;
-  }
-
   return true;
 }
 
@@ -282,57 +271,45 @@ export function prerequisitesSatisfied(
   transcriptCourses: TranscriptCourse[]
 ): { satisfied: boolean; unmetPrerequisites: string[] } {
 
-  const unmetPrerequisites = prerequisites.filter((prerequisiteCode) => {
+  // Each element is ONE required prerequisite. Alternatives inside it are
+  // joined with "or". Commas / "and" / "&" split into separate required items.
+  const required = prerequisites.flatMap((entry) =>
+    entry.split(/\s*[,;&]\s*|\s+and\s+/i).map((p) => p.trim()).filter(Boolean)
+  );
 
-    // A prerequisite must be genuinely finished (completed at this
-    // institution, or transfer credit) — being currently in-progress does
-    // NOT satisfy a prerequisite, that's what corequisites are for.
-    const isSatisfied = transcriptCourses.some(
-      (course) =>
-        COMPLETED_STATUSES.includes(course.status) &&
-        courseCodesEquivalent(prerequisiteCode, course)
+  const unmetPrerequisites = required.filter((requirement) => {
+    const alternatives = requirement.split(/\s+or\s+/i).map((c) => c.trim()).filter(Boolean);
+
+    const isSatisfied = alternatives.some((code) =>
+      transcriptCourses.some(
+        (course) =>
+          COMPLETED_STATUSES.includes(course.status) &&
+          courseCodesEquivalent(code, course)
+      )
     );
-
     return !isSatisfied;
   });
 
-  return {
-    satisfied: unmetPrerequisites.length === 0,
-    unmetPrerequisites,
-  };
+  return { satisfied: unmetPrerequisites.length === 0, unmetPrerequisites };
 }
 
 
 
-function gradeRank(
-  grade: string | null
-): number | null {
-
+function gradeRank(grade: string | null): number | null {
   if (!grade) { return null; }
 
-  const normalized = grade.trim().toUpperCase();
+  // Uses the leading letter only, so "B R", "C or higher", "C-" all resolve.
+  // "IP", "W", "CR", "GPA", "Rubric GPA" return null.
+  const match = grade.trim().toUpperCase().match(/^([ABCDFP])(?![A-Z])/);
+  if (!match) { return null; }
 
-  switch (normalized) {
-    case "A":
-      return 4;
-
-    case "B":
-      return 3;
-
-    case "C":
-      return 2;
-
-    case "D":
-      return 1;
-
-    case "F":
-      return 0;
-
-    case "P":
-      return 2;
-
-    default:
-      return null;
+  switch (match[1]) {
+    case "A": return 4;
+    case "B": return 3;
+    case "C": return 2;
+    case "P": return 2;
+    case "D": return 1;
+    default:  return 0; // "F"
   }
 }
 
@@ -341,16 +318,15 @@ function satisfiesMinimumGrade(
   course: TranscriptCourse,
   minimumGrade?: string | null
 ): boolean {
-
   if (!minimumGrade) { return true; }
 
-  const courseRank = gradeRank(course.grade);
   const minimumRank = gradeRank(minimumGrade);
+  // Not a recognizable letter grade (e.g. "GPA"): don't fail the course.
+  if (minimumRank === null) { return true; }
 
-  if ( courseRank === null || minimumRank === null )
-  {
-    return false;
-  }
+  const courseRank = gradeRank(course.grade);
+  // Transfer credit is usually posted without a usable grade.
+  if (courseRank === null) { return course.status === "transfer"; }
 
   return courseRank >= minimumRank;
 }

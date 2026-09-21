@@ -17,7 +17,6 @@ import { generateScheduleWithOllama, } from "@/src/library/advisingOllama";
 import { generatedAdvisingScheduleSchema, } from "@/src/library/advisingSchemas";
 
 
-
 function normalizeCourseCode(courseCode: string): string {
   return courseCode.replace(/\s+/g, "").toUpperCase();
 }
@@ -407,7 +406,6 @@ export async function POST(
       );
     }
 
-
     const userId = auth.uid;
 
 
@@ -478,8 +476,39 @@ export async function POST(
     }
 
     const transcript = transcriptSnap.data() as TranscriptData;
+    const curriculum = curriculumSnap.data() as CurriculumData;
 
-    const curriculum =  curriculumSnap.data() as CurriculumData;
+    console.log(
+      "DEBUG transcript:",
+      transcript.courses.length, "courses |",
+      transcript.courses.filter((c) => c.status === "completed").length, "completed |",
+      transcript.courses.filter((c) => c.status === "in-progress").length, "in-progress |",
+      transcript.courses.filter((c) => c.status === "transfer").length, "transfer |",
+      "warnings:", JSON.stringify(transcript.warnings ?? [])
+    );
+    console.log("DEBUG curriculum codes:", curriculum.requirements.slice(0, 15).map((r) => r.courseCode));
+
+    console.log(
+      "DEBUG rows:\n" +
+      transcript.courses
+        .map((c) => `${c.courseCode} | ${c.term} | ${c.creditHours} | ${c.grade} | ${c.status}`)
+        .join("\n")
+    );
+
+    if ((transcript.warnings ?? []).some((w: string) => w.startsWith("TRANSCRIPT_CREDIT_MISMATCH"))) {
+      return NextResponse.json(
+        { error: "Some courses on your transcript may not have been read correctly. Please review your transcript before generating a schedule." },
+        { status: 409 }
+      );
+    }
+
+    if (!transcript.courses.some((c) => ["completed", "transfer", "in-progress"].includes(c.status))) {
+      return NextResponse.json(
+        { error: "No completed courses were found on your transcript, so a schedule can't be generated. Please re-upload your transcript." },
+        { status: 409 }
+      );
+    }
+
 
     /*
       Determine which degree requirements
@@ -487,15 +516,6 @@ export async function POST(
     */
 
     const academicProgress = buildAcademicProgress(transcript, curriculum);
-
-    console.log("FULL PROGRAM REQUIREMENT RESULTS:");
-    console.dir(academicProgress.program.requirements, { depth: null });
-
-    if (academicProgress.concentration) {
-      console.log("FULL CONCENTRATION REQUIREMENT RESULTS:");
-      console.dir(academicProgress.concentration.requirements, { depth: null });
-    }
-
 
     /*
       Collect ONLY remaining requirements.
@@ -518,9 +538,6 @@ export async function POST(
             ),
           ];
 
-          
-            console.log("REMAINING REQUIREMENTS:", remainingRequirements);
-            console.dir(remainingRequirements, { depth: null } );
 
             const needsReviewRequirements = [
               ...academicProgress.program.requirements
@@ -532,9 +549,6 @@ export async function POST(
                   : []
               ),
             ];
-
-            console.log("NEEDS-REVIEW REQUIREMENTS:", needsReviewRequirements);
-            console.dir(needsReviewRequirements, { depth: null });
 
         /*
           Split into requirements that are actually schedulable right now
@@ -572,14 +586,6 @@ export async function POST(
           }
         }
 
-        console.log("SCHEDULABLE REQUIREMENTS:", schedulableRequirements);
-        console.dir(schedulableRequirements, { depth: null });
-
-        console.log("BLOCKED REQUIREMENTS (unmet prerequisites):", blockedRequirements);
-        console.dir(blockedRequirements, { depth: null });
-
-
-
     /* Load known course-offering information. */
 
     const courseOfferingCache = await loadCourseOfferingCache();
@@ -611,10 +617,6 @@ export async function POST(
       );
 
 
-    console.log("CANDIDATE COURSE CODES:", candidateCourseCodes);
-    console.dir(candidateCourseCodes, { depth: null } );
-
-
     /* Determine when each candidate is actually offered. */
 
     const courseAvailability =
@@ -624,8 +626,6 @@ export async function POST(
         courseOfferingCache
       );
 
-    console.log("COURSE AVAILABILITY:");
-    console.dir(courseAvailability, { depth: null });
 
     const groupedAvailability = groupCourseAvailability(courseAvailability);
 
@@ -663,8 +663,6 @@ export async function POST(
 
     const schedule = generatedAdvisingScheduleSchema.parse(rawSchedule);
 
-    console.log("OLLAMA GENERATED SCHEDULE:");
-    console.dir(schedule, { depth: null });
 
         /*
           Validate important factual rules.
