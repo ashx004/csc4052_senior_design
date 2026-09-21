@@ -40,9 +40,9 @@ const MAX_CHAT_INPUT_CHARS = 4000; // mirrors the client's <input maxLength> in 
 // gets this long, fold everything except the last KEEP_RECENT_MESSAGES turns
 // into a running summary instead of resending it verbatim every request.
 // Raised from the original 12000/6 - that was conservative even for
-// qwen3:14b's real 40960-token context, and both current models (Fast:
-// gpt-oss:20b, Quality: qwen3:30b-a3b) have substantially larger real
-// context windows, so there's real headroom to keep more actual
+// qwen3:14b's real 40960-token context, and the app's main model (Muse
+// Glimmer, see resolveModelFromKey) has substantially more real context
+// window than that, so there's real headroom to keep more actual
 // conversation verbatim (better continuity, no lossy summarization) before
 // compaction needs to kick in at all.
 const COMPACTION_CHAR_THRESHOLD = 45000;
@@ -1150,10 +1150,15 @@ function wrapDeltaForThinkStripping(onDelta: (text: string) => void): {
   return { handleDelta, flush, discard };
 }
 
-// The two models with a confirmed <think>-leak (see THINK_STRIP_BUFFER_CAP's
+// Models with a confirmed <think>-leak (see THINK_STRIP_BUFFER_CAP's
 // comment) - every other model streams straight through via
-// passthroughDelta below instead.
-const MODELS_KNOWN_TO_LEAK_THINKING = ["qwen3A3b", "fastResident"];
+// passthroughDelta below instead. Empty since the 2026-09-21 unification
+// onto Muse Glimmer alone (the two models that WERE confirmed to leak,
+// qwen3A3b/qwen3:30b-a3b and fastResident/gpt-oss:20b, are no longer used
+// anywhere) - Muse Glimmer itself was never observed to leak during the
+// 2026-08-13 benchmark. If that turns out wrong in practice, add
+// "museGlimmer" back here rather than removing the stripping machinery.
+const MODELS_KNOWN_TO_LEAK_THINKING: string[] = [];
 
 // No buffering, no delay - text reaches the client the instant Ollama
 // produces it. flush/discard are no-ops since there's never anything held
@@ -1221,7 +1226,7 @@ async function callOllama(
   temperature = CHAT_TEMPERATURE,
   target: OllamaTarget = {
     baseUrl: process.env.OLLAMA_PRIMARY_URL || "",
-    model: process.env.OLLAMA_MODEL || "gpt-oss:20b",
+    model: resolveModelFromKey(undefined),
   }
 ) {
   const controller = new AbortController();
@@ -1672,16 +1677,13 @@ export async function POST(request: NextRequest) {
   }
 
   const encoder = new TextEncoder();
-  // modelKey picks which of the 5 models (see chatMode.ts's TaskModelKey/
-  // UnifiedModelKey) actually handles this chat turn - either the
-  // student's per-task "AI Chat model" choice, or the unified pick if
-  // they've turned on "Reduce cold boots" (see getEffectiveModelKey).
-  // Whichever one it is boots immediately and then stays resident
-  // indefinitely (FAST_MODEL_KEEP_ALIVE), until the student picks a
-  // different one - not just when it happens to be "fastResident". Every
-  // key other than "fastResident" itself still competes with the
-  // vision/OCR model for VRAM while it's the one loaded - see the
-  // gatekeeper proxy in front of Ollama for the eviction mechanics.
+  // modelKey is legacy plumbing (see chatMode.ts's getEffectiveModelKey) -
+  // resolveModelFromKey now always resolves it to the app's one main model,
+  // Muse Glimmer, which handles this chat turn regardless of what key was
+  // sent. It boots immediately and stays resident indefinitely
+  // (FAST_MODEL_KEEP_ALIVE). Since OCR/vision now also runs on Muse Glimmer
+  // (see ocrClient.ts), there's no separate vision model competing with it
+  // for VRAM anymore - the two no longer evict each other.
   const primaryTarget: OllamaTarget = {
     baseUrl: await resolveOllamaBaseUrl(process.env.OLLAMA_PRIMARY_URL, process.env.OLLAMA_PRIMARY_FALLBACK_URL),
     model: resolveModelFromKey(modelKey),
@@ -1780,17 +1782,13 @@ export async function POST(request: NextRequest) {
         // Clarification and persisting this turn's user message run
         // alongside profile-loading (not after) so their round-trips are
         // hidden behind that rather than adding their own serial latency in
-        // front of every response. Clarification itself is skipped outright
-        // for the always-resident "fastResident" key: it's designed
-        // fail-open/additive (see queryClarifier.ts), so skipping it just
-        // means the raw message goes to the primary model unclarified, same
-        // as any other message this feature declines to touch - a real (if
-        // now modest, since the llama3.2:3b swap) latency + one fewer
-        // network round trip saved for students who've explicitly opted
-        // into the fastest model.
+        // front of every response. The old "skip clarification for the
+        // always-resident fastResident key" special case is gone along with
+        // fastResident itself (2026-09-21 unification onto Muse Glimmer) -
+        // clarification now always runs when there's content to clarify.
         const [loadedProfile, clarifiedIntent, startedPersist] = await Promise.all([
           context?.userId ? getStudentProfile(context.userId, getIdToken(request) ?? undefined) : Promise.resolve(studentProfile),
-          modelKey !== "fastResident" && typeof latestMessage?.content === "string"
+          typeof latestMessage?.content === "string"
             ? clarifyUserQuery(latestMessage.content)
             : Promise.resolve(null),
           typeof latestMessage?.content === "string"
