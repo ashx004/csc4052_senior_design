@@ -28,6 +28,8 @@ import { // import symbols
     Minus,
     Plus,
     ScanText,
+    RotateCcw,
+    Pencil,
 } from "lucide-react";
 // PrismLight + explicit per-language registration instead of the default
 // `react-syntax-highlighter` import, which bundles all ~300 Prism language
@@ -64,12 +66,17 @@ import nasm from "react-syntax-highlighter/dist/esm/languages/prism/nasm";
     ["ruby", ruby], ["kotlin", kotlin], ["swift", swift], ["bash", bash], ["nasm", nasm],
 ].forEach(([name, lang]) => SyntaxHighlighter.registerLanguage(name as string, lang as any));
 import { renderAsync } from "docx-preview";
+import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import CircleIconButton from "./CircleIconButton";
-import { uploadUserResource, getCourseResources, deleteUserResource, MAX_FILE_SIZE_BYTES, INDEXABLE_FILE_TYPES } from "./fileUploadService";
+import { addOcrDocumentPages, uploadUserResource, getCourseResources, deleteUserResource, MAX_FILE_SIZE_BYTES, INDEXABLE_FILE_TYPES } from "./fileUploadService";
+import { db } from "@/src/library/firebase";
 
 const MAX_FILES_PER_BATCH = 5;
 
 export type Category = "classDoc" | "notes" | "assignments";
+type OcrStatus = "queued" | "processing" | "complete" | "failed";
+type IndexStatus = "queued" | "processing" | "complete" | "failed";
+type OcrPage = { id: string; name: string; order: number };
 
 // Code language syntax highlighting support
 const CODE_TYPES = {
@@ -148,11 +155,16 @@ export interface Resource {
     category: Category;
     uploadedAt: Date;
     lastViewedAt: Date;
-    // Set on the resource doc when it's an OCR transcription of an
-    // uploaded image (see embed-document/route.ts's
-    // persistImageTranscriptionAsResource) — the original image is gone by
-    // then, so this is the only remaining signal it was ever a scan.
+    // Set when a generated text resource came from an uploaded image scan.
     ocrScanned?: boolean;
+    ocrStatus?: OcrStatus;
+    ocrTranscriptUrl?: string;
+    ocrError?: string;
+    indexStatus?: IndexStatus;
+    indexError?: string;
+    resourceKind?: "ocr_document";
+    pageCount?: number;
+    manualTranscript?: boolean;
 }
 
 const CATEGORY_LABELS: Record<Category, string> = {
@@ -164,11 +176,63 @@ const CATEGORY_LABELS: Record<Category, string> = {
 function OcrScannedBadge() {
     return (
         <span
-            title="Created from an OCR scan of an uploaded image"
+            title="Created from an OCR scan"
             className="inline-flex items-center gap-1 rounded-full bg-bg-warm px-2 py-0.5 text-[10px] font-medium text-primary"
         >
             <ScanText size={11} strokeWidth={2.25} />
             OCR
+        </span>
+    );
+}
+
+function isOcrStatus(value: unknown): value is OcrStatus {
+    return value === "queued" || value === "processing" || value === "complete" || value === "failed";
+}
+
+function OcrStatusBadge({ status }: { status: OcrStatus }) {
+    const labels: Record<OcrStatus, string> = {
+        queued: "OCR queued",
+        processing: "OCR processing",
+        complete: "OCR ready",
+        failed: "OCR failed",
+    };
+    const classes: Record<OcrStatus, string> = {
+        queued: "bg-bg-warm text-text-muted",
+        processing: "bg-bg-warm text-primary",
+        complete: "bg-bg-warm text-primary",
+        failed: "bg-alert-error-bg text-alert-error",
+    };
+
+    return (
+        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${classes[status]}`}>
+            {status === "processing" ? <Loader2 size={11} className="animate-spin" /> : <ScanText size={11} />}
+            {labels[status]}
+        </span>
+    );
+}
+
+function isIndexStatus(value: unknown): value is IndexStatus {
+    return value === "queued" || value === "processing" || value === "complete" || value === "failed";
+}
+
+function IndexStatusBadge({ status }: { status: IndexStatus }) {
+    const labels: Record<IndexStatus, string> = {
+        queued: "Queued for AI",
+        processing: "Adding to AI",
+        complete: "AI ready",
+        failed: "AI indexing failed",
+    };
+    const classes: Record<IndexStatus, string> = {
+        queued: "bg-bg-warm text-text-muted",
+        processing: "bg-bg-warm text-primary",
+        complete: "bg-bg-warm text-primary",
+        failed: "bg-alert-error-bg text-alert-error",
+    };
+
+    return (
+        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${classes[status]}`}>
+            {status === "processing" ? <Loader2 size={11} className="animate-spin" /> : <ScanText size={11} />}
+            {labels[status]}
         </span>
     );
 }
@@ -188,10 +252,40 @@ function toDateSafe(value: any): Date {
     return new Date();
 }
 
+function toResource(raw: any): Resource | null {
+    const fileType = raw.resourceKind === "ocr_document"
+        ? "txt"
+        : getFileType(raw.name ?? "") ?? getFileType(`resource.${raw.fileType ?? ""}`);
+    if (!fileType) return null;
+    return {
+        id: raw.id,
+        name: raw.name,
+        url: raw.url,
+        fileType,
+        category: (raw.category as Category) ?? "notes",
+        uploadedAt: toDateSafe(raw.uploadedAt),
+        lastViewedAt: toDateSafe(raw.lastViewedAt),
+        ocrScanned: raw.ocrScanned === true,
+        ocrStatus: isOcrStatus(raw.ocrStatus) ? raw.ocrStatus : undefined,
+        ocrTranscriptUrl: typeof raw.ocrTranscriptUrl === "string" ? raw.ocrTranscriptUrl : undefined,
+        ocrError: typeof raw.ocrError === "string" ? raw.ocrError : undefined,
+        indexStatus: isIndexStatus(raw.indexStatus) ? raw.indexStatus : undefined,
+        indexError: typeof raw.indexError === "string" ? raw.indexError : undefined,
+        resourceKind: raw.resourceKind === "ocr_document" ? "ocr_document" : undefined,
+        pageCount: typeof raw.pageCount === "number" ? raw.pageCount : undefined,
+        manualTranscript: raw.manualTranscript === true,
+    };
+}
+
+function thumbnailCacheKey(resource: Resource): string {
+    return `${resource.fileType}:${resource.url}`;
+}
+
 type ThumbnailData = { kind: "image" | "text"; content: string };
 
 async function generateThumbnail(resource: Resource): Promise<ThumbnailData | null> {
     try {
+        if (!resource.url) return null;
         if (resource.fileType === "image") {
             const res = await fetch(resource.url);
             if (!res.ok) return null;
@@ -354,6 +448,9 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
     const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
     const [activeIndex, setActiveIndex] = useState(0);
     const [previewResource, setPreviewResource] = useState<Resource | null>(null);
+    const [retryingOcrIds, setRetryingOcrIds] = useState<Set<string>>(new Set());
+    const [ocrPages, setOcrPages] = useState<OcrPage[]>([]);
+    const [showOcrPages, setShowOcrPages] = useState(false);
 
     const [selectMode, setSelectMode] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -365,6 +462,11 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
     const [newCategory, setNewCategory] = useState<Category>("classDoc");
     const [isUploading, setIsUploading] = useState(false);
     const [uploadError, setUploadError] = useState<string | null>(null);
+    const pageUploadRef = useRef<HTMLInputElement | null>(null);
+    const [addingPages, setAddingPages] = useState(false);
+    const [editingTranscript, setEditingTranscript] = useState(false);
+    const [editedTranscript, setEditedTranscript] = useState("");
+    const [savingTranscript, setSavingTranscript] = useState(false);
 
     const [searchQuery, setSearchQuery] = useState("");
     const [categoryFilter, setCategoryFilter] = useState<Category | "all">("all");
@@ -381,6 +483,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
 
     const [thumbnails, setThumbnails] = useState<Record<string, ThumbnailData>>({});
     const thumbnailInFlight = useRef<Set<string>>(new Set());
+    const thumbnailSourceKeys = useRef<Record<string, string>>({});
 
     // WORD DOC PREVIEW CONSTANTS
     // Track zoom factor as a decimal multiplier (1.0 = 100%)
@@ -391,27 +494,36 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
     const handleZoomOut = () => setZoom((prev) => Math.max(prev - 0.1, 0.5)); // Min 50%
     const handleZoomReset = () => setZoom(1.0);
 
+    function applyResources(nextResources: Resource[]) {
+        setResources(nextResources);
+        setThumbnails((previous) => {
+            const next = { ...previous };
+            const liveIds = new Set(nextResources.map((resource) => resource.id));
+            for (const resource of nextResources) {
+                if (thumbnailSourceKeys.current[resource.id] !== thumbnailCacheKey(resource)) {
+                    delete next[resource.id];
+                    delete thumbnailSourceKeys.current[resource.id];
+                }
+            }
+            for (const id of Object.keys(thumbnailSourceKeys.current)) {
+                if (!liveIds.has(id)) {
+                    delete next[id];
+                    delete thumbnailSourceKeys.current[id];
+                }
+            }
+            return next;
+        });
+    }
+
     async function loadResources() {
         setIsLoadingResources(true);
         setLoadError(null);
         try {
             const raw = await getCourseResources(userId, courseId);
             const mapped: Resource[] = raw
-                .map((r: any) => {
-                    const fileType = getFileType(r.name);
-                    if (!fileType) return null;
-                    return {
-                        id: r.id,
-                        name: r.name,
-                        url: r.url,
-                        fileType,
-                        category: (r.category as Category) ?? "notes",
-                        uploadedAt: toDateSafe(r.uploadedAt),
-                        lastViewedAt: toDateSafe(r.lastViewedAt),
-                    } as Resource;
-                })
+                .map(toResource)
                 .filter((r: Resource | null): r is Resource => r !== null);
-            setResources(mapped);
+            applyResources(mapped);
 
             // Self-healing lazy backfill: any resource that was indexed
             // before the Qdrant collection got recreated at the correct
@@ -444,8 +556,54 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
 
     useEffect(() => {
         loadResources();
+        const unsubscribe = onSnapshot(
+            collection(db, "users", userId, "enrollment", courseId, "resources"),
+            (snapshot) => {
+                const liveResources = snapshot.docs
+                    .map((resourceDoc) => toResource({ id: resourceDoc.id, ...resourceDoc.data() }))
+                    .filter((resource: Resource | null): resource is Resource => resource !== null);
+                applyResources(liveResources);
+                setIsLoadingResources(false);
+                setLoadError(null);
+            },
+            (error) => {
+                console.error("Error watching course resources:", error);
+                setLoadError("Couldn't keep resources up to date.");
+                setIsLoadingResources(false);
+            }
+        );
+        return unsubscribe;
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [userId, courseId]);
+
+    useEffect(() => {
+        setPreviewResource((current) =>
+            current ? resources.find((resource) => resource.id === current.id) ?? current : null
+        );
+    }, [resources]);
+
+    useEffect(() => {
+        if (!previewResource || previewResource.resourceKind !== "ocr_document") {
+            setOcrPages([]);
+            setShowOcrPages(false);
+            return;
+        }
+        return onSnapshot(
+            query(
+                collection(db, "users", userId, "enrollment", courseId, "resources", previewResource.id, "pages"),
+                orderBy("order", "asc")
+            ),
+            (snapshot) => setOcrPages(snapshot.docs.map((page) => ({
+                id: page.id,
+                name: typeof page.data().name === "string" ? page.data().name : "Untitled image",
+                order: typeof page.data().order === "number" ? page.data().order : 0,
+            }))),
+            (error) => {
+                console.error("Couldn't load OCR source images:", error);
+                setPreviewError("Couldn't load the OCR source-image list.");
+            }
+        );
+    }, [previewResource?.id, previewResource?.resourceKind, userId, courseId]);
 
     const presentFileTypes = Array.from(new Set(resources.map((r) => r.fileType)));
 
@@ -485,9 +643,11 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
             if (DOWNLOAD_ONLY_TYPES.includes(resource.fileType)) return;
 
             thumbnailInFlight.current.add(resource.id);
+            const sourceKey = thumbnailCacheKey(resource);
             generateThumbnail(resource)
                 .then((result) => {
                     if (result) {
+                        thumbnailSourceKeys.current[resource.id] = sourceKey;
                         setThumbnails((prev) => ({ ...prev, [resource.id]: result }));
                     }
                 })
@@ -633,6 +793,45 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
         setSelectedIds(new Set(sortedResources.map((r) => r.id)));
     }
 
+    function handleRetryOcr(resource: Resource) {
+        if (retryingOcrIds.has(resource.id)) return;
+
+        setRetryingOcrIds((previous) => new Set(previous).add(resource.id));
+        const markProcessing = (current: Resource) =>
+            current.id === resource.id
+                ? { ...current, ocrStatus: "processing" as const, ocrError: undefined }
+                : current;
+        setResources((previous) => previous.map(markProcessing));
+        setPreviewResource((previous) => (previous ? markProcessing(previous) : previous));
+
+        fetch("/api/embed-document", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId, courseId, resourceId: resource.id }),
+            keepalive: true,
+        })
+            .then(async (response) => {
+                if (!response.ok) throw new Error(`OCR retry failed (${response.status})`);
+                await loadResources();
+            })
+            .catch((error) => {
+                console.error(`OCR retry failed for "${resource.name}":`, error);
+                const markFailed = (current: Resource) =>
+                    current.id === resource.id
+                        ? { ...current, ocrStatus: "failed" as const, ocrError: "Couldn't start OCR. Please try again." }
+                        : current;
+                setResources((previous) => previous.map(markFailed));
+                setPreviewResource((previous) => (previous ? markFailed(previous) : previous));
+            })
+            .finally(() => {
+                setRetryingOcrIds((previous) => {
+                    const next = new Set(previous);
+                    next.delete(resource.id);
+                    return next;
+                });
+            });
+    }
+
     async function handleDownloadSelected() {
         const toDownload = resources.filter((r) => selectedIds.has(r.id));
         for (const r of toDownload) {
@@ -681,18 +880,9 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
         setUploadError(null);
         
         try {
-            // Map file array into an array of concurrent upload executions
-            const uploadPromises = selectedFiles.map((file) =>
-                uploadUserResource({
-                    userId,
-                    classDocId: courseId,
-                    file: file,
-                    category: newCategory,
-                })
-            );
-
-            // Execute all uploads simultaneously
-            await Promise.all(uploadPromises);
+            await Promise.all(selectedFiles.map((file) =>
+                uploadUserResource({ userId, classDocId: courseId, file, category: newCategory })
+            ));
 
             // Refresh the course UI data view list 
             await loadResources();
@@ -705,6 +895,94 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
             setUploadError(err.message || "Upload failed. Please try again.");
         } finally {
             setIsUploading(false);
+        }
+    }
+
+    async function handleAddPages(files: File[]) {
+        if (!previewResource || files.length === 0) return;
+        if (previewResource.manualTranscript && !window.confirm(
+            "Adding pages will regenerate this document from its images and replace your manual transcript edits. Continue?"
+        )) return;
+        setAddingPages(true);
+        try {
+            await addOcrDocumentPages({ userId, classDocId: courseId, resourceId: previewResource.id, files });
+            await loadResources();
+        } catch (error) {
+            console.error("Adding OCR pages failed:", error);
+            setPreviewError(error instanceof Error ? error.message : "Couldn't add image pages.");
+        } finally {
+            setAddingPages(false);
+        }
+    }
+
+    async function renameOcrDocument() {
+        if (!previewResource?.resourceKind) return;
+        const name = window.prompt("Resource name", previewResource.name)?.trim();
+        if (!name || name === previewResource.name) return;
+        const response = await fetch("/api/ocr-documents", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId, courseId, resourceId: previewResource.id, action: "rename", name }),
+        });
+        if (!response.ok) throw new Error("Couldn't rename OCR document.");
+        await loadResources();
+    }
+
+    async function renameOcrPage(page: OcrPage) {
+        if (!previewResource) return;
+        const name = window.prompt(`Name for source image ${page.order + 1}`, page.name)?.trim();
+        if (!name || name === page.name) return;
+        const response = await fetch("/api/ocr-documents", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                userId,
+                courseId,
+                resourceId: previewResource.id,
+                action: "renamePage",
+                pageId: page.id,
+                name,
+            }),
+        });
+        if (!response.ok) throw new Error("Couldn't rename source image.");
+        const queued = await fetch("/api/embed-document", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId, courseId, resourceId: previewResource.id }),
+            keepalive: true,
+        });
+        if (!queued.ok) throw new Error("Source image renamed, but the transcript could not be refreshed.");
+        await loadResources();
+    }
+
+    async function saveTranscriptEdit() {
+        if (!previewResource?.resourceKind) return;
+        setSavingTranscript(true);
+        try {
+            const response = await fetch("/api/ocr-documents", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    userId,
+                    courseId,
+                    resourceId: previewResource.id,
+                    action: "editTranscript",
+                    transcript: editedTranscript,
+                }),
+            });
+            if (!response.ok) throw new Error("Couldn't save transcript changes.");
+            setEditingTranscript(false);
+            await fetch("/api/embed-document", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ userId, courseId, resourceId: previewResource.id }),
+                keepalive: true,
+            });
+            await loadResources();
+        } catch (error) {
+            setPreviewError(error instanceof Error ? error.message : "Couldn't save transcript changes.");
+        } finally {
+            setSavingTranscript(false);
         }
     }
 
@@ -946,7 +1224,8 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                             <span className="inline-block rounded-full bg-bg-warm px-2 py-0.5 text-[10px] font-medium text-primary">
                                                 {CATEGORY_LABELS[resource.category]}
                                             </span>
-                                            {resource.ocrScanned && <OcrScannedBadge />}
+                                            {resource.ocrStatus ? <OcrStatusBadge status={resource.ocrStatus} /> : resource.ocrScanned && <OcrScannedBadge />}
+                                            {resource.indexStatus && <IndexStatusBadge status={resource.indexStatus} />}
                                         </div>
                                         <p className="mt-1 text-[10px] text-text-muted">
                                             Uploaded {formatRelativeDate(resource.uploadedAt)} &middot; Viewed{" "}
@@ -1019,7 +1298,8 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                             <span className="rounded-full bg-bg-warm px-2 py-0.5 text-[10px] font-medium text-primary">
                                                 {CATEGORY_LABELS[resource.category]}
                                             </span>
-                                            {resource.ocrScanned && <OcrScannedBadge />}
+                                            {resource.ocrStatus ? <OcrStatusBadge status={resource.ocrStatus} /> : resource.ocrScanned && <OcrScannedBadge />}
+                                            {resource.indexStatus && <IndexStatusBadge status={resource.indexStatus} />}
                                         </div>
                                     </div>
                                 </button>
@@ -1124,7 +1404,8 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                 {CATEGORY_LABELS[activeResource.category]}
                             </span>
                         )}
-                        {activeResource?.ocrScanned && <OcrScannedBadge />}
+                        {activeResource?.ocrStatus ? <OcrStatusBadge status={activeResource.ocrStatus} /> : activeResource?.ocrScanned && <OcrScannedBadge />}
+                        {activeResource?.indexStatus && <IndexStatusBadge status={activeResource.indexStatus} />}
                     </div>
                     {activeResource && (
                         <p className="mt-1 text-center text-xs text-text-muted">
@@ -1143,20 +1424,115 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 sm:p-10" onClick={() => setPreviewResource(null)}>
                     <div className="flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-bg-container shadow-xl" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-between border-b border-border-light px-4 py-3">
-                            <p className="truncate text-sm font-semibold text-text-main">{previewResource.name}</p>
-                            <CircleIconButton icon={<X size={16} />} ariaLabel="Close preview" size="sm" onClick={() => setPreviewResource(null)} />
+                            <p className="truncate text-sm font-semibold text-text-main">
+                                {previewResource.name}{previewResource.resourceKind === "ocr_document" && typeof previewResource.pageCount === "number" ? ` · ${previewResource.pageCount} page${previewResource.pageCount === 1 ? "" : "s"}` : ""}
+                            </p>
+                            <div className="flex items-center gap-2">
+                                {previewResource.resourceKind === "ocr_document" && (
+                                    <>
+                                        <input
+                                            ref={pageUploadRef}
+                                            type="file"
+                                            accept={IMAGE_EXTENSIONS.map((extension) => `.${extension}`).join(",")}
+                                            multiple
+                                            className="hidden"
+                                            onChange={(event) => {
+                                                const files = event.target.files ? Array.from(event.target.files) : [];
+                                                event.currentTarget.value = "";
+                                                void handleAddPages(files);
+                                            }}
+                                        />
+                                        <button
+                                            onClick={() => pageUploadRef.current?.click()}
+                                            disabled={addingPages}
+                                            className="rounded-md border border-border-light px-2 py-1 text-xs font-medium text-primary hover:bg-bg-main disabled:opacity-50"
+                                        >
+                                            {addingPages ? "Adding…" : "Add pages"}
+                                        </button>
+                                        <button
+                                            onClick={() => setShowOcrPages((visible) => !visible)}
+                                            className="rounded-md border border-border-light px-2 py-1 text-xs font-medium text-primary hover:bg-bg-main"
+                                        >
+                                            {showOcrPages ? "Hide pages" : "Source images"}
+                                        </button>
+                                        <button
+                                            onClick={() => void renameOcrDocument().catch((error) => setPreviewError(error.message))}
+                                            className="rounded-md border border-border-light p-1 text-text-muted hover:bg-bg-main"
+                                            aria-label="Rename OCR document"
+                                        >
+                                            <Pencil size={14} />
+                                        </button>
+                                        {previewText !== null && !editingTranscript && (
+                                            <button
+                                                onClick={() => { setEditedTranscript(previewText); setEditingTranscript(true); }}
+                                                className="rounded-md border border-border-light px-2 py-1 text-xs font-medium text-primary hover:bg-bg-main"
+                                            >
+                                                Edit text
+                                            </button>
+                                        )}
+                                    </>
+                                )}
+                                <CircleIconButton icon={<X size={16} />} ariaLabel="Close preview" size="sm" onClick={() => setPreviewResource(null)} />
+                            </div>
                         </div>
 
                         <div className="relative flex-1 overflow-auto bg-bg-container">
+                            {previewResource.resourceKind === "ocr_document" && showOcrPages && (
+                                <div className="border-b border-border-light bg-bg-main p-4">
+                                    <p className="text-xs text-text-muted">These labels become the page headings in the combined transcript.</p>
+                                    <div className="mt-2 space-y-2">
+                                        {ocrPages.map((page) => (
+                                            <div key={page.id} className="flex items-center justify-between gap-3 rounded-md border border-border-light bg-bg-container px-3 py-2">
+                                                <span className="min-w-0 truncate text-sm text-text-main">{page.order + 1}. {page.name}</span>
+                                                <button
+                                                    onClick={() => void renameOcrPage(page).catch((error) => setPreviewError(error.message))}
+                                                    className="shrink-0 text-xs font-medium text-primary hover:underline"
+                                                >
+                                                    Rename
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                             {previewResource.fileType === "pdf" ? (
                                 <iframe src={previewResource.url} title={previewResource.name} className="h-full w-full" />
                             ) : previewResource.fileType === "image" ? (
-                                <div className="flex h-full items-center justify-center bg-bg-main p-6">
-                                    <img
-                                        src={previewResource.url}
-                                        alt={previewResource.name}
-                                        className="max-h-full max-w-full rounded-lg object-contain shadow-sm"
-                                    />
+                                <div className="flex h-full flex-col gap-4 bg-bg-main p-6">
+                                    <div className="flex min-h-0 flex-1 items-center justify-center">
+                                        <img
+                                            src={previewResource.url}
+                                            alt={previewResource.name}
+                                            className="max-h-full max-w-full rounded-lg object-contain shadow-sm"
+                                        />
+                                    </div>
+                                    {previewResource.ocrStatus === "queued" || previewResource.ocrStatus === "processing" ? (
+                                        <div className="flex items-center justify-center gap-2 rounded-lg border border-border-light bg-bg-container p-4 text-sm text-text-muted">
+                                            <Loader2 size={16} className="animate-spin" />
+                                            {previewResource.ocrStatus === "queued" ? "Transcription queued…" : "Transcription processing…"} This preview will update automatically when it is ready.
+                                        </div>
+                                    ) : previewResource.ocrStatus === "failed" ? (
+                                        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-alert-error bg-alert-error-bg p-4 text-sm text-alert-error">
+                                            <p>{previewResource.ocrError || "Transcription failed. You can try again."}</p>
+                                            <button
+                                                onClick={() => handleRetryOcr(previewResource)}
+                                                disabled={retryingOcrIds.has(previewResource.id)}
+                                                className="flex items-center gap-1.5 rounded-md border border-alert-error px-3 py-1.5 text-xs font-medium transition hover:bg-bg-container disabled:cursor-not-allowed disabled:opacity-50"
+                                            >
+                                                {retryingOcrIds.has(previewResource.id) ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
+                                                Retry OCR
+                                            </button>
+                                        </div>
+                                    ) : previewResource.ocrStatus === "complete" ? (
+                                        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-light bg-bg-container p-4 text-sm text-text-muted">
+                                            <span className="flex items-center gap-2"><ScanText size={16} /> Transcription ready.</span>
+                                            {previewResource.ocrTranscriptUrl && (
+                                                <a href={previewResource.ocrTranscriptUrl} download className="text-xs font-medium text-primary hover:underline">
+                                                    Download transcription
+                                                </a>
+                                            )}
+                                        </div>
+                                    ) : null}
                                 </div>
                             ) : DOWNLOAD_ONLY_TYPES.includes(previewResource.fileType) ? (
                                 <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
@@ -1283,6 +1659,20 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                             ) : previewError ? (
                                 <div className="flex h-full items-center justify-center p-6 text-center text-sm text-alert-error">
                                     {previewError}
+                                </div>
+                            ) : editingTranscript && previewResource.resourceKind === "ocr_document" ? (
+                                <div className="flex h-full flex-col gap-3 p-4">
+                                    <textarea
+                                        value={editedTranscript}
+                                        onChange={(event) => setEditedTranscript(event.target.value)}
+                                        className="min-h-0 flex-1 resize-none rounded-md border border-border-light bg-bg-container p-3 font-mono text-sm text-text-main outline-none focus:border-primary"
+                                    />
+                                    <div className="flex justify-end gap-2">
+                                        <button onClick={() => setEditingTranscript(false)} disabled={savingTranscript} className="rounded-md border border-border-light px-3 py-1.5 text-xs font-medium">Cancel</button>
+                                        <button onClick={() => void saveTranscriptEdit()} disabled={savingTranscript} className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-text-inverse disabled:opacity-50">
+                                            {savingTranscript ? "Saving…" : "Save and re-index"}
+                                        </button>
+                                    </div>
                                 </div>
                             ) : previewText !== null ? (
                                 <SyntaxHighlighter

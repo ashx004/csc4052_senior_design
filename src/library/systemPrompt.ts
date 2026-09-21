@@ -14,6 +14,7 @@ export type ChatDocument = {
   category: string;
   url: string;
   vectorIndexed?: boolean;
+  indexStatus?: "queued" | "processing" | "complete" | "failed";
   ocrScanned?: boolean;
 };
 

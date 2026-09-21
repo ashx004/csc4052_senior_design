@@ -28,6 +28,11 @@ function dateKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/** Group persisted ISO timestamps by the viewer's local calendar day. */
+function eventDateKey(event: CalendarEvent): string {
+  return dateKey(new Date(event.startTime));
+}
+
 // ── Event filtering ──────────────────────────────────────────────────────────
 
 /** Return all events that overlap with a given calendar day. */
@@ -39,8 +44,7 @@ export function getEventsForDay(events: CalendarEvent[], day: Date): CalendarEve
 
   return events.filter((ev) => {
     if (ev.allDay) {
-      // All-day events: their date string matches this day's date key.
-      return ev.startTime.slice(0, 10) === dateKey(day);
+      return eventDateKey(ev) === dateKey(day);
     }
     const start = new Date(ev.startTime);
     const end = new Date(ev.endTime);
@@ -74,7 +78,7 @@ export function buildMonthGrid(
   // Flatten events into a map keyed by date string for fast lookup.
   const eventsByDate = new Map<string, CalendarEvent[]>();
   for (const ev of events) {
-    const key = ev.startTime.slice(0, 10);
+    const key = eventDateKey(ev);
     if (!eventsByDate.has(key)) eventsByDate.set(key, []);
     eventsByDate.get(key)!.push(ev);
   }
