@@ -15,6 +15,7 @@ import { loadCourseOfferingCache, CachedCourseOffering, } from "@/src/library/ad
 import { buildFutureTerms, buildCourseAvailability, } from "@/src/library/advisingPlanner";
 import { generateScheduleWithOllama, } from "@/src/library/advisingOllama";
 import { generatedAdvisingScheduleSchema, } from "@/src/library/advisingSchemas";
+import { enforceTermCreditLimit } from "@/src/library/advisingCreditLimit";
 
 
 function normalizeCourseCode(courseCode: string): string {
@@ -674,6 +675,10 @@ export async function POST(
           transcript.courses,
           schedulableRequirements
         );
+
+        const limited = enforceTermCreditLimit(schedule, futureTerms, courseAvailability);
+        schedule.terms = limited.terms;
+        schedule.warnings = [...schedule.warnings, ...limited.warnings];
 
         /*
           Add warnings for requirements we deliberately withheld from Ollama
