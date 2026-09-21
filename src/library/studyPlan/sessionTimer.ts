@@ -22,8 +22,10 @@ export function getActivityUrl(
 ): string {
   switch (activityType) {
     case "quiz":
+      if (!targetId) return `/courses/${courseId}/learning`;
       return `/courses/${courseId}/quizzes/${targetId}?mode=take`;
     case "flashcards":
+      if (!targetId) return `/courses/${courseId}/learning`;
       return `/courses/${courseId}/flashcards?setId=${targetId}`;
     case "reading":
       return `/courses/${courseId}/learning`;

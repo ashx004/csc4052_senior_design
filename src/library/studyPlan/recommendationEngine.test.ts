@@ -132,6 +132,15 @@ describe("chooseActivityType", () => {
       )
     ).toBe("reading");
   });
+
+  it("returns reading for a course-level fallback topic even when quiz is preferred", () => {
+    expect(
+      chooseActivityType(
+        { ...baseTopic, targetId: null, activityType: "reading" },
+        "quiz"
+      )
+    ).toBe("reading");
+  });
 });
 
 describe("generateTasks", () => {
@@ -154,6 +163,39 @@ describe("generateTasks", () => {
     expect(tasks.length).toBeLessThanOrEqual(3);
   });
 
+  it("guarantees reading, quiz, and flashcards when auto mode has a 60-minute budget", () => {
+    const tasks = generateTasks(
+      config,
+      [
+        { ...baseTopic, topicLabel: "Joins quiz", activityType: "quiz", targetId: "q1", quizMastery: null, flashcardEngagement: null },
+        { ...baseTopic, topicLabel: "Joins cards", activityType: "flashcards", targetId: "f1", quizMastery: null, flashcardEngagement: null },
+      ],
+      new Map()
+    );
+
+    expect(tasks.map((task) => task.activityType).sort()).toEqual([
+      "flashcards",
+      "quiz",
+      "reading",
+    ]);
+    expect(tasks.find((task) => task.activityType === "reading")?.targetId).toBeNull();
+    expect(tasks.reduce((sum, task) => sum + task.estimatedMinutes, 0)).toBeLessThanOrEqual(60);
+  });
+
+  it("does not force the three activity types for a 30-minute budget", () => {
+    const tasks = generateTasks(
+      { ...config, availableMinutes: 30 },
+      [
+        { ...baseTopic, activityType: "quiz", targetId: "q1" },
+        { ...baseTopic, topicLabel: "Cards", activityType: "flashcards", targetId: "f1" },
+      ],
+      new Map()
+    );
+
+    expect(tasks.reduce((sum, task) => sum + task.estimatedMinutes, 0)).toBeLessThanOrEqual(30);
+    expect(new Set(tasks.map((task) => task.activityType)).size).toBeLessThan(3);
+  });
+
   it("total estimated time does not exceed available minutes", () => {
     const tasks = generateTasks(config, topics, new Map());
     const totalTime = tasks.reduce((sum, t) => sum + t.estimatedMinutes, 0);
@@ -168,6 +210,17 @@ describe("generateTasks", () => {
 
   it("returns empty array when no topics are provided", () => {
     expect(generateTasks(config, [], new Map())).toEqual([]);
+  });
+
+  it("generates a reading task for a course-level fallback topic", () => {
+    const tasks = generateTasks(
+      config,
+      [{ ...baseTopic, targetId: null, activityType: "reading", topicLabel: "Course exploration" }],
+      new Map()
+    );
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].activityType).toBe("reading");
+    expect(tasks[0].targetId).toBeNull();
   });
 
   it("filters to a specific course when config.courseId is set", () => {

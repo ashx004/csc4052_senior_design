@@ -1,11 +1,12 @@
 "use client";
 
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react";
 import { useAuth } from "@/src/context/AuthContext";
 import { useStudyPlan } from "@/src/hooks/useStudyPlan";
 import { useStudyTasks } from "@/src/hooks/useStudyTasks";
 import { useStudySession } from "@/src/hooks/useStudySession";
 import { useFocusBar } from "@/src/hooks/useFocusBar";
+import { getPlanAggregateUpdates } from "@/src/library/studyPlan/planState";
 import type {
   DailyPlan,
   StudyTask,
@@ -94,6 +95,28 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
     elapsedSeconds
   );
 
+  const updateTaskStatusAndPlan = useCallback(
+    async (taskId: string, newStatus: TaskStatus, reason?: string) => {
+      await updateTaskStatus(taskId, newStatus, reason);
+      if (plan) {
+        const additionalActiveMinutes =
+          newStatus === "completed" && session?.taskId === taskId
+            ? session.activeMinutes
+            : 0;
+        await updatePlanState(
+          getPlanAggregateUpdates(
+            plan,
+            tasks,
+            taskId,
+            newStatus,
+            additionalActiveMinutes
+          )
+        );
+      }
+    },
+    [plan, session, tasks, updatePlanState, updateTaskStatus]
+  );
+
   const value = useMemo<StudyPlanContextValue>(
     () => ({
       plan,
@@ -108,7 +131,7 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
       createPlan,
       updatePlanState,
       createTasksFromGenerated,
-      updateTaskStatus,
+      updateTaskStatus: updateTaskStatusAndPlan,
       startSession,
       pauseSession,
       resumeSession,
@@ -128,7 +151,7 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
       createPlan,
       updatePlanState,
       createTasksFromGenerated,
-      updateTaskStatus,
+      updateTaskStatusAndPlan,
       startSession,
       pauseSession,
       resumeSession,

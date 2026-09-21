@@ -51,6 +51,18 @@ describe("getActivityUrl", () => {
     );
   });
 
+  it("falls back to course learning when a quiz target is missing", () => {
+    expect(getActivityUrl("quiz", "csc430", null)).toBe(
+      "/courses/csc430/learning"
+    );
+  });
+
+  it("falls back to course learning when a flashcard target is missing", () => {
+    expect(getActivityUrl("flashcards", "csc430", null)).toBe(
+      "/courses/csc430/learning"
+    );
+  });
+
   it("builds reading URL", () => {
     expect(getActivityUrl("reading", "csc430", null)).toBe(
       "/courses/csc430/learning"

@@ -6,12 +6,14 @@ import { useAuth } from "@/src/context/AuthContext";
 import { useStudyPlanContext } from "@/src/context/StudyPlanContext";
 import { useCarryover } from "@/src/hooks/useCarryover";
 import { useMasterySignals } from "@/src/hooks/useMasterySignals";
+import { useStudyNotifications } from "@/src/hooks/useStudyNotifications";
 import { buildMasterySignalId } from "@/src/library/studyPlan/masteryCalculation";
 import { useCalendarEvents } from "@/src/hooks/useCalendarEvents";
 import { useLocalCalendarEvents } from "@/src/hooks/useLocalCalendarEvents";
 import { collection, getDocs, addDoc, serverTimestamp, doc, deleteDoc } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
 import { generateTasks } from "@/src/library/studyPlan/recommendationEngine";
+import { getVisibleStudyTasks } from "@/src/library/studyPlan/taskVisibility";
 import { getEmptyRecommendationReason } from "@/src/library/studyPlan/recommendationDiagnostics";
 import { hasUsablePlan } from "@/src/library/studyPlan/planState";
 import { getStudyPlanDateRange } from "@/src/library/studyPlan/calendarRange";
@@ -80,6 +82,13 @@ export default function LearningPage() {
     user?.uid ?? null
   );
   const { signals: masterySignals } = useMasterySignals(user?.uid ?? null);
+  const {
+    notifications,
+    unreadCount,
+    markRead,
+    dismissNotification,
+    createNotification,
+  } = useStudyNotifications(user?.uid ?? null);
 
   const [activeView, setActiveView] = useState<"explore" | "plan" | null>(null);
   const [classes, setClasses] = useState<EnrolledClass[]>([]);
@@ -94,6 +103,19 @@ export default function LearningPage() {
   const [showSuggestTasks, setShowSuggestTasks] = useState(false);
   const [skipConfirm, setSkipConfirm] = useState<{ taskId: string; title: string } | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<string | null>(null);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+
+  const handleNotificationsToggle = useCallback(() => {
+    const opening = !notificationsOpen;
+    setNotificationsOpen(opening);
+    if (opening) {
+      void Promise.all(
+        notifications
+          .filter((notification) => notification.status === "created")
+          .map((notification) => markRead(notification.id))
+      );
+    }
+  }, [markRead, notifications, notificationsOpen]);
 
   const todayRange = useMemo(() => getStudyPlanDateRange(), [today]);
 
@@ -177,6 +199,22 @@ export default function LearningPage() {
             skipCount: 0,
           });
         }
+      }
+
+      for (const cls of classes) {
+        if (topics.some((topic) => topic.courseId === cls.id)) continue;
+        topics.push({
+          courseId: cls.id,
+          courseName: cls.className,
+          courseCode: cls.classCode,
+          topicLabel: "Course exploration",
+          targetId: null,
+          activityType: "reading",
+          quizMastery: null,
+          flashcardEngagement: null,
+          lastStudiedAt: null,
+          skipCount: 0,
+        });
       }
 
       const exams = new Map<string, number>();
@@ -314,12 +352,39 @@ export default function LearningPage() {
 
   const handleCompleteTask = useCallback(
     async (taskId: string) => {
+      const task = tasks.find((candidate) => candidate.id === taskId);
+      if (!task) return;
       if (session && session.taskId === taskId) {
         await completeSession();
       }
       await updateTaskStatus(taskId, "completed");
+
+      await createNotification({
+        type: "task_completed",
+        context: { taskTitle: task.title, courseName: task.courseName },
+        actionUrl: "/learning",
+        taskId,
+        planDate: today,
+        courseId: task.courseId,
+      });
+
+      const remainingTasks = tasks.filter(
+        (candidate) =>
+          candidate.id !== taskId &&
+          (candidate.status === "recommended" || candidate.status === "in_progress")
+      );
+      if (remainingTasks.length === 0) {
+        await createNotification({
+          type: "plan_completed",
+          context: {
+            completedCount: tasks.filter((candidate) => candidate.status === "completed").length + 1,
+          },
+          actionUrl: "/learning",
+          planDate: today,
+        });
+      }
     },
-    [session, completeSession, updateTaskStatus]
+    [tasks, session, completeSession, updateTaskStatus, createNotification, today]
   );
 
   const handleReschedule = useCallback(
@@ -366,6 +431,7 @@ export default function LearningPage() {
       courseName: string;
       courseCode: string;
       activityType: ActivityType;
+      targetId: string | null;
       estimatedMinutes: number;
     }) => {
       if (!user) return;
@@ -376,7 +442,7 @@ export default function LearningPage() {
         courseCode: taskData.courseCode,
         title: taskData.title,
         activityType: taskData.activityType,
-        targetId: null,
+        targetId: taskData.targetId,
         topicLabel: taskData.title,
         estimatedMinutes: taskData.estimatedMinutes,
         source: "manual",
@@ -428,6 +494,8 @@ export default function LearningPage() {
       tasks.filter((t) => t.status !== "skipped" && t.status !== "rescheduled"),
     [tasks]
   );
+
+  const visibleTasks = useMemo(() => getVisibleStudyTasks(tasks), [tasks]);
 
   const nextTask = useMemo(
     () =>
@@ -502,7 +570,7 @@ export default function LearningPage() {
   const planView =
     viewMode === "board" ? (
       <BoardView
-        tasks={tasks}
+        tasks={visibleTasks}
         onStart={handleStartTask}
         onSkip={handleSkipTask}
         onReschedule={(id) => setRescheduleTarget(id)}
@@ -513,7 +581,7 @@ export default function LearningPage() {
       />
     ) : viewMode === "schedule" ? (
       <ScheduleView
-        tasks={tasks}
+        tasks={visibleTasks}
         calendarEvents={allEvents}
         onStart={handleStartTask}
         onSkip={handleSkipTask}
@@ -523,7 +591,7 @@ export default function LearningPage() {
       />
     ) : (
       <ListView
-        tasks={tasks}
+        tasks={visibleTasks}
         onStart={handleStartTask}
         onSkip={handleSkipTask}
         onReschedule={(id) => setRescheduleTarget(id)}
@@ -543,6 +611,12 @@ export default function LearningPage() {
             .charAt(0)
             .toUpperCase()}
           onProfile={() => router.push("/profile")}
+          notificationsOpen={notificationsOpen}
+          notifications={notifications}
+          unreadCount={unreadCount}
+        onNotifications={handleNotificationsToggle}
+          onMarkNotificationRead={markRead}
+          onDismissNotification={dismissNotification}
         />
 
         {!plan && carryoverChecked && carryoverTasks.length > 0 && (

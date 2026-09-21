@@ -42,7 +42,11 @@ export default function NotificationToast() {
   };
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex max-w-sm items-start gap-3 rounded-xl bg-navy px-4 py-3 text-sm text-white shadow-lg animate-in slide-in-from-bottom-2">
+    <div
+      role="status"
+      aria-live="polite"
+      className="fixed bottom-6 right-6 z-50 flex max-w-sm items-start gap-3 rounded-xl bg-navy px-4 py-3 text-sm text-white shadow-lg animate-in slide-in-from-bottom-2"
+    >
       <div className="flex-1">
         <p className="font-semibold">{active.title}</p>
         <p className="mt-0.5 text-white/70">{active.body}</p>

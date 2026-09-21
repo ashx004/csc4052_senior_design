@@ -218,7 +218,7 @@ export interface EligibleTopic {
   courseName: string;
   courseCode: string;
   topicLabel: string;
-  targetId: string;
+  targetId: string | null;
   activityType: ActivityType;
   quizMastery: number | null;
   flashcardEngagement: number | null;
