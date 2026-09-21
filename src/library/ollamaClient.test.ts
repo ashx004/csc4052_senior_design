@@ -31,10 +31,7 @@ describe("resolveModelFromKey", () => {
   });
 
   it("resolves to Muse Glimmer regardless of key, including legacy/unrecognized/missing keys", () => {
-    expect(resolveModelFromKey("nemotron")).toBe("muse-glimmer:latest");
-    expect(resolveModelFromKey("qwenCoder")).toBe("muse-glimmer:latest");
-    expect(resolveModelFromKey("qwen3A3b")).toBe("muse-glimmer:latest");
-    expect(resolveModelFromKey("fastResident")).toBe("muse-glimmer:latest");
+    expect(resolveModelFromKey("someOldStoredKey")).toBe("muse-glimmer:latest");
     expect(resolveModelFromKey("not-a-real-key")).toBe("muse-glimmer:latest");
     expect(resolveModelFromKey(undefined)).toBe("muse-glimmer:latest");
   });
