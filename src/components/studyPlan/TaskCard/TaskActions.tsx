@@ -34,11 +34,11 @@ export default function TaskActions({
   const canReschedule = task.rescheduleCount < 3;
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-1.5">
       {task.status === "recommended" && (
         <button
           onClick={onStart}
-          className="flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-hover"
+          className="flex items-center gap-1 rounded-lg bg-navy px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
         >
           <Play size={12} /> Start
         </button>
@@ -47,7 +47,7 @@ export default function TaskActions({
       {task.status === "in_progress" && onPause && (
         <button
           onClick={onPause}
-          className="flex items-center gap-1 rounded-md bg-bg-main px-3 py-1.5 text-xs font-medium text-text-main ring-1 ring-border-light hover:bg-bg-main/80"
+          className="flex items-center gap-1 rounded-lg bg-gray-input px-3 py-1.5 text-xs font-semibold text-navy ring-1 ring-gray-light hover:bg-white"
         >
           <Pause size={12} /> Pause
         </button>
@@ -56,7 +56,7 @@ export default function TaskActions({
       {task.status === "in_progress" && onComplete && (
         <button
           onClick={onComplete}
-          className="flex items-center gap-1 rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600"
+          className="flex items-center gap-1 rounded-lg bg-navy px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
         >
           <Check size={12} /> Done
         </button>
@@ -64,7 +64,7 @@ export default function TaskActions({
 
       <button
         onClick={onSkip}
-        className="rounded-md p-1.5 text-text-muted hover:bg-bg-main hover:text-text-main"
+        className="rounded-lg p-1.5 text-gray-secondary hover:bg-gray-input hover:text-navy"
         title="Skip"
       >
         <SkipForward size={14} />
@@ -73,7 +73,7 @@ export default function TaskActions({
       {canReschedule && (
         <button
           onClick={onReschedule}
-          className="rounded-md p-1.5 text-text-muted hover:bg-bg-main hover:text-text-main"
+          className="rounded-lg p-1.5 text-gray-secondary hover:bg-gray-input hover:text-navy"
           title="Reschedule"
         >
           <CalendarClock size={14} />
@@ -83,7 +83,7 @@ export default function TaskActions({
       {task.source === "manual" && onDelete && (
         <button
           onClick={onDelete}
-          className="rounded-md p-1.5 text-text-muted hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/30"
+          className="rounded-lg p-1.5 text-gray-secondary hover:bg-accent-peach hover:text-navy"
           title="Delete"
         >
           <Trash2 size={14} />

@@ -1,11 +1,12 @@
 "use client";
 
+import { List, Columns3, Calendar } from "lucide-react";
 import type { PlanViewMode } from "@/src/library/studyPlan/types";
 
-const views: { mode: PlanViewMode; label: string }[] = [
-  { mode: "list", label: "List" },
-  { mode: "board", label: "Board" },
-  { mode: "schedule", label: "Schedule" },
+const views: { mode: PlanViewMode; label: string; icon: typeof List }[] = [
+  { mode: "list", label: "List", icon: List },
+  { mode: "board", label: "Board", icon: Columns3 },
+  { mode: "schedule", label: "Schedule", icon: Calendar },
 ];
 
 interface ViewSwitcherProps {
@@ -15,24 +16,20 @@ interface ViewSwitcherProps {
 
 export default function ViewSwitcher({ current, onChange }: ViewSwitcherProps) {
   return (
-    <div
-      className="flex items-center gap-1 rounded-full bg-gray-input p-1"
-      aria-label="Plan view"
-    >
+    <div className="flex gap-1 rounded-[10px] bg-gray-input p-1">
       {views.map((v) => {
-        const isActive = current === v.mode;
+        const Icon = v.icon;
         return (
           <button
             key={v.mode}
-            type="button"
             onClick={() => onChange(v.mode)}
-            aria-pressed={isActive}
-            className={`rounded-full px-4 py-1.5 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${
-              isActive
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold transition-colors ${
+              current === v.mode
                 ? "bg-navy text-white"
                 : "text-gray-secondary hover:text-navy"
             }`}
           >
+            <Icon size={14} />
             {v.label}
           </button>
         );

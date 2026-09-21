@@ -4,29 +4,14 @@ import { useState } from "react";
 import type { StudyTask } from "@/src/library/studyPlan/types";
 import TaskActions from "./TaskActions";
 import TaskReason from "./TaskReason";
-import {
-  ClipboardList,
-  Layers,
-  BookOpen,
-  MessageCircle,
-  CheckCircle2,
-  SkipForward,
-  Clock,
-} from "lucide-react";
-
-const activityIcons = {
-  quiz: ClipboardList,
-  flashcards: Layers,
-  reading: BookOpen,
-  ai_explanation: MessageCircle,
-};
+import { SkipForward } from "lucide-react";
 
 const statusColors: Record<string, string> = {
-  recommended: "border-border-light",
-  in_progress: "border-primary bg-primary/5",
-  completed: "border-emerald-300 bg-emerald-50/50 dark:border-emerald-800 dark:bg-emerald-950/20",
-  skipped: "border-border-light opacity-60",
-  rescheduled: "border-border-light opacity-60",
+  recommended: "bg-gray-input",
+  in_progress: "bg-gray-input ring-1 ring-brown-label",
+  completed: "bg-gray-input opacity-80",
+  skipped: "bg-gray-input opacity-50",
+  rescheduled: "bg-gray-input opacity-50",
 };
 
 interface TaskCardProps {
@@ -49,36 +34,36 @@ export default function TaskCard({
   onComplete,
 }: TaskCardProps) {
   const [reasonExpanded, setReasonExpanded] = useState(false);
-  const Icon = activityIcons[task.activityType];
 
   return (
     <div
-      className={`rounded-xl border p-4 transition-colors ${statusColors[task.status] ?? "border-border-light"}`}
+      className={`overflow-hidden rounded-xl p-4 transition-colors ${statusColors[task.status] ?? "bg-gray-input"}`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 rounded-lg bg-bg-main p-2">
-            {task.status === "completed" ? (
-              <CheckCircle2 size={16} className="text-emerald-500" />
-            ) : task.status === "skipped" ? (
-              <SkipForward size={16} className="text-text-muted" />
-            ) : (
-              <Icon size={16} className="text-primary" />
-            )}
-          </div>
-
-          <div>
-            <h4 className="text-sm font-medium text-text-main">{task.title}</h4>
-            <p className="mt-0.5 text-xs text-text-muted">
-              {task.courseCode} · {task.courseName}
-            </p>
-            <div className="mt-1 flex items-center gap-2 text-xs text-text-muted">
-              <Clock size={12} />
-              <span>{task.estimatedMinutes} min</span>
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 shrink-0">
+          {task.status === "completed" ? (
+            <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-navy text-xs text-white">
+              ✓
             </div>
-          </div>
+          ) : task.status === "skipped" ? (
+            <SkipForward size={16} className="text-gray-secondary" />
+          ) : (
+            <div className="h-6 w-6 rounded-lg border-2 border-brown-label" />
+          )}
         </div>
 
+        <div className="min-w-0 flex-1">
+          <h4 className="truncate text-sm font-semibold text-navy">{task.title}</h4>
+          <p className="mt-0.5 truncate text-xs text-gray-secondary">
+            {task.courseCode} · {task.courseName}
+          </p>
+          <span className="mt-1 inline-block rounded-lg bg-accent-peach px-2 py-1 text-xs font-bold text-brown-label">
+            {task.estimatedMinutes} min
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-9">
         <TaskActions
           task={task}
           onStart={onStart}

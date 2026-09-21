@@ -46,10 +46,10 @@ export default function CourseStep({ selected, onSelect }: CourseStepProps) {
 
   return (
     <div>
-      <h3 className="mb-1 text-lg font-semibold text-text-main">
+      <h3 className="mb-1 text-lg font-bold tracking-[-0.03em] text-navy">
         Which course?
       </h3>
-      <p className="mb-4 text-sm text-text-muted">
+      <p className="mb-4 text-sm text-gray-secondary">
         Focus on one course or let Catalyst choose.
       </p>
       <div className="flex flex-col gap-2">
@@ -57,8 +57,8 @@ export default function CourseStep({ selected, onSelect }: CourseStepProps) {
           onClick={() => onSelect(null)}
           className={`flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium transition-colors ${
             selected === null
-              ? "border-primary bg-primary/10 text-primary"
-              : "border-border-light text-text-main hover:border-primary/50"
+              ? "border-brown-label bg-accent-peach/50 text-navy"
+              : "border-gray-light text-navy hover:border-brown-label"
           }`}
         >
           <Sparkles size={16} />
@@ -70,12 +70,12 @@ export default function CourseStep({ selected, onSelect }: CourseStepProps) {
             onClick={() => onSelect(c.id)}
             className={`rounded-lg border px-4 py-3 text-left text-sm font-medium transition-colors ${
               selected === c.id
-                ? "border-primary bg-primary/10 text-primary"
-                : "border-border-light text-text-main hover:border-primary/50"
+                ? "border-brown-label bg-accent-peach/50 text-navy"
+                : "border-gray-light text-navy hover:border-brown-label"
             }`}
           >
             <span>{c.className}</span>
-            <span className="ml-2 text-text-muted">{c.classCode}</span>
+            <span className="ml-2 text-gray-secondary">{c.classCode}</span>
           </button>
         ))}
       </div>

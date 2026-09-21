@@ -1,107 +1,126 @@
 "use client";
 
-import { Plus } from "lucide-react";
+import { Plus, Sparkles } from "lucide-react";
 import type { DailyPlan } from "@/src/library/studyPlan/types";
 
 interface PlanHeaderProps {
   plan: DailyPlan;
   remainingMinutes: number;
   canStartNext: boolean;
+  completedCount: number;
+  totalActiveTasks: number;
   onAddTask: () => void;
+  onSuggestTasks: () => void;
   onStartNextTask: () => void;
   onClearPlan: () => void;
-}
-
-function formatPlanDate(): string {
-  return new Date()
-    .toLocaleDateString("en-US", {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-    })
-    .replace(",", " ·")
-    .toUpperCase();
 }
 
 export default function PlanHeader({
   plan,
   remainingMinutes,
   canStartNext,
+  completedCount,
+  totalActiveTasks,
   onAddTask,
+  onSuggestTasks,
   onStartNextTask,
   onClearPlan,
 }: PlanHeaderProps) {
   const progress =
-    plan.totalTasks > 0
-      ? Math.round((plan.completedCount / plan.totalTasks) * 100)
+    totalActiveTasks > 0
+      ? Math.round((completedCount / totalActiveTasks) * 100)
       : 0;
-
-  const stats = [
-    { value: `${progress}%`, label: "daily progress" },
-    { value: `${remainingMinutes} min`, label: "remaining focus time" },
-    {
-      value: `${plan.completedCount} / ${plan.totalTasks}`,
-      label: "tasks completed",
-    },
-  ];
 
   return (
     <div>
+      {/* Title row */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brown-label">
-            {formatPlanDate()}
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-brown-label">
+            {new Date().toLocaleDateString("en-US", {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+            })}
           </p>
-          <h2 className="mt-2 text-2xl font-bold tracking-tight text-navy">
-            Today&apos;s study plan
+          <h2 className="mt-1 text-2xl font-bold tracking-[-0.05em] text-navy">
+            Today's study plan
           </h2>
           <p className="mt-1 text-sm text-gray-secondary">
             Prioritized around your weak topics, deadlines, and available time.
           </p>
         </div>
-
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap gap-2">
           <button
-            type="button"
             onClick={onAddTask}
-            className="flex items-center gap-1.5 rounded-full border border-gray-light bg-white px-4 py-2.5 text-sm font-semibold text-navy transition-colors hover:bg-beige-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+            className="rounded-[10px] border border-brown-label px-4 py-2.5 text-sm font-semibold text-navy transition-colors hover:bg-beige-canvas"
           >
-            <Plus size={14} aria-hidden="true" />
+            <Plus size={14} className="-mt-0.5 mr-1 inline" />
             Add task
           </button>
-
           <button
-            type="button"
+            onClick={onSuggestTasks}
+            className="rounded-[10px] border border-brown-label px-4 py-2.5 text-sm font-semibold text-navy transition-colors hover:bg-beige-canvas"
+          >
+            <Sparkles size={14} className="-mt-0.5 mr-1 inline" />
+            Get suggestions
+          </button>
+          <button
             onClick={onStartNextTask}
             disabled={!canStartNext}
-            className="rounded-full bg-navy px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-[10px] bg-navy px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-navy/90 disabled:opacity-50"
           >
             Start next task
-          </button>
-
-          <button
-            type="button"
-            onClick={onClearPlan}
-            className="text-xs font-medium text-gray-secondary underline-offset-4 hover:text-navy hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
-          >
-            Clear plan
           </button>
         </div>
       </div>
 
-      <dl className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {stats.map((stat) => (
-          <div
-            key={stat.label}
-            className="rounded-xl bg-white px-5 py-5"
-          >
-            <dd className="text-2xl font-bold tabular-nums text-navy">
-              {stat.value}
-            </dd>
-            <dt className="mt-1 text-xs text-gray-secondary">{stat.label}</dt>
-          </div>
-        ))}
-      </dl>
+      {/* Metric cards */}
+      <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl bg-beige-light p-4">
+          <span className="text-2xl font-bold tabular-nums text-navy">
+            {progress}%
+          </span>
+          <span className="mt-1 block text-xs text-gray-secondary">
+            daily progress
+          </span>
+        </div>
+        <div className="rounded-2xl bg-beige-light p-4">
+          <span className="text-2xl font-bold tabular-nums text-navy">
+            {remainingMinutes} min
+          </span>
+          <span className="mt-1 block text-xs text-gray-secondary">
+            remaining focus time
+          </span>
+        </div>
+        <div className="rounded-2xl bg-beige-light p-4">
+          <span className="text-2xl font-bold tabular-nums text-navy">
+            {completedCount} / {totalActiveTasks}
+          </span>
+          <span className="mt-1 block text-xs text-gray-secondary">
+            tasks completed
+          </span>
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="mt-5 h-2 w-full overflow-hidden rounded-full bg-gray-input">
+        <div
+          className="h-full rounded-full bg-brown-label transition-all"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+      <div className="mt-2 flex justify-between text-xs text-gray-secondary">
+        <span>
+          {completedCount} of {totalActiveTasks} tasks complete
+        </span>
+        <button
+          onClick={onClearPlan}
+          className="text-gray-secondary transition-colors hover:text-navy"
+        >
+          Clear plan
+        </button>
+      </div>
     </div>
   );
 }

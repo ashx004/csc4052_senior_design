@@ -5,11 +5,20 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/src/context/AuthContext";
 import { useStudyPlanContext } from "@/src/context/StudyPlanContext";
 import { useCarryover } from "@/src/hooks/useCarryover";
+import { useMasterySignals } from "@/src/hooks/useMasterySignals";
+import { buildMasterySignalId } from "@/src/library/studyPlan/masteryCalculation";
 import { useCalendarEvents } from "@/src/hooks/useCalendarEvents";
 import { useLocalCalendarEvents } from "@/src/hooks/useLocalCalendarEvents";
 import { collection, getDocs, addDoc, serverTimestamp, doc, deleteDoc } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
 import { generateTasks } from "@/src/library/studyPlan/recommendationEngine";
+import { getEmptyRecommendationReason } from "@/src/library/studyPlan/recommendationDiagnostics";
+import { hasUsablePlan } from "@/src/library/studyPlan/planState";
+import { getStudyPlanDateRange } from "@/src/library/studyPlan/calendarRange";
+import {
+  appendPlanTaskIds,
+  filterTopicsAlreadyInPlan,
+} from "@/src/library/studyPlan/taskSuggestions";
 import { getActivityUrl } from "@/src/library/studyPlan/sessionTimer";
 import { studyTasksCollection } from "@/src/library/studyPlan/firestorePaths";
 import { inferEventCategory } from "@/src/library/studyPlan/calendarKeywordMatch";
@@ -48,16 +57,6 @@ interface EnrolledClass {
   term: string;
 }
 
-function scrollToAnchor(id: string): boolean {
-  const target = document.getElementById(id);
-  if (!target) return false;
-  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  target.scrollIntoView({
-    behavior: reduceMotion ? "auto" : "smooth",
-    block: "start",
-  });
-  return true;
-}
 
 export default function LearningPage() {
   const router = useRouter();
@@ -80,7 +79,9 @@ export default function LearningPage() {
   const { carryoverTasks, checked: carryoverChecked } = useCarryover(
     user?.uid ?? null
   );
+  const { signals: masterySignals } = useMasterySignals(user?.uid ?? null);
 
+  const [activeView, setActiveView] = useState<"explore" | "plan" | null>(null);
   const [classes, setClasses] = useState<EnrolledClass[]>([]);
   const [classesLoading, setClassesLoading] = useState(true);
   const [showSetup, setShowSetup] = useState(false);
@@ -90,16 +91,11 @@ export default function LearningPage() {
   });
   const [showClearModal, setShowClearModal] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
+  const [showSuggestTasks, setShowSuggestTasks] = useState(false);
   const [skipConfirm, setSkipConfirm] = useState<{ taskId: string; title: string } | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<string | null>(null);
 
-  const todayRange = useMemo(() => {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const end = new Date();
-    end.setHours(23, 59, 59, 999);
-    return { start, end };
-  }, [today]);
+  const todayRange = useMemo(() => getStudyPlanDateRange(), [today]);
 
   const { events: googleEvents } = useCalendarEvents(todayRange);
   const { events: localEvents } = useLocalCalendarEvents(todayRange);
@@ -130,9 +126,9 @@ export default function LearningPage() {
     try { localStorage.setItem("studyPlanView", viewMode); } catch {}
   }, [viewMode]);
 
-  const handleSetupSubmit = useCallback(
-    async (config: SetupConfig) => {
-      if (!user) return;
+  const loadRecommendationInputs = useCallback(async () => {
+    if (!user) return { topics: [] as EligibleTopic[], exams: new Map<string, number>() };
+
       const topics: EligibleTopic[] = [];
       for (const cls of classes) {
         const quizSnap = await getDocs(
@@ -146,8 +142,14 @@ export default function LearningPage() {
             topicLabel: qs.data().topicName ?? qs.data().name ?? qs.id,
             targetId: qs.id,
             activityType: "quiz",
-            quizMastery: null,
-            flashcardEngagement: null,
+            quizMastery: (() => {
+              const signalId = buildMasterySignalId(cls.id, qs.data().topicName ?? qs.data().name ?? qs.id, "quiz_mastery");
+              return masterySignals.get(signalId)?.value ?? null;
+            })(),
+            flashcardEngagement: (() => {
+              const signalId = buildMasterySignalId(cls.id, qs.data().topicName ?? qs.data().name ?? qs.id, "flashcard_engagement");
+              return masterySignals.get(signalId)?.value ?? null;
+            })(),
             lastStudiedAt: null,
             skipCount: 0,
           });
@@ -163,8 +165,14 @@ export default function LearningPage() {
             topicLabel: fc.data().topicName ?? fc.data().name ?? fc.id,
             targetId: fc.id,
             activityType: "flashcards",
-            quizMastery: null,
-            flashcardEngagement: null,
+            quizMastery: (() => {
+              const signalId = buildMasterySignalId(cls.id, fc.data().topicName ?? fc.data().name ?? fc.id, "quiz_mastery");
+              return masterySignals.get(signalId)?.value ?? null;
+            })(),
+            flashcardEngagement: (() => {
+              const signalId = buildMasterySignalId(cls.id, fc.data().topicName ?? fc.data().name ?? fc.id, "flashcard_engagement");
+              return masterySignals.get(signalId)?.value ?? null;
+            })(),
             lastStudiedAt: null,
             skipCount: 0,
           });
@@ -197,12 +205,61 @@ export default function LearningPage() {
         }
       }
 
+      return { topics, exams };
+    }, [user, classes, allEvents, masterySignals]);
+
+  const handleSetupSubmit = useCallback(
+    async (config: SetupConfig) => {
+      if (!user) return;
+      const { topics, exams } = await loadRecommendationInputs();
+
       const generated = generateTasks(config, topics, exams);
+      if (generated.length === 0) {
+        throw new Error(getEmptyRecommendationReason(config, topics, exams));
+      }
       const taskIds = await createTasksFromGenerated(generated, today);
       await createPlan(config, taskIds);
       setShowSetup(false);
     },
-    [user, classes, allEvents, today, createPlan, createTasksFromGenerated]
+    [user, loadRecommendationInputs, today, createPlan, createTasksFromGenerated]
+  );
+
+  const handleSuggestTasks = useCallback(
+    async (config: SetupConfig) => {
+      if (!user || !plan) return;
+      const { topics, exams } = await loadRecommendationInputs();
+      const activeExistingTasks = tasks.filter(
+        (task) => task.status === "recommended" || task.status === "in_progress"
+      );
+      const availableTopics = filterTopicsAlreadyInPlan(
+        topics,
+        activeExistingTasks
+      );
+      const generated = generateTasks(config, availableTopics, exams);
+
+      if (generated.length === 0) {
+        throw new Error(
+          getEmptyRecommendationReason(config, availableTopics, exams)
+        );
+      }
+
+      const newTaskIds = await createTasksFromGenerated(generated, today);
+      await updatePlanState({
+        state: "active",
+        taskIds: appendPlanTaskIds(plan.taskIds ?? [], newTaskIds),
+        totalTasks: (plan.totalTasks ?? 0) + newTaskIds.length,
+      });
+      setShowSuggestTasks(false);
+    },
+    [
+      user,
+      plan,
+      tasks,
+      loadRecommendationInputs,
+      today,
+      createTasksFromGenerated,
+      updatePlanState,
+    ]
   );
 
   const handleStartTask = useCallback(
@@ -312,7 +369,7 @@ export default function LearningPage() {
       estimatedMinutes: number;
     }) => {
       if (!user) return;
-      await addDoc(collection(db, studyTasksCollection(user.uid)), {
+      const taskRef = await addDoc(collection(db, studyTasksCollection(user.uid)), {
         planDate: today,
         courseId: taskData.courseId,
         courseName: taskData.courseName,
@@ -336,8 +393,15 @@ export default function LearningPage() {
         updatedAt: serverTimestamp(),
         completedAt: null,
       });
+      if (plan) {
+        await updatePlanState({
+          state: "active",
+          taskIds: appendPlanTaskIds(plan.taskIds ?? [], [taskRef.id]),
+          totalTasks: (plan.totalTasks ?? 0) + 1,
+        });
+      }
     },
-    [user, today]
+    [user, today, plan, updatePlanState]
   );
 
   const handleCarryoverContinue = useCallback(async () => {
@@ -404,12 +468,12 @@ export default function LearningPage() {
   }, [activeTasks, tasks]);
 
   const handleExploreClasses = useCallback(() => {
-    if (!scrollToAnchor(CLASSES_ANCHOR)) router.push("/classes");
-  }, [router]);
+    setActiveView("explore");
+  }, []);
 
   const handleHeroStartPlan = useCallback(() => {
-    if (plan) {
-      scrollToAnchor(PLAN_ANCHOR);
+    if (hasUsablePlan(plan)) {
+      setActiveView("plan");
     } else {
       setShowSetup(true);
     }
@@ -428,9 +492,10 @@ export default function LearningPage() {
     );
   }
 
+  const planIsUsable = hasUsablePlan(plan);
   const isCompleted =
-    plan?.state === "completed" ||
-    (plan &&
+    planIsUsable &&
+    (plan?.state === "completed" ||
       activeTasks.length > 0 &&
       activeTasks.every((t) => t.status === "completed"));
 
@@ -489,12 +554,13 @@ export default function LearningPage() {
         )}
 
         <HeroBanner
-          hasPlan={!!plan}
+          hasPlan={planIsUsable}
           onExploreClasses={handleExploreClasses}
           onStartPlan={handleHeroStartPlan}
         />
 
-        {!plan && (
+        {/* Explore view: stats + classes + today's plan sidebar */}
+        {(activeView === "explore" || (!activeView && !planIsUsable)) && (
           <>
             <StatCards {...workspaceStats} />
 
@@ -507,40 +573,51 @@ export default function LearningPage() {
               </div>
               <TodayPlanSidebar
                 tasks={activeTasks}
-                onViewFullPlan={() => setShowSetup(true)}
+                onViewFullPlan={() => {
+                  if (planIsUsable) setActiveView("plan");
+                  else setShowSetup(true);
+                }}
               />
             </div>
           </>
         )}
 
-        {plan && !isCompleted && (
-          <div id={PLAN_ANCHOR} className="scroll-mt-8">
-            <PlanSection
-              plan={plan}
-              remainingMinutes={remainingMinutes}
-              canStartNext={!!nextTask}
-              viewMode={viewMode}
-              onViewModeChange={setViewMode}
-              onAddTask={() => setShowAddTask(true)}
-              onStartNextTask={handleStartNextTask}
-              onClearPlan={() => setShowClearModal(true)}
-              sidebar={
-                <FocusModeCard
-                  recommendedMinutes={nextTask?.estimatedMinutes ?? 25}
-                  onStartSession={handleStartNextTask}
-                  disabled={!nextTask}
-                />
-              }
-            >
-              {planView}
-            </PlanSection>
-          </div>
-        )}
+        {/* Plan view: plan section with workspace */}
+        {(activeView === "plan" || (!activeView && planIsUsable)) &&
+          planIsUsable &&
+          plan &&
+          !isCompleted && (
+            <div id={PLAN_ANCHOR} className="scroll-mt-8">
+              <PlanSection
+                plan={plan}
+                remainingMinutes={remainingMinutes}
+                canStartNext={!!nextTask}
+                completedCount={activeTasks.filter((t) => t.status === "completed").length}
+                totalActiveTasks={activeTasks.length}
+                viewMode={viewMode}
+                onViewModeChange={setViewMode}
+                onAddTask={() => setShowAddTask(true)}
+                onSuggestTasks={() => setShowSuggestTasks(true)}
+                onStartNextTask={handleStartNextTask}
+                onClearPlan={() => setShowClearModal(true)}
+                sidebar={
+                  <FocusModeCard
+                    recommendedMinutes={nextTask?.estimatedMinutes ?? 25}
+                    onStartSession={handleStartNextTask}
+                    disabled={!nextTask}
+                  />
+                }
+              >
+                {planView}
+              </PlanSection>
+            </div>
+          )}
 
-        {plan && isCompleted && (
+        {planIsUsable && plan && isCompleted && (
           <PlanCompletedState
-            completedCount={plan.completedCount}
+            completedCount={activeTasks.filter((t) => t.status === "completed").length}
             onAddMore={() => setShowAddTask(true)}
+            onSuggestTasks={() => setShowSuggestTasks(true)}
           />
         )}
 
@@ -548,6 +625,13 @@ export default function LearningPage() {
           open={showSetup}
           onClose={() => setShowSetup(false)}
           onSubmit={handleSetupSubmit}
+        />
+        <SetupModal
+          open={showSuggestTasks}
+          onClose={() => setShowSuggestTasks(false)}
+          onSubmit={handleSuggestTasks}
+          title="Find your next study tasks"
+          submitLabel="Get suggestions"
         />
         <ClearPlanModal
           open={showClearModal}
