@@ -58,12 +58,6 @@ async function callAdvisingOllama(
     process.env.OLLAMA_PRIMARY_URL,
     process.env.OLLAMA_PRIMARY_FALLBACK_URL );
 
-  console.log("ADVISING OLLAMA URL:", baseUrl);
-  console.log(
-    "ADVISING OLLAMA MODEL:",
-    process.env.OLLAMA_MODEL || "gpt-oss:20b"
-  );
-
   const controller = new AbortController();
 
   const timeout = setTimeout(() => {
@@ -87,16 +81,8 @@ async function callAdvisingOllama(
       signal: controller.signal,
     });
 
-    console.log("OLLAMA HTTP STATUS:", response.status);
-    console.log(
-      "OLLAMA CONTENT TYPE:",
-      response.headers.get("content-type")
-    );
-
     if (!response.ok || !response.body) {
       const errorText = await response.text();
-
-      console.log("OLLAMA ERROR BODY:", errorText);
 
       throw new Error(
         `Ollama request failed (${response.status}): ${errorText}`
@@ -107,17 +93,13 @@ async function callAdvisingOllama(
     const decoder = new TextDecoder();
 
     let fullContent = "";
-    let fullThinking = "";
     let buffer = "";
-    let chunkCount = 0;
     let finalPayload: any = null;
 
     while (true) {
       const { done, value } = await reader.read();
 
       if (done) { break; }
-
-      chunkCount++;
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
@@ -132,37 +114,22 @@ async function callAdvisingOllama(
           fullContent += parsed.message.content;
         }
 
-        if (parsed.message?.thinking) {
-          fullThinking += parsed.message.thinking;
-        }
-
         if (parsed.done) {
           finalPayload = parsed;
         }
       }
-    }
+    }  // end of while loop
 
-        console.log("OLLAMA MODEL:", finalPayload?.model);
-        console.log("OLLAMA DONE REASON:", finalPayload?.done_reason);
-        console.log("OLLAMA OUTPUT TOKENS:", finalPayload?.eval_count);
-        console.log("OLLAMA THINKING LENGTH:", fullThinking.length);
-        console.log("OLLAMA CONTENT LENGTH:", fullContent.length);
+       console.log(`Ollama ${finalPayload?.model}: done=${finalPayload?.done_reason}, tokens=${finalPayload?.eval_count}`);
 
-        if (!fullContent.trim()) {
-          throw new Error("Ollama returned an empty response.");
-        }
+       if (!fullContent.trim()) {
+         throw new Error("Ollama returned an empty response.");
+       }
 
-        console.log("FULL CONTENT (may be a refusal):", fullContent);
+       return stripJsonCodeFences(fullContent);
 
-        return stripJsonCodeFences(fullContent);
-
-      } finally { clearTimeout(timeout); }
-    }
-
-
-
-
-
+     } finally { clearTimeout(timeout); }
+   }
 
 
 
@@ -1235,15 +1202,18 @@ async function extractProgramInfoWithOllama(
     The prerequisites array must contain ONLY real course codes in
     SUBJECT + NUMBER format (e.g. "CSC 132", "MATH 240").
 
-    NEVER put any of the following into the prerequisites array:
-    - Timing/policy restrictions (e.g. "must be taken within first year
-      of enrollment", "must be taken before junior year")
-    - Combined phrases like "CSC 132 or CYEN 132, MATH 240" as ONE string
+    NEVER put timing/policy restrictions (e.g. "must be taken within
+    first year of enrollment") into the prerequisites array.
 
-    If a requirement lists several prerequisite courses, each course code
-    must be its own separate array element — e.g.
-    prerequisites: ["CSC 132", "CYEN 132", "MATH 240"], never
-    prerequisites: ["CSC 132 or CYEN 132, MATH 240"].
+    Each array element is ONE required prerequisite:
+    - Courses that are ALL required ("and", commas) are separate elements.
+    - Courses that are ALTERNATIVES ("or") stay together in ONE element,
+      joined with " or ".
+
+    Example: "CSC 132 or CYEN 132, MATH 240" becomes
+    prerequisites: ["CSC 132 or CYEN 132", "MATH 240"]
+    Example: "CSC 220, MATH 311" becomes
+    prerequisites: ["CSC 220", "MATH 311"]
 
     If a note describes a timing rule, eligibility restriction, or any
     other non-course requirement, do NOT put it in prerequisites at all —
@@ -1268,56 +1238,33 @@ export async function extractCurriculumWithOllama(
   curriculumText: string
 ): Promise<string> {
 
-  console.log(
-    "STARTING PROGRAM INFO EXTRACTION"
-  );
+  console.log("STARTING PROGRAM INFO EXTRACTION");
 
   const programInfoResponse =
     await extractProgramInfoWithOllama(
       curriculumText
     );
 
-  console.log(
-    "PROGRAM INFO EXTRACTION FINISHED"
-  );
-
-
-  console.log(
-    "STARTING MAIN REQUIREMENTS EXTRACTION"
-  );
+  console.log("STARTING MAIN REQUIREMENTS EXTRACTION");
 
   const mainResponse =
     await extractMainCurriculumWithOllama(
       curriculumText
     );
 
-  console.log(
-    "MAIN REQUIREMENTS EXTRACTION FINISHED"
-  );
-
-
-  console.log(
-    "STARTING CONCENTRATION EXTRACTION"
-  );
+  console.log("STARTING CONCENTRATION EXTRACTION");
 
   const concentrationResponse =
     await extractConcentrationsWithOllama(
       curriculumText
     );
 
-  console.log(
-    "CONCENTRATION EXTRACTION FINISHED"
-  );
 
+  const programInfo = JSON.parse(programInfoResponse);
 
-  const programInfo =
-    JSON.parse(programInfoResponse);
+  const mainData = JSON.parse(mainResponse);
 
-  const mainData =
-    JSON.parse(mainResponse);
-
-  const concentrationData =
-    JSON.parse(concentrationResponse);
+  const concentrationData = JSON.parse(concentrationResponse);
 
 
   const requirements =
@@ -1327,24 +1274,20 @@ export async function extractCurriculumWithOllama(
             (
               requirement: unknown
             ): requirement is RawRequirement =>
-              typeof requirement === "object" &&
-              requirement !== null
+              typeof requirement === "object" && requirement !== null
           )
           .map(normalizeRequirement)
       : [];
 
 
   const concentrations =
-    Array.isArray(
-      concentrationData.concentrations
-    )
+    Array.isArray(concentrationData.concentrations)
       ? concentrationData.concentrations
           .filter(
             (
               concentration: unknown
             ): concentration is RawConcentration =>
-              typeof concentration === "object" &&
-              concentration !== null
+              typeof concentration === "object" && concentration !== null
           )
           .map(normalizeConcentration)
       : [];

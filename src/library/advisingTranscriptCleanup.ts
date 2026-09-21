@@ -10,9 +10,10 @@
 export function redactTranscriptPII(text: string): string {
   return text
     // remove birthdate entirely, not needed for course extraction
-    .replace(/Born On:\s*[\d\-Xx]+/g, "")
-    // "ID: " lines followed by a student ID
-    .replace(/^ID:\s*.*/gm, "ID: [redacted]");
+    .replace(/Born On:[ \t]*[\d\-\/Xx]+/g, "")
+    // "ID: " lines followed by a student ID. [ \t] and [^\n] keep this on ONE line:
+    // the old \s* crossed the newline and swallowed the next line (the term header).
+    .replace(/^ID:[ \t]*[^\n]*/gm, "ID: [redacted]");
 }
 
 export function stripTranscriptSummaryNoise(text: string): string {

@@ -23,8 +23,6 @@ async function resolveMinioEndpoint(): Promise<string> {
 export async function getMinioClient(): Promise<S3Client> {
   const endpoint = await resolveMinioEndpoint();
 
-  console.log("Using MinIO endpoint:", endpoint);
-
   return new S3Client({
     endpoint,
     region: "us-east-1",
