@@ -1,5 +1,5 @@
-import { resolveOllamaBaseUrl } from "@/src/library/ollamaClient";
 import { Agent, setGlobalDispatcher } from "undici";
+import { resolveOllamaBaseUrl, resolveModelFromKey } from "@/src/library/ollamaClient";
 
 // tapout at 5 mins
 const OLLAMA_TIMEOUT_MS = 300000;
@@ -72,7 +72,8 @@ async function callAdvisingOllama(
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
       },
       body: JSON.stringify({
-        model: process.env.OLLAMA_MODEL || "gpt-oss:20b",
+        model: resolveModelFromKey("museGlimmer"),
+
         messages,
         stream: true,
         think,

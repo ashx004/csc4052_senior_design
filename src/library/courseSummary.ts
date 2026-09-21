@@ -3,7 +3,7 @@ import { getIdToken, firestoreGet, firestoreListCollection, firestoreUpdate } fr
 import { adminDb } from "./firebaseAdmin";
 import { resolveInternalUrl } from "./pdfExtract";
 import { extractDocumentText, SUPPORTED_DOCUMENT_TYPES } from "./documentExtract";
-import { resolveOllamaBaseUrl } from "./ollamaClient";
+import { resolveOllamaBaseUrl, resolveModelFromKey } from "./ollamaClient";
 import { stripThinkLeak } from "./stripThinkLeak";
 
 // Bounds on how much document text feeds one summary call — this only needs
@@ -32,10 +32,9 @@ async function callOllamaForSummary(prompt: string): Promise<string> {
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
       },
       body: JSON.stringify({
-        // Fast model — this is a background housekeeping task, not
-        // something a student is waiting on, so there's no reason to pay
-        // quality mode's latency/leak-buffering cost for it.
-        model: process.env.OLLAMA_MODEL_FAST || process.env.OLLAMA_MODEL || "gpt-oss:20b",
+        // Runs on Primary, where Muse Glimmer is the only large model
+        // loaded (see resolveModelFromKey) - no separate "fast" model exists.
+        model: resolveModelFromKey("museGlimmer"),
         messages: [
           {
             role: "system",

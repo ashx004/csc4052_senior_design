@@ -16,6 +16,7 @@ import { extractDocumentText, IMAGE_FILE_TYPES, SUPPORTED_DOCUMENT_TYPES } from 
 import { chunkText } from "@/src/library/chunking";
 import { addChunkContext } from "@/src/library/contextualChunking";
 import { embedTexts } from "@/src/library/ollamaEmbeddings";
+import { resolveModelFromKey } from "@/src/library/ollamaClient";
 import { deleteChunksForResource, upsertChunks, chunkPointId } from "@/src/library/vectorStore";
 import { createTimeoutSignal } from "@/src/library/withTimeout";
 import { isInternalRequest, verifyRequestAuth } from "@/src/library/verifyAuth";
@@ -166,7 +167,7 @@ async function persistImageTranscript(opts: {
     ocrSourceVersion: sourceVersion,
     ocrTranscriptUrl: transcriptUrl,
     ocrTextLength: transcript.length,
-    ocrModel: process.env.OLLAMA_OCR_MODEL ?? null,
+    ocrModel: resolveModelFromKey("ocr"),
     ocrCompletedAt: new Date(),
     ocrFailedAt: null,
     ocrError: null,
@@ -203,7 +204,7 @@ async function persistOcrDocumentTranscript(opts: {
     ocrStatus: "complete",
     ocrTranscriptUrl: transcriptUrl,
     ocrTextLength: transcript.length,
-    ocrModel: process.env.OLLAMA_OCR_MODEL ?? null,
+    ocrModel: resolveModelFromKey("ocr"),
     pageManifestVersion,
     pageCount,
     manualTranscript: false,

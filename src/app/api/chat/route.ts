@@ -39,10 +39,9 @@ const MAX_CHAT_INPUT_CHARS = 4000; // mirrors the client's <input maxLength> in 
 // Conversation compaction: once the "unsummarized" tail of a conversation
 // gets this long, fold everything except the last KEEP_RECENT_MESSAGES turns
 // into a running summary instead of resending it verbatim every request.
-// Raised from the original 12000/6 - that was conservative even for
-// qwen3:14b's real 40960-token context, and both current models (Fast:
-// gpt-oss:20b, Quality: qwen3:30b-a3b) have substantially larger real
-// context windows, so there's real headroom to keep more actual
+// Raised from the original 12000/6 - that was conservative for the app's
+// main model (Muse Glimmer, see resolveModelFromKey), which has a large
+// real context window, so there's real headroom to keep more actual
 // conversation verbatim (better continuity, no lossy summarization) before
 // compaction needs to kick in at all.
 const COMPACTION_CHAR_THRESHOLD = 45000;
@@ -574,12 +573,11 @@ async function searchDocuments(
 
   // `candidates` is already sorted by hybrid score (dense+sparse) descending
   // from the .sort() above - this used to hand off to an LLM reranker
-  // (qwen3:4b) for a second pass, but that call was pure overhead on every
-  // single document search: the hybrid score is already a real relevance
-  // signal, not a rough pre-filter, and the LLM pass added a full secondary-
-  // box round trip (plus, confirmed separately, that specific model ignores
-  // think:false at the weights level, so it was an unavoidably slow round
-  // trip) for a reordering that empirically wasn't earning its cost. Straight
+  // for a second pass, but that call was pure overhead on every single
+  // document search: the hybrid score is already a real relevance signal,
+  // not a rough pre-filter, and the LLM pass added a full secondary-box
+  // round trip for a reordering that empirically wasn't earning its cost.
+  // Straight
   // deterministic top-K slice now - faster, and one less network hop that
   // can fail.
   const relevant = candidates.slice(0, TOP_K_CHUNKS);
@@ -1055,14 +1053,12 @@ async function deleteCalendarEventTool(
   return "Removed the event from the student's calendar.";
 }
 
-// Both chat models have shown this bug: even with think:false, they
-// sometimes still emit raw chain-of-thought as plain content, ending in a
-// stray closing </think> tag with no matching opening tag (qwen3:30b-a3b -
-// confirmed live, reproduced 4/4 tries during model research; gpt-oss:20b -
-// confirmed live 2026-08-11, same tag-delimited shape). A separate,
-// non-tag-delimited gpt-oss:20b leak has also been seen once (a document-
-// summarization reply) - that shape isn't catchable by matching a
-// delimiter and isn't handled here.
+// Some models have shown this bug: even with think:false, they sometimes
+// still emit raw chain-of-thought as plain content, ending in a stray
+// closing </think> tag with no matching opening tag (confirmed live during
+// model research, reproduced 4/4 tries). A separate, non-tag-delimited leak
+// has also been seen once (a document-summarization reply) - that shape
+// isn't catchable by matching a delimiter and isn't handled here.
 //
 // Buffers a round's output until either the tag shows up (then discards
 // everything up to and including it, releasing only the real answer from
@@ -1074,12 +1070,10 @@ async function deleteCalendarEventTool(
 // correct version that let a leak flash on screen before being wiped) is
 // that the reply bubble shows a plain "Thinking..."/spinner status with
 // nothing streaming until this resolves, instead of token-by-token
-// streaming from the first token. Only worth paying that cost for the two
-// models actually confirmed to leak (qwen3A3b, and fastResident/gpt-oss:20b
-// per this same 2026-08-11 finding) - applying it to every model
-// unconditionally (as it was before the 2026-08-13 model-selection
-// settings added museGlimmer/nemotron/qwenCoder) meant those three never
-// appeared to stream at all: any response short enough to stay under the
+// streaming from the first token. Only worth paying that cost for models
+// actually confirmed to leak - applying it to every model unconditionally
+// meant non-leaking ones never appeared to stream at all: any response
+// short enough to stay under the
 // cap, with no </think> tag to trigger early, sat fully buffered until the
 // round finished and flush() released it all at once. See
 // deltaHandlerForModel below for the model-scoped choice.
@@ -1150,10 +1144,13 @@ function wrapDeltaForThinkStripping(onDelta: (text: string) => void): {
   return { handleDelta, flush, discard };
 }
 
-// The two models with a confirmed <think>-leak (see THINK_STRIP_BUFFER_CAP's
+// Models with a confirmed <think>-leak (see THINK_STRIP_BUFFER_CAP's
 // comment) - every other model streams straight through via
-// passthroughDelta below instead.
-const MODELS_KNOWN_TO_LEAK_THINKING = ["qwen3A3b", "fastResident"];
+// passthroughDelta below instead. Empty since the 2026-09-21 unification
+// onto Muse Glimmer alone - it was never observed to leak during the
+// 2026-08-13 benchmark. If that turns out wrong in practice, add
+// "museGlimmer" back here rather than removing the stripping machinery.
+const MODELS_KNOWN_TO_LEAK_THINKING: string[] = [];
 
 // No buffering, no delay - text reaches the client the instant Ollama
 // produces it. flush/discard are no-ops since there's never anything held
@@ -1221,7 +1218,7 @@ async function callOllama(
   temperature = CHAT_TEMPERATURE,
   target: OllamaTarget = {
     baseUrl: process.env.OLLAMA_PRIMARY_URL || "",
-    model: process.env.OLLAMA_MODEL || "gpt-oss:20b",
+    model: resolveModelFromKey(undefined),
   }
 ) {
   const controller = new AbortController();
@@ -1280,13 +1277,8 @@ async function streamOllamaRound(
         stream: true,
         // Explicit, not omitted - this app previously never set this field
         // anywhere, relying entirely on Ollama's implicit per-model default.
-        // Most models here (gpt-oss:20b, qwen3-vl) correctly suppress
-        // thinking once this is actually set; qwen3:30b-a3b still leaks
-        // sometimes even with this set (see wrapDeltaForThinkStripping,
-        // still needed as a safety net regardless); qwen3:4b ignores it
-        // entirely at the model-weights level, confirmed via direct
-        // testing - not fixable from here, see stripThinkLeak call sites
-        // for the actual mitigation used for that one.
+        // See wrapDeltaForThinkStripping / stripThinkLeak for the safety
+        // net against any model that still leaks reasoning with this set.
         think: false,
         options: { temperature },
         ...(target.keepAlive !== undefined ? { keep_alive: target.keepAlive } : {}),
@@ -1397,14 +1389,14 @@ async function compactIfNeeded(
 
     const response = await callOllama(summarizeMessages, undefined, 0.2, {
       baseUrl: compactionBaseUrl,
-      model: process.env.OLLAMA_SUMMARY_MODEL || process.env.OLLAMA_MODEL || "gpt-oss:20b",
+      model: process.env.OLLAMA_SUMMARY_MODEL || "llama3.2:3b",
     });
     if (!response.ok) throw new Error(`Summarization failed (${response.status})`);
 
     const data = await response.json();
     warnIfSlowGeneration(
       compactionBaseUrl,
-      process.env.OLLAMA_SUMMARY_MODEL || process.env.OLLAMA_MODEL || "gpt-oss:20b",
+      process.env.OLLAMA_SUMMARY_MODEL || "llama3.2:3b",
       data?.eval_count,
       data?.eval_duration
     );
@@ -1672,16 +1664,13 @@ export async function POST(request: NextRequest) {
   }
 
   const encoder = new TextEncoder();
-  // modelKey picks which of the 5 models (see chatMode.ts's TaskModelKey/
-  // UnifiedModelKey) actually handles this chat turn - either the
-  // student's per-task "AI Chat model" choice, or the unified pick if
-  // they've turned on "Reduce cold boots" (see getEffectiveModelKey).
-  // Whichever one it is boots immediately and then stays resident
-  // indefinitely (FAST_MODEL_KEEP_ALIVE), until the student picks a
-  // different one - not just when it happens to be "fastResident". Every
-  // key other than "fastResident" itself still competes with the
-  // vision/OCR model for VRAM while it's the one loaded - see the
-  // gatekeeper proxy in front of Ollama for the eviction mechanics.
+  // modelKey is legacy plumbing (see chatMode.ts's getEffectiveModelKey) -
+  // resolveModelFromKey now always resolves it to the app's one main model,
+  // Muse Glimmer, which handles this chat turn regardless of what key was
+  // sent. It boots immediately and stays resident indefinitely
+  // (FAST_MODEL_KEEP_ALIVE). Since OCR/vision now also runs on Muse Glimmer
+  // (see ocrClient.ts), there's no separate vision model competing with it
+  // for VRAM anymore - the two no longer evict each other.
   const primaryTarget: OllamaTarget = {
     baseUrl: await resolveOllamaBaseUrl(process.env.OLLAMA_PRIMARY_URL, process.env.OLLAMA_PRIMARY_FALLBACK_URL),
     model: resolveModelFromKey(modelKey),
@@ -1764,8 +1753,8 @@ export async function POST(request: NextRequest) {
         send({ type: "status", label: "Loading your classes and profile..." });
 
         // Compaction runs in the background rather than gating this turn:
-        // qwen3:4b's own thinking preamble (~5s, see stripThinkLeak's
-        // comment) made every compaction-triggering turn sit in total
+        // a slow compaction call (a multi-second model preamble, see
+        // stripThinkLeak's comment) made every compaction-triggering turn sit in total
         // silence before the primary model even started streaming. Nothing
         // this turn actually needs the NEW summary — using last turn's
         // summary/summarizedCount to build the conversation below just
@@ -1780,17 +1769,11 @@ export async function POST(request: NextRequest) {
         // Clarification and persisting this turn's user message run
         // alongside profile-loading (not after) so their round-trips are
         // hidden behind that rather than adding their own serial latency in
-        // front of every response. Clarification itself is skipped outright
-        // for the always-resident "fastResident" key: it's designed
-        // fail-open/additive (see queryClarifier.ts), so skipping it just
-        // means the raw message goes to the primary model unclarified, same
-        // as any other message this feature declines to touch - a real (if
-        // now modest, since the llama3.2:3b swap) latency + one fewer
-        // network round trip saved for students who've explicitly opted
-        // into the fastest model.
+        // front of every response. Clarification always runs when there's
+        // content to clarify.
         const [loadedProfile, clarifiedIntent, startedPersist] = await Promise.all([
           context?.userId ? getStudentProfile(context.userId, getIdToken(request) ?? undefined) : Promise.resolve(studentProfile),
-          modelKey !== "fastResident" && typeof latestMessage?.content === "string"
+          typeof latestMessage?.content === "string"
             ? clarifyUserQuery(latestMessage.content)
             : Promise.resolve(null),
           typeof latestMessage?.content === "string"
