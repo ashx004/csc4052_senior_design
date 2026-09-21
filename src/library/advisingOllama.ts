@@ -47,7 +47,7 @@ async function callAdvisingOllama(
   options: OllamaCallOptions = {}
 ): Promise<string> {
   const think = options.think ?? "low";
-  const numPredict = options.numPredict ?? 32000;
+  const numPredict = options.numPredict ?? 48000;
   if (!process.env.OLLAMA_PRIMARY_URL) {
     throw new Error("OLLAMA_PRIMARY_URL is not configured."); }
 
@@ -529,6 +529,19 @@ examples shown here. Always check whether a short trailing line is a
 continuation of the previous course's title before deciding it is
 something else.
 
+IMPORTANT: DO NOT SILENTLY OMIT ANY COURSE ROW.
+
+Every row in the course table that has a course code, grade, and credit
+hours MUST appear in the output courses array — even if it looks
+similar to another course already extracted, even if two terms in a
+row have very similar course codes or titles, and even in long
+transcripts with many terms.
+
+Before finalizing your output, count the number of course rows in the
+input text and confirm your courses array has the same number of
+entries. If your count is lower, go back through the text and find the
+row(s) you missed.
+
 
       `,
     },
@@ -539,7 +552,7 @@ something else.
     },
   ];
 
-  return callAdvisingOllama(messages);
+  return callAdvisingOllama(messages, { think: "medium" });
 }
 
 
@@ -1022,7 +1035,7 @@ async function extractConcentrationsWithOllama(
 
     { role: "user", content: curriculumText },
   ],
-    { think: "medium", numPredict: 32000 },
+    { think: "medium", numPredict: 48000 },
 );
 }
 
@@ -1079,6 +1092,29 @@ async function extractProgramInfoWithOllama(
 
     Extract ALL general degree requirements from the ENTIRE curriculum text.
     Do NOT extract concentration-specific requirements.
+
+
+    CLARIFICATION ON "DO NOT EXTRACT CONCENTRATION-SPECIFIC REQUIREMENTS":
+
+    This exclusion applies ONLY to requirements listed under an explicitly
+    labeled optional track/concentration/specialization/emphasis section —
+    i.e., a section the curriculum itself names as a concentration, track,
+    specialization, or emphasis, usually presented as one choice among
+    several alternative concentration options.
+
+    This exclusion does NOT apply to a program's own core major
+    requirements, even when every course shares the same subject prefix
+    (e.g., a Health Informatics program whose required courses are all
+    prefixed "HIIM", or a Nursing program whose required courses are all
+    prefixed "NURS"). A subject prefix matching the program's own name is
+    NOT evidence that a course belongs to an optional concentration — it is
+    normal for a major's core required courses to share the major's own
+    subject code.
+
+    If the curriculum text does not explicitly present multiple named
+    concentration/track options for the student to choose between, treat
+    ALL listed courses — regardless of subject prefix — as general degree
+    requirements to extract.
 
     Return:
 
@@ -1194,12 +1230,32 @@ async function extractProgramInfoWithOllama(
     I", and CSC 406 has courseTitle: "Senior Capstone II" — each title stays
     attached to the exact code that precedes it, not the one before that.
 
+    IMPORTANT: PREREQUISITES MUST BE ACTUAL COURSE CODES ONLY.
+
+    The prerequisites array must contain ONLY real course codes in
+    SUBJECT + NUMBER format (e.g. "CSC 132", "MATH 240").
+
+    NEVER put any of the following into the prerequisites array:
+    - Timing/policy restrictions (e.g. "must be taken within first year
+      of enrollment", "must be taken before junior year")
+    - Combined phrases like "CSC 132 or CYEN 132, MATH 240" as ONE string
+
+    If a requirement lists several prerequisite courses, each course code
+    must be its own separate array element — e.g.
+    prerequisites: ["CSC 132", "CYEN 132", "MATH 240"], never
+    prerequisites: ["CSC 132 or CYEN 132, MATH 240"].
+
+    If a note describes a timing rule, eligibility restriction, or any
+    other non-course requirement, do NOT put it in prerequisites at all —
+    put that wording in the requirement's description or sourceText field
+    instead, where it belongs.
+
     Return ONLY valid JSON.
           
       `,
     },
         { role: "user", content: curriculumText, }, ], 
-        { think: "medium", numPredict: 32000 });
+        { think: "medium", numPredict: 48000 });
 }
 
 
@@ -1529,5 +1585,5 @@ and explain why in warnings.
       content: JSON.stringify(input) },
   ];
 
-  return callAdvisingOllama(messages, { think: "medium", numPredict: 32000 });
+  return callAdvisingOllama(messages, { think: "medium", numPredict: 48000 });
 }

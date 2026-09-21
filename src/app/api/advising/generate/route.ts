@@ -8,6 +8,7 @@ import {
   CurriculumData,
   CurriculumRequirement,
   courseCodesEquivalent,
+  courseCodesStructurallyEquivalent,
   prerequisitesSatisfied,
 } from "@/src/library/advisingSchedule";
 import { loadCourseOfferingCache, CachedCourseOffering, } from "@/src/library/advisingOfferingCache";
@@ -361,7 +362,7 @@ function validateGeneratedSchedule(
             availability.offered ===
               true &&
 
-            courseCodeStringsEquivalent(
+            courseCodesStructurallyEquivalent(
                 availability.courseCode,
                 plannedCourse.courseCode
                 )
@@ -749,43 +750,3 @@ export async function POST(
   }
 }
 
-function courseCodeStringsEquivalent(
-  firstCode: string,
-  secondCode: string
-): boolean {
-
-  const first = normalizeCourseCode(firstCode);
-
-  const second = normalizeCourseCode( secondCode);
-
-
-  if (first === second) {
-    return true;
-  }
-
-
-  /*
-    Old 3-digit code vs newer
-    4-digit course code.
-
-    CSC493  <-> CSC4933
-  */
-
-  if (
-    first.length + 1 === second.length &&
-    second.startsWith(first)
-  ) {
-    return true;
-  }
-
-
-  if (
-    second.length + 1 === first.length &&
-    first.startsWith(second)
-  ) {
-    return true;
-  }
-
-
-  return false;
-}

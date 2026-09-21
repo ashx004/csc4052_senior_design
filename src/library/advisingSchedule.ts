@@ -104,7 +104,7 @@ function cleanCourseCode(code: string): string {
 }
 
 
-function splitCourseCode(code: string): {
+export function splitCourseCode(code: string): {
   subject: string;
   number: string;
 } | null {
@@ -121,6 +121,39 @@ function splitCourseCode(code: string): {
     subject: match[1],
     number: match[2],
   };
+}
+
+
+// Shared low-level check: do these two course code strings represent the
+// same course number, accounting for the old-3-digit-vs-new-4-digit
+// renumbering pattern (e.g. "CSC 493" vs "CSC 4933")? This does NOT check
+// credit hours or titles — callers with that extra context (see
+// courseCodesEquivalent below) layer those checks on top for stronger
+// protection against false positives; callers without that context (e.g.
+// course-availability lookups against a live catalog with no title data)
+// use this directly instead of keeping their own separate copy of this
+// same logic.
+export function courseCodesStructurallyEquivalent(
+  codeA: string,
+  codeB: string
+): boolean {
+  const a = splitCourseCode(codeA);
+  const b = splitCourseCode(codeB);
+
+  if (!a || !b) return false;
+  if (a.subject !== b.subject) return false;
+
+  if (a.number === b.number) return true;
+
+  if (a.number.length === 3 && b.number.length === 4 && b.number.startsWith(a.number)) {
+    return true;
+  }
+
+  if (b.number.length === 3 && a.number.length === 4 && a.number.startsWith(b.number)) {
+    return true;
+  }
+
+  return false;
 }
 
 
@@ -202,95 +235,45 @@ export function courseCodesEquivalent(
 ): boolean {
 
   const curriculum = splitCourseCode(curriculumCode);
-  const transcript = splitCourseCode(
-    transcriptCourse.courseCode
-  );
+  const transcript = splitCourseCode(transcriptCourse.courseCode);
 
   if (!curriculum || !transcript) {
     return false;
   }
 
   // exact course-code match
-  if (
-    curriculum.subject === transcript.subject &&
-    curriculum.number === transcript.number
-  ) {
+  if (curriculum.subject === transcript.subject && curriculum.number === transcript.number) {
     return true;
   }
 
-  // subjects must always match
-  if (curriculum.subject !== transcript.subject) {
+  if (!courseCodesStructurallyEquivalent(curriculumCode, transcriptCourse.courseCode)) {
     return false;
   }
 
-  // old 3-digit curriculum code vs newer 4-digit transcript code
-  // (e.g. curriculum "CSC 403" vs transcript "CSC 4033")
-  if (
-    curriculum.number.length === 3 &&
-    transcript.number.length === 4 &&
-    transcript.number.startsWith(curriculum.number)
-  ) {
+  // At this point the codes are a 3-vs-4-digit renumbering match in one
+  // direction or the other. Whichever side has the 4-digit code, its final
+  // digit should equal the course's real credit hours.
+  const fourDigitNumber =
+    curriculum.number.length === 4 ? curriculum.number : transcript.number;
 
-    const finalDigit =
-      Number(transcript.number.slice(-1));
+  const finalDigit = Number(fourDigitNumber.slice(-1));
 
-    if (
-      transcriptCourse.creditHours === null ||
-      finalDigit !== transcriptCourse.creditHours
-    ) {
-      return false;
-    }
-
-    // Extra protection against false matches such as:
-    // CSC 403 "Senior Capstone I"
-    // CSC 4033 "Software Design and Engineering"
-    if (
-      curriculumTitle &&
-      transcriptCourse.courseTitle &&
-      !titlesLikelyMatch(curriculumTitle, transcriptCourse.courseTitle)
-    ) {
-      return false;
-    }
-
-    return true;
+  if (transcriptCourse.creditHours === null || finalDigit !== transcriptCourse.creditHours) {
+    return false;
   }
 
-  // newer 4-digit curriculum code vs old 3-digit transcript code
-  // (the mirror case: e.g. curriculum "BISC 2253" vs transcript "BISC 225",
-  // which happens whenever a student took a course before a renumbering
-  // that the current catalog has since adopted)
+  // Extra protection against false matches such as:
+  // CSC 403 "Senior Capstone I"
+  // CSC 4033 "Software Design and Engineering"
   if (
-    curriculum.number.length === 4 &&
-    transcript.number.length === 3 &&
-    curriculum.number.startsWith(transcript.number)
+    curriculumTitle &&
+    transcriptCourse.courseTitle &&
+    !titlesLikelyMatch(curriculumTitle, transcriptCourse.courseTitle)
   ) {
-
-    const finalDigit =
-      Number(curriculum.number.slice(-1));
-
-    if (
-      transcriptCourse.creditHours === null ||
-      finalDigit !== transcriptCourse.creditHours
-    ) {
-      return false;
-    }
-
-    // Same title-matching safety net as the other direction, to avoid
-    // false positives like curriculum "BISC 2253" matching transcript
-    // "BISC 225" when they're actually unrelated courses that happen to
-    // share the first three digits.
-    if (
-      curriculumTitle &&
-      transcriptCourse.courseTitle &&
-      !titlesLikelyMatch(curriculumTitle, transcriptCourse.courseTitle)
-    ) {
-      return false;
-    }
-
-    return true;
+    return false;
   }
 
-  return false;
+  return true;
 }
 
 
