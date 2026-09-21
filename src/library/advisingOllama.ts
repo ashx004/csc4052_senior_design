@@ -1,11 +1,95 @@
+import { Agent, setGlobalDispatcher } from "undici";
 import { resolveOllamaBaseUrl, resolveModelFromKey } from "@/src/library/ollamaClient";
 
 // tapout at 5 mins
-const OLLAMA_TIMEOUT_MS = 300000;
+const OLLAMA_TIMEOUT_MS = Number(process.env.ADVISING_OLLAMA_TIMEOUT_MS) || 300000;
+
+// Which model advising uses. One place to change it. Set OLLAMA_MODEL_ADVISING in
+// .env to override without touching code.
+const ADVISING_MODEL =
+  process.env.OLLAMA_MODEL_ADVISING || resolveModelFromKey("museGlimmer");
+
+// Context window. Ollama silently TRUNCATES input that does not fit, so it must
+// cover prompt + transcript/curriculum text + the model's 15-20k-token JSON reply.
+// Only sent when ADVISING_NUM_CTX is set (e.g. 32768).
+const ADVISING_NUM_CTX = Number(process.env.ADVISING_NUM_CTX) || undefined;
+
+// gpt-oss takes "low" | "medium" | "high". Other thinking models take true/false.
+// Models WITHOUT thinking support reject the field, so "omit" sends nothing.
+// ADVISING_THINK_MODE: "off" (send false - thinking disabled, fastest)
+//                      "on"  (send true)
+//                      "levels" (gpt-oss: low/medium/high)
+//                      "omit" (default: send nothing, model decides)
+function thinkPayload(level: "low" | "medium" | "high"): string | boolean | undefined {
+  const mode = process.env.ADVISING_THINK_MODE ?? "omit";
+  if (mode === "levels") return level;
+  if (mode === "on") return true;
+  if (mode === "off") return false;
+  return undefined;
+}
+
+
+// undici's default headersTimeout (5 min) can be too short over the
+// Cloudflare-tunneled Ollama path, where the first response byte can take
+// longer to arrive than a direct LAN connection would. This raises that
+// ceiling specifically for Ollama calls without touching global fetch
+// behavior elsewhere in the app.
+setGlobalDispatcher(new Agent({ headersTimeout: 600_000 })); // 10 minutes
+
+
+  // Returns just the JSON object from a model reply: handles ```json fences,
+  // prose before/after, and braces inside strings.
+  function stripJsonCodeFences(text: string): string {
+    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const candidate = (fenced ? fenced[1] : text).trim();
+
+    const start = candidate.indexOf("{");
+    if (start === -1) { return candidate; }
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let i = start; i < candidate.length; i++) {
+      const ch = candidate[i];
+      if (inString) {
+        if (escaped) { escaped = false; }
+        else if (ch === "\\") { escaped = true; }
+        else if (ch === '"') { inString = false; }
+        continue;
+      }
+      if (ch === '"') { inString = true; }
+      else if (ch === "{") { depth++; }
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) { return candidate.slice(start, i + 1); }
+      }
+    }
+    return candidate; // unbalanced (truncated) - let JSON.parse report it
+  }
+
+
+
+
+
+
+
+
+
+
+
+
+type OllamaCallOptions = {
+  think?: "low" | "medium" | "high";
+  numPredict?: number;
+};
 
 async function callAdvisingOllama(
-  messages: { role: string; content: string }[]
+  messages: { role: string; content: string }[],
+  options: OllamaCallOptions = {}
 ): Promise<string> {
+  const think = options.think ?? "low";
+  const numPredict = options.numPredict ?? 48000;
   if (!process.env.OLLAMA_PRIMARY_URL) {
     throw new Error("OLLAMA_PRIMARY_URL is not configured."); }
 
@@ -25,62 +109,94 @@ async function callAdvisingOllama(
   try {
     const response = await fetch(`${baseUrl}/api/chat`, {
       method: "POST",
-
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
       },
-
       body: JSON.stringify({
-        model: resolveModelFromKey("museGlimmer"),
-
+        model: ADVISING_MODEL,
         messages,
-        stream: false,
-        think: false,
-        format: "json",
-
-        options: { temperature: 0, num_predict: 8000, },
+        stream: true,
+        ...(thinkPayload(think) === undefined ? {} : { think: thinkPayload(think) }),
+        options: {
+          temperature: 0,
+          num_predict: numPredict,
+          ...(ADVISING_NUM_CTX ? { num_ctx: ADVISING_NUM_CTX } : {}),
+        },
       }),
-
       signal: controller.signal,
     });
 
-    if (!response.ok) {
+    if (!response.ok || !response.body) {
       const errorText = await response.text();
 
+      // 502/504/524 come from the proxy in front of Ollama (e.g. Cloudflare's
+      // 100-second limit while the model is still loading), and their body is a
+      // full HTML error page that would otherwise be shown to the student.
+      if ([502, 504, 524].includes(response.status)) {
+        throw new Error(
+          "The AI server took too long to start responding (the connection timed out). The model may still be loading. Please wait a minute and try again."
+        );
+      }
+
+      const looksLikeHtml = /<\s*(!doctype|html)/i.test(errorText);
       throw new Error(
-        `Ollama request failed (${response.status}): ${errorText}`
+        `Ollama request failed (${response.status}): ${looksLikeHtml ? "(HTML error page omitted)" : errorText.slice(0, 300)}`
       );
     }
 
-    const data = await response.json();
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
 
-    console.log("OLLAMA MODEL:", data?.model);
-    console.log("OLLAMA DONE REASON:", data?.done_reason);
-    console.log("OLLAMA OUTPUT TOKENS:", data?.eval_count);
-    console.log(
-    "OLLAMA THINKING LENGTH:",
-    data?.message?.thinking?.length ?? 0
-    );
-    console.log(
-    "OLLAMA CONTENT LENGTH:",
-    data?.message?.content?.length ?? 0
-    );
+    let fullContent = "";
+    let buffer = "";
+    let finalPayload: any = null;
 
-    const content = data?.message?.content;
+    while (true) {
+      const { done, value } = await reader.read();
 
-    if (typeof content !== "string" || !content.trim()) {
-    throw new Error("Ollama returned an empty response.");
-    }
+      if (done) { break; }
 
-    return content.trim();
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? ""; // keep any partial line for next chunk
 
-  } finally {
-    clearTimeout(timeout);
-  }
-}
+      for (const line of lines) {
+        if (!line.trim()) continue;
 
+        const parsed = JSON.parse(line); // each line is a JSON object when streaming
 
+        if (parsed.message?.content) {
+          fullContent += parsed.message.content;
+        }
+
+        if (parsed.done) {
+          finalPayload = parsed;
+        }
+      }
+    }  // end of while loop
+
+       const tokensPerSecond = finalPayload?.eval_duration
+         ? (finalPayload.eval_count / (finalPayload.eval_duration / 1e9)).toFixed(1)
+         : "?";
+       console.log(`Ollama ${finalPayload?.model}: done=${finalPayload?.done_reason}, tokens=${finalPayload?.eval_count}, ${tokensPerSecond} tok/s`);
+
+       // "length" means the model was cut off (output limit or context window),
+       // so the JSON is incomplete. Fail clearly instead of a confusing parse error.
+       if (finalPayload?.done_reason === "length") {
+         throw new Error(
+           "Ollama stopped early (output or context limit reached), so the result is incomplete. Try raising ADVISING_NUM_CTX."
+         );
+       }
+
+       if (!fullContent.trim()) {
+         throw new Error("Ollama returned an empty response.");
+       }
+
+       return stripJsonCodeFences(fullContent);
+
+     } finally { clearTimeout(timeout); }
+   }
 
 
 
@@ -98,7 +214,7 @@ export async function extractTranscriptWithOllama(
   const messages = [
     {
       role: "system",
-      content: ` /no_think
+      content: `
 You are extracting structured academic transcript information.
 
 Return ONLY valid JSON.
@@ -163,6 +279,23 @@ Rules:
 - D or F means failed.
 - A, B, C, or P means completed.
 - IP means in-progress.
+
+IMPORTANT UNREADABLE TRANSFER ROW RULE:
+
+If the transfer coursework section contains rows showing credit hours,
+grade, and quality points, but NO course code or course title is
+present for that row, do NOT skip it silently and do NOT invent a
+course code or title for it.
+
+Instead, add exactly one warning to the warnings array in this exact
+format:
+
+"UNREADABLE_TRANSFER_ROWS: <count> rows totaling <sum> credit hours could not be matched to a course code or title."
+
+Count every such row and sum their credit hours exactly as shown in
+the transcript. Do not create course objects for these rows.
+
+If there are no unreadable transfer rows, do not add this warning.
 
 IMPORTANT TRANSFER CREDIT RULES:
 
@@ -398,6 +531,51 @@ COURSE A "Capstone I"
 COURSE B "Capstone II"
 COURSE C "Capstone III"
 
+IMPORTANT WRAPPED COURSE TITLE RULE:
+
+Course titles that are too long to fit on one line may wrap onto the
+next line in the extracted text. A wrapped title produces a short line
+by itself that contains ONLY leftover title text — no course code, no
+grade, no credit hours, no quality points.
+
+If a line contains only text with no course code, no grade, and no
+numeric columns, and the immediately preceding line's title appears to
+end mid-phrase (for example ending in "&", "AND", "OR", "OF", "FOR",
+"TO", "IN", or another word that clearly does not end a title), treat
+that line as the continuation of the previous course's title. Append
+it to the previous title with a single space.
+
+Example:
+
+DATA MODEL SELECTION &
+VALIDATION
+
+must be extracted as a single course with:
+
+courseTitle: "DATA MODEL SELECTION & VALIDATION"
+
+Do NOT drop the wrapped continuation line.
+Do NOT treat the wrapped continuation line as a separate course.
+Do NOT truncate the title at the line break.
+
+This same wrapping can happen to any course title, not only specific
+examples shown here. Always check whether a short trailing line is a
+continuation of the previous course's title before deciding it is
+something else.
+
+IMPORTANT: DO NOT SILENTLY OMIT ANY COURSE ROW.
+
+Every row in the course table that has a course code, grade, and credit
+hours MUST appear in the output courses array — even if it looks
+similar to another course already extracted, even if two terms in a
+row have very similar course codes or titles, and even in long
+transcripts with many terms.
+
+Before finalizing your output, count the number of course rows in the
+input text and confirm your courses array has the same number of
+entries. If your count is lower, go back through the text and find the
+row(s) you missed.
+
 
       `,
     },
@@ -408,7 +586,7 @@ COURSE C "Capstone III"
     },
   ];
 
-  return callAdvisingOllama(messages);
+  return callAdvisingOllama(messages, { think: "medium" });
 }
 
 
@@ -744,9 +922,7 @@ async function extractConcentrationsWithOllama(
 ): Promise<string> {
 
   return callAdvisingOllama([
-    {
-      role: "system",
-      content: ` /no_think
+    { role: "system", content: `
 
       You are extracting ONLY concentration, track,
       specialization, or emphasis requirements from a
@@ -891,11 +1067,10 @@ async function extractConcentrationsWithOllama(
       `,
     },
 
-    {
-      role: "user",
-      content: curriculumText,
-    },
-  ]);
+    { role: "user", content: curriculumText },
+  ],
+    { think: "medium", numPredict: 48000 },
+);
 }
 
 
@@ -911,7 +1086,7 @@ async function extractProgramInfoWithOllama(
   return callAdvisingOllama([
     {
       role: "system",
-      content: ` /no_think
+      content: `
 
     Return ONLY valid JSON.
 
@@ -931,10 +1106,7 @@ async function extractProgramInfoWithOllama(
           `,
         },
 
-        {
-          role: "user",
-          content: curriculumText,
-        },
+        { role: "user", content: curriculumText, },
       ]);
     }
 
@@ -948,14 +1120,35 @@ async function extractProgramInfoWithOllama(
     ): Promise<string> {
 
       return callAdvisingOllama([
-        {
-          role: "system",
-          content: ` /no_think
+        { role: "system", content: `
 
     Return ONLY valid JSON.
 
     Extract ALL general degree requirements from the ENTIRE curriculum text.
     Do NOT extract concentration-specific requirements.
+
+
+    CLARIFICATION ON "DO NOT EXTRACT CONCENTRATION-SPECIFIC REQUIREMENTS":
+
+    This exclusion applies ONLY to requirements listed under an explicitly
+    labeled optional track/concentration/specialization/emphasis section —
+    i.e., a section the curriculum itself names as a concentration, track,
+    specialization, or emphasis, usually presented as one choice among
+    several alternative concentration options.
+
+    This exclusion does NOT apply to a program's own core major
+    requirements, even when every course shares the same subject prefix
+    (e.g., a Health Informatics program whose required courses are all
+    prefixed "HIIM", or a Nursing program whose required courses are all
+    prefixed "NURS"). A subject prefix matching the program's own name is
+    NOT evidence that a course belongs to an optional concentration — it is
+    normal for a major's core required courses to share the major's own
+    subject code.
+
+    If the curriculum text does not explicitly present multiple named
+    concentration/track options for the student to choose between, treat
+    ALL listed courses — regardless of subject prefix — as general degree
+    requirements to extract.
 
     Return:
 
@@ -1031,17 +1224,75 @@ async function extractProgramInfoWithOllama(
     - Never omit required fields.
     - Do not use outside knowledge.
 
+    IMPORTANT: DO NOT BORROW A TITLE FROM AN ADJACENT COURSE ROW.
+
+    This rule applies to EVERY subject area in the curriculum — not just one
+    department. Any subject's course table can have this layout problem.
+
+    Some curriculum tables list several course codes on the same line before
+    their titles appear, e.g.:
+
+    CSC 403 * 3 CSC 405 * Senior Capstone I 2 CSC 406 Senior Capstone II 1
+
+    or equally:
+
+    ENGL 200 * 3 ENGL 210 Intro to British Literature 3 ENGL 211 Intro to American Literature 3
+
+    or:
+
+    MATH 100 3 MATH 241 Calculus I 3 MATH 242 Calculus II 3
+
+    In this pattern, each course code is followed by its OWN credit hours
+    (and possibly a footnote marker like "*"), and only SOME of the codes on
+    the line have an actual title attached before the next course code
+    begins. Do NOT assume a title belongs to the earliest course code on the
+    line — a title always belongs to the course code immediately preceding
+    it, never an earlier code on the same row, regardless of subject.
+
+    If a course code is followed directly by a number (credit hours) or a
+    footnote marker with no title text in between, its courseTitle MUST be
+    null. Do not borrow the next course's title to fill the gap, no matter
+    which subject area it belongs to.
+
+    This applies uniformly across ALL subjects in the curriculum: math,
+    English, science, business, engineering, education, or any other
+    department — the same row-parsing rule holds regardless of what the
+    course codes look like.
+
+    Example: in the CSC line above, CSC 403 has courseTitle: null (only a
+    credit-hour value follows it), CSC 405 has courseTitle: "Senior Capstone
+    I", and CSC 406 has courseTitle: "Senior Capstone II" — each title stays
+    attached to the exact code that precedes it, not the one before that.
+
+    IMPORTANT: PREREQUISITES MUST BE ACTUAL COURSE CODES ONLY.
+
+    The prerequisites array must contain ONLY real course codes in
+    SUBJECT + NUMBER format (e.g. "CSC 132", "MATH 240").
+
+    NEVER put timing/policy restrictions (e.g. "must be taken within
+    first year of enrollment") into the prerequisites array.
+
+    Each array element is ONE required prerequisite:
+    - Courses that are ALL required ("and", commas) are separate elements.
+    - Courses that are ALTERNATIVES ("or") stay together in ONE element,
+      joined with " or ".
+
+    Example: "CSC 132 or CYEN 132, MATH 240" becomes
+    prerequisites: ["CSC 132 or CYEN 132", "MATH 240"]
+    Example: "CSC 220, MATH 311" becomes
+    prerequisites: ["CSC 220", "MATH 311"]
+
+    If a note describes a timing rule, eligibility restriction, or any
+    other non-course requirement, do NOT put it in prerequisites at all —
+    put that wording in the requirement's description or sourceText field
+    instead, where it belongs.
+
     Return ONLY valid JSON.
           
-
       `,
     },
-
-    {
-      role: "user",
-      content: curriculumText,
-    },
-  ]);
+        { role: "user", content: curriculumText, }, ], 
+        { think: "medium", numPredict: 48000 });
 }
 
 
@@ -1054,56 +1305,33 @@ export async function extractCurriculumWithOllama(
   curriculumText: string
 ): Promise<string> {
 
-  console.log(
-    "STARTING PROGRAM INFO EXTRACTION"
-  );
+  console.log("STARTING PROGRAM INFO EXTRACTION");
 
   const programInfoResponse =
     await extractProgramInfoWithOllama(
       curriculumText
     );
 
-  console.log(
-    "PROGRAM INFO EXTRACTION FINISHED"
-  );
-
-
-  console.log(
-    "STARTING MAIN REQUIREMENTS EXTRACTION"
-  );
+  console.log("STARTING MAIN REQUIREMENTS EXTRACTION");
 
   const mainResponse =
     await extractMainCurriculumWithOllama(
       curriculumText
     );
 
-  console.log(
-    "MAIN REQUIREMENTS EXTRACTION FINISHED"
-  );
-
-
-  console.log(
-    "STARTING CONCENTRATION EXTRACTION"
-  );
+  console.log("STARTING CONCENTRATION EXTRACTION");
 
   const concentrationResponse =
     await extractConcentrationsWithOllama(
       curriculumText
     );
 
-  console.log(
-    "CONCENTRATION EXTRACTION FINISHED"
-  );
 
+  const programInfo = JSON.parse(programInfoResponse);
 
-  const programInfo =
-    JSON.parse(programInfoResponse);
+  const mainData = JSON.parse(mainResponse);
 
-  const mainData =
-    JSON.parse(mainResponse);
-
-  const concentrationData =
-    JSON.parse(concentrationResponse);
+  const concentrationData = JSON.parse(concentrationResponse);
 
 
   const requirements =
@@ -1113,24 +1341,20 @@ export async function extractCurriculumWithOllama(
             (
               requirement: unknown
             ): requirement is RawRequirement =>
-              typeof requirement === "object" &&
-              requirement !== null
+              typeof requirement === "object" && requirement !== null
           )
           .map(normalizeRequirement)
       : [];
 
 
   const concentrations =
-    Array.isArray(
-      concentrationData.concentrations
-    )
+    Array.isArray(concentrationData.concentrations)
       ? concentrationData.concentrations
           .filter(
             (
               concentration: unknown
             ): concentration is RawConcentration =>
-              typeof concentration === "object" &&
-              concentration !== null
+              typeof concentration === "object" && concentration !== null
           )
           .map(normalizeConcentration)
       : [];
@@ -1207,10 +1431,7 @@ export async function generateScheduleWithOllama(
 ): Promise<string> {
 
   const messages = [
-    {
-      role: "system",
-
-      content: ` /no_think
+    { role: "system", content: `
 
 You are generating a suggested university academic schedule.
 
@@ -1270,9 +1491,13 @@ IMPORTANT RULES:
 
 15. Prefer completing the degree in the earliest reasonable number of terms.
 
-16. Balance courses reasonably between academic terms.
+16. CREDIT LIMIT: a student may take at most 12 credit hours in one term.
+    13 is allowed only occasionally, and only when it avoids adding an extra
+    term. Never exceed 13. Add up creditHours for every course in a term
+    before finalizing it.
 
-17. Do not place every remaining course into one term merely because they are all offered.
+17. Fill each term up to 12 credit hours before starting the next term,
+    but only with courses that are offered in that term.
 
 18. Only use future terms contained in futureTerms.
 
@@ -1370,17 +1595,9 @@ If a requirement cannot safely be scheduled, leave it out of the terms array
 and explain why in warnings.
 `,
     },
-
-    {
-      role: "user",
-
-      content: JSON.stringify(
-        input,
-        null,
-        2
-      ),
-    },
+    { role: "user",
+      content: JSON.stringify(input) },
   ];
 
-  return callAdvisingOllama(messages);
+  return callAdvisingOllama(messages, { think: "medium", numPredict: 48000 });
 }

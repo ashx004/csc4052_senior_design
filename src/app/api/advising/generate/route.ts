@@ -8,12 +8,14 @@ import {
   CurriculumData,
   CurriculumRequirement,
   courseCodesEquivalent,
+  courseCodesStructurallyEquivalent,
+  prerequisitesSatisfied,
 } from "@/src/library/advisingSchedule";
 import { loadCourseOfferingCache, CachedCourseOffering, } from "@/src/library/advisingOfferingCache";
 import { buildFutureTerms, buildCourseAvailability, } from "@/src/library/advisingPlanner";
 import { generateScheduleWithOllama, } from "@/src/library/advisingOllama";
 import { generatedAdvisingScheduleSchema, } from "@/src/library/advisingSchemas";
-
+import { enforceTermCreditLimit } from "@/src/library/advisingCreditLimit";
 
 
 function normalizeCourseCode(courseCode: string): string {
@@ -268,13 +270,10 @@ function buildCandidateCourseCodes(
 
 
 function validateGeneratedSchedule(
-  schedule: ReturnType<
-    typeof generatedAdvisingScheduleSchema.parse
-  >,
-  courseAvailability: ReturnType<
-    typeof buildCourseAvailability
-  >,
-  transcriptCourses: TranscriptData["courses"]
+  schedule: ReturnType<typeof generatedAdvisingScheduleSchema.parse>,
+  courseAvailability: ReturnType<typeof buildCourseAvailability>,
+  transcriptCourses: TranscriptData["courses"],
+  remainingRequirements: CurriculumRequirement[]
 ) {
 
   const alreadyScheduled =
@@ -296,17 +295,23 @@ function validateGeneratedSchedule(
         an already-completed or active course.
       */
 
-      const transcriptMatch =
-        transcriptCourses.some(
+      const matchingRequirement = remainingRequirements.find(
+        (requirement) => requirement.requirementId === plannedCourse.requirementId
+      );
+
+      const requirementTitle =
+        matchingRequirement &&
+        matchingRequirement.courseCode &&
+        normalizeCourseCode(matchingRequirement.courseCode) === normalizeCourseCode(plannedCourse.courseCode)
+          ? matchingRequirement.courseTitle
+          : matchingRequirement?.courseOptions.find(
+              (option) => normalizeCourseCode(option.courseCode) === normalizeCourseCode(plannedCourse.courseCode)
+            )?.courseTitle ?? null;
+
+      const transcriptMatch = transcriptCourses.some(
           (course) =>
-            (
-              course.status === "completed" ||
-              course.status === "in-progress"
-            ) &&
-            courseCodesEquivalent(
-              plannedCourse.courseCode,
-              course
-            )
+            (course.status === "completed" ||course.status === "transfer") &&
+            courseCodesEquivalent(plannedCourse.courseCode, course, requirementTitle)
         );
 
 
@@ -357,7 +362,7 @@ function validateGeneratedSchedule(
             availability.offered ===
               true &&
 
-            courseCodeStringsEquivalent(
+            courseCodesStructurallyEquivalent(
                 availability.courseCode,
                 plannedCourse.courseCode
                 )
@@ -401,7 +406,6 @@ export async function POST(
         }
       );
     }
-
 
     const userId = auth.uid;
 
@@ -473,8 +477,39 @@ export async function POST(
     }
 
     const transcript = transcriptSnap.data() as TranscriptData;
+    const curriculum = curriculumSnap.data() as CurriculumData;
 
-    const curriculum =  curriculumSnap.data() as CurriculumData;
+    console.log(
+      "DEBUG transcript:",
+      transcript.courses.length, "courses |",
+      transcript.courses.filter((c) => c.status === "completed").length, "completed |",
+      transcript.courses.filter((c) => c.status === "in-progress").length, "in-progress |",
+      transcript.courses.filter((c) => c.status === "transfer").length, "transfer |",
+      "warnings:", JSON.stringify(transcript.warnings ?? [])
+    );
+    console.log("DEBUG curriculum codes:", curriculum.requirements.slice(0, 15).map((r) => r.courseCode));
+
+    console.log(
+      "DEBUG rows:\n" +
+      transcript.courses
+        .map((c) => `${c.courseCode} | ${c.term} | ${c.creditHours} | ${c.grade} | ${c.status}`)
+        .join("\n")
+    );
+
+    if ((transcript.warnings ?? []).some((w: string) => w.startsWith("TRANSCRIPT_CREDIT_MISMATCH"))) {
+      return NextResponse.json(
+        { error: "Some courses on your transcript may not have been read correctly. Please review your transcript before generating a schedule." },
+        { status: 409 }
+      );
+    }
+
+    if (!transcript.courses.some((c) => ["completed", "transfer", "in-progress"].includes(c.status))) {
+      return NextResponse.json(
+        { error: "No completed courses were found on your transcript, so a schedule can't be generated. Please re-upload your transcript." },
+        { status: 409 }
+      );
+    }
+
 
     /*
       Determine which degree requirements
@@ -490,48 +525,67 @@ export async function POST(
       plus the student's selected concentration.
     */
 
-    const remainingRequirements:
-      CurriculumRequirement[] = [
-
-        ...academicProgress
-          .program
-          .requirements
-
-          .filter(
-            (result) =>
-              result.status ===
-                "remaining"
-          )
-
-          .map((result) => result.requirement),
-
-        ...(
-          academicProgress.concentration
-
-            ? academicProgress
-                .concentration
-                .requirements
-
-                .filter(
-                  (result) =>
-                    result.status ===
-                      "remaining"
-                )
-
-                .map(
-                  (result) =>
-                    result.requirement
-                )
-
-            : []
-        ),
-      ];
-
-      
-    console.log("REMAINING REQUIREMENTS:", remainingRequirements);
-    console.dir(remainingRequirements, { depth: null } );
+        const remainingRequirements:
+          CurriculumRequirement[] = [
+            ...academicProgress.program.requirements
+              .filter((result) => result.status === "remaining")
+              .map((result) => result.requirement),
+            ...(
+              academicProgress.concentration
+                ? academicProgress.concentration.requirements
+                    .filter((result) => result.status === "remaining")
+                    .map((result) => result.requirement)
+                : []
+            ),
+          ];
 
 
+            const needsReviewRequirements = [
+              ...academicProgress.program.requirements
+                .filter((result) => result.status === "needs-review"),
+              ...(
+                academicProgress.concentration
+                  ? academicProgress.concentration.requirements
+                      .filter((result) => result.status === "needs-review")
+                  : []
+              ),
+            ];
+
+        /*
+          Split into requirements that are actually schedulable right now
+          versus ones whose prerequisites aren't yet satisfied. This check
+          happens in code — using the same reliable course-code matching as
+          everywhere else — rather than leaving Ollama to guess from the raw
+          prerequisites array and transcript, which was producing false
+          "prerequisite not completed" results due to code-format mismatches
+          (e.g. old 3-digit vs new 4-digit course codes).
+        */
+
+        const schedulableRequirements: CurriculumRequirement[] = [];
+
+        const blockedRequirements: {
+          requirement: CurriculumRequirement;
+          unmetPrerequisites: string[];
+        }[] = [];
+
+        for (const requirement of remainingRequirements) {
+
+          if (!requirement.prerequisites || requirement.prerequisites.length === 0) {
+            schedulableRequirements.push(requirement);
+            continue;
+          }
+
+          const { satisfied, unmetPrerequisites } = prerequisitesSatisfied(
+            requirement.prerequisites,
+            transcript.courses
+          );
+
+          if (satisfied) {
+            schedulableRequirements.push(requirement);
+          } else {
+            blockedRequirements.push({ requirement, unmetPrerequisites });
+          }
+        }
 
     /* Load known course-offering information. */
 
@@ -559,13 +613,9 @@ export async function POST(
 
     const candidateCourseCodes =
       buildCandidateCourseCodes(
-        remainingRequirements,
+        schedulableRequirements,
         courseOfferingCache
       );
-
-
-    console.log("CANDIDATE COURSE CODES:", candidateCourseCodes);
-    console.dir(candidateCourseCodes, { depth: null } );
 
 
     /* Determine when each candidate is actually offered. */
@@ -577,23 +627,32 @@ export async function POST(
         courseOfferingCache
       );
 
-    console.log("COURSE AVAILABILITY:");
-    console.dir(courseAvailability, { depth: null });
 
     const groupedAvailability = groupCourseAvailability(courseAvailability);
 
-    /*
-      Give Ollama structured facts,
-      NOT the original PDFs.
-    */
+        /*
+          Prerequisites have already been verified in code (schedulableRequirements
+          only contains requirements whose prerequisites are satisfied). Strip the
+          field before handing requirements to Ollama so it can't re-litigate this
+          using its own unreliable string comparison against raw transcript codes
+          — which was producing contradictory, incorrect "prerequisite not met"
+          warnings even when our own check had already confirmed it was met.
+        */
 
-    const ollamaResponse =
-      await generateScheduleWithOllama({
-        transcriptCourses: transcript.courses,
-        remainingRequirements,
-        futureTerms,
-        courseAvailability: groupedAvailability,
-      });
+        const requirementsForOllama = schedulableRequirements.map(
+          (requirement) => ({
+            ...requirement,
+            prerequisites: [],
+          })
+        );
+
+        const ollamaResponse =
+          await generateScheduleWithOllama({
+            transcriptCourses: transcript.courses,
+            remainingRequirements: requirementsForOllama,
+            futureTerms,
+            courseAvailability: groupedAvailability,
+          });
 
 
 
@@ -605,30 +664,55 @@ export async function POST(
 
     const schedule = generatedAdvisingScheduleSchema.parse(rawSchedule);
 
-    console.log("OLLAMA GENERATED SCHEDULE:");
-    console.dir(schedule, { depth: null });
 
-    /*
-      Validate important factual rules.
-    */
+        /*
+          Validate important factual rules.
+        */
 
-    validateGeneratedSchedule(
-      schedule,
-      courseAvailability,
-      transcript.courses
-    );
+        validateGeneratedSchedule(
+          schedule,
+          courseAvailability,
+          transcript.courses,
+          schedulableRequirements
+        );
+
+        const limited = enforceTermCreditLimit(schedule, futureTerms, courseAvailability);
+        schedule.terms = limited.terms;
+        schedule.warnings = [...schedule.warnings, ...limited.warnings];
+
+        /*
+          Add warnings for requirements we deliberately withheld from Ollama
+          because their prerequisites aren't met yet — these are trustworthy
+          because they came from our own code-based check, not the model's
+          own (sometimes wrong) reasoning about the transcript.
+        */
+
+            const prerequisiteWarnings = blockedRequirements.map(
+              ({ requirement, unmetPrerequisites }) =>
+                `Cannot schedule ${requirement.courseCode ?? requirement.requirementName} (${requirement.requirementName}) because the prerequisite${
+                  unmetPrerequisites.length > 1 ? "s" : ""
+                } ${unmetPrerequisites.join(", ")} ${
+                  unmetPrerequisites.length > 1 ? "have" : "has"
+                } not been completed.`
+            );
+
+            const needsReviewWarnings = needsReviewRequirements.map((result) =>
+              `Requirement "${result.requirement.requirementName}" could not be automatically scheduled: ${result.reason}`
+            );
+
+            schedule.warnings = [...schedule.warnings,...prerequisiteWarnings,...needsReviewWarnings,];
 
 
-    /*
-      Save latest schedule.
-    */
+        /*
+          Save latest schedule.
+        */
 
-    const scheduleRef =
-      adminDb
-        .collection("users")
-        .doc(userId)
-        .collection("advising")
-        .doc("schedule");
+        const scheduleRef =
+          adminDb
+            .collection("users")
+            .doc(userId)
+            .collection("advising")
+            .doc("schedule");
 
 
     await scheduleRef.set({
@@ -669,43 +753,3 @@ export async function POST(
   }
 }
 
-function courseCodeStringsEquivalent(
-  firstCode: string,
-  secondCode: string
-): boolean {
-
-  const first = normalizeCourseCode(firstCode);
-
-  const second = normalizeCourseCode( secondCode);
-
-
-  if (first === second) {
-    return true;
-  }
-
-
-  /*
-    Old 3-digit code vs newer
-    4-digit course code.
-
-    CSC493  <-> CSC4933
-  */
-
-  if (
-    first.length + 1 === second.length &&
-    second.startsWith(first)
-  ) {
-    return true;
-  }
-
-
-  if (
-    second.length + 1 === first.length &&
-    first.startsWith(second)
-  ) {
-    return true;
-  }
-
-
-  return false;
-}
