@@ -1424,9 +1424,13 @@ IMPORTANT RULES:
 
 15. Prefer completing the degree in the earliest reasonable number of terms.
 
-16. Balance courses reasonably between academic terms.
+16. CREDIT LIMIT: a student may take at most 12 credit hours in one term.
+    13 is allowed only occasionally, and only when it avoids adding an extra
+    term. Never exceed 13. Add up creditHours for every course in a term
+    before finalizing it.
 
-17. Do not place every remaining course into one term merely because they are all offered.
+17. Fill each term up to 12 credit hours before starting the next term,
+    but only with courses that are offered in that term.
 
 18. Only use future terms contained in futureTerms.
 
