@@ -60,6 +60,16 @@ export default function AddEventModal({ isOpen, onClose, onEventAdded }: AddEven
     return new Date(`${dateStr}T00:00:00`).toISOString();
   }
 
+  // All-day events describe calendar dates, not instants in a time zone. Keep
+  // them as date-only strings and use an exclusive end date, matching Google
+  // Calendar's all-day event convention. Advancing with UTC avoids a daylight-
+  // saving or local-time offset changing the intended calendar date.
+  function nextCalendarDate(dateStr: string): string {
+    const [year, month, day] = dateStr.split("-").map(Number);
+    const next = new Date(Date.UTC(year, month - 1, day + 1));
+    return next.toISOString().slice(0, 10);
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
 
@@ -83,20 +93,22 @@ export default function AddEventModal({ isOpen, onClose, onEventAdded }: AddEven
       return;
     }
 
-    const startISO = toISOString(startDate, allDay ? undefined : startTime);
-    const endISO = allDay
-      ? toISOString(startDate, undefined).replace("T00:00:00", "T23:59:59")
+    const startTimeValue = allDay
+      ? startDate
+      : toISOString(startDate, startTime);
+    const endTimeValue = allDay
+      ? nextCalendarDate(startDate)
       : toISOString(endDate, endTime);
 
-    if (new Date(endISO) <= new Date(startISO)) {
+    if (!allDay && new Date(endTimeValue) <= new Date(startTimeValue)) {
       alert("End time must be after start time!");
       return;
     }
 
     const eventData = {
       title: title.trim(),
-      startTime: startISO,
-      endTime: endISO,
+      startTime: startTimeValue,
+      endTime: endTimeValue,
       allDay,
       location: location.trim() || null,
       description: description.trim() || null,
