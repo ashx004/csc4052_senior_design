@@ -50,32 +50,6 @@ async function uploadPdf(
   return storagePath;
 }
 
-/* async function objectExists(storagePath: string): Promise<boolean> {
-  try {
-    const minioClient = await getMinioClient();
-
-    await minioClient.send(
-      new ListObjectsV2Command({
-        Bucket: BUCKET_NAME,
-        Key: storagePath,
-      })
-    );
-
-    return true;
-  } catch (error: any) {
-
-    console.log("HeadObject error:", error);
-
-    if (
-      error?.name === "NotFound" ||
-      error?.$metadata?.httpStatusCode === 404
-    ) {
-      return false;
-    }
-
-    throw error;
-  }
-} */
 
 async function objectExists(storagePath: string): Promise<boolean> {
   const minioClient = await getMinioClient();
