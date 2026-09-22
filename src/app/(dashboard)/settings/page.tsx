@@ -19,7 +19,24 @@ import {
     setThemeMode,
     ThemeMode,
 } from "@/src/library/theme";
+import { useAuth } from "@/src/context/AuthContext";
+import { useTutorial } from "@/src/context/TutorialContext";
+import { ALL_TUTORIAL_IDS } from "@/src/library/tutorials/types";
+
 export default function Settings() {
+    const { user } = useAuth();
+    const { replay } = useTutorial();
+    const [tutorialsReset, setTutorialsReset] = useState(false);
+
+    function handleReplayTutorials() {
+        if (!user) return;
+        replay(ALL_TUTORIAL_IDS);
+        setTutorialsReset(true);
+        // The confirmation only needs to be seen once per click, not linger
+        // indefinitely — the next page visit is what actually shows a tour again.
+        setTimeout(() => setTutorialsReset(false), 3000);
+    }
+
 
     // const [notificationIsOn, setNotificationOn] = useState<boolean>(false);
     // const [studyRemIsOn, setstudyRemOn] = useState<boolean>(false);
@@ -419,6 +436,32 @@ export default function Settings() {
                         {themeMode === "dark" ? "Dark" : "Light"}
                     </span>
                 </div>
+
+            </div>
+
+            {/* Lets a user re-trigger every page's onboarding tour on demand
+                — useful if they skipped one by accident, or just want a
+                refresher. Clears tutorialsSeen for every id; each page's
+                <PageTutorial> then shows again the next time it's visited. */}
+            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
+                        bg-bg-main text-text-main hover:bg-bg-warm">
+
+                <div>
+                    <span className="text-sm">
+                        Tutorials
+                    </span>
+                    <p className="text-xs text-text-muted">
+                        Replay the guided tour on every page next time you visit it.
+                    </p>
+                </div>
+
+                <button
+                    type="button"
+                    onClick={handleReplayTutorials}
+                    className="shrink-0 rounded-md border border-border-light px-3 py-1.5 text-xs font-medium text-text-main transition hover:bg-bg-warm"
+                >
+                    {tutorialsReset ? "Tours reset!" : "Replay tutorials"}
+                </button>
 
             </div>
 

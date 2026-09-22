@@ -22,7 +22,7 @@ export default function GeneralSidebar() {
 
   return (
     <Sidebar>
-      <ul className="flex flex-col gap-1">
+      <ul className="flex flex-col gap-1" data-tutorial="sidebar-nav">
         {links.map(({ label, href, icon: Icon }) => {
           const isActive = pathname === href;
 
