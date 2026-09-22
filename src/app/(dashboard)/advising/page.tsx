@@ -7,6 +7,8 @@ import { useAuth } from "@/src/context/AuthContext";
 import { useSetPageContext } from "@/src/context/AIPageContext";
 import { useAdvisingCache } from "@/src/context/AdvisingCacheContext";
 import AddEnrollmentModal from "@/src/components/classes/AddEnrollmentModal";
+import PageTutorial from "@/src/components/tutorial/PageTutorial";
+import advisingSteps from "@/src/library/tutorials/steps/advising";
 
 type Term = "Fall" | "Winter" | "Spring" | "Summer";
 const TERM_ORDER: Term[] = ["Fall", "Winter", "Spring", "Summer"];
@@ -323,6 +325,7 @@ export default function Advising() {
 
   return (
     <div className="flex h-screen flex-col bg-bg-main text-text-main">
+      <PageTutorial id="advising" steps={advisingSteps} />
       <header className="relative flex h-[60px] shrink-0 items-center justify-between border-b border-border-light px-6">
         <h1 className="absolute left-1/2 -translate-x-1/2 text-center text-lg font-semibold tracking-[0.45em] text-text-main">
           Advising.
@@ -410,7 +413,7 @@ export default function Advising() {
 
           {data && !data.universityUnsupported && (
             <>
-              <div className="rounded-2xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light">
+              <div className="rounded-2xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light" data-tutorial="advising-progress">
                 <div className="flex items-center gap-3">
                   {data.university && (
                     <img src={faviconUrl(data.university.domain)} alt="" className="h-8 w-8 rounded" />
@@ -429,7 +432,7 @@ export default function Advising() {
                 </p>
               </div>
 
-              <div className="flex flex-col gap-3 sm:flex-row">
+              <div className="flex flex-col gap-3 sm:flex-row" data-tutorial="advising-search">
                 <input
                   type="text"
                   value={searchInput}
@@ -449,7 +452,7 @@ export default function Advising() {
                     </option>
                   ))}
                 </select>
-                <div className="flex shrink-0 rounded-md border border-border-light bg-bg-container p-1">
+                <div className="flex shrink-0 rounded-md border border-border-light bg-bg-container p-1" data-tutorial="advising-view-toggle">
                   <button
                     type="button"
                     onClick={() => changeView("grid")}

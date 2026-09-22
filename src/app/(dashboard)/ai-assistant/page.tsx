@@ -24,6 +24,8 @@ import ChatHistoryPanel from "@/src/components/aiAssistant/ChatHistoryPanel";
 import { readChatStream, TOOL_STATUS_LABELS } from "@/src/library/chatStream";
 import { useChatStatus } from "@/src/library/useChatStatus";
 import { getEffectiveModelKey } from "@/src/library/chatMode";
+import PageTutorial from "@/src/components/tutorial/PageTutorial";
+import aiAssistantSteps from "@/src/library/tutorials/steps/ai-assistant";
 
 type ChatMessage = StoredChatMessage;
 
@@ -696,12 +698,13 @@ function AIAssistantPageContent() {
 
   return (
     <section className="flex h-screen flex-col bg-bg-main text-text-main">
+      <PageTutorial id="ai-assistant" steps={aiAssistantSteps} />
       <header className="relative flex h-[60px] shrink-0 items-center justify-between border-b border-border-light px-6">
         <h1 className="absolute left-1/2 -translate-x-1/2 text-center text-lg font-semibold tracking-[0.45em] text-text-main">
           Catalyst assistant.
         </h1>
 
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-1" data-tutorial="ai-toolbar">
           <button
             type="button"
             onClick={() => setShowHistoryPanel(true)}
@@ -810,6 +813,7 @@ function AIAssistantPageContent() {
               ref={toolboxBtnRef}
               onClick={() => setToolboxOpen((open) => !open)}
               title="See what the assistant can do"
+              data-tutorial="ai-toolbox-btn"
               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition ${
                 toolboxOpen ? "bg-primary text-text-inverse" : "text-primary hover:bg-bg-warm"
               }`}
@@ -840,6 +844,7 @@ function AIAssistantPageContent() {
               placeholder="Ask Catalyst anything..."
               disabled={isSending}
               maxLength={MAX_CHAT_INPUT_CHARS}
+              data-tutorial="ai-chat-input"
               className="min-w-1 flex-1 bg-transparent text-sm text-text-main outline-none placeholder:text-text-muted disabled:opacity-60"
             />
 

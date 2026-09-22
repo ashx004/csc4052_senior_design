@@ -13,6 +13,8 @@ import {
 } from "@/src/library/studentProfile";
 import ClassCard, { ClassCardProps } from "@/src/components/classes/ClassCard";
 import { getAllEnrollments } from "@/src/library/enrollments";
+import PageTutorial from "@/src/components/tutorial/PageTutorial";
+import profileSteps from "@/src/library/tutorials/steps/profile";
 
 import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
@@ -377,6 +379,7 @@ export default function Profile() {
 
   return (
     <section className="flex h-screen flex-col bg-bg-main text-text-main">
+      <PageTutorial id="profile" steps={profileSteps} />
       <header
         className="
           relative flex h-[60px] shrink-0 items-center justify-between
@@ -393,7 +396,7 @@ export default function Profile() {
 
       <main className="flex flex-1 flex-col overflow-y-auto px-10 py-10">
         {/* University picker */}
-        <section className="w-full xl:w-1/2">
+        <section className="w-full xl:w-1/2" data-tutorial="profile-university">
           <h2 className="text-lg font-semibold">Your university</h2>
           <p className="mt-1 text-sm text-text-muted">
             Used to personalize Advising&apos;s course recommendations. We
@@ -467,7 +470,7 @@ export default function Profile() {
         </section>
 
         {/* Catalyst learning summary */}
-        <section className="mt-10 w-full xl:w-1/2">
+        <section className="mt-10 w-full xl:w-1/2" data-tutorial="profile-learned">
           <h2 className="text-lg font-semibold text-text-main">
             What Catalyst has learned about you
           </h2>
@@ -544,7 +547,7 @@ export default function Profile() {
         </section>
 
         {/* Editable personal information */}
-        <section className="mt-10 w-full xl:w-1/2">
+        <section className="mt-10 w-full xl:w-1/2" data-tutorial="profile-personal">
           <div className="mb-5 flex items-center justify-between">
             <h2 className="text-lg font-semibold">Personal Information</h2>
 
