@@ -86,6 +86,7 @@ async function callOllamaForFlashcards(messages: unknown[], baseUrl: string, mod
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+        "X-Catalyst-Feature": "flashcard-generation",
       },
       body: JSON.stringify({
         model: resolveModelFromKey(modelKey),

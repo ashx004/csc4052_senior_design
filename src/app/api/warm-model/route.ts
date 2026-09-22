@@ -60,6 +60,7 @@ export async function POST(request: NextRequest) {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+        "X-Catalyst-Feature": "warm-model",
       },
       // No messages — Ollama loads the model into memory and returns
       // immediately once ready, without generating any content.

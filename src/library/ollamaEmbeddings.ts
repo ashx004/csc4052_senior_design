@@ -14,6 +14,7 @@ export async function embedTexts(texts: string[], signal?: AbortSignal): Promise
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+      "X-Catalyst-Feature": "embeddings",
     },
     signal,
     body: JSON.stringify({

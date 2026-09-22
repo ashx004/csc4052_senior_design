@@ -34,6 +34,7 @@ async function callOllamaForSummary(prompt: string): Promise<string> {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+        "X-Catalyst-Feature": "course-summary",
       },
       body: JSON.stringify({
         // Runs on Primary, where Muse Glimmer is the only large model

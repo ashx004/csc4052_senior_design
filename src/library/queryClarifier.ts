@@ -86,6 +86,7 @@ export async function clarifyUserQuery(message: string): Promise<string | null> 
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+        "X-Catalyst-Feature": "query-clarifier",
       },
       signal: AbortSignal.timeout(CLARIFY_TIMEOUT_MS),
       body: JSON.stringify({

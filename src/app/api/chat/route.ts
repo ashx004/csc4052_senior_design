@@ -1219,7 +1219,10 @@ async function callOllama(
   target: OllamaTarget = {
     baseUrl: process.env.OLLAMA_PRIMARY_URL || "",
     model: resolveModelFromKey(undefined),
-  }
+  },
+  // Read by the gatekeeper proxy in front of Ollama for its Discord
+  // transparency ping - purely observational, Ollama itself ignores it.
+  feature = "chat"
 ) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
@@ -1230,6 +1233,7 @@ async function callOllama(
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+        "X-Catalyst-Feature": feature,
       },
       body: JSON.stringify({
         model: target.model,
@@ -1269,6 +1273,7 @@ async function streamOllamaRound(
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+        "X-Catalyst-Feature": "chat",
       },
       body: JSON.stringify({
         model: target.model,
@@ -1390,7 +1395,7 @@ async function compactIfNeeded(
     const response = await callOllama(summarizeMessages, undefined, 0.2, {
       baseUrl: compactionBaseUrl,
       model: process.env.OLLAMA_SUMMARY_MODEL || "llama3.2:3b",
-    });
+    }, "chat-summarize");
     if (!response.ok) throw new Error(`Summarization failed (${response.status})`);
 
     const data = await response.json();

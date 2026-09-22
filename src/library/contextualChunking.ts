@@ -62,6 +62,7 @@ export async function addChunkContext(
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+          "X-Catalyst-Feature": "contextual-chunking",
         },
         signal,
         body: JSON.stringify({
