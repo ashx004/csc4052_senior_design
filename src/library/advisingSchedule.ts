@@ -89,6 +89,11 @@ export type CurriculumData = {
   warnings?: string[];
 };
 
+// Both "completed" (taken at this institution) and "transfer" (entered
+// manually or extracted from a transfer-credit section) count as courses
+// the student has actually finished, for every progress/matching purpose.
+const COMPLETED_STATUSES = ["completed", "transfer"];
+
 
 // helps for differientiating courses w/ 3 number codes and 4 number codes //
 
@@ -99,7 +104,7 @@ function cleanCourseCode(code: string): string {
 }
 
 
-function splitCourseCode(code: string): {
+export function splitCourseCode(code: string): {
   subject: string;
   number: string;
 } | null {
@@ -119,87 +124,32 @@ function splitCourseCode(code: string): {
 }
 
 
-export function courseCodesEquivalent(
-  curriculumCode: string,
-  transcriptCourse: TranscriptCourse,
-  curriculumTitle?: string | null
+// Shared low-level check: do these two course code strings represent the
+// same course number, accounting for the old-3-digit-vs-new-4-digit
+// renumbering pattern (e.g. "CSC 493" vs "CSC 4933")? This does NOT check
+// credit hours or titles — callers with that extra context (see
+// courseCodesEquivalent below) layer those checks on top for stronger
+// protection against false positives; callers without that context (e.g.
+// course-availability lookups against a live catalog with no title data)
+// use this directly instead of keeping their own separate copy of this
+// same logic.
+export function courseCodesStructurallyEquivalent(
+  codeA: string,
+  codeB: string
 ): boolean {
+  const a = splitCourseCode(codeA);
+  const b = splitCourseCode(codeB);
 
-  const curriculum = splitCourseCode(curriculumCode);
-  const transcript = splitCourseCode(
-    transcriptCourse.courseCode
-  );
+  if (!a || !b) return false;
+  if (a.subject !== b.subject) return false;
 
-  if (!curriculum || !transcript) {
-    return false;
-  }
+  if (a.number === b.number) return true;
 
-  // exact course-code match
-  if (
-    curriculum.subject === transcript.subject &&
-    curriculum.number === transcript.number
-  ) {
+  if (a.number.length === 3 && b.number.length === 4 && b.number.startsWith(a.number)) {
     return true;
   }
 
-  // subjects must always match
-  if (curriculum.subject !== transcript.subject) {
-    return false;
-  }
-
-  // old 3-digit curriculum code vs newer 4-digit transcript code
-  if (
-    curriculum.number.length === 3 &&
-    transcript.number.length === 4 &&
-    transcript.number.startsWith(curriculum.number)
-  ) {
-
-    const finalDigit =
-      Number(transcript.number.slice(-1));
-
-    if (
-      transcriptCourse.creditHours === null ||
-      finalDigit !== transcriptCourse.creditHours
-    ) {
-      return false;
-    }
-
-    // Extra protection against false matches such as:
-    // CSC 403 "Senior Capstone I"
-    // CSC 4033 "Software Design and Engineering"
-    if (
-        curriculumTitle &&
-        transcriptCourse.courseTitle
-        ) {
-        const normalizeTitle = (title: string) =>
-            title
-            .toUpperCase()
-            .replace(/&/g, " AND ")
-            .replace(/\bMGMT\b/g, "MANAGEMENT")
-            .replace(/\bADV\b/g, "ADVANCED")
-            .replace(/\bSCI\b/g, "SCIENCE")
-            .replace(/\bENGR\b/g, "ENGINEERING")
-            .replace(/\bTECH\b/g, "TECHNICAL")
-            .replace(/\./g, "")
-            .replace(/[^A-Z0-9]+/g, " ")
-            .trim();
-
-        const curriculumNormalized =
-            normalizeTitle(curriculumTitle);
-
-        const transcriptNormalized =
-            normalizeTitle(
-            transcriptCourse.courseTitle
-            );
-
-        if (
-            curriculumNormalized !==
-            transcriptNormalized
-        ) {
-            return false;
-        }
-        }
-
+  if (b.number.length === 3 && a.number.length === 4 && a.number.startsWith(b.number)) {
     return true;
   }
 
@@ -207,36 +157,159 @@ export function courseCodesEquivalent(
 }
 
 
+// Generic title-similarity check — deliberately NOT a hardcoded abbreviation
+// dictionary, since transcripts/curricula can abbreviate words in ways we
+// can't predict (COMM, INFO, INTRO, STAT, MGMT, ADV, etc., and combinations
+// we haven't seen yet). Instead, compare titles by character-sequence
+// overlap: an abbreviation still shares most of its letters with the full
+// word, so a phrase that differs in only one abbreviated word still scores
+// highly overall, while genuinely different course titles score low.
 
-function gradeRank(
-  grade: string | null
-): number | null {
+function normalizeForComparison(title: string): string {
+  return title
+    .toUpperCase()
+    .replace(/\([^)]*\)/g, " ") // strip parentheticals like "(on campus students)"
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim();
+}
 
+function bigrams(text: string): Map<string, number> {
+  const counts = new Map<string, number>();
+
+  for (let i = 0; i < text.length - 1; i++) {
+    const pair = text.slice(i, i + 2);
+    counts.set(pair, (counts.get(pair) ?? 0) + 1);
+  }
+
+  return counts;
+}
+
+// Sørensen–Dice coefficient: 2 * shared bigrams / total bigrams in both
+// strings. Returns 0 (no overlap) to 1 (identical).
+function titleSimilarity(a: string, b: string): number {
+  const normalizedA = normalizeForComparison(a);
+  const normalizedB = normalizeForComparison(b);
+
+  if (normalizedA === normalizedB) {
+    return 1;
+  }
+
+  const bigramsA = bigrams(normalizedA);
+  const bigramsB = bigrams(normalizedB);
+
+  let totalA = 0;
+  for (const count of bigramsA.values()) totalA += count;
+
+  let totalB = 0;
+  for (const count of bigramsB.values()) totalB += count;
+
+  if (totalA === 0 || totalB === 0) {
+    return 0;
+  }
+
+  let shared = 0;
+  for (const [pair, countA] of bigramsA) {
+    const countB = bigramsB.get(pair);
+    if (countB) {
+      shared += Math.min(countA, countB);
+    }
+  }
+
+  return (2 * shared) / (totalA + totalB);
+}
+
+// Threshold chosen so titles differing by one abbreviated word ("COMM" vs
+// "COMMUNICATION") still pass, while genuinely different course titles
+// ("Senior Capstone I" vs "Software Design and Engineering") do not.
+const TITLE_SIMILARITY_THRESHOLD = 0.5;
+
+function titlesLikelyMatch(a: string, b: string): boolean {
+  return titleSimilarity(a, b) >= TITLE_SIMILARITY_THRESHOLD;
+}
+
+
+export function courseCodesEquivalent(
+  curriculumCode: string,
+  transcriptCourse: TranscriptCourse,
+  curriculumTitle?: string | null
+): boolean {
+
+  const curriculum = splitCourseCode(curriculumCode);
+  const transcript = splitCourseCode(transcriptCourse.courseCode);
+
+  if (!curriculum || !transcript) {
+    return false;
+  }
+
+  // exact course-code match
+  if (curriculum.subject === transcript.subject && curriculum.number === transcript.number) {
+    return true;
+  }
+
+  if (!courseCodesStructurallyEquivalent(curriculumCode, transcriptCourse.courseCode)) {
+    return false;
+  }
+
+  // At this point the codes are a 3-vs-4-digit renumbering match in one
+  // direction or the other. Whichever side has the 4-digit code, its final
+  // digit should equal the course's real credit hours.
+  const fourDigitNumber =
+    curriculum.number.length === 4 ? curriculum.number : transcript.number;
+
+  const finalDigit = Number(fourDigitNumber.slice(-1));
+
+  if (transcriptCourse.creditHours === null || finalDigit !== transcriptCourse.creditHours) {
+    return false;
+  }
+
+  return true;
+}
+
+
+export function prerequisitesSatisfied(
+  prerequisites: string[],
+  transcriptCourses: TranscriptCourse[]
+): { satisfied: boolean; unmetPrerequisites: string[] } {
+
+  // Each element is ONE required prerequisite. Alternatives inside it are
+  // joined with "or". Commas / "and" / "&" split into separate required items.
+  const required = prerequisites.flatMap((entry) =>
+    entry.split(/\s*[,;&]\s*|\s+and\s+/i).map((p) => p.trim()).filter(Boolean)
+  );
+
+  const unmetPrerequisites = required.filter((requirement) => {
+    const alternatives = requirement.split(/\s+or\s+/i).map((c) => c.trim()).filter(Boolean);
+
+    const isSatisfied = alternatives.some((code) =>
+      transcriptCourses.some(
+        (course) =>
+          COMPLETED_STATUSES.includes(course.status) &&
+          courseCodesEquivalent(code, course)
+      )
+    );
+    return !isSatisfied;
+  });
+
+  return { satisfied: unmetPrerequisites.length === 0, unmetPrerequisites };
+}
+
+
+
+function gradeRank(grade: string | null): number | null {
   if (!grade) { return null; }
 
-  const normalized = grade.trim().toUpperCase();
+  // Uses the leading letter only, so "B R", "C or higher", "C-" all resolve.
+  // "IP", "W", "CR", "GPA", "Rubric GPA" return null.
+  const match = grade.trim().toUpperCase().match(/^([ABCDFP])(?![A-Z])/);
+  if (!match) { return null; }
 
-  switch (normalized) {
-    case "A":
-      return 4;
-
-    case "B":
-      return 3;
-
-    case "C":
-      return 2;
-
-    case "D":
-      return 1;
-
-    case "F":
-      return 0;
-
-    case "P":
-      return 2;
-
-    default:
-      return null;
+  switch (match[1]) {
+    case "A": return 4;
+    case "B": return 3;
+    case "C": return 2;
+    case "P": return 2;
+    case "D": return 1;
+    default:  return 0; // "F"
   }
 }
 
@@ -245,26 +318,24 @@ function satisfiesMinimumGrade(
   course: TranscriptCourse,
   minimumGrade?: string | null
 ): boolean {
-
   if (!minimumGrade) { return true; }
 
-  const courseRank = gradeRank(course.grade);
   const minimumRank = gradeRank(minimumGrade);
+  // Not a recognizable letter grade (e.g. "GPA"): don't fail the course.
+  if (minimumRank === null) { return true; }
 
-  if ( courseRank === null || minimumRank === null )
-  {
-    return false;
-  }
+  const courseRank = gradeRank(course.grade);
+  // Transfer credit is usually posted without a usable grade.
+  if (courseRank === null) { return course.status === "transfer"; }
 
   return courseRank >= minimumRank;
 }
 
 
-function satisfiesCompletedRequirement(
-  course: TranscriptCourse,
-  minimumGrade?: string | null
+function satisfiesCompletedRequirement(course: TranscriptCourse, minimumGrade?: string | null
 ): boolean {
-  return ( course.status === "completed" && satisfiesMinimumGrade( course, minimumGrade ));
+  return (
+    COMPLETED_STATUSES.includes(course.status) && satisfiesMinimumGrade(course, minimumGrade) );
 }
 
 // separate the transcript statuses | completed & in-progress //
@@ -731,7 +802,7 @@ function evaluateBroadProgramRequirements(
   const completedTranscriptCredits =
     sumTranscriptCredits(
       transcript.courses,
-      ["completed"]
+      COMPLETED_STATUSES
     );
 
   const inProgressTranscriptCredits =
@@ -744,7 +815,7 @@ function evaluateBroadProgramRequirements(
   const completedConcentrationCredits =
     sumRequirementCreditsByStatus(
       concentrationResults,
-      ["completed"]
+      COMPLETED_STATUSES
     );
 
   const activeConcentrationCredits =
@@ -876,13 +947,8 @@ function evaluateBroadProgramRequirements(
             const match =
               transcript.courses.find(
                 (course) =>
-                  course.status ===
-                    "completed" &&
-                  courseCodesEquivalent(
-                    option.courseCode,
-                    course,
-                    option.courseTitle
-                  )
+                  COMPLETED_STATUSES.includes(course.status) &&
+                  courseCodesEquivalent(option.courseCode, course, option.courseTitle)
               );
 
             if (!match) {

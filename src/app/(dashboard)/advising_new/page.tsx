@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import AdvisingPermissionModal from "@/src/components/advising/AdvisingPermissionModal";
 import AdvisingUploadModal from "@/src/components/advising/AdvisingUploadModal";
 import ExistingDocumentsModal from "@/src/components/advising/ExistingDocumentsModal";
+import TransferCreditForm from "@/src/components/advising/TransferCreditForm";
 import { useAuth } from "@/src/context/AuthContext";
 import PageTutorial from "@/src/components/tutorial/PageTutorial";
 import advisingNewSteps from "@/src/library/tutorials/steps/advising_new";
@@ -45,6 +46,9 @@ export default function AdvisingPage() {
   const [documentsReady, setDocumentsReady] = useState<boolean>(false);
   const [generatedSchedule, setGeneratedSchedule,] = useState<GeneratedSchedule | null>(null);
   const [isGeneratingSchedule, setIsGeneratingSchedule,] = useState<boolean>(false);
+  const [transferReviewInfo, setTransferReviewInfo] = useState<{rowCount: number; totalCreditHours: number;} | null>(null);
+  const [showManualCourseForm, setShowManualCourseForm] = useState<boolean>(false);
+  const [scheduleNeedsRegeneration, setScheduleNeedsRegeneration] = useState<boolean>(false);
 
   useEffect(() => {
   if (loading || !user) {
@@ -91,6 +95,29 @@ export default function AdvisingPage() {
 
     checkExistingDocuments();
  }, [user, loading]);
+
+
+  // Give the advising model a head start loading into VRAM as soon as the
+  // upload modal opens, so cold-load time overlaps with the student's file
+  // upload instead of sitting on the extraction call's critical path (where
+  // it risks the Cloudflare tunnel's ~100s timeout - see advisingOllama.ts).
+  // Best-effort: extraction still works if this fails, just slower.
+  useEffect(() => {
+    if (!showUploadModal || !user) { return; }
+
+    user.getIdToken()
+      .then((token) =>
+        fetch("/api/warm-model", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ modelKey: "museGlimmer" }),
+        })
+      )
+      .catch(() => {});
+  }, [showUploadModal, user]);
 
 
   function handleAcceptUpload() {
@@ -158,7 +185,48 @@ export default function AdvisingPage() {
             {isGeneratingSchedule ? "Generating Schedule..." : "Generate Schedule"}
 
           </button>
+
+               {scheduleNeedsRegeneration && (
+                  <p className="mt-3 text-sm text-amber-700">
+                    Your courses were updated. Click <strong>Generate Schedule</strong> again to see the changes reflected.
+                  </p>
+                )}
         </section>
+
+        {(transferReviewInfo || showManualCourseForm) && (
+          <section className="mt-8">
+            <TransferCreditForm
+              expectedRowCount={transferReviewInfo?.rowCount}
+              expectedTotalCreditHours={transferReviewInfo?.totalCreditHours}
+              heading={transferReviewInfo ? undefined : "Add a completed course"}
+              description={
+                transferReviewInfo ? undefined : "Add a course you've already completed elsewhere — transfer credit, AP credit, or anything not reflected above — so it counts toward your remaining requirements."
+              }
+              dismissLabel={transferReviewInfo ? "Skip for now" : "Close"}
+              onSaved={() => {
+                setTransferReviewInfo(null);
+                setShowManualCourseForm(false);
+                setScheduleNeedsRegeneration(true);
+              }}
+              onDismiss={() => {
+                setTransferReviewInfo(null);
+                setShowManualCourseForm(false);
+              }}
+            />
+          </section>
+        )}
+
+        {!transferReviewInfo && !showManualCourseForm && (
+          <section className="mt-8">
+            <button
+              type="button"
+              onClick={() => setShowManualCourseForm(true)}
+              className="text-sm font-medium text-[#b08957] hover:underline"
+            >
+              + Add a completed course
+            </button>
+          </section>
+        )}
 
         {/* Previous Schedule Section */}
         <section 
@@ -199,11 +267,12 @@ export default function AdvisingPage() {
             {generatedSchedule && (
               <div className="space-y-6">
 
-                {generatedSchedule.terms.map(
-                  (term) => (
 
-                    <section
-                      key={`${term.term}-${term.year}`}
+                {generatedSchedule.terms
+                  .filter((term) => term.courses.length > 0)
+                  .map(
+                    (term) => (
+                      <section key={`${term.term}-${term.year}`}
                       className="
                         rounded-xl
                         border
@@ -398,6 +467,15 @@ export default function AdvisingPage() {
     console.log("Transcript:", data.transcript);
     console.log("Curriculum:", data.curriculum);
 
+    if (data.needsManualTransferReview && data.unreadableTransferInfo) {
+      setTransferReviewInfo({
+        rowCount: data.unreadableTransferInfo.rowCount,
+        totalCreditHours: data.unreadableTransferInfo.totalCreditHours,
+      });
+    } else {
+      setTransferReviewInfo(null);
+    }
+
     return true;
 
 
@@ -453,6 +531,7 @@ export default function AdvisingPage() {
       }
 
       setGeneratedSchedule(data.schedule);
+      setScheduleNeedsRegeneration(false);
 
       console.log("Generated Schedule:", data.schedule);
 
