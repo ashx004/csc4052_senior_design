@@ -106,6 +106,7 @@ export async function maybeUpdateStudentProfile(
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+        "X-Catalyst-Feature": "student-profile",
       },
       signal: controller.signal,
       body: JSON.stringify({

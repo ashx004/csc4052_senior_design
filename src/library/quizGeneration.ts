@@ -134,6 +134,7 @@ async function callOllama(prompt: string, questionCount: number, baseUrl: string
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+        "X-Catalyst-Feature": "quiz-generation",
       },
       body: JSON.stringify({
         model: resolveModelFromKey(modelKey),

@@ -115,6 +115,7 @@ async function callOllama(prompt: string, count: number): Promise<string> {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
+        "X-Catalyst-Feature": "discover-learn-question",
       },
       signal: controller.signal,
       body: JSON.stringify({

@@ -48,6 +48,7 @@ export async function ocrImage(imageBytes: Buffer, signal?: AbortSignal): Promis
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+        "X-Catalyst-Feature": "ocr",
       },
       signal: combinedSignal,
       body: JSON.stringify({

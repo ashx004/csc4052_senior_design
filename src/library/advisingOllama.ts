@@ -82,6 +82,12 @@ setGlobalDispatcher(new Agent({ headersTimeout: 600_000 })); // 10 minutes
 type OllamaCallOptions = {
   think?: "low" | "medium" | "high";
   numPredict?: number;
+  // Identifies which of this file's several callers (transcript extraction,
+  // curriculum extraction, schedule generation, ...) actually made this
+  // request - read by the gatekeeper proxy in front of Ollama and shown in
+  // its Discord transparency ping, so "advising" traffic doesn't all show
+  // up looking identical. Purely observational; Ollama itself ignores it.
+  feature?: string;
 };
 
 async function callAdvisingOllama(
@@ -90,6 +96,7 @@ async function callAdvisingOllama(
 ): Promise<string> {
   const think = options.think ?? "low";
   const numPredict = options.numPredict ?? 48000;
+  const feature = options.feature ?? "advising-unspecified";
   if (!process.env.OLLAMA_PRIMARY_URL) {
     throw new Error("OLLAMA_PRIMARY_URL is not configured."); }
 
@@ -112,6 +119,7 @@ async function callAdvisingOllama(
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+        "X-Catalyst-Feature": feature,
       },
       body: JSON.stringify({
         model: ADVISING_MODEL,
@@ -586,7 +594,7 @@ row(s) you missed.
     },
   ];
 
-  return callAdvisingOllama(messages, { think: "medium" });
+  return callAdvisingOllama(messages, { think: "medium", feature: "advising-extract-transcript" });
 }
 
 
@@ -1069,7 +1077,7 @@ async function extractConcentrationsWithOllama(
 
     { role: "user", content: curriculumText },
   ],
-    { think: "medium", numPredict: 48000 },
+    { think: "medium", numPredict: 48000, feature: "advising-extract-concentrations" },
 );
 }
 
@@ -1107,7 +1115,7 @@ async function extractProgramInfoWithOllama(
         },
 
         { role: "user", content: curriculumText, },
-      ]);
+      ], { feature: "advising-extract-program-info" });
     }
 
 
@@ -1291,8 +1299,8 @@ async function extractProgramInfoWithOllama(
           
       `,
     },
-        { role: "user", content: curriculumText, }, ], 
-        { think: "medium", numPredict: 48000 });
+        { role: "user", content: curriculumText, }, ],
+        { think: "medium", numPredict: 48000, feature: "advising-extract-curriculum" });
 }
 
 
@@ -1599,5 +1607,5 @@ and explain why in warnings.
       content: JSON.stringify(input) },
   ];
 
-  return callAdvisingOllama(messages, { think: "medium", numPredict: 48000 });
+  return callAdvisingOllama(messages, { think: "medium", numPredict: 48000, feature: "advising-generate-schedule" });
 }
