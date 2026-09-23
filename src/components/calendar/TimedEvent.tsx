@@ -6,17 +6,20 @@ type TimedEventProps = {
   tone: EventTone;
   height: string;
   style?: React.CSSProperties;
+  onClick?: () => void;
 };
 
-export default function TimedEvent({ title, tone, height, style }: TimedEventProps) {
+export default function TimedEvent({ title, tone, height, style, onClick }: TimedEventProps) {
   return (
-    <div
+    <button
+      type="button"
+      onClick={onClick}
       style={style}
       className={`absolute left-1.5 right-1.5 z-10 rounded-lg px-2.5 py-2 text-xs font-semibold leading-snug shadow-sm ${
         eventToneClasses[tone]
       } ${height}`}
     >
       {title}
-    </div>
+    </button>
   );
 }
