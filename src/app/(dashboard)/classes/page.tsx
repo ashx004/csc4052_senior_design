@@ -10,10 +10,11 @@ import { db } from '@/src/library/firebase';
 import { Minus } from "lucide-react";
 import { Term } from "@/src/library/academicTerm";
 import { EnrollmentStatus, getEnrollmentStatus } from "@/src/library/enrollmentStatus";
+import type { StructuredClassSchedule } from "@/src/library/classSchedule";
 
 // database fields that a class should have (YOU MUST FOLLOW THIS STRUCTURE IF YOU INSERT A CLASS!!!!)
 // note that only className, classCode, and term are required, the rest are optional
-export interface EnrollmentFields {
+export interface EnrollmentFields extends StructuredClassSchedule {
     className: string;
     classCode: string;
     term: string;
