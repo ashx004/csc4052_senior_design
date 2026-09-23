@@ -100,6 +100,7 @@ export default function DayView({ events, selectedDate, onEventClick }: DayViewP
                       key={ev.id}
                       title={`${new Date(ev.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}–${new Date(ev.endTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} ${ev.title}`}
                       tone={ev.tone ?? "cream"}
+                      color={ev.color}
                       height={`h-[${heightPx}px]`}
                       style={{ top: `${topPx}px` }}
                       onClick={() => onEventClick?.(ev)}

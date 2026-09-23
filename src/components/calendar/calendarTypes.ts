@@ -22,6 +22,9 @@ export type CalendarEvent = {
   status?: "confirmed" | "tentative" | "cancelled";
   htmlLink?: string;
   tone?: EventTone;
+  // Class-derived events use the enrollment's actual class color instead of
+  // one of the small manual-event tone presets.
+  color?: string;
   source: "google" | "local" | "class";
   kind?: "event" | "study" | "assignment" | "exam" | "class";
   classId?: string;
