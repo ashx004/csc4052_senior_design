@@ -8,11 +8,16 @@ export type TutorialId =
   | "learning"
   | "calendar"
   | "ai-assistant"
-  | "advising"
   | "advising_new"
   | "profile"
   | "notes"
-  | "course";
+  | "course"
+  | "course-learning"
+  | "course-flashcards"
+  | "course-quiz"
+  | "course-discover"
+  | "course-discover-set"
+  | "settings";
 
 export const ALL_TUTORIAL_IDS: TutorialId[] = [
   "dashboard",
@@ -20,11 +25,16 @@ export const ALL_TUTORIAL_IDS: TutorialId[] = [
   "learning",
   "calendar",
   "ai-assistant",
-  "advising",
   "advising_new",
   "profile",
   "notes",
   "course",
+  "course-learning",
+  "course-flashcards",
+  "course-quiz",
+  "course-discover",
+  "course-discover-set",
+  "settings",
 ];
 
 export type TutorialPlacement = "top" | "bottom" | "left" | "right" | "center";

@@ -1,6 +1,6 @@
 import { doc, getDoc, setDoc, updateDoc, deleteField, serverTimestamp } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
-import type { TutorialId } from "./types";
+import { ALL_TUTORIAL_IDS, type TutorialId } from "./types";
 
 // Per-user tutorial-completion tracking, stored as a single map field on the
 // existing users/{uid} doc — already self-read/write only under
@@ -11,6 +11,33 @@ import type { TutorialId } from "./types";
 // required either way. Mirrors the plain client-SDK read/write pattern
 // studentProfile.ts uses for the same users/{uid} doc.
 export type TutorialsSeenMap = Partial<Record<TutorialId, boolean>>;
+
+// Separate from TutorialsSeenMap on purpose: "skip all future tutorials"
+// (the checkbox in TutorialOverlay) needs to suppress tours for ids that
+// don't exist yet at the moment a user checks it - a page shipped next
+// month should stay silent for them too, which a per-id seen map alone
+// can never express (it only ever knows about ids that existed when it was
+// written). One boolean covers every id, past and future, without needing
+// a migration each time ALL_TUTORIAL_IDS grows.
+const OPTED_OUT_FIELD = "tutorialsOptedOut";
+
+export async function getTutorialsOptedOut(uid: string): Promise<boolean> {
+  try {
+    const snap = await getDoc(doc(db, "users", uid));
+    return snap.exists() ? !!snap.data()[OPTED_OUT_FIELD] : false;
+  } catch (error) {
+    console.error("Failed to load tutorial opt-out state:", error);
+    return false;
+  }
+}
+
+export async function setTutorialsOptedOut(uid: string, optedOut: boolean): Promise<void> {
+  try {
+    await setDoc(doc(db, "users", uid), { [OPTED_OUT_FIELD]: optedOut }, { merge: true });
+  } catch (error) {
+    console.error("Failed to save tutorial opt-out state:", error);
+  }
+}
 
 export async function getTutorialsSeen(uid: string): Promise<TutorialsSeenMap> {
   try {
@@ -46,10 +73,28 @@ export async function markTutorialSeen(uid: string, id: TutorialId): Promise<voi
   }
 }
 
-/** Backs the Settings "Replay tutorials" control. */
+/** Backs the Settings "Replay tutorials" control for a specific set of ids.
+ *  Exported for potential future per-tutorial replay; the button itself
+ *  goes through resetAllTutorials below, which also clears the opt-out. */
 export async function resetTutorials(uid: string, ids: TutorialId[]): Promise<void> {
   const updates: Record<string, ReturnType<typeof deleteField>> = {};
   for (const id of ids) updates[`tutorialsSeen.${id}`] = deleteField();
+  try {
+    await updateDoc(doc(db, "users", uid), updates);
+  } catch (error) {
+    console.error("Failed to reset tutorial progress:", error);
+  }
+}
+
+/** Full reset: every tutorial's "seen" flag AND the global opt-out, in one
+ *  write. This is what Settings' "Replay tutorials" button actually calls -
+ *  clearing just the seen map would leave a previously-opted-out user
+ *  silently skipped anyway, which would make the button look broken. */
+export async function resetAllTutorials(uid: string): Promise<void> {
+  const updates: Record<string, ReturnType<typeof deleteField> | false> = {
+    [OPTED_OUT_FIELD]: false,
+  };
+  for (const id of ALL_TUTORIAL_IDS) updates[`tutorialsSeen.${id}`] = deleteField();
   try {
     await updateDoc(doc(db, "users", uid), updates);
   } catch (error) {

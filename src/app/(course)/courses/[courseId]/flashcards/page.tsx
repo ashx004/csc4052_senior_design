@@ -27,6 +27,8 @@ import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
 import FlashcardSetupModal from '@/src/components/discover/FlashcardSetupModal';
 import { publishStudySet } from '@/src/library/discover/publishStudySet';
 import type { StudySetVisibility } from '@/src/library/discover/types';
+import PageTutorial from '@/src/components/tutorial/PageTutorial';
+import courseFlashcardsSteps from '@/src/library/tutorials/steps/course-flashcards';
 
 interface Flashcard {
   question: string;
@@ -418,6 +420,7 @@ export default function FlashcardsPage() {
 
   return (
     <div className="min-h-screen bg-[#FAFAF8] flex flex-col">
+      <PageTutorial id="course-flashcards" steps={courseFlashcardsSteps} />
       {/* Header */}
       <div className="flex h-[60px] items-center justify-between border-b border-border-light px-6 md:px-14">
         <div className="flex items-center gap-3">
@@ -437,14 +440,16 @@ export default function FlashcardsPage() {
       <div className="flex-1 flex flex-col items-center justify-center px-4 py-8">
         {flashcards.length > 0 && (
           <>
-            <FlashCard
-              key={currentIndex}
-              question={flashcards[currentIndex].question}
-              answer={flashcards[currentIndex].answer}
-            />
+            <div data-tutorial="course-flashcards-card">
+              <FlashCard
+                key={currentIndex}
+                question={flashcards[currentIndex].question}
+                answer={flashcards[currentIndex].answer}
+              />
+            </div>
 
             {/* Navigation */}
-            <div className="flex items-center gap-6 mt-8">
+            <div className="flex items-center gap-6 mt-8" data-tutorial="course-flashcards-nav">
               <button
                 onClick={goToPrevious}
                 disabled={isFirstCard}

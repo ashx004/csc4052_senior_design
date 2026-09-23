@@ -2,13 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Loader2, LayoutGrid, List } from "lucide-react";
+import { Loader2, LayoutGrid, List, X } from "lucide-react";
 import { useAuth } from "@/src/context/AuthContext";
 import { useSetPageContext } from "@/src/context/AIPageContext";
 import { useAdvisingCache } from "@/src/context/AdvisingCacheContext";
 import AddEnrollmentModal from "@/src/components/classes/AddEnrollmentModal";
-import PageTutorial from "@/src/components/tutorial/PageTutorial";
-import advisingSteps from "@/src/library/tutorials/steps/advising";
 
 type Term = "Fall" | "Winter" | "Spring" | "Summer";
 const TERM_ORDER: Term[] = ["Fall", "Winter", "Spring", "Summer"];
@@ -182,7 +180,16 @@ function CourseCard({
   );
 }
 
-export default function Advising() {
+/** The former standalone Advising page (course-offering catalog, backed by
+ *  the protohacks course-history source) — demoted from primary nav to a
+ *  supplementary "see the full catalog" view launched from the Add Class
+ *  dialog (see AddEnrollmentModal's "See course catalog" link), since
+ *  Advising New & Improved is the one AI-driven advising experience left in
+ *  the sidebar. Content and behavior are otherwise unchanged from the page
+ *  this was extracted from. `onClose` renders a close button — omit it to
+ *  use this standalone (e.g. embedded directly in a route) with no way to
+ *  dismiss itself. */
+export default function CourseCatalogView({ onClose }: { onClose?: () => void }) {
   const { user } = useAuth();
   const cache = useAdvisingCache<AdvisingResponse, AdvisingCourse>();
 
@@ -325,11 +332,20 @@ export default function Advising() {
 
   return (
     <div className="flex h-screen flex-col bg-bg-main text-text-main">
-      <PageTutorial id="advising" steps={advisingSteps} />
       <header className="relative flex h-[60px] shrink-0 items-center justify-between border-b border-border-light px-6">
         <h1 className="absolute left-1/2 -translate-x-1/2 text-center text-lg font-semibold tracking-[0.45em] text-text-main">
-          Advising.
+          Course Catalog.
         </h1>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close course catalog"
+            className="ml-auto rounded-md p-1.5 text-text-muted transition hover:bg-bg-warm hover:text-text-main"
+          >
+            <X size={20} />
+          </button>
+        )}
       </header>
 
       <div className="flex-1 overflow-y-auto p-8">
@@ -413,7 +429,7 @@ export default function Advising() {
 
           {data && !data.universityUnsupported && (
             <>
-              <div className="rounded-2xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light" data-tutorial="advising-progress">
+              <div className="rounded-2xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light">
                 <div className="flex items-center gap-3">
                   {data.university && (
                     <img src={faviconUrl(data.university.domain)} alt="" className="h-8 w-8 rounded" />
@@ -432,7 +448,7 @@ export default function Advising() {
                 </p>
               </div>
 
-              <div className="flex flex-col gap-3 sm:flex-row" data-tutorial="advising-search">
+              <div className="flex flex-col gap-3 sm:flex-row">
                 <input
                   type="text"
                   value={searchInput}
@@ -452,7 +468,7 @@ export default function Advising() {
                     </option>
                   ))}
                 </select>
-                <div className="flex shrink-0 rounded-md border border-border-light bg-bg-container p-1" data-tutorial="advising-view-toggle">
+                <div className="flex shrink-0 rounded-md border border-border-light bg-bg-container p-1">
                   <button
                     type="button"
                     onClick={() => changeView("grid")}

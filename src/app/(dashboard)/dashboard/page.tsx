@@ -32,7 +32,7 @@ export default function Dashboard() {
             icon="/icons/user-pen.png"
             title="Advising"
             description="Discuss your academic plans"
-            href="/advising"
+            href="/advising_new"
           />
           <DashboardCard
             icon="/icons/calendar-days.png"

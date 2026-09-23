@@ -33,6 +33,8 @@ import QuizSetupModal from '@/src/components/quizzes/QuizSetupModal';
 import { publishStudySet } from '@/src/library/discover/publishStudySet';
 import { unpublishStudySet } from '@/src/library/discover/unpublishStudySet';
 import type { StudySetVisibility } from '@/src/library/discover/types';
+import PageTutorial from '@/src/components/tutorial/PageTutorial';
+import courseLearningSteps from '@/src/library/tutorials/steps/course-learning';
 
 interface Resource {
   id: string;
@@ -391,6 +393,7 @@ export default function CourseLearningPage() {
 
   return (
     <div className="min-h-screen bg-[#FAFAF8]">
+      <PageTutorial id="course-learning" steps={courseLearningSteps} />
       {/* Header */}
       <div className="flex h-[60px] items-center justify-between border-b border-border-light px-14">
         <div className="ml-4 flex translate-y-3 items-center gap-3">
@@ -408,19 +411,19 @@ export default function CourseLearningPage() {
 
       <div className="px-14 py-6">
         {/* Page header */}
-        <h2 className="text-left text-lg font-bold text-[#1a1a2e] mb-6">
+        <h2 className="text-left text-lg font-bold text-[#1a1a2e] mb-6" data-tutorial="course-learning-heading">
           Choose A Lecture And Make Your Own Flashcard Or Quizzes
         </h2>
 
         {/* Document grid */}
         {resources.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-text-muted">
+          <div className="flex flex-col items-center justify-center py-20 text-text-muted" data-tutorial="course-learning-grid">
             <BookOpen size={48} className="mb-4" />
             <p className="text-lg font-medium">No documents yet</p>
             <p className="text-sm mt-1">Upload resources to your course to start learning</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5" data-tutorial="course-learning-grid">
             {resources.map((resource, index) => (
               <button
                 key={resource.id}
@@ -458,7 +461,7 @@ export default function CourseLearningPage() {
         )}
 
         {/* Recent Flashcard */}
-        <div className="mt-12">
+        <div className="mt-12" data-tutorial="course-learning-recent">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-base font-bold text-[#1a1a2e]">Recent Flashcard</h2>
             <SortDropdown value={flashcardSort} onChange={setFlashcardSort} />
