@@ -3,6 +3,8 @@ import type { CalendarEvent } from "@/src/components/calendar/calendarTypes";
 
 type EventPillProps = {
   event: CalendarEvent;
+  onClick?: (event: CalendarEvent) => void;
+  onDragStart?: (event: CalendarEvent) => void;
 };
 
 function formatTimeRange(startTime: string, endTime: string): string {
@@ -32,13 +34,17 @@ function formatTimeRange(startTime: string, endTime: string): string {
   return `${start} - ${end}`;
 }
 
-export default function EventPill({ event }: EventPillProps) {
+export default function EventPill({ event, onClick, onDragStart }: EventPillProps) {
   const toneClass = event.tone
     ? eventToneClasses[event.tone]
     : "bg-bg-warm text-text-main";
 
   return (
-    <div
+    <button
+      type="button"
+      onClick={(click) => { click.stopPropagation(); onClick?.(event); }}
+      draggable={Boolean(onDragStart)}
+      onDragStart={(dragEvent) => { dragEvent.dataTransfer.effectAllowed = "move"; onDragStart?.(event); }}
       className={`truncate rounded-md px-2 py-1 text-[11px] font-medium leading-tight ${toneClass}`}
     >
       <span>{event.title}</span>
@@ -48,6 +54,6 @@ export default function EventPill({ event }: EventPillProps) {
           {formatTimeRange(event.startTime, event.endTime)}
         </span>
       )}
-    </div>
+    </button>
   );
 }

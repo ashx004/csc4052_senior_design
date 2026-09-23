@@ -21,12 +21,14 @@ type WeekViewProps = {
   events: CalendarEvent[];
   selectedDate: Date;
   onSelectDate: (date: Date) => void;
+  onEventClick?: (event: CalendarEvent) => void;
 };
 
 export default function WeekView({
   events,
   selectedDate,
   onSelectDate,
+  onEventClick,
 }: WeekViewProps) {
   const weekStart = useMemo(() => getWeekStart(selectedDate), [selectedDate]);
   const weekDays = useMemo(
@@ -84,7 +86,7 @@ export default function WeekView({
                 >
                   <div className="space-y-1">
                     {allDayEvts.map((ev, j) => (
-                      <EventPill key={`${ev.id}-${j}`} event={ev} />
+                      <EventPill key={`${ev.id}-${j}`} event={ev} onClick={onEventClick} />
                     ))}
                   </div>
                 </div>
@@ -128,6 +130,7 @@ export default function WeekView({
                             tone={ev.tone ?? "cream"}
                             height={`h-[${heightPx}px]`}
                             style={{ top: `${topPx}px` }}
+                            onClick={() => onEventClick?.(ev)}
                           />
                         );
                       })}
