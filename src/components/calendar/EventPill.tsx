@@ -34,6 +34,13 @@ function formatTimeRange(startTime: string, endTime: string): string {
   return `${start} - ${end}`;
 }
 
+function readableTextColor(background?: string): string | undefined {
+  const hex = background?.match(/^#([0-9a-f]{6})$/i)?.[1];
+  if (!hex) return undefined;
+  const [red, green, blue] = [0, 2, 4].map((offset) => parseInt(hex.slice(offset, offset + 2), 16));
+  return (red * 299 + green * 587 + blue * 114) / 1000 > 165 ? "#1f1712" : "#ffffff";
+}
+
 export default function EventPill({ event, onClick, onDragStart }: EventPillProps) {
   const toneClass = event.tone
     ? eventToneClasses[event.tone]
@@ -45,6 +52,7 @@ export default function EventPill({ event, onClick, onDragStart }: EventPillProp
       onClick={(click) => { click.stopPropagation(); onClick?.(event); }}
       draggable={Boolean(onDragStart)}
       onDragStart={(dragEvent) => { dragEvent.dataTransfer.effectAllowed = "move"; onDragStart?.(event); }}
+      style={event.color ? { backgroundColor: event.color, color: readableTextColor(event.color) } : undefined}
       className={`truncate rounded-md px-2 py-1 text-[11px] font-medium leading-tight ${toneClass}`}
     >
       <span>{event.title}</span>

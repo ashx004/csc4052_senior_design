@@ -173,7 +173,8 @@ export default function AddEventModal({ isOpen, onClose, onEventAdded, event, ev
       <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl bg-bg-container p-6 shadow-xl" onClick={(click) => click.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between border-b border-border-light pb-3">
           <div><h3 className="text-xl font-semibold text-text-main">{isEditing ? "Edit event" : "Add event"}</h3>
-            {event?.source === "google" && <p className="mt-1 text-xs text-text-muted">Google events are managed in Google Calendar.</p>}</div>
+            {event?.source === "google" && <p className="mt-1 text-xs text-text-muted">Google events are managed in Google Calendar.</p>}
+            {event?.source === "class" && <p className="mt-1 text-xs text-text-muted">This meeting is generated from its class schedule. Update the class schedule to change it.</p>}</div>
           <button type="button" onClick={close} className="text-text-muted hover:text-text-main" aria-label="Close event editor">Close</button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
