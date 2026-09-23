@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { doc, updateDoc } from "firebase/firestore";
 import {
   CalendarDays,
   ChevronLeft,
@@ -11,6 +12,7 @@ import {
 
 import AddEventModal from "@/src/components/calendar/AddEventModal";
 import DayView from "@/src/components/calendar/DayView";
+import AgendaView from "@/src/components/calendar/AgendaView";
 import MonthView from "@/src/components/calendar/MonthView";
 import WeekView from "@/src/components/calendar/WeekView";
 import GoogleCalendarConnect from "@/src/components/calendar/GoogleCalendarConnect";
@@ -19,8 +21,10 @@ import { useCalendarEvents } from "@/src/hooks/useCalendarEvents";
 import { useLocalCalendarEvents } from "@/src/hooks/useLocalCalendarEvents";
 import { getWeekStart } from "@/src/library/calendarHelpers";
 
-import type { CalendarView } from "@/src/components/calendar/calendarTypes";
+import type { CalendarEvent, CalendarView } from "@/src/components/calendar/calendarTypes";
 import { useSetPageContext } from "@/src/context/AIPageContext";
+import { useAuth } from "@/src/context/AuthContext";
+import { db } from "@/src/library/firebase";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -28,11 +32,17 @@ const MONTH_NAMES = [
 ];
 
 export default function CalendarPage() {
+  const { user } = useAuth();
   const [view, setView] = useState<CalendarView>("month");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
 
   const [showAddEvent, setShowAddEvent] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const [showLocal, setShowLocal] = useState(true);
+  const [showGoogle, setShowGoogle] = useState(true);
+  const [classFilter, setClassFilter] = useState("all");
   const { status, refresh } = useCalendarConnection();
 
   // Compute the date range to fetch based on the current view.
@@ -42,7 +52,7 @@ export default function CalendarPage() {
     const start = new Date(currentDate);
     const end = new Date(currentDate);
 
-    if (view === "month") {
+    if (view === "month" || view === "agenda") {
       // Fetch the full visible grid: from the Sunday before the 1st
       // through the Saturday after the last day.
       start.setDate(1);
@@ -69,7 +79,7 @@ export default function CalendarPage() {
     const start = new Date(currentDate);
     const end = new Date(currentDate);
 
-    if (view === "month") {
+    if (view === "month" || view === "agenda") {
       start.setDate(1);
       start.setDate(start.getDate() - start.getDay());
       end.setMonth(end.getMonth() + 1, 0);
@@ -89,15 +99,23 @@ export default function CalendarPage() {
   }, [currentDate, view]);
 
   const { events, error: eventsError } = useCalendarEvents(dateRange);
-  const { events: localEvents, loading: localLoading, refetch: refetchLocal } = useLocalCalendarEvents(localDateRange);
+  const { events: localEvents, loading: localLoading, error: localEventsError, refetch: refetchLocal } = useLocalCalendarEvents(localDateRange);
 
   const allEvents = useMemo(() => [...events, ...localEvents], [events, localEvents]);
+  const classOptions = useMemo(() => Array.from(new Map(
+    allEvents.filter((event) => event.classId && event.className).map((event) => [event.classId!, event.className!])
+  ).entries()), [allEvents]);
+  const filteredEvents = useMemo(() => allEvents.filter((event) =>
+    (showLocal || event.source !== "local") &&
+    (showGoogle || event.source !== "google") &&
+    (classFilter === "all" || event.classId === classFilter)
+  ), [allEvents, showLocal, showGoogle, classFilter]);
 
   // ── Navigation handlers ──────────────────────────────────────────────────
 
   function navigateDate(direction: -1 | 1) {
     const nextDate = new Date(currentDate);
-    if (view === "month") {
+    if (view === "month" || view === "agenda") {
       // Start from the first so January 29–31 cannot overflow past February.
       nextDate.setDate(1);
       nextDate.setMonth(nextDate.getMonth() + direction);
@@ -115,7 +133,7 @@ export default function CalendarPage() {
     setView(nextView);
     // A month can be navigated without changing its selected day. When moving
     // into a date-driven view, begin at the month currently on screen.
-    if (nextView !== "month") setSelectedDate(new Date(currentDate));
+    if (nextView !== "month" && nextView !== "agenda") setSelectedDate(new Date(currentDate));
   }
 
   function goToToday() {
@@ -128,10 +146,29 @@ export default function CalendarPage() {
     setCurrentDate(new Date(date));
   }
 
+  async function handleMoveEvent(event: CalendarEvent, targetDate: Date) {
+    if (!user || event.source !== "local" || event.seriesId) return;
+    const start = new Date(event.startTime);
+    const end = new Date(event.endTime);
+    const movedStart = new Date(targetDate);
+    const movedEnd = new Date(targetDate);
+    if (event.allDay) {
+      const durationDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000));
+      const startDate = `${movedStart.getFullYear()}-${String(movedStart.getMonth() + 1).padStart(2, "0")}-${String(movedStart.getDate()).padStart(2, "0")}`;
+      movedEnd.setDate(movedEnd.getDate() + durationDays);
+      const endDate = `${movedEnd.getFullYear()}-${String(movedEnd.getMonth() + 1).padStart(2, "0")}-${String(movedEnd.getDate()).padStart(2, "0")}`;
+      await updateDoc(doc(db, "users", user.uid, "events", event.id), { startTime: startDate, endTime: endDate });
+      return;
+    }
+    movedStart.setHours(start.getHours(), start.getMinutes(), 0, 0);
+    movedEnd.setTime(movedStart.getTime() + (end.getTime() - start.getTime()));
+    await updateDoc(doc(db, "users", user.uid, "events", event.id), { startTime: movedStart.toISOString(), endTime: movedEnd.toISOString() });
+  }
+
   // ── Header text ──────────────────────────────────────────────────────────
 
   const headerText =
-    view === "month"
+    view === "month" || view === "agenda"
       ? `${MONTH_NAMES[currentDate.getMonth()]} ${currentDate.getFullYear()}`
       : view === "week"
         ? (() => {
@@ -165,7 +202,7 @@ export default function CalendarPage() {
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <section className="min-h-screen bg-bg-main px-8 py-8 text-text-main">
+    <section className="min-h-screen bg-bg-main px-4 py-8 text-text-main sm:px-8">
       <div className="mx-auto max-w-7xl">
         {/* ── Page header ── */}
         <header className="mb-7 flex items-start justify-between gap-6">
@@ -181,9 +218,10 @@ export default function CalendarPage() {
             </h1>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="relative flex items-center gap-3">
             <button
               type="button"
+              onClick={() => setShowFilters((open) => !open)}
               className="
                 inline-flex items-center gap-2 rounded-lg
                 border border-border-light bg-bg-container
@@ -193,9 +231,17 @@ export default function CalendarPage() {
               <Filter size={15} strokeWidth={1.8} />
               Filter
             </button>
+            {showFilters && (
+              <div className="absolute right-0 top-11 z-20 w-64 rounded-lg border border-border-light bg-bg-container p-4 shadow-lg">
+                <p className="text-sm font-semibold text-text-main">Show</p>
+                <label className="mt-3 flex items-center gap-2 text-sm text-text-main"><input type="checkbox" checked={showLocal} onChange={(change) => setShowLocal(change.target.checked)} /> My events</label>
+                <label className="mt-2 flex items-center gap-2 text-sm text-text-main"><input type="checkbox" checked={showGoogle} onChange={(change) => setShowGoogle(change.target.checked)} /> Google Calendar</label>
+                {classOptions.length > 0 && <label className="mt-3 block text-sm text-text-main">Class<select value={classFilter} onChange={(change) => setClassFilter(change.target.value)} className="mt-1 w-full rounded-md border border-border-light bg-bg-main px-2 py-1.5 text-sm"><option value="all">All classes</option>{classOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>}
+              </div>
+            )}
             <button
               type="button"
-              onClick={() => setShowAddEvent(true)}
+              onClick={() => { setSelectedEvent(null); setShowAddEvent(true); }}
               className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-text-inverse shadow-sm transition hover:bg-primary-hover"
             >
               <Plus size={16} strokeWidth={2} />
@@ -264,9 +310,16 @@ export default function CalendarPage() {
               <button
                 type="button"
                 onClick={() => changeView("day")}
-                className={getViewButtonClass("day")}
+                className={`${getViewButtonClass("day")} border-r border-border-light`}
               >
                 Daily
+              </button>
+              <button
+                type="button"
+                onClick={() => changeView("agenda")}
+                className={getViewButtonClass("agenda")}
+              >
+                Agenda
               </button>
             </div>
           </div>
@@ -296,23 +349,32 @@ export default function CalendarPage() {
               )}
               {view === "month" && (
                 <MonthView
-                  events={allEvents}
+                  events={filteredEvents}
                   currentYear={currentDate.getFullYear()}
                   currentMonth={currentDate.getMonth()}
                   selectedDate={selectedDate}
                   onSelectDate={handleSelectDate}
+                  onEventClick={(event) => { setSelectedEvent(event); setShowAddEvent(true); }}
+                  onEventMove={(event, date) => void handleMoveEvent(event, date).catch((error) => console.error("Couldn't reschedule event:", error))}
                 />
               )}
               {view === "week" && (
                 <WeekView
-                  events={allEvents}
+                  events={filteredEvents}
                   selectedDate={selectedDate}
                   onSelectDate={handleSelectDate}
+                  onEventClick={(event) => { setSelectedEvent(event); setShowAddEvent(true); }}
                 />
               )}
               {view === "day" && (
-                <DayView events={allEvents} selectedDate={selectedDate} />
+                <DayView events={filteredEvents} selectedDate={selectedDate} onEventClick={(event) => { setSelectedEvent(event); setShowAddEvent(true); }} />
               )}
+              {localEventsError && (
+                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {localEventsError}
+                </div>
+              )}
+              {view === "agenda" && <AgendaView events={filteredEvents} onEventClick={(event) => { setSelectedEvent(event); setShowAddEvent(true); }} />}
               {status === "disconnected" && (
                 <div className="mt-6">
                   <GoogleCalendarConnect onConnected={refresh} />
@@ -325,7 +387,9 @@ export default function CalendarPage() {
 
       <AddEventModal
         isOpen={showAddEvent}
-        onClose={() => setShowAddEvent(false)}
+        onClose={() => { setShowAddEvent(false); setSelectedEvent(null); }}
+        event={selectedEvent}
+        events={allEvents}
         onEventAdded={() => {
           refetchLocal();
         }}
