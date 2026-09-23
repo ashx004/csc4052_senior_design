@@ -19,6 +19,7 @@ import GoogleCalendarConnect from "@/src/components/calendar/GoogleCalendarConne
 import { useCalendarConnection } from "@/src/hooks/useCalendarConnection";
 import { useCalendarEvents } from "@/src/hooks/useCalendarEvents";
 import { useLocalCalendarEvents } from "@/src/hooks/useLocalCalendarEvents";
+import { useClassCalendarEvents } from "@/src/hooks/useClassCalendarEvents";
 import { getWeekStart } from "@/src/library/calendarHelpers";
 
 import type { CalendarEvent, CalendarView } from "@/src/components/calendar/calendarTypes";
@@ -42,6 +43,7 @@ export default function CalendarPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [showLocal, setShowLocal] = useState(true);
   const [showGoogle, setShowGoogle] = useState(true);
+  const [showClassMeetings, setShowClassMeetings] = useState(true);
   const [classFilter, setClassFilter] = useState("all");
   const { status, refresh } = useCalendarConnection();
 
@@ -100,16 +102,18 @@ export default function CalendarPage() {
 
   const { events, error: eventsError } = useCalendarEvents(dateRange);
   const { events: localEvents, loading: localLoading, error: localEventsError, refetch: refetchLocal } = useLocalCalendarEvents(localDateRange);
+  const { events: classEvents, loading: classEventsLoading } = useClassCalendarEvents(localDateRange);
 
-  const allEvents = useMemo(() => [...events, ...localEvents], [events, localEvents]);
+  const allEvents = useMemo(() => [...events, ...localEvents, ...classEvents], [events, localEvents, classEvents]);
   const classOptions = useMemo(() => Array.from(new Map(
     allEvents.filter((event) => event.classId && event.className).map((event) => [event.classId!, event.className!])
   ).entries()), [allEvents]);
   const filteredEvents = useMemo(() => allEvents.filter((event) =>
     (showLocal || event.source !== "local") &&
     (showGoogle || event.source !== "google") &&
+    (showClassMeetings || event.source !== "class") &&
     (classFilter === "all" || event.classId === classFilter)
-  ), [allEvents, showLocal, showGoogle, classFilter]);
+  ), [allEvents, showLocal, showGoogle, showClassMeetings, classFilter]);
 
   // ── Navigation handlers ──────────────────────────────────────────────────
 
@@ -236,6 +240,7 @@ export default function CalendarPage() {
                 <p className="text-sm font-semibold text-text-main">Show</p>
                 <label className="mt-3 flex items-center gap-2 text-sm text-text-main"><input type="checkbox" checked={showLocal} onChange={(change) => setShowLocal(change.target.checked)} /> My events</label>
                 <label className="mt-2 flex items-center gap-2 text-sm text-text-main"><input type="checkbox" checked={showGoogle} onChange={(change) => setShowGoogle(change.target.checked)} /> Google Calendar</label>
+                <label className="mt-2 flex items-center gap-2 text-sm text-text-main"><input type="checkbox" checked={showClassMeetings} onChange={(change) => setShowClassMeetings(change.target.checked)} /> Class meetings</label>
                 {classOptions.length > 0 && <label className="mt-3 block text-sm text-text-main">Class<select value={classFilter} onChange={(change) => setClassFilter(change.target.value)} className="mt-1 w-full rounded-md border border-border-light bg-bg-main px-2 py-1.5 text-sm"><option value="all">All classes</option>{classOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>}
               </div>
             )}
@@ -336,7 +341,7 @@ export default function CalendarPage() {
               loaded) and the connect banner just layer in once status
               resolves, without holding up anything that didn't depend on
               them. */}
-          {localLoading && allEvents.length === 0 ? (
+          {(localLoading || classEventsLoading) && allEvents.length === 0 ? (
             <p className="py-12 text-center text-sm text-text-muted">
               Loading events...
             </p>
