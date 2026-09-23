@@ -2,6 +2,9 @@
   "name": "catalyst",
   "private": true,
   "version": "0.0.0",
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "scripts": {
     "postinstall": "node scripts/copy-pdf-worker.mjs",
     "dev": "next dev",

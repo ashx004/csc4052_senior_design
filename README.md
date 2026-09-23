@@ -2,13 +2,17 @@
 
 # To run: 
 
+Requires Node.js >= 22.19.0 (see `engines` in `package.json`) and npm >= 11.
+
 1.) Clone the repository: 
 * ssh: `git clone git@github.com:ashx004/csc4052_senior_design.git`
 * https: `git clone https://github.com/ashx004/csc4052_senior_design`
 
 2.) Navigate to the directory
 
-3.) Install dependencies with `npm install` at the root of the project directory (`csc4052_senior_design/`)
+3.) Install dependencies with `npm ci` at the root of the project directory (`csc4052_senior_design/`).
+This installs the exact versions recorded in `package-lock.json`. Use `npm install` only when
+intentionally adding or upgrading a dependency.
 
 4.) Create a `.env.local` file (copy `env.example`) and set `NEXT_PUBLIC_FIREBASE_API_KEY` (and any other required env vars like `MINIO_*`). Keep this file out of version control.
 
