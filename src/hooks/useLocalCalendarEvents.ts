@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { collection, getDocs } from "firebase/firestore";
+import { useEffect, useMemo, useState } from "react";
+import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
 import { useAuth } from "@/src/context/AuthContext";
 import { useCalendarCache } from "@/src/context/CalendarCacheContext";
+import { dateKey } from "@/src/library/calendarHelpers";
 import type { CalendarEvent, EventTone } from "@/src/components/calendar/calendarTypes";
 
 interface LocalEventDoc {
@@ -16,53 +17,102 @@ interface LocalEventDoc {
   allDay: boolean;
   timeZone?: string;
   tone?: EventTone;
-  source: "local";
+  kind?: CalendarEvent["kind"];
+  classId?: string;
+  className?: string;
+  recurrence?: CalendarEvent["recurrence"];
+  recurrenceUntil?: string;
+  reminderMinutes?: number;
 }
 
-// The Firestore query itself was never date-scoped — it always fetched the
-// user's whole events collection and filtered by dateRange client-side. So
-// unlike Google events (a real remote API call per visible range), there's
-// nothing to gain from caching per date range here: the entire collection
-// is cached ONCE per user and re-filtered in memory on every navigation,
-// meaning switching months/weeks/days after the first load costs zero
-// network calls instead of a fresh Firestore read every time.
 function cacheKeyFor(uid: string): string {
   return `local-all:${uid}`;
+}
+
+function parseCalendarDate(value: string): Date {
+  const [year, month, day] = value.slice(0, 10).split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function formatCalendarDate(value: Date): string {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+function advanceOccurrence(value: Date, recurrence: NonNullable<CalendarEvent["recurrence"]>): Date {
+  const next = new Date(value);
+  if (recurrence === "daily") next.setDate(next.getDate() + 1);
+  else if (recurrence === "weekly") next.setDate(next.getDate() + 7);
+  else if (recurrence === "monthly") {
+    const day = next.getDate();
+    next.setDate(1);
+    next.setMonth(next.getMonth() + 1);
+    next.setDate(Math.min(day, new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate()));
+  }
+  return next;
+}
+
+function expandRecurringEvent(event: CalendarEvent, range: { start: Date; end: Date }): CalendarEvent[] {
+  if (!event.recurrence || event.recurrence === "none") return [event];
+  const expanded: CalendarEvent[] = [];
+  const until = event.recurrenceUntil ? parseCalendarDate(event.recurrenceUntil) : null;
+  const originalStart = event.allDay ? parseCalendarDate(event.startTime) : new Date(event.startTime);
+  const originalEnd = event.allDay ? parseCalendarDate(event.endTime) : new Date(event.endTime);
+  const durationMs = originalEnd.getTime() - originalStart.getTime();
+  const durationDays = event.allDay
+    ? Math.round((Date.UTC(originalEnd.getFullYear(), originalEnd.getMonth(), originalEnd.getDate()) - Date.UTC(originalStart.getFullYear(), originalStart.getMonth(), originalStart.getDate())) / 86_400_000)
+    : 0;
+  let occurrenceStart = new Date(originalStart);
+
+  for (let count = 0; count < 10_000 && occurrenceStart <= range.end; count += 1) {
+    if (until && occurrenceStart > until) break;
+    const occurrenceEnd = event.allDay
+      ? new Date(occurrenceStart.getFullYear(), occurrenceStart.getMonth(), occurrenceStart.getDate() + durationDays)
+      : new Date(occurrenceStart.getTime() + durationMs);
+    if (occurrenceEnd > range.start) {
+      const occurrenceKey = event.allDay ? formatCalendarDate(occurrenceStart) : occurrenceStart.toISOString();
+      expanded.push({
+        ...event,
+        id: `${event.id}@${occurrenceKey}`,
+        seriesId: event.id,
+        startTime: event.allDay ? formatCalendarDate(occurrenceStart) : occurrenceStart.toISOString(),
+        endTime: event.allDay ? formatCalendarDate(occurrenceEnd) : occurrenceEnd.toISOString(),
+      });
+    }
+    occurrenceStart = advanceOccurrence(occurrenceStart, event.recurrence);
+  }
+  return expanded;
 }
 
 export function useLocalCalendarEvents(dateRange?: { start: Date; end: Date }) {
   const { user } = useAuth();
   const cache = useCalendarCache();
   const [allUserEvents, setAllUserEvents] = useState<CalendarEvent[]>([]);
-  // Only ever set true for a genuinely cold (uncached) fetch — a background
-  // revalidation of already-cached data never touches this, so the page
-  // never has to hide the calendar grid just to refresh it.
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refreshVersion, setRefreshVersion] = useState(0);
 
   useEffect(() => {
     cache.clearForUser(user?.uid ?? null);
   }, [user?.uid, cache]);
 
-  const fetchAll = useCallback(
-    async (opts?: { background?: boolean }) => {
-      if (!user) {
-        setAllUserEvents([]);
-        setLoading(false);
-        return;
-      }
+  useEffect(() => {
+    if (!user) {
+      setAllUserEvents([]);
+      setLoading(false);
+      return;
+    }
 
-      if (!opts?.background) setLoading(true);
-      setError(null);
-      try {
-        const eventsRef = collection(db, "users", user.uid, "events");
-        const snapshot = await getDocs(eventsRef);
+    const cached = cache.get(cacheKeyFor(user.uid));
+    if (cached) setAllUserEvents(cached.events);
+    else setLoading(true);
 
-        const fetched: CalendarEvent[] = [];
-        snapshot.forEach((doc) => {
-          const data = doc.data() as LocalEventDoc;
-          fetched.push({
-            id: doc.id,
+    return onSnapshot(
+      collection(db, "users", user.uid, "events"),
+      (snapshot) => {
+        const fetched: CalendarEvent[] = snapshot.docs.map((eventDoc) => {
+          const data = eventDoc.data() as LocalEventDoc;
+          return {
+            id: eventDoc.id,
             title: data.title,
             description: data.description,
             location: data.location,
@@ -71,49 +121,43 @@ export function useLocalCalendarEvents(dateRange?: { start: Date; end: Date }) {
             allDay: data.allDay,
             timeZone: data.timeZone,
             tone: data.tone,
+            kind: data.kind,
+            classId: data.classId,
+            className: data.className,
+            recurrence: data.recurrence,
+            recurrenceUntil: data.recurrenceUntil,
+            reminderMinutes: data.reminderMinutes,
             source: "local",
-          });
+          };
         });
-
         setAllUserEvents(fetched);
         cache.set(cacheKeyFor(user.uid), fetched);
-      } catch (err) {
-        // A background refresh failing shouldn't clobber events already on
-        // screen — only a genuine cold-load failure surfaces an error.
-        if (!opts?.background) setError(err instanceof Error ? err.message : "Failed to fetch local events");
-      } finally {
         setLoading(false);
+        setError(null);
+      },
+      (snapshotError) => {
+        setLoading(false);
+        setError(snapshotError instanceof Error ? snapshotError.message : "Failed to watch local events");
       }
-    },
-    [user?.uid, cache]
-  );
-
-  useEffect(() => {
-    if (!user) {
-      setAllUserEvents([]);
-      return;
-    }
-
-    const cached = cache.get(cacheKeyFor(user.uid));
-    if (cached) {
-      setAllUserEvents(cached.events);
-      fetchAll({ background: true }); // quietly revalidate
-    } else {
-      fetchAll();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.uid]);
+    );
+  }, [user?.uid, cache, refreshVersion]);
 
   const events = useMemo(() => {
     if (!dateRange) return [];
     const rangeStart = dateRange.start.getTime();
     const rangeEnd = dateRange.end.getTime();
-    return allUserEvents.filter((e) => {
-      const eventStart = new Date(e.startTime).getTime();
-      const eventEnd = new Date(e.endTime).getTime();
+    const startDate = dateKey(dateRange.start);
+    const endDate = dateKey(dateRange.end);
+    const expanded = allUserEvents.flatMap((event) => expandRecurringEvent(event, dateRange));
+    return expanded.filter((event) => {
+      if (event.allDay) {
+        return event.endTime.slice(0, 10) > startDate && event.startTime.slice(0, 10) <= endDate;
+      }
+      const eventStart = new Date(event.startTime).getTime();
+      const eventEnd = new Date(event.endTime).getTime();
       return eventEnd > rangeStart && eventStart < rangeEnd;
     });
   }, [allUserEvents, dateRange?.start?.toISOString(), dateRange?.end?.toISOString()]);
 
-  return { events, loading, error, refetch: () => fetchAll() };
+  return { events, loading, error, refetch: () => setRefreshVersion((version) => version + 1) };
 }
