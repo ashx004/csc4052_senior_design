@@ -8,9 +8,13 @@ import { db } from '@/src/library/firebase';
 import { Minus } from "lucide-react";
 import { Term, parseCourseCode, getCurrentTerm } from '@/src/library/academicTerm';
 import { randomClassColor } from '@/src/library/classColors';
+import { CLASS_MEETING_DAYS, type ClassMeetingDay } from '@/src/library/classSchedule';
 
 const TERM_OPTIONS: Term[] = ["Fall", "Winter", "Spring", "Summer"];
 const CLASS_CODE_DEBOUNCE_MS = 300;
+const MEETING_DAY_LABELS: Record<ClassMeetingDay, string> = {
+  mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun",
+};
 
 type CourseSuggestion = { courseCode: string; title: string };
 
@@ -66,6 +70,12 @@ export default function AddEnrollmentModal({
   const [courseSuggestions, setCourseSuggestions] = useState<CourseSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [creditHours, setCreditHours] = useState<string>("");
+  const [meetingDays, setMeetingDays] = useState<ClassMeetingDay[]>([]);
+  const [meetingStartTime, setMeetingStartTime] = useState("");
+  const [meetingEndTime, setMeetingEndTime] = useState("");
+  const [meetingTimeZone, setMeetingTimeZone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+  const [termStartDate, setTermStartDate] = useState("");
+  const [termEndDate, setTermEndDate] = useState("");
 
   // Handle generic input changes dynamically
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -122,6 +132,12 @@ export default function AddEnrollmentModal({
     setCourseSuggestions([]);
     setShowSuggestions(false);
     setCreditHours("");
+    setMeetingDays([]);
+    setMeetingStartTime("");
+    setMeetingEndTime("");
+    setMeetingTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+    setTermStartDate("");
+    setTermEndDate("");
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -134,6 +150,20 @@ export default function AddEnrollmentModal({
 
     if (!formData.className || !formData.classCode || !termSeason || !termYear) {
       alert("Class Name, Class Code, and Term are required!");
+      return;
+    }
+
+    const hasMeetingDetails = meetingDays.length > 0 || meetingStartTime || meetingEndTime;
+    if (hasMeetingDetails && (!meetingDays.length || !meetingStartTime || !meetingEndTime)) {
+      alert("Choose at least one meeting day plus both a start and end time.");
+      return;
+    }
+    if (meetingStartTime && meetingEndTime && meetingEndTime <= meetingStartTime) {
+      alert("Class meeting end time must be after the start time.");
+      return;
+    }
+    if (termStartDate && termEndDate && termEndDate < termStartDate) {
+      alert("Term end date must be after the term start date.");
       return;
     }
 
@@ -151,6 +181,9 @@ export default function AddEnrollmentModal({
       color: randomClassColor(),
       ...(parsedCode ? { subject: parsedCode.subject, courseNumber: parsedCode.number } : {}),
       ...(Number.isFinite(parsedCreditHours) ? { creditHours: parsedCreditHours } : {}),
+      ...(hasMeetingDetails ? { meetingDays, meetingStartTime, meetingEndTime, meetingTimeZone } : {}),
+      ...(termStartDate ? { termStartDate } : {}),
+      ...(termEndDate ? { termEndDate } : {}),
     };
 
     try {
@@ -312,6 +345,45 @@ export default function AddEnrollmentModal({
                     placeholder="e.g. Mon / Wed"
                   />
                 </div>
+                <div className="sm:col-span-2 rounded-lg border border-border-light bg-bg-main p-3">
+                  <p className="text-sm font-medium text-text-main">Structured meeting schedule</p>
+                  <p className="mt-1 text-xs text-text-muted">Optional. This is used for calendar-connected class meetings; the free-text fields above remain for display.</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {CLASS_MEETING_DAYS.map((day) => {
+                      const selected = meetingDays.includes(day);
+                      return (
+                        <button
+                          key={day}
+                          type="button"
+                          onClick={() => setMeetingDays((days) => selected ? days.filter((item) => item !== day) : [...days, day])}
+                          className={`rounded-md border px-2.5 py-1.5 text-xs font-medium ${selected ? "border-primary bg-bg-warm text-primary" : "border-border-light text-text-muted hover:bg-bg-warm"}`}
+                          aria-pressed={selected}
+                        >
+                          {MEETING_DAY_LABELS[day]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <label className="block text-xs font-medium text-text-muted">Start time
+                      <input type="time" value={meetingStartTime} onChange={(e) => setMeetingStartTime(e.target.value)} className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-2 py-1.5 text-sm text-text-main" />
+                    </label>
+                    <label className="block text-xs font-medium text-text-muted">End time
+                      <input type="time" value={meetingEndTime} onChange={(e) => setMeetingEndTime(e.target.value)} className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-2 py-1.5 text-sm text-text-main" />
+                    </label>
+                    <label className="block text-xs font-medium text-text-muted">Time zone
+                      <input type="text" value={meetingTimeZone} onChange={(e) => setMeetingTimeZone(e.target.value)} className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-2 py-1.5 text-sm text-text-main" placeholder="America/Chicago" />
+                    </label>
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="block text-xs font-medium text-text-muted">Term starts
+                      <input type="date" value={termStartDate} onChange={(e) => setTermStartDate(e.target.value)} className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-2 py-1.5 text-sm text-text-main" />
+                    </label>
+                    <label className="block text-xs font-medium text-text-muted">Term ends
+                      <input type="date" value={termEndDate} onChange={(e) => setTermEndDate(e.target.value)} className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-2 py-1.5 text-sm text-text-main" />
+                    </label>
+                  </div>
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-text-muted">Credit Hours</label>
                   <input
@@ -322,6 +394,17 @@ export default function AddEnrollmentModal({
                     onChange={(e) => setCreditHours(e.target.value)}
                     className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-green-500 focus:outline-none"
                     placeholder="e.g. 3"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-text-muted">Class room</label>
+                  <input
+                    type="text"
+                    name="classRoom"
+                    value={formData.classRoom ?? ""}
+                    onChange={handleChange}
+                    className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-green-500 focus:outline-none"
+                    placeholder="e.g. Bogard Hall 101"
                   />
                 </div>
                 <div className="sm:col-span-2">
