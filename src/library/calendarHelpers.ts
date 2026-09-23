@@ -24,7 +24,7 @@ export function isSameDay(a: Date, b: Date): boolean {
 }
 
 /** Format a date as "YYYY-MM-DD" for grouping events. */
-function dateKey(d: Date): string {
+export function dateKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
@@ -39,8 +39,10 @@ export function getEventsForDay(events: CalendarEvent[], day: Date): CalendarEve
 
   return events.filter((ev) => {
     if (ev.allDay) {
-      // All-day events: their date string matches this day's date key.
-      return ev.startTime.slice(0, 10) === dateKey(day);
+      // All-day events use date-only start and exclusive date-only end.
+      // This displays multi-day events on every covered calendar date.
+      const key = dateKey(day);
+      return key >= ev.startTime.slice(0, 10) && key < ev.endTime.slice(0, 10);
     }
     const start = new Date(ev.startTime);
     const end = new Date(ev.endTime);
@@ -71,14 +73,6 @@ export function buildMonthGrid(
   const firstOfMonth = new Date(year, month, 1);
   const startDay = firstOfMonth.getDay(); // 0=Sun
 
-  // Flatten events into a map keyed by date string for fast lookup.
-  const eventsByDate = new Map<string, CalendarEvent[]>();
-  for (const ev of events) {
-    const key = ev.startTime.slice(0, 10);
-    if (!eventsByDate.has(key)) eventsByDate.set(key, []);
-    eventsByDate.get(key)!.push(ev);
-  }
-
   const grid: CalendarDay[] = [];
   const totalCells = Math.ceil((startDay + daysInMonth(year, month)) / 7) * 7;
 
@@ -86,12 +80,10 @@ export function buildMonthGrid(
     const dayNum = i - startDay + 1;
     const date = new Date(year, month, dayNum);
     const isCurrentMonth = date.getMonth() === month;
-    const key = dateKey(date);
-
     grid.push({
       day: date.getDate(),
       muted: !isCurrentMonth,
-      events: isCurrentMonth ? (eventsByDate.get(key) ?? []) : [],
+      events: isCurrentMonth ? getEventsForDay(events, date) : [],
     });
   }
 
