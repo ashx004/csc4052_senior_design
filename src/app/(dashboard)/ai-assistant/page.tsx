@@ -3,7 +3,8 @@
 import { FormEvent, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { FileDown, History, Loader2, Mic, Paperclip, BookOpen, ListChecks, Wrench } from "lucide-react";
+import { FileDown, History, Loader2, Mic, Paperclip, BookOpen, ListChecks, Wrench, Volume2, Square } from "lucide-react";
+import { isSpeechSupported, speak, stopSpeaking } from "@/src/library/tts";
 import ToolboxPanel from "@/src/components/aiAssistant/ToolboxPanel";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -40,11 +41,15 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
   isPending,
   toolStatus,
   onCopy,
+  isSpeaking,
+  onToggleSpeak,
 }: {
   message: ChatMessage;
   isPending: boolean;
   toolStatus: string | null;
   onCopy: (text: string) => void;
+  isSpeaking: boolean;
+  onToggleSpeak: (message: ChatMessage) => void;
 }) {
   const isUser = message.role === "user";
 
@@ -84,14 +89,31 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
               </ReactMarkdown>
             </div>
 
-            <button
-              type="button"
-              onClick={() => onCopy(message.text)}
-              className="mt-2 rounded-md border border-border-light bg-bg-container px-2 py-1 text-xs text-text-muted opacity-80 transition hover:bg-bg-warm group-hover:opacity-100"
-              aria-label="Copy assistant message"
-            >
-              ⧉
-            </button>
+            <div className="mt-2 flex flex-col gap-1.5">
+              <button
+                type="button"
+                onClick={() => onCopy(message.text)}
+                className="rounded-md border border-border-light bg-bg-container px-2 py-1 text-xs text-text-muted opacity-80 transition hover:bg-bg-warm group-hover:opacity-100"
+                aria-label="Copy assistant message"
+              >
+                ⧉
+              </button>
+              {isSpeechSupported() && (
+                <button
+                  type="button"
+                  onClick={() => onToggleSpeak(message)}
+                  className={`rounded-md border px-2 py-1 text-xs opacity-80 transition hover:bg-bg-warm group-hover:opacity-100 ${
+                    isSpeaking
+                      ? "border-primary bg-primary/10 text-primary opacity-100"
+                      : "border-border-light bg-bg-container text-text-muted"
+                  }`}
+                  aria-label={isSpeaking ? "Stop reading message aloud" : "Read message aloud"}
+                  title={isSpeaking ? "Stop reading aloud" : "Read aloud"}
+                >
+                  {isSpeaking ? <Square size={12} /> : <Volume2 size={12} />}
+                </button>
+              )}
+            </div>
           </div>
 
           {message.generatedFiles && (
@@ -633,6 +655,8 @@ function AIAssistantPageContent() {
   function handleNewChat() {
     generatingWatchRef.current?.();
     generatingWatchRef.current = null;
+    stopSpeaking();
+    setSpeakingMessageId(null);
     setIsResuming(false);
     setHasStarted(false);
     setInput("");
@@ -654,6 +678,30 @@ function AIAssistantPageContent() {
     } catch {
       console.log("Copy failed");
     }
+  }, []);
+
+  // Which message's read-aloud is currently playing, if any - a chat only
+  // ever has one utterance active, so toggling a different message cancels
+  // whatever was already speaking (see speak()'s own doc comment).
+  const [speakingMessageId, setSpeakingMessageId] = useState<number | null>(null);
+
+  const handleToggleSpeak = useCallback(
+    (message: ChatMessage) => {
+      if (speakingMessageId === message.id) {
+        stopSpeaking();
+        setSpeakingMessageId(null);
+        return;
+      }
+      setSpeakingMessageId(message.id);
+      speak(message.text, () => setSpeakingMessageId(null));
+    },
+    [speakingMessageId]
+  );
+
+  // A message being read aloud shouldn't keep "reading" silently after the
+  // student navigates away or starts a new chat.
+  useEffect(() => {
+    return () => stopSpeaking();
   }, []);
 
   function handleUploaded(fileNames: string[], classCode: string) {
@@ -789,6 +837,8 @@ function AIAssistantPageContent() {
                   isPending={message.text === "" && (isSending || isResuming)}
                   toolStatus={chatStatus.status}
                   onCopy={handleCopy}
+                  isSpeaking={speakingMessageId === message.id}
+                  onToggleSpeak={handleToggleSpeak}
                 />
               ))}
 

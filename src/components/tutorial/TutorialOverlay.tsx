@@ -41,13 +41,20 @@ export default function TutorialOverlay({
   onSkip,
 }: {
   steps: TutorialStep[];
-  onFinish: () => void;
-  onSkip: () => void;
+  /** true when the "don't show me tutorials again" checkbox was checked -
+   *  the checkbox applies no matter how the tour ends, not just via Skip,
+   *  so checking it and then clicking through to "Done" on the last step
+   *  still honors the choice instead of silently dropping it. */
+  onFinish: (skipAll: boolean) => void;
+  /** Same skipAll meaning as onFinish - false for a plain skip of just this
+   *  one tour (including the corner X, which is always a plain skip). */
+  onSkip: (skipAll: boolean) => void;
 }) {
   const [mounted, setMounted] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<SpotlightRect | null>(null);
   const [visible, setVisible] = useState(false);
+  const [skipAllChecked, setSkipAllChecked] = useState(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [cardHeight, setCardHeight] = useState(160);
   const prefersReducedMotion = useRef(false);
@@ -65,7 +72,7 @@ export default function TutorialOverlay({
     setStepIndex((i) => {
       const next = i + 1;
       if (next >= steps.length) {
-        onFinish();
+        onFinish(skipAllChecked);
         return i;
       }
       return next;
@@ -154,16 +161,35 @@ export default function TutorialOverlay({
     : { type: "spring" as const, stiffness: 320, damping: 32 };
 
   return createPortal(
-    <div className="fixed inset-0 z-[1000]" role="dialog" aria-modal="true" aria-label="App tour">
+    <motion.div
+      className="fixed inset-0 z-[1000]"
+      role="dialog"
+      aria-modal="true"
+      aria-label="App tour"
+      initial={prefersReducedMotion.current ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: prefersReducedMotion.current ? 0 : 0.2 }}
+    >
       {/* Spotlight cutout: a box-shadow spread large enough to cover the
           whole viewport except this element's own rect creates the "dark
-          everywhere but here" effect from a single animatable element. */}
+          everywhere but here" effect from a single animatable element. A
+          soft pulse on the ring (skipped under reduced-motion) draws the
+          eye to the highlighted element without being distracting once
+          you're actually reading the card next to it. */}
       <motion.div
         className="pointer-events-none fixed rounded-xl ring-2 ring-primary/90"
         style={{ boxShadow: "0 0 0 9999px rgba(15, 15, 20, 0.7)" }}
         initial={false}
-        animate={spotlightAnimate}
-        transition={transition}
+        animate={
+          prefersReducedMotion.current
+            ? spotlightAnimate
+            : { ...spotlightAnimate, boxShadow: ["0 0 0 9999px rgba(15,15,20,0.7)", "0 0 0 9999px rgba(15,15,20,0.72)", "0 0 0 9999px rgba(15,15,20,0.7)"] }
+        }
+        transition={
+          prefersReducedMotion.current
+            ? transition
+            : { ...transition, boxShadow: { duration: 2.2, repeat: Infinity, ease: "easeInOut" } }
+        }
       />
 
       <AnimatePresence mode="wait">
@@ -179,7 +205,7 @@ export default function TutorialOverlay({
         >
           <button
             type="button"
-            onClick={onSkip}
+            onClick={() => onSkip(false)}
             aria-label="Skip tutorial"
             className="absolute right-3 top-3 text-text-muted transition hover:text-text-main"
           >
@@ -216,6 +242,13 @@ export default function TutorialOverlay({
               )}
               <button
                 type="button"
+                onClick={() => onSkip(skipAllChecked)}
+                className="rounded-md px-3 py-1.5 text-sm font-medium text-text-muted hover:bg-bg-warm"
+              >
+                Skip
+              </button>
+              <button
+                type="button"
                 onClick={goNext}
                 className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-text-inverse transition hover:bg-primary-hover"
               >
@@ -223,9 +256,19 @@ export default function TutorialOverlay({
               </button>
             </div>
           </div>
+
+          <label className="mt-3 flex cursor-pointer items-center gap-2 border-t border-border-light pt-3 text-xs text-text-muted">
+            <input
+              type="checkbox"
+              checked={skipAllChecked}
+              onChange={(e) => setSkipAllChecked(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-border-light accent-primary"
+            />
+            Don&apos;t show me tutorials again
+          </label>
         </motion.div>
       </AnimatePresence>
-    </div>,
+    </motion.div>,
     document.body
   );
 }

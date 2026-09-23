@@ -15,28 +15,36 @@ const START_DELAY_MS = 500;
  *  after a Settings replay), then marks it seen for good. Renders nothing
  *  once the tour isn't due. */
 export default function PageTutorial({ id, steps }: { id: TutorialId; steps: TutorialStep[] }) {
-  const { ready, hasSeen, markSeen, requestActive, release } = useTutorial();
+  const { ready, hasSeen, markSeen, optedOut, optOutOfAll, requestActive, release } = useTutorial();
   const [show, setShow] = useState(false);
 
   useEffect(() => {
-    if (!ready || hasSeen(id) || steps.length === 0) return;
+    if (!ready || optedOut || hasSeen(id) || steps.length === 0) return;
     const timer = setTimeout(() => {
       if (requestActive(id)) setShow(true);
     }, START_DELAY_MS);
     return () => clearTimeout(timer);
-    // Intentionally only keyed on readiness/id — not on hasSeen/steps
-    // identity — so finishing the tour (which flips hasSeen) doesn't
-    // immediately re-run this effect and try to restart itself.
+    // Intentionally only keyed on readiness/id/optedOut — not on
+    // hasSeen/steps identity — so finishing the tour (which flips hasSeen)
+    // doesn't immediately re-run this effect and try to restart itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, id]);
+  }, [ready, optedOut, id]);
 
   if (!show) return null;
 
-  function done() {
+  // Finishing the last step and skipping both end this one tour the same
+  // way (never show THIS id again) - `skipAll` additionally sets the
+  // global opt-out, so no other page's tour fires again either, including
+  // ones added after this user made the choice. Same handler for both:
+  // the "don't show me tutorials again" checkbox means the same thing
+  // whether the student actually finished the tour or skipped partway
+  // through.
+  function handleExit(skipAll: boolean) {
     setShow(false);
     release(id);
     markSeen(id);
+    if (skipAll) optOutOfAll();
   }
 
-  return <TutorialOverlay steps={steps} onFinish={done} onSkip={done} />;
+  return <TutorialOverlay steps={steps} onFinish={handleExit} onSkip={handleExit} />;
 }

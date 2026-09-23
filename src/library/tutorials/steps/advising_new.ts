@@ -4,7 +4,7 @@ const advisingNewSteps: TutorialStep[] = [
   {
     target: '[data-tutorial="sidebar-nav"]',
     title: "Navigation",
-    body: "Come back here anytime from Advising New & Improved in the sidebar.",
+    body: "Come back here anytime from Advising in the sidebar.",
     placement: "right",
   },
   {

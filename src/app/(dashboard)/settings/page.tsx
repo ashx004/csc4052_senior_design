@@ -19,18 +19,30 @@ import {
     setThemeMode,
     ThemeMode,
 } from "@/src/library/theme";
+import Link from "next/link";
 import { useAuth } from "@/src/context/AuthContext";
 import { useTutorial } from "@/src/context/TutorialContext";
-import { ALL_TUTORIAL_IDS } from "@/src/library/tutorials/types";
+import PageTutorial from "@/src/components/tutorial/PageTutorial";
+import settingsSteps from "@/src/library/tutorials/steps/settings";
+import {
+    getAvailableVoices,
+    getStoredVoiceURI,
+    isSpeechSupported,
+    setStoredVoiceURI,
+    speak,
+} from "@/src/library/tts";
 
 export default function Settings() {
     const { user } = useAuth();
-    const { replay } = useTutorial();
+    const { resetAll } = useTutorial();
     const [tutorialsReset, setTutorialsReset] = useState(false);
 
     function handleReplayTutorials() {
         if (!user) return;
-        replay(ALL_TUTORIAL_IDS);
+        // Clears every tutorial's seen flag AND the "don't show me
+        // tutorials again" opt-out - a user who'd opted out needs both
+        // cleared, or this button would silently do nothing for them.
+        resetAll();
         setTutorialsReset(true);
         // The confirmation only needs to be seen once per click, not linger
         // indefinitely — the next page visit is what actually shows a tour again.
@@ -43,6 +55,10 @@ export default function Settings() {
     const [themeMode, setThemeModeState] = useState<ThemeMode>("light");
     const [coffee, setCoffeeState] = useState<boolean>(false);
     // const [focusIsOn, setFocusOn] = useState<boolean>(false);
+
+    const [ttsSupported, setTtsSupported] = useState(false);
+    const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+    const [selectedVoiceURI, setSelectedVoiceURI] = useState<string>("");
 
     const [showPasswordForm, setShowPasswordForm] = useState<boolean>(false);
     const [showEmailForm, setShowEmailForm] = useState<boolean>(false);
@@ -67,6 +83,38 @@ export default function Settings() {
         setThemeModeState(storedMode);
         setCoffeeState(storedCoffee);
     }, []);
+
+    // Voices load asynchronously — empty on the first call in most browsers
+    // until 'voiceschanged' fires (Safari sometimes has them immediately,
+    // hence the direct call too, not just the listener).
+    useEffect(() => {
+        if (!isSpeechSupported()) return;
+        setTtsSupported(true);
+
+        function loadVoices() {
+            const available = getAvailableVoices();
+            setVoices(available);
+            setSelectedVoiceURI((prev) => {
+                if (prev) return prev;
+                const stored = getStoredVoiceURI();
+                if (stored && available.some((v) => v.voiceURI === stored)) return stored;
+                return available.find((v) => v.default)?.voiceURI ?? available[0]?.voiceURI ?? "";
+            });
+        }
+
+        loadVoices();
+        window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
+        return () => window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
+    }, []);
+
+    function handleVoiceChange(voiceURI: string) {
+        setSelectedVoiceURI(voiceURI);
+        setStoredVoiceURI(voiceURI);
+    }
+
+    function handlePreviewVoice() {
+        speak("This is what I sound like reading a message aloud.", () => {});
+    }
 
     function handleThemeModeToggle() {
         const next = themeMode === "dark" ? "light" : "dark";
@@ -262,6 +310,7 @@ export default function Settings() {
 
     return (
         <section className="flex min-h-screen flex-col bg-bg-main text-text-main transition-colors duration-700">
+            <PageTutorial id="settings" steps={settingsSteps} />
             <header className="relative flex h-[73px] shrink-0 items-center justify-between border-b border-border-light bg-bg-container px-6
                             transition-colors duration-300">
                 <h1 className="absolute left-1/2 -translate-x-1/2 text-center text-lg font-semibold tracking-[0.45em] text-text-main">
@@ -409,7 +458,7 @@ export default function Settings() {
             </header>
 
             <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
-                        bg-bg-main text-text-main hover:bg-bg-warm">
+                        bg-bg-main text-text-main hover:bg-bg-warm" data-tutorial="settings-appearance">
 
                 <span className="text-sm">
                     Appearance
@@ -439,12 +488,57 @@ export default function Settings() {
 
             </div>
 
+            {/* Voice picker for the AI Assistant's "read aloud" button
+                (src/library/tts.ts). Deliberately lists the browser's own
+                named voices rather than a male/female/non-binary category
+                picker — voices aren't labeled by gender identity at the API
+                level, and availability varies by device, so a preview
+                button is the only honest way to choose one. */}
+            {ttsSupported && (
+                <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
+                            bg-bg-main text-text-main hover:bg-bg-warm">
+
+                    <div>
+                        <span className="text-sm">
+                            Read-aloud voice
+                        </span>
+                        <p className="text-xs text-text-muted">
+                            Used by the speaker icon under AI Assistant messages.
+                        </p>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-2">
+                        <select
+                            id="tts-voice-select"
+                            value={selectedVoiceURI}
+                            onChange={(e) => handleVoiceChange(e.target.value)}
+                            className="rounded-md border border-border-light bg-bg-container px-2 py-1.5 text-xs text-text-main focus:border-primary focus:outline-none"
+                        >
+                            {voices.map((voice) => (
+                                <option key={voice.voiceURI} value={voice.voiceURI}>
+                                    {voice.name}
+                                </option>
+                            ))}
+                        </select>
+                        <button
+                            type="button"
+                            onClick={handlePreviewVoice}
+                            disabled={!selectedVoiceURI}
+                            className="rounded-md border border-border-light px-3 py-1.5 text-xs font-medium text-text-main transition hover:bg-bg-warm disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            Preview
+                        </button>
+                    </div>
+
+                </div>
+            )}
+
             {/* Lets a user re-trigger every page's onboarding tour on demand
                 — useful if they skipped one by accident, or just want a
                 refresher. Clears tutorialsSeen for every id; each page's
                 <PageTutorial> then shows again the next time it's visited. */}
             <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
-                        bg-bg-main text-text-main hover:bg-bg-warm">
+                        bg-bg-main text-text-main hover:bg-bg-warm" data-tutorial="settings-tutorials">
 
                 <div>
                     <span className="text-sm">
@@ -462,6 +556,30 @@ export default function Settings() {
                 >
                     {tutorialsReset ? "Tours reset!" : "Replay tutorials"}
                 </button>
+
+            </div>
+
+            {/* Sits right under the tutorial control on purpose - anyone
+                who skipped or opted out of the guided tours still has a
+                self-serve way to get unstuck, without hunting for it. */}
+            <div className="flex w-3/4 self-center items-center justify-between py-3 px-2
+                        bg-bg-main text-text-main hover:bg-bg-warm" data-tutorial="settings-help">
+
+                <div>
+                    <span className="text-sm">
+                        Help &amp; FAQ
+                    </span>
+                    <p className="text-xs text-text-muted">
+                        Answers to common questions about using the site.
+                    </p>
+                </div>
+
+                <Link
+                    href="/help"
+                    className="shrink-0 rounded-md border border-border-light px-3 py-1.5 text-xs font-medium text-text-main transition hover:bg-bg-warm"
+                >
+                    Open Help
+                </Link>
 
             </div>
 
