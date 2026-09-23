@@ -1,4 +1,4 @@
-export type CalendarView = "month" | "week" | "day";
+export type CalendarView = "month" | "week" | "day" | "agenda";
 
 export type EventTone =
   | "cream"
@@ -22,7 +22,14 @@ export type CalendarEvent = {
   status?: "confirmed" | "tentative" | "cancelled";
   htmlLink?: string;
   tone?: EventTone;
-  source: "google" | "local";
+  source: "google" | "local" | "class";
+  kind?: "event" | "study" | "assignment" | "exam" | "class";
+  classId?: string;
+  className?: string;
+  recurrence?: "none" | "daily" | "weekly" | "monthly";
+  recurrenceUntil?: string;
+  reminderMinutes?: number;
+  seriesId?: string;
 };
 
 export type CalendarDay = {
