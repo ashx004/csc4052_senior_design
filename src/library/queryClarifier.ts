@@ -1,4 +1,4 @@
-import { resolveOllamaBaseUrl } from "./ollamaClient";
+import { resolveOllamaBaseUrl, secondaryContextOption } from "./ollamaClient";
 import { stripThinkLeak } from "./stripThinkLeak";
 
 // Uses the fast secondary model to restate what a student's raw chat
@@ -75,7 +75,7 @@ const CLARIFY_TIMEOUT_MS = 20000;
 
 export async function clarifyUserQuery(message: string): Promise<string | null> {
   if (process.env.ENABLE_QUERY_CLARIFICATION === "false") return null;
-  if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN) return null;
+  if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN || !process.env.OLLAMA_CLARIFIER_MODEL) return null;
   if (message.trim().length < MIN_MESSAGE_LENGTH) return null;
   if (!mightBeAmbiguous(message)) return null;
 
@@ -98,14 +98,14 @@ export async function clarifyUserQuery(message: string): Promise<string | null> 
         // and a genuinely novel ambiguous backreference ("what did you say
         // earlier about the thing with...") at roughly 15-30x lower latency
         // (~150-270ms), since llama3.2 isn't a reasoning-hybrid model at all.
-        model: process.env.OLLAMA_CLARIFIER_MODEL || "llama3.2:3b",
+        model: process.env.OLLAMA_CLARIFIER_MODEL,
         stream: false,
         // Kept for defense-in-depth even though llama3.2:3b actually
         // respects it (unlike the reasoning model this replaced) - costs nothing,
         // and stripThinkLeak below still guards any future model swapped in
         // here that doesn't respect it.
         think: false,
-        options: { temperature: 0.1 },
+        options: { temperature: 0.1, ...secondaryContextOption() },
         messages: [
           { role: "system", content: CLARIFIER_SYSTEM_PROMPT },
           { role: "user", content: message },

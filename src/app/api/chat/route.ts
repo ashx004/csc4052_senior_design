@@ -3,7 +3,8 @@ import { resolveInternalUrl } from "@/src/library/pdfExtract";
 import { extractDocumentText, SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
 import { embedTexts, cosineSimilarity } from "@/src/library/ollamaEmbeddings";
 import { searchChunks } from "@/src/library/vectorStore";
-import { resolveOllamaBaseUrl, resolveModelFromKey, FAST_MODEL_KEEP_ALIVE } from "@/src/library/ollamaClient";
+import { resolveOllamaBaseUrl, resolveModelFromKey, FAST_MODEL_KEEP_ALIVE, mainModelContextOption, secondaryContextOption } from "@/src/library/ollamaClient";
+import { thinkField, mayLeakThinking } from "@/src/library/thinkMode";
 import { clarifyUserQuery } from "@/src/library/queryClarifier";
 import { searchWeb } from "@/src/library/webSearch";
 import { searchYoutube } from "@/src/library/youtubeSearch";
@@ -40,7 +41,7 @@ const MAX_CHAT_INPUT_CHARS = 4000; // mirrors the client's <input maxLength> in 
 // gets this long, fold everything except the last KEEP_RECENT_MESSAGES turns
 // into a running summary instead of resending it verbatim every request.
 // Raised from the original 12000/6 - that was conservative for the app's
-// main model (Muse Glimmer, see resolveModelFromKey), which has a large
+// main model (see resolveModelFromKey), which has a large
 // real context window, so there's real headroom to keep more actual
 // conversation verbatim (better continuity, no lossy summarization) before
 // compaction needs to kick in at all.
@@ -1144,14 +1145,6 @@ function wrapDeltaForThinkStripping(onDelta: (text: string) => void): {
   return { handleDelta, flush, discard };
 }
 
-// Models with a confirmed <think>-leak (see THINK_STRIP_BUFFER_CAP's
-// comment) - every other model streams straight through via
-// passthroughDelta below instead. Empty since the 2026-09-21 unification
-// onto Muse Glimmer alone - it was never observed to leak during the
-// 2026-08-13 benchmark. If that turns out wrong in practice, add
-// "museGlimmer" back here rather than removing the stripping machinery.
-const MODELS_KNOWN_TO_LEAK_THINKING: string[] = [];
-
 // No buffering, no delay - text reaches the client the instant Ollama
 // produces it. flush/discard are no-ops since there's never anything held
 // back to release or drop.
@@ -1163,8 +1156,15 @@ function passthroughDelta(onDelta: (text: string) => void): {
   return { handleDelta: onDelta, flush: () => {}, discard: () => {} };
 }
 
-function deltaHandlerForModel(modelKey: string | undefined, onDelta: (text: string) => void) {
-  return MODELS_KNOWN_TO_LEAK_THINKING.includes(modelKey ?? "")
+// Buffers for think-stripping only when chat's reply can actually carry
+// leaked reasoning: chat thinking is off (OLLAMA_THINK_CHAT) AND the model is
+// listed in OLLAMA_MODELS_ALWAYS_THINK (see thinkMode.ts - e.g. the qwen3
+// 2507 Thinking build, which reasons inline despite think:false). Every
+// other combination streams straight through: with thinking on, Ollama
+// already routes reasoning into message.thinking, which streamOllamaRound
+// never forwards.
+function deltaHandlerForModel(model: string, onDelta: (text: string) => void) {
+  return mayLeakThinking("chat", model)
     ? wrapDeltaForThinkStripping(onDelta)
     : passthroughDelta(onDelta);
 }
@@ -1210,7 +1210,9 @@ async function isModelLoaded(baseUrl: string, modelName: string): Promise<boolea
 // (compaction, clarification, embeddings' own explicit -1) — left at
 // Ollama's default rather than guessing a policy for models out of scope
 // here.
-type OllamaTarget = { baseUrl: string; model: string; keepAlive?: number | string };
+// numCtx keeps each box's resident model at one context size (see
+// mainModelContextOption / secondaryContextOption) so no call reloads it.
+type OllamaTarget = { baseUrl: string; model: string; keepAlive?: number | string; numCtx?: number };
 
 async function callOllama(
   messages: unknown[],
@@ -1241,7 +1243,7 @@ async function callOllama(
         ...(tools ? { tools } : {}),
         stream: false,
         think: false,
-        options: { temperature },
+        options: { temperature, ...(target.numCtx ? { num_ctx: target.numCtx } : {}) },
         ...(target.keepAlive !== undefined ? { keep_alive: target.keepAlive } : {}),
       }),
       signal: controller.signal,
@@ -1280,12 +1282,12 @@ async function streamOllamaRound(
         messages,
         tools,
         stream: true,
-        // Explicit, not omitted - this app previously never set this field
-        // anywhere, relying entirely on Ollama's implicit per-model default.
-        // See wrapDeltaForThinkStripping / stripThinkLeak for the safety
-        // net against any model that still leaks reasoning with this set.
-        think: false,
-        options: { temperature },
+        // Per-feature, from OLLAMA_THINK_CHAT (see thinkMode.ts). With it
+        // on, reasoning streams in message.thinking, which is never
+        // forwarded below; with it off, see deltaHandlerForModel for the
+        // safety net against models that reason inline anyway.
+        ...thinkField("chat"),
+        options: { temperature, ...(target.numCtx ? { num_ctx: target.numCtx } : {}) },
         ...(target.keepAlive !== undefined ? { keep_alive: target.keepAlive } : {}),
       }),
       signal: controller.signal,
@@ -1384,24 +1386,33 @@ async function compactIfNeeded(
   ];
 
   try {
-    // Which target to use is a "is secondary even configured" choice
-    // (orthogonal to reachability, kept as the existing OR-chain); which URL
-    // to actually hit for that chosen target is then resolved LAN-vs-fallback.
-    const usingSecondary = Boolean(process.env.OLLAMA_SECONDARY_URL);
-    const configuredUrl = process.env.OLLAMA_SECONDARY_URL || process.env.OLLAMA_PRIMARY_URL || "";
-    const configuredFallback = usingSecondary ? process.env.OLLAMA_SECONDARY_FALLBACK_URL : process.env.OLLAMA_PRIMARY_FALLBACK_URL;
-    const compactionBaseUrl = configuredUrl ? await resolveOllamaBaseUrl(configuredUrl, configuredFallback) : "";
+    // Secondary only — deliberately no fall-through to Primary. Primary's
+    // one main model already uses nearly its entire VRAM budget (confirmed
+    // empirically), so a compaction call landing there with a different
+    // model would evict it. Missing config means "skip compaction this
+    // turn" (caught below, fails open same as any other error here), not
+    // "quietly borrow Primary."
+    const secondaryUrl = process.env.OLLAMA_SECONDARY_URL;
+    const summaryModel = process.env.OLLAMA_SUMMARY_MODEL;
+    if (!secondaryUrl) {
+      throw new Error("OLLAMA_SECONDARY_URL is not configured; skipping compaction.");
+    }
+    if (!summaryModel) {
+      throw new Error("OLLAMA_SUMMARY_MODEL is not configured; skipping compaction.");
+    }
+    const compactionBaseUrl = await resolveOllamaBaseUrl(secondaryUrl, process.env.OLLAMA_SECONDARY_FALLBACK_URL);
 
     const response = await callOllama(summarizeMessages, undefined, 0.2, {
       baseUrl: compactionBaseUrl,
-      model: process.env.OLLAMA_SUMMARY_MODEL || "llama3.2:3b",
+      model: summaryModel,
+      numCtx: secondaryContextOption().num_ctx,
     }, "chat-summarize");
     if (!response.ok) throw new Error(`Summarization failed (${response.status})`);
 
     const data = await response.json();
     warnIfSlowGeneration(
       compactionBaseUrl,
-      process.env.OLLAMA_SUMMARY_MODEL || "llama3.2:3b",
+      summaryModel,
       data?.eval_count,
       data?.eval_duration
     );
@@ -1670,16 +1681,17 @@ export async function POST(request: NextRequest) {
 
   const encoder = new TextEncoder();
   // modelKey is legacy plumbing (see chatMode.ts's getEffectiveModelKey) -
-  // resolveModelFromKey now always resolves it to the app's one main model,
-  // Muse Glimmer, which handles this chat turn regardless of what key was
-  // sent. It boots immediately and stays resident indefinitely
-  // (FAST_MODEL_KEEP_ALIVE). Since OCR/vision now also runs on Muse Glimmer
-  // (see ocrClient.ts), there's no separate vision model competing with it
-  // for VRAM anymore - the two no longer evict each other.
+  // resolveModelFromKey now always resolves it to the app's one main model
+  // (OLLAMA_MODEL_MAIN), which handles this chat turn regardless of what key
+  // was sent. It stays resident for FAST_MODEL_KEEP_ALIVE, at the same
+  // num_ctx as every other main-model call so no feature triggers a reload.
+  // OCR/vision runs on Secondary (see ocrClient.ts), so nothing else ever
+  // competes with it for Primary's VRAM.
   const primaryTarget: OllamaTarget = {
     baseUrl: await resolveOllamaBaseUrl(process.env.OLLAMA_PRIMARY_URL, process.env.OLLAMA_PRIMARY_FALLBACK_URL),
     model: resolveModelFromKey(modelKey),
     keepAlive: FAST_MODEL_KEEP_ALIVE,
+    numCtx: mainModelContextOption().num_ctx,
   };
   const stream = new ReadableStream({
     async start(controller) {
@@ -1739,7 +1751,7 @@ export async function POST(request: NextRequest) {
           send({ type: "delta", text: delta });
           recordDeltaForPersistence(delta);
         };
-        return deltaHandlerForModel(modelKey, base);
+        return deltaHandlerForModel(primaryTarget.model, base);
       };
       let finalAnswerText: string | null = null;
       // Persisted alongside the finished reply below; defaults to the raw

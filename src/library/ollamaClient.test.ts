@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveModelFromKey, FAST_MODEL_KEEP_ALIVE } from "./ollamaClient";
 
-const ENV_KEYS = ["OLLAMA_MODEL_MUSE_GLIMMER", "OLLAMA_MODEL_KEEP_ALIVE"] as const;
+const ENV_KEYS = ["OLLAMA_MODEL_MAIN", "OLLAMA_MODEL_KEEP_ALIVE"] as const;
 
 let savedEnv: Record<string, string | undefined>;
 
@@ -21,25 +21,20 @@ afterEach(() => {
 });
 
 describe("resolveModelFromKey", () => {
-  it("resolves to the literal Muse Glimmer fallback when no env var is set", () => {
-    expect(resolveModelFromKey("museGlimmer")).toBe("muse-glimmer:latest");
+  it("throws when OLLAMA_MODEL_MAIN is not configured — no hardcoded model-name fallback", () => {
+    expect(() => resolveModelFromKey("someKey")).toThrow("OLLAMA_MODEL_MAIN is not configured.");
   });
 
-  it("prefers OLLAMA_MODEL_MUSE_GLIMMER over the literal fallback", () => {
-    process.env.OLLAMA_MODEL_MUSE_GLIMMER = "muse-glimmer:custom-tag";
-    expect(resolveModelFromKey("museGlimmer")).toBe("muse-glimmer:custom-tag");
+  it("resolves to OLLAMA_MODEL_MAIN when set", () => {
+    process.env.OLLAMA_MODEL_MAIN = "qwen3:30b-a3b";
+    expect(resolveModelFromKey("someKey")).toBe("qwen3:30b-a3b");
   });
 
-  it("resolves to Muse Glimmer regardless of key, including legacy/unrecognized/missing keys", () => {
-    expect(resolveModelFromKey("someOldStoredKey")).toBe("muse-glimmer:latest");
-    expect(resolveModelFromKey("not-a-real-key")).toBe("muse-glimmer:latest");
-    expect(resolveModelFromKey(undefined)).toBe("muse-glimmer:latest");
-  });
-
-  it("resolves the internal-only ocr key to the same Muse Glimmer model", () => {
-    expect(resolveModelFromKey("ocr")).toBe("muse-glimmer:latest");
-    process.env.OLLAMA_MODEL_MUSE_GLIMMER = "muse-glimmer:custom-tag";
-    expect(resolveModelFromKey("ocr")).toBe("muse-glimmer:custom-tag");
+  it("resolves to the same model regardless of key, including legacy/unrecognized/missing keys", () => {
+    process.env.OLLAMA_MODEL_MAIN = "qwen3:30b-a3b";
+    expect(resolveModelFromKey("someOldStoredKey")).toBe("qwen3:30b-a3b");
+    expect(resolveModelFromKey("not-a-real-key")).toBe("qwen3:30b-a3b");
+    expect(resolveModelFromKey(undefined)).toBe("qwen3:30b-a3b");
   });
 });
 

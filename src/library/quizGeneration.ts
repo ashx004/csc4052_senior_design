@@ -1,7 +1,8 @@
 import { randomUUID } from "crypto";
 import { z } from "zod";
-import { resolveModelFromKey } from "@/src/library/ollamaClient";
+import { resolveModelFromKey, mainModelContextOption } from "@/src/library/ollamaClient";
 import { stripThinkLeak, extractFirstJsonObject } from "@/src/library/stripThinkLeak";
+import { thinkField } from "@/src/library/thinkMode";
 
 // Shared between api/generate-quiz/route.ts (the standalone course-page
 // flow) and api/chat/route.ts's create_quiz tool - same generation +
@@ -147,9 +148,9 @@ async function callOllama(prompt: string, questionCount: number, baseUrl: string
           { role: "user", content: prompt },
         ],
         stream: false,
-        think: false,
+        ...thinkField("quiz"),
         format: buildQuizJsonSchema(questionCount),
-        options: { temperature: 0 },
+        options: { temperature: 0, ...mainModelContextOption() },
       }),
       signal: controller.signal,
     });
