@@ -3,7 +3,8 @@ import { getIdToken, firestoreGet, firestoreListCollection, firestoreUpdate } fr
 import { adminDb } from "./firebaseAdmin";
 import { resolveInternalUrl } from "./pdfExtract";
 import { extractDocumentText, SUPPORTED_DOCUMENT_TYPES } from "./documentExtract";
-import { resolveOllamaBaseUrl, resolveModelFromKey } from "./ollamaClient";
+import { resolveOllamaBaseUrl, resolveModelFromKey, mainModelContextOption } from "./ollamaClient";
+import { thinkField } from "./thinkMode";
 import { stripThinkLeak } from "./stripThinkLeak";
 
 // Bounds on how much document text feeds one summary call — this only needs
@@ -13,7 +14,7 @@ import { stripThinkLeak } from "./stripThinkLeak";
 // student has uploaded.
 const MAX_DOCS_FOR_SUMMARY = 8;
 const MAX_CHARS_PER_DOC = 3000;
-// Was 60000 — raised alongside the 2026-08-16 switch to Muse Glimmer below,
+// Was 60000 — raised alongside the 2026-08-16 switch to a bigger main model,
 // a bigger/slower model than the previous fast tier. Still fire-and-forget
 // (see generateCourseSummary's doc comment), so a slower ceiling here costs
 // nothing user-facing, just a longer window before a failure is logged.
@@ -37,9 +38,9 @@ async function callOllamaForSummary(prompt: string): Promise<string> {
         "X-Catalyst-Feature": "course-summary",
       },
       body: JSON.stringify({
-        // Runs on Primary, where Muse Glimmer is the only large model
+        // Runs on Primary, where the main model is the only large model
         // loaded (see resolveModelFromKey) - no separate "fast" model exists.
-        model: resolveModelFromKey("museGlimmer"),
+        model: resolveModelFromKey(),
         messages: [
           {
             role: "system",
@@ -49,8 +50,8 @@ async function callOllamaForSummary(prompt: string): Promise<string> {
           { role: "user", content: prompt },
         ],
         stream: false,
-        think: false,
-        options: { temperature: 0.3 },
+        ...thinkField("course-summary"),
+        options: { temperature: 0.3, ...mainModelContextOption() },
       }),
       signal: controller.signal,
     });

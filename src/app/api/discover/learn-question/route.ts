@@ -4,7 +4,8 @@
 // The client keeps them in React state only.
 
 import { NextRequest, NextResponse } from "next/server";
-import { resolveOllamaBaseUrl, resolveModelFromKey } from "@/src/library/ollamaClient";
+import { resolveOllamaBaseUrl, resolveModelFromKey, mainModelContextOption } from "@/src/library/ollamaClient";
+import { thinkField } from "@/src/library/thinkMode";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import { stripThinkLeak, extractFirstJsonObject } from "@/src/library/stripThinkLeak";
@@ -93,7 +94,7 @@ const RequestBodySchema = z.object({
 async function callOllama(prompt: string, count: number): Promise<string> {
   const configuredUrl = process.env.OLLAMA_PRIMARY_URL;
   const token = process.env.OLLAMA_AUTH_TOKEN;
-  const model = resolveModelFromKey("museGlimmer");
+  const model = resolveModelFromKey();
 
   if (!configuredUrl || !token) {
     throw new Error(
@@ -121,8 +122,9 @@ async function callOllama(prompt: string, count: number): Promise<string> {
       body: JSON.stringify({
         model,
         stream: false,
+        ...thinkField("discover"),
         format: buildLearnQuestionsJsonSchema(count),
-        options: { temperature: 0 },
+        options: { temperature: 0, ...mainModelContextOption() },
         messages: [
           {
             role: "system",

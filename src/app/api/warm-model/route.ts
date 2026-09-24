@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resolveOllamaBaseUrl, resolveModelFromKey, FAST_MODEL_KEEP_ALIVE } from "@/src/library/ollamaClient";
+import { resolveOllamaBaseUrl, resolveModelFromKey, FAST_MODEL_KEEP_ALIVE, mainModelContextOption } from "@/src/library/ollamaClient";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
 
@@ -63,8 +63,16 @@ export async function POST(request: NextRequest) {
         "X-Catalyst-Feature": "warm-model",
       },
       // No messages — Ollama loads the model into memory and returns
-      // immediately once ready, without generating any content.
-      body: JSON.stringify({ model, messages: [], stream: false, keep_alive: keepAlive }),
+      // immediately once ready, without generating any content. Same
+      // num_ctx as every real main-model call, or the first real request
+      // after this warm-up would reload the model at a different size.
+      body: JSON.stringify({
+        model,
+        messages: [],
+        stream: false,
+        keep_alive: keepAlive,
+        options: { ...mainModelContextOption() },
+      }),
       signal: controller.signal,
     });
 
