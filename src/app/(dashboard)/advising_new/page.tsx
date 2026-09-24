@@ -47,6 +47,7 @@ export default function AdvisingPage() {
   const [transferReviewInfo, setTransferReviewInfo] = useState<{rowCount: number; totalCreditHours: number;} | null>(null);
   const [showManualCourseForm, setShowManualCourseForm] = useState<boolean>(false);
   const [scheduleNeedsRegeneration, setScheduleNeedsRegeneration] = useState<boolean>(false);
+  const [isExtracting, setIsExtracting] = useState<boolean>(false);
 
   useEffect(() => {
   if (loading || !user) {
@@ -430,7 +431,7 @@ export default function AdvisingPage() {
   try {
 
     setErrorMessage("");
-
+    setIsExtracting(true);
 
     const token = await user.getIdToken();
 
@@ -458,19 +459,61 @@ export default function AdvisingPage() {
       );
     }
 
-    console.log("Transcript:", data.transcript);
-    console.log("Curriculum:", data.curriculum);
+    // Extraction runs as a background job (it can involve several sequential
+    // AI calls, easily taking a few minutes) instead of one long blocking
+    // request, so poll for the result rather than waiting on this response.
+    const POLL_INTERVAL_MS = 4000;
+    const MAX_POLL_MS = 20 * 60 * 1000;
+    const deadline = Date.now() + MAX_POLL_MS;
 
-    if (data.needsManualTransferReview && data.unreadableTransferInfo) {
-      setTransferReviewInfo({
-        rowCount: data.unreadableTransferInfo.rowCount,
-        totalCreditHours: data.unreadableTransferInfo.totalCreditHours,
-      });
-    } else {
-      setTransferReviewInfo(null);
+    while (Date.now() < deadline) {
+
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+
+      const statusToken = await user.getIdToken();
+
+      const statusResponse =
+        await fetch(
+          "/api/advising/extract",
+          { headers: { Authorization: `Bearer ${statusToken}` } }
+        );
+
+      const statusData = await statusResponse.json();
+
+      if (!statusResponse.ok) {
+        throw new Error(
+          statusData.error ??
+            "The documents could not be read."
+        );
+      }
+
+      if (statusData.status === "complete") {
+
+        if (statusData.needsManualTransferReview && statusData.unreadableTransferInfo) {
+          setTransferReviewInfo({
+            rowCount: statusData.unreadableTransferInfo.rowCount,
+            totalCreditHours: statusData.unreadableTransferInfo.totalCreditHours,
+          });
+        } else {
+          setTransferReviewInfo(null);
+        }
+
+        return true;
+      }
+
+      if (statusData.status === "failed") {
+        throw new Error(
+          statusData.lastError ??
+            "The documents could not be read."
+        );
+      }
+
+      // status is "queued" or "processing" - keep polling.
     }
 
-    return true;
+    throw new Error(
+      "This is taking longer than expected. Please check back in a few minutes."
+    );
 
 
   } catch (error) {
@@ -482,6 +525,8 @@ export default function AdvisingPage() {
     );
 
     return false;
+  } finally {
+    setIsExtracting(false);
   }
 }
 
@@ -569,9 +614,16 @@ export default function AdvisingPage() {
         )}
 
         {uploadSuccess && (
-            <div className="rounded-lg border border-green-300 bg-green-50 px-4 py-3 
+            <div className="rounded-lg border border-green-300 bg-green-50 px-4 py-3
             text-sm text-green-700">
                 Your transcript and curriculum sheet were uploaded successfully!
+            </div>
+            )}
+
+        {isExtracting && (
+            <div className="mt-4 rounded-lg border border-[#d8d3ca] bg-white px-4 py-3
+            text-sm text-gray-600 dark:border-gray-700 dark:bg-[#202020] dark:text-gray-300">
+                Reading your transcript and curriculum sheet — this can take a few minutes...
             </div>
             )}
 
