@@ -189,7 +189,7 @@ export default function Signup() {
             disabled={isSubmitting}
             className="bg-primary text-text-inverse py-1 px-4 rounded
                       hover:bg-primary-hover disabled:opacity-50" >
-            Sign In
+            Create account
           </button>
 
           <div className="flex items-center gap-2 text-xs text-text-muted">
