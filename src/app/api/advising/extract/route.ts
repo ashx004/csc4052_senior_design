@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyRequestAuth } from "@/src/library/verifyAuth";
+import { verifyRequestAuth, isInternalRequest } from "@/src/library/verifyAuth";
 import { extractPdfTextFromUrl, resolveInternalUrl, } from "@/src/library/pdfExtract";
 import { extractTranscriptWithOllama, extractCurriculumWithOllama, } from "@/src/library/advisingOllama";
 import { FieldValue, } from "firebase-admin/firestore";
@@ -7,20 +7,114 @@ import { adminDb, } from "@/src/library/firebaseAdmin";
 import { transcriptExtractionSchema, curriculumExtractionSchema, } from "@/src/library/advisingSchemas";
 import { cleanTranscriptTextForOllama } from "@/src/library/advisingTranscriptCleanup";
 import { findTermCreditMismatches } from "@/src/library/advisingTranscriptChecks";
+import { checkRateLimit } from "@/src/library/rateLimit";
+
+const JOB_COLLECTION = "advisingExtractionJobs";
+const EXTRACT_RATE_LIMIT_WINDOW_MS = 60_000;
+const EXTRACT_RATE_LIMIT_MAX = 5; // one real upload plus a couple of retries, generously
+
+// A transcript + curriculum extraction makes up to 4 sequential AI calls
+// (transcript, then program info, main requirements, and concentrations).
+// That routinely runs well past the ~100s timeout the Cloudflare tunnel in
+// front of this deployment enforces on any single request - see
+// advisingOllama.ts. So this route now works like /api/embed-document: the
+// browser only ever gets a fast "queued" response and polls for the result;
+// the actual work happens server-to-server via /api/advising-jobs/worker,
+// where a slow/timed-out attempt just gets retried instead of surfacing a
+// raw Cloudflare error page to the student.
 
 export async function POST(request: NextRequest) {
+  if (isInternalRequest(request)) {
+    return processExtraction(request);
+  }
+  return enqueueExtraction(request);
+}
+
+// Browser-facing: kicks off (or reports) a background extraction job.
+async function enqueueExtraction(request: NextRequest) {
+  const auth = await verifyRequestAuth(request);
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const rateLimit = checkRateLimit(auth.uid, EXTRACT_RATE_LIMIT_WINDOW_MS, EXTRACT_RATE_LIMIT_MAX);
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ error: "Too many requests. Please wait a moment." }, { status: 429 });
+  }
+
+  const jobRef = adminDb.collection(JOB_COLLECTION).doc(auth.uid);
+  const existing = (await jobRef.get()).data();
+
+  // Already in flight - don't start a second, duplicate extraction. Still
+  // fall through to the best-effort ping below though: claiming is
+  // transaction-protected (see claimNextJob in advising-jobs/worker), so
+  // it's harmless to nudge a job that's genuinely being worked on, and it's
+  // what actually rescues one that's stuck (e.g. the one active attempt
+  // died without requeuing itself - a bare retry click would otherwise just
+  // re-attach to the same stalled "queued"/"processing" doc forever).
+  const alreadyInFlight = existing?.status === "queued" || existing?.status === "processing";
+
+  if (!alreadyInFlight) {
+    await jobRef.set({
+      userId: auth.uid,
+      status: "queued",
+      attempts: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      startedAt: null,
+      completedAt: null,
+      failedAt: null,
+      nextAttemptAt: new Date(),
+      leaseExpiresAt: null,
+      lastError: null,
+      needsManualTransferReview: false,
+      unreadableTransferInfo: null,
+    });
+  }
+
+  // Best-effort immediate pickup, same pattern as /api/embed-document - the
+  // dedicated worker process (npm run worker:advising) also drains any job
+  // that survives a server restart or a failed first attempt.
+  if (process.env.INTERNAL_API_SECRET) {
+    fetch(resolveInternalUrl(request, "/api/advising-jobs/worker"), {
+      method: "POST",
+      headers: { "x-internal-secret": process.env.INTERNAL_API_SECRET },
+    }).catch((error) => console.error(`Failed to start advising worker for ${auth.uid}:`, error));
+  }
+
+  return NextResponse.json({ queued: true, status: "queued" }, { status: 202 });
+}
+
+// Browser-facing: polled by the frontend until the job completes or fails.
+export async function GET(request: NextRequest) {
+  const auth = await verifyRequestAuth(request);
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const jobDoc = await adminDb.collection(JOB_COLLECTION).doc(auth.uid).get();
+  if (!jobDoc.exists) {
+    return NextResponse.json({ status: "none" });
+  }
+
+  const data = jobDoc.data()!;
+  return NextResponse.json({
+    status: data.status,
+    lastError: data.lastError ?? null,
+    needsManualTransferReview: data.needsManualTransferReview ?? false,
+    unreadableTransferInfo: data.unreadableTransferInfo ?? null,
+  });
+}
+
+// Internal-only: does the actual PDF + AI extraction work. Called
+// server-to-server by /api/advising-jobs/worker, never directly by a
+// browser, so it's free to take as long as it needs.
+async function processExtraction(request: NextRequest) {
   try {
-
-    const auth = await verifyRequestAuth(request);
-
-    if (!auth) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
+    const { userId } = await request.json();
+    if (!userId) {
+      return NextResponse.json({ error: "userId is required" }, { status: 400 });
     }
-
-    const userId = auth.uid;
 
     const transcriptPath = `users/${userId}/advising/transcript.pdf`;
     const curriculumPath = `users/${userId}/advising/curriculum.pdf`;
@@ -36,8 +130,8 @@ export async function POST(request: NextRequest) {
     // Advising-specific cleanup (PII redaction, summary-noise stripping)
     const transcriptText = cleanTranscriptTextForOllama(rawTranscriptText);
 
-    
-    // ask ollama to extract the data 
+
+    // ask ollama to extract the data
     const transcriptResponse = await extractTranscriptWithOllama(transcriptText);
     const curriculumResponse = await extractCurriculumWithOllama(curriculumText);
 
@@ -60,13 +154,10 @@ export async function POST(request: NextRequest) {
     }
 
     transcriptData.warnings.push(...creditMismatches);
-    
+
     // Never save an empty read over good data.
     if (transcriptData.courses.length === 0) {
-      return NextResponse.json(
-        { error: "No courses could be read from your transcript. Please check that you uploaded the right file." },
-        { status: 422 }
-      );
+      throw new Error("No courses could be read from your transcript. Please check that you uploaded the right file.");
     }
 
     const curriculumData = curriculumExtractionSchema.parse(rawCurriculumData);
@@ -93,7 +184,7 @@ export async function POST(request: NextRequest) {
 
     const unreadableTransfer = findUnreadableTransferWarning(transcriptData.warnings);
 
-    
+
     console.log(`Extracted ${transcriptData.courses.length} courses, ${curriculumData.requirements.length} requirements, ${creditMismatches.length} credit warnings`);
 
 
@@ -104,7 +195,7 @@ export async function POST(request: NextRequest) {
     const curriculumRef =
       adminDb.collection("users").doc(userId).collection("curriculum").doc("data");
 
-    
+
     // save the validated data. marge false means the old document is completely replaced
     await Promise.all([
       transcriptRef.set({
@@ -122,9 +213,7 @@ export async function POST(request: NextRequest) {
 
 
     return NextResponse.json({
-      message: "Documents were extracted and saved successfully.",
-      transcript: transcriptData,
-      curriculum: curriculumData,
+      success: true,
       needsManualTransferReview: unreadableTransfer !== null,
       unreadableTransferInfo: unreadableTransfer,
   });

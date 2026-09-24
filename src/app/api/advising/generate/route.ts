@@ -15,7 +15,7 @@ import { loadCourseOfferingCache, CachedCourseOffering, } from "@/src/library/ad
 import { buildFutureTerms, buildCourseAvailability, } from "@/src/library/advisingPlanner";
 import { generateScheduleWithOllama, } from "@/src/library/advisingOllama";
 import { generatedAdvisingScheduleSchema, } from "@/src/library/advisingSchemas";
-import { enforceTermCreditLimit } from "@/src/library/advisingCreditLimit";
+import { enforceTermCreditLimit, PREFERRED_MAX_CREDITS } from "@/src/library/advisingCreditLimit";
 
 
 function normalizeCourseCode(courseCode: string): string {
@@ -53,6 +53,11 @@ function groupCourseAvailability(
     if (!grouped[item.courseCode]) {
       grouped[item.courseCode] = [];
     }
+
+    // Only list terms the course IS offered in. Handing the model every
+    // term with offered:false entries mixed in made it easier to misread
+    // (it placed courses in offered:false terms).
+    if (!item.offered) { continue; }
 
     grouped[item.courseCode].push({
       term: item.term,
@@ -269,26 +274,40 @@ function buildCandidateCourseCodes(
 
 
 
-function validateGeneratedSchedule(
+/*
+  The model's schedule is a draft: it can still put a course in a term where
+  it isn't offered, list a course twice, or re-schedule a completed course.
+  Rather than failing the whole schedule over one such slip, fix it here in
+  code and tell the student what changed (same idea as enforceTermCreditLimit).
+
+  Moving a course to another term can't break a prerequisite: only
+  requirements whose prerequisites are already on the transcript are ever
+  sent to the model, so no scheduled course depends on another one.
+*/
+function repairGeneratedSchedule(
   schedule: ReturnType<typeof generatedAdvisingScheduleSchema.parse>,
   courseAvailability: ReturnType<typeof buildCourseAvailability>,
+  futureTerms: ReturnType<typeof buildFutureTerms>,
   transcriptCourses: TranscriptData["courses"],
   remainingRequirements: CurriculumRequirement[]
-) {
+): string[] {
 
-  const alreadyScheduled =
-    new Set<string>();
+  const warnings: string[] = [];
+  const alreadyScheduled = new Set<string>();
+  const misplaced: GeneratedCourse[] = [];
 
+  const isOffered = (courseCode: string, term: { term: string; year: number }) =>
+    courseAvailability.some(
+      (availability) =>
+        availability.term === term.term &&
+        availability.year === term.year &&
+        availability.offered === true &&
+        courseCodesStructurallyEquivalent(availability.courseCode, courseCode)
+    );
 
-  for (
-    const plannedTerm
-    of schedule.terms
-  ) {
+  for (const plannedTerm of schedule.terms) {
 
-    for (
-      const plannedCourse
-      of plannedTerm.courses
-    ) {
+    plannedTerm.courses = plannedTerm.courses.filter((plannedCourse) => {
 
       /*
         Make sure Ollama did not schedule
@@ -314,69 +333,81 @@ function validateGeneratedSchedule(
             courseCodesEquivalent(plannedCourse.courseCode, course, requirementTitle)
         );
 
-
       if (transcriptMatch) {
-        throw new Error(
-          `Generated schedule attempted to schedule an already completed or in-progress course: ${plannedCourse.courseCode}`
-        );
+        warnings.push(`Removed ${plannedCourse.courseCode} from the schedule because it is already on your transcript.`);
+        return false;
       }
-
 
       /*
         Prevent duplicate scheduling.
       */
 
-      const normalized =
-        normalizeCourseCode(
-          plannedCourse.courseCode
-        );
+      const normalized = normalizeCourseCode(plannedCourse.courseCode);
 
-
-      if (
-        alreadyScheduled.has(normalized)
-      ) {
-        throw new Error(
-          `Generated schedule contains duplicate course: ${plannedCourse.courseCode}`
-        );
+      if (alreadyScheduled.has(normalized)) {
+        warnings.push(`Removed a duplicate ${plannedCourse.courseCode} from ${plannedTerm.term} ${plannedTerm.year}.`);
+        return false;
       }
-
 
       alreadyScheduled.add(normalized);
 
-
       /*
         Course must actually be offered
-        in this exact term.
+        in this exact term - otherwise re-place it below.
       */
 
-      const offered =
-        courseAvailability.some(
-          (availability) =>
-
-            availability.term ===
-              plannedTerm.term &&
-
-            availability.year ===
-              plannedTerm.year &&
-
-            availability.offered ===
-              true &&
-
-            courseCodesStructurallyEquivalent(
-                availability.courseCode,
-                plannedCourse.courseCode
-                )
-        );
-
-
-      if (!offered) {
-        throw new Error(
-          `${plannedCourse.courseCode} is not listed as offered in ${plannedTerm.term} ${plannedTerm.year}.`
-        );
+      if (!isOffered(plannedCourse.courseCode, plannedTerm)) {
+        misplaced.push({ course: plannedCourse, from: plannedTerm });
+        return false;
       }
-    }
+
+      return true;
+    });
   }
+
+  const termTotal = (term: { term: string; year: number }) =>
+    schedule.terms
+      .find((t) => t.term === term.term && t.year === term.year)
+      ?.courses.reduce((sum, c) => sum + (c.creditHours ?? 3), 0) ?? 0;
+
+  for (const { course, from } of misplaced) {
+
+    const offeredTerms = futureTerms.filter((term) => isOffered(course.courseCode, term));
+
+    if (offeredTerms.length === 0) {
+      warnings.push(
+        `Removed ${course.courseCode} from ${from.term} ${from.year}: it is not listed as offered in any upcoming term. Check with your advisor about when it will be offered.`
+      );
+      continue;
+    }
+
+    // Earliest offered term with room under the usual limit; otherwise the
+    // earliest offered term (enforceTermCreditLimit rebalances after this).
+    const destination =
+      offeredTerms.find((term) => termTotal(term) + (course.creditHours ?? 3) <= PREFERRED_MAX_CREDITS) ??
+      offeredTerms[0];
+
+    let destinationTerm = schedule.terms.find(
+      (t) => t.term === destination.term && t.year === destination.year
+    );
+    if (!destinationTerm) {
+      destinationTerm = { term: destination.term, year: destination.year, courses: [] };
+      schedule.terms.push(destinationTerm);
+    }
+    destinationTerm.courses.push(course);
+
+    warnings.push(
+      `Moved ${course.courseCode} from ${from.term} ${from.year} to ${destination.term} ${destination.year}, when it is actually offered.`
+    );
+  }
+
+  return warnings;
 }
+
+type GeneratedCourse = {
+  course: ReturnType<typeof generatedAdvisingScheduleSchema.parse>["terms"][number]["courses"][number];
+  from: { term: string; year: number };
+};
 
 
 
@@ -666,15 +697,18 @@ export async function POST(
 
 
         /*
-          Validate important factual rules.
+          Fix any placements that break the factual rules (not offered,
+          duplicate, already completed) instead of failing the schedule.
         */
 
-        validateGeneratedSchedule(
+        const repairWarnings = repairGeneratedSchedule(
           schedule,
           courseAvailability,
+          futureTerms,
           transcript.courses,
           schedulableRequirements
         );
+        schedule.warnings = [...schedule.warnings, ...repairWarnings];
 
         const limited = enforceTermCreditLimit(schedule, futureTerms, courseAvailability);
         schedule.terms = limited.terms;
