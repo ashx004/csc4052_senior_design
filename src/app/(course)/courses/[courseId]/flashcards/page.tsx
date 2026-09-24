@@ -440,7 +440,10 @@ export default function FlashcardsPage() {
       <div className="flex-1 flex flex-col items-center justify-center px-4 py-8">
         {flashcards.length > 0 && (
           <>
-            <div data-tutorial="course-flashcards-card">
+            {/* Sized like FlashCard itself (w-full max-w-xl) - a bare wrapper
+                shrinks to fit in this centered flex column, and the card
+                inside sizes to it, collapsing into a narrow sliver. */}
+            <div className="w-full max-w-xl" data-tutorial="course-flashcards-card">
               <FlashCard
                 key={currentIndex}
                 question={flashcards[currentIndex].question}

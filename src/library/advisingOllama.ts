@@ -1,4 +1,4 @@
-import { Agent, setGlobalDispatcher } from "undici";
+import { Agent, fetch as undiciFetch } from "undici";
 import { resolveOllamaBaseUrl, resolveModelFromKey, mainModelContextOption } from "@/src/library/ollamaClient";
 import { thinkField } from "@/src/library/thinkMode";
 
@@ -27,9 +27,14 @@ const ADVISING_NUM_CTX = Number(process.env.ADVISING_NUM_CTX) || mainModelContex
 // undici's default headersTimeout (5 min) can be too short over the
 // Cloudflare-tunneled Ollama path, where the first response byte can take
 // longer to arrive than a direct LAN connection would. This raises that
-// ceiling specifically for Ollama calls without touching global fetch
-// behavior elsewhere in the app.
-setGlobalDispatcher(new Agent({ headersTimeout: 600_000 })); // 10 minutes
+// ceiling for this file's Ollama calls only: they go through undici's own
+// fetch with this agent passed per request. It used to be installed with
+// setGlobalDispatcher, which swapped undici 8's agent in under Node's
+// built-in fetch (a different bundled undici) for the whole server process
+// and broke gzip decoding for every other fetch - including the auth
+// middleware's download of Google's signing keys, so every login bounced
+// back to /login in production builds (found 2026-09-24).
+const ollamaAgent = new Agent({ headersTimeout: 600_000 }); // 10 minutes
 
 
   // Returns just the JSON object from a model reply: handles ```json fences,
@@ -109,7 +114,8 @@ async function callAdvisingOllama(
   }, OLLAMA_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${baseUrl}/api/chat`, {
+    const response = await undiciFetch(`${baseUrl}/api/chat`, {
+      dispatcher: ollamaAgent,
       method: "POST",
       headers: {
         "Content-Type": "application/json",

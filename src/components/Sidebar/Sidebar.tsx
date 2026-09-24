@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Menu, Settings, ChevronLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { TUTORIAL_OVERLAY_ATTR, TUTORIAL_TARGET_EVENT } from "@/src/components/tutorial/TutorialOverlay";
 
 interface SidebarProps {
   children: React.ReactNode;
@@ -17,6 +18,9 @@ export default function Sidebar({ children }: SidebarProps) {
     if (!isOpen) return;
 
     function handleClickOutside(e: MouseEvent) {
+      // Clicks on the guided tour's own controls aren't "outside" clicks -
+      // closing here reflowed the page under the tour's spotlight.
+      if ((e.target as Element | null)?.closest?.(`[${TUTORIAL_OVERLAY_ATTR}]`)) return;
       if (sidebarRef.current && !sidebarRef.current.contains(e.target as Node)) {
         setIsOpen(false);
       }
@@ -25,6 +29,17 @@ export default function Sidebar({ children }: SidebarProps) {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isOpen]);
+
+  // A tour step pointing at something in here (e.g. the nav links) needs the
+  // panel open, even if the student collapsed it earlier.
+  useEffect(() => {
+    function handleTutorialTarget(e: Event) {
+      const element = (e as CustomEvent<{ element: Element }>).detail?.element;
+      if (element && sidebarRef.current?.contains(element)) setIsOpen(true);
+    }
+    window.addEventListener(TUTORIAL_TARGET_EVENT, handleTutorialTarget);
+    return () => window.removeEventListener(TUTORIAL_TARGET_EVENT, handleTutorialTarget);
+  }, []);
 
   return (
     <>

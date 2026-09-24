@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
@@ -22,9 +22,30 @@ const TARGET_POLL_MS = 120;
 const CARD_WIDTH = 320;
 const CARD_MARGIN = 16;
 
-function measure(selector: string | undefined): SpotlightRect | null {
+// Fired once per step with the target element, so components that can hide
+// it (the collapsible sidebar) can reveal it before it's spotlighted.
+export const TUTORIAL_TARGET_EVENT = "catalyst:tutorial-target";
+
+// Marks the overlay's root so outside-click handlers elsewhere (the sidebar
+// closes on any click outside itself) can ignore clicks on tour controls -
+// otherwise pressing "Next" collapsed the sidebar and reflowed the page
+// under the spotlight.
+export const TUTORIAL_OVERLAY_ATTR = "data-tutorial-overlay";
+
+// First match that actually has a box on screen - a selector can also match
+// a hidden duplicate (loading/empty-state variants, responsive copies), and
+// querySelector alone would spotlight that zero-size element at 0,0.
+function findTarget(selector: string | undefined): HTMLElement | null {
   if (!selector) return null;
-  const el = document.querySelector(selector);
+  for (const el of document.querySelectorAll<HTMLElement>(selector)) {
+    const r = el.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) return el;
+  }
+  return null;
+}
+
+function measure(selector: string | undefined): SpotlightRect | null {
+  const el = findTarget(selector);
   if (!el) return null;
   const r = el.getBoundingClientRect();
   return {
@@ -33,6 +54,32 @@ function measure(selector: string | undefined): SpotlightRect | null {
     width: r.width + SPOTLIGHT_PADDING * 2,
     height: r.height + SPOTLIGHT_PADDING * 2,
   };
+}
+
+function sameRect(a: SpotlightRect | null, b: SpotlightRect | null): boolean {
+  if (!a || !b) return a === b;
+  return (
+    Math.abs(a.top - b.top) < 0.5 &&
+    Math.abs(a.left - b.left) < 0.5 &&
+    Math.abs(a.width - b.width) < 0.5 &&
+    Math.abs(a.height - b.height) < 0.5
+  );
+}
+
+// Let the page reveal the target (open the sidebar), then bring it on
+// screen if it's outside the viewport - pages scroll inside <main>, and
+// scrollIntoView walks every scrollable ancestor. Tall targets align to the
+// top so their start is what's visible.
+function revealTarget(el: HTMLElement, smooth: boolean) {
+  window.dispatchEvent(new CustomEvent(TUTORIAL_TARGET_EVENT, { detail: { element: el } }));
+  const r = el.getBoundingClientRect();
+  const outOfView = r.top < CARD_MARGIN || r.bottom > window.innerHeight - CARD_MARGIN;
+  if (outOfView) {
+    el.scrollIntoView({
+      block: r.height > window.innerHeight * 0.6 ? "start" : "center",
+      behavior: smooth ? "smooth" : "auto",
+    });
+  }
 }
 
 export default function TutorialOverlay({
@@ -55,8 +102,22 @@ export default function TutorialOverlay({
   const [rect, setRect] = useState<SpotlightRect | null>(null);
   const [visible, setVisible] = useState(false);
   const [skipAllChecked, setSkipAllChecked] = useState(false);
-  const cardRef = useRef<HTMLDivElement | null>(null);
   const [cardHeight, setCardHeight] = useState(160);
+  // Measure the card whenever its size changes, not once per step: with
+  // AnimatePresence mode="wait" the new step's card mounts only after the
+  // old one finishes exiting, so a per-step measurement read the OLD card
+  // and positioned a taller new card too low (its bottom row ended up
+  // below the viewport).
+  const cardObserver = useRef<ResizeObserver | null>(null);
+  const cardRef = useCallback((el: HTMLDivElement | null) => {
+    cardObserver.current?.disconnect();
+    if (!el) return;
+    cardObserver.current = new ResizeObserver(([entry]) => {
+      setCardHeight(entry.target.getBoundingClientRect().height);
+    });
+    cardObserver.current.observe(el);
+  }, []);
+  useEffect(() => () => cardObserver.current?.disconnect(), []);
   const prefersReducedMotion = useRef(false);
 
   const step = steps[stepIndex];
@@ -92,9 +153,10 @@ export default function TutorialOverlay({
 
     function tick() {
       if (cancelled) return;
-      const found = measure(step.target);
-      if (found || !step.target) {
-        setRect(found);
+      const el = findTarget(step.target);
+      if (el || !step.target) {
+        if (el) revealTarget(el, !prefersReducedMotion.current);
+        setRect(measure(step.target));
         setVisible(true);
         return;
       }
@@ -112,20 +174,23 @@ export default function TutorialOverlay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIndex]);
 
+  // Follow the target every frame while its step is showing. Measuring once
+  // (or only on resize/scroll) left the spotlight behind whenever the page
+  // moved under it: the sidebar's 300ms width animation, content that loads
+  // in after the step starts, entrance animations, smooth scrolling. The
+  // state update is skipped when nothing moved, so an idle page costs one
+  // getBoundingClientRect per frame and no re-renders.
   useEffect(() => {
-    if (!step?.target) return;
-    const reposition = () => setRect(measure(step.target));
-    window.addEventListener("resize", reposition);
-    window.addEventListener("scroll", reposition, true);
-    return () => {
-      window.removeEventListener("resize", reposition);
-      window.removeEventListener("scroll", reposition, true);
+    if (!visible || !step?.target) return;
+    let frame = 0;
+    const follow = () => {
+      const next = measure(step.target);
+      setRect((prev) => (sameRect(prev, next) ? prev : next));
+      frame = window.requestAnimationFrame(follow);
     };
-  }, [step]);
-
-  useLayoutEffect(() => {
-    if (cardRef.current) setCardHeight(cardRef.current.getBoundingClientRect().height);
-  }, [stepIndex, rect]);
+    frame = window.requestAnimationFrame(follow);
+    return () => window.cancelAnimationFrame(frame);
+  }, [visible, step]);
 
   if (!mounted || !step) return null;
 
@@ -141,14 +206,31 @@ export default function TutorialOverlay({
   } else {
     const spaceBelow = viewportH - (rect.top + rect.height);
     const spaceAbove = rect.top;
+    const spaceRight = viewportW - (rect.left + rect.width);
+    const spaceLeft = rect.left;
     const fitsBelow = spaceBelow > cardHeight + CARD_MARGIN * 2;
     const fitsAbove = spaceAbove > cardHeight + CARD_MARGIN * 2;
-    const placeBelow = step.placement === "top" ? !fitsAbove : fitsBelow || !fitsAbove;
+    const fitsRight = spaceRight > CARD_WIDTH + CARD_MARGIN * 2;
+    const fitsLeft = spaceLeft > CARD_WIDTH + CARD_MARGIN * 2;
 
-    cardTop = placeBelow ? rect.top + rect.height + CARD_MARGIN : rect.top - cardHeight - CARD_MARGIN;
+    // Beside the target when the step asks for it, or when it's too tall
+    // for the card to fit above or below - otherwise the clamp below parks
+    // the card on top of the very thing it's describing.
+    const side =
+      step.placement === "right" && fitsRight ? "right"
+      : step.placement === "left" && fitsLeft ? "left"
+      : !fitsAbove && !fitsBelow ? (fitsRight ? "right" : fitsLeft ? "left" : null)
+      : null;
+
+    if (side) {
+      cardLeft = side === "right" ? rect.left + rect.width + CARD_MARGIN : rect.left - CARD_WIDTH - CARD_MARGIN;
+      cardTop = rect.top + rect.height / 2 - cardHeight / 2;
+    } else {
+      const placeBelow = step.placement === "top" ? !fitsAbove : fitsBelow || !fitsAbove;
+      cardTop = placeBelow ? rect.top + rect.height + CARD_MARGIN : rect.top - cardHeight - CARD_MARGIN;
+      cardLeft = rect.left + rect.width / 2 - CARD_WIDTH / 2;
+    }
     cardTop = Math.min(Math.max(cardTop, CARD_MARGIN), viewportH - cardHeight - CARD_MARGIN);
-
-    cardLeft = rect.left + rect.width / 2 - CARD_WIDTH / 2;
     cardLeft = Math.min(Math.max(cardLeft, CARD_MARGIN), viewportW - CARD_WIDTH - CARD_MARGIN);
   }
 
@@ -163,6 +245,7 @@ export default function TutorialOverlay({
   return createPortal(
     <motion.div
       className="fixed inset-0 z-[1000]"
+      {...{ [TUTORIAL_OVERLAY_ATTR]: "" }}
       role="dialog"
       aria-modal="true"
       aria-label="App tour"
