@@ -7,7 +7,7 @@ import type { CalendarEvent } from "@/src/components/calendar/calendarTypes";
 import { db } from "@/src/library/firebase";
 import { dateKey } from "@/src/library/calendarHelpers";
 import { getEnrollmentStatus } from "@/src/library/enrollmentStatus";
-import type { ClassMeetingDay, StructuredClassSchedule } from "@/src/library/classSchedule";
+import type { ClassMeetingDay, ClassMeetingException, StructuredClassSchedule } from "@/src/library/classSchedule";
 
 type ClassEnrollment = StructuredClassSchedule & {
   className?: string;
@@ -41,9 +41,9 @@ function zonedDateTime(date: Date, time: string, timeZone: string): Date {
   return instant;
 }
 
-function eventForMeeting(enrollment: ScheduledClass, date: Date): CalendarEvent | null {
-  const startTime = enrollment.meetingStartTime;
-  const endTime = enrollment.meetingEndTime;
+function eventForMeeting(enrollment: ScheduledClass, date: Date, exception?: ClassMeetingException): CalendarEvent | null {
+  const startTime = exception?.startTime || enrollment.meetingStartTime;
+  const endTime = exception?.endTime || enrollment.meetingEndTime;
   if (!startTime || !endTime || endTime <= startTime) return null;
   const timeZone = enrollment.meetingTimeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   try {
@@ -52,7 +52,7 @@ function eventForMeeting(enrollment: ScheduledClass, date: Date): CalendarEvent 
     return {
       id: `class:${enrollment.id}:meeting:${dateKey(date)}`,
       title: [enrollment.classCode, enrollment.className].filter(Boolean).join(" - ") || "Class meeting",
-      location: enrollment.classRoom || undefined,
+      location: exception?.room || enrollment.classRoom || undefined,
       startTime: start.toISOString(),
       endTime: end.toISOString(),
       allDay: false,
@@ -62,6 +62,8 @@ function eventForMeeting(enrollment: ScheduledClass, date: Date): CalendarEvent 
       kind: "class",
       classId: enrollment.id,
       className: enrollment.className || enrollment.classCode || "Class",
+      reminderMinutes: enrollment.meetingReminderMinutes,
+      classException: Boolean(exception),
     };
   } catch (error) {
     console.error(`Couldn't generate calendar event for class ${enrollment.id}:`, error);
@@ -110,7 +112,9 @@ export function useClassCalendarEvents(dateRange?: { start: Date; end: Date }) {
         if ((enrollment.termStartDate && dateString < enrollment.termStartDate) ||
             (enrollment.termEndDate && dateString > enrollment.termEndDate) ||
             !enrollment.meetingDays.includes(DAY_BY_INDEX[date.getDay()])) continue;
-        const event = eventForMeeting(enrollment, date);
+        const exception = enrollment.meetingExceptions?.find((item) => item.date === dateString);
+        if (exception?.cancelled) continue;
+        const event = eventForMeeting(enrollment, date, exception);
         if (event) visible.push(event);
       }
     }
