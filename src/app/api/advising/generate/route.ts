@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse, } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/src/library/firebaseAdmin";
-import { verifyRequestAuth } from "@/src/library/verifyAuth";
+import { verifyRequestAuth, isInternalRequest } from "@/src/library/verifyAuth";
+import { checkRateLimit } from "@/src/library/rateLimit";
+import { SCHEDULE_JOBS, enqueueAdvisingJob, readAdvisingJob } from "@/src/library/advisingJobs";
 import {
   buildAcademicProgress,
   TranscriptData,
@@ -15,7 +17,7 @@ import { loadCourseOfferingCache, CachedCourseOffering, } from "@/src/library/ad
 import { buildFutureTerms, buildCourseAvailability, } from "@/src/library/advisingPlanner";
 import { generateScheduleWithOllama, } from "@/src/library/advisingOllama";
 import { generatedAdvisingScheduleSchema, } from "@/src/library/advisingSchemas";
-import { enforceTermCreditLimit, PREFERRED_MAX_CREDITS } from "@/src/library/advisingCreditLimit";
+import { enforceTermCreditLimit, moveCoursesToEarliestTerms, PREFERRED_MAX_CREDITS } from "@/src/library/advisingCreditLimit";
 
 
 function normalizeCourseCode(courseCode: string): string {
@@ -278,7 +280,9 @@ function buildCandidateCourseCodes(
   The model's schedule is a draft: it can still put a course in a term where
   it isn't offered, list a course twice, or re-schedule a completed course.
   Rather than failing the whole schedule over one such slip, fix it here in
-  code and tell the student what changed (same idea as enforceTermCreditLimit).
+  code (same idea as enforceTermCreditLimit). Only a course with no upcoming
+  offering or a duplicate gets a note; moving a course to a term it's offered
+  in, or dropping one already on the transcript, happens silently.
 
   Moving a course to another term can't break a prerequisite: only
   requirements whose prerequisites are already on the transcript are ever
@@ -310,8 +314,9 @@ function repairGeneratedSchedule(
     plannedTerm.courses = plannedTerm.courses.filter((plannedCourse) => {
 
       /*
-        Make sure Ollama did not schedule
-        an already-completed or active course.
+        Make sure Ollama did not schedule an already-completed or
+        in-progress course. Dropped without a note - the student
+        already knows they took it.
       */
 
       const matchingRequirement = remainingRequirements.find(
@@ -329,12 +334,11 @@ function repairGeneratedSchedule(
 
       const transcriptMatch = transcriptCourses.some(
           (course) =>
-            (course.status === "completed" ||course.status === "transfer") &&
+            (course.status === "completed" || course.status === "transfer" || course.status === "in-progress") &&
             courseCodesEquivalent(plannedCourse.courseCode, course, requirementTitle)
         );
 
       if (transcriptMatch) {
-        warnings.push(`Removed ${plannedCourse.courseCode} from the schedule because it is already on your transcript.`);
         return false;
       }
 
@@ -395,10 +399,6 @@ function repairGeneratedSchedule(
       schedule.terms.push(destinationTerm);
     }
     destinationTerm.courses.push(course);
-
-    warnings.push(
-      `Moved ${course.courseCode} from ${from.term} ${from.year} to ${destination.term} ${destination.year}, when it is actually offered.`
-    );
   }
 
   return warnings;
@@ -411,34 +411,72 @@ type GeneratedCourse = {
 
 
 
-export async function POST(
+const GENERATE_RATE_LIMIT_WINDOW_MS = 60_000;
+const GENERATE_RATE_LIMIT_MAX = 10;
+
+// Schedule generation runs as a background job (see advisingJobs.ts), the
+// same way document extraction does: the browser gets a fast "queued" answer,
+// /api/advising-jobs/worker runs the generation below, and the student can
+// leave the page meanwhile - a popup tells them when it's done.
+export async function POST(request: NextRequest) {
+  if (isInternalRequest(request)) {
+    return processGeneration(request);
+  }
+  return enqueueGeneration(request);
+}
+
+// Browser-facing: kicks off a background generation job.
+async function enqueueGeneration(request: NextRequest) {
+  const auth = await verifyRequestAuth(request);
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const rateLimit = checkRateLimit(`generate:${auth.uid}`, GENERATE_RATE_LIMIT_WINDOW_MS, GENERATE_RATE_LIMIT_MAX);
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ error: "Too many requests. Please wait a moment." }, { status: 429 });
+  }
+
+  await enqueueAdvisingJob(request, SCHEDULE_JOBS, auth.uid);
+  return NextResponse.json({ queued: true, status: "queued" }, { status: 202 });
+}
+
+// Browser-facing: polled until the job finishes, and read on page load to
+// resume a job the student left running (or show their last schedule).
+export async function GET(request: NextRequest) {
+  const auth = await verifyRequestAuth(request);
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { status, data } = await readAdvisingJob(request, SCHEDULE_JOBS, auth.uid);
+
+  const saved = status === "complete"
+    ? (await adminDb.collection("users").doc(auth.uid).collection("advising").doc("schedule").get()).data()
+    : undefined;
+
+  return NextResponse.json({
+    status,
+    lastError: data?.lastError ?? null,
+    schedule: saved?.schedule ?? null,
+  });
+}
+
+// Internal-only: does the actual generation. Called server-to-server by
+// /api/advising-jobs/worker with the student's uid. Replies with
+// retryable: false for problems with the student's saved documents, which
+// another attempt can't fix.
+async function processGeneration(
   request: NextRequest
 ) {
 
   try {
 
-    /*
-      Verify logged-in user.
-    */
+    const { userId } = await request.json();
 
-    const auth =
-      await verifyRequestAuth(
-        request
-      );
-
-
-    if (!auth) {
-      return NextResponse.json(
-        {
-          error: "Unauthorized",
-        },
-        {
-          status: 401,
-        }
-      );
+    if (!userId) {
+      return NextResponse.json({ error: "userId is required", retryable: false }, { status: 400 });
     }
-
-    const userId = auth.uid;
 
 
 
@@ -485,6 +523,7 @@ export async function POST(
         {
           error:
             "Transcript information was not found. Please process your advising documents first.",
+          retryable: false,
         },
         {
           status: 404,
@@ -500,6 +539,7 @@ export async function POST(
         {
           error:
             "Curriculum information was not found. Please process your advising documents first.",
+          retryable: false,
         },
         {
           status: 404,
@@ -508,6 +548,12 @@ export async function POST(
     }
 
     const transcript = transcriptSnap.data() as TranscriptData;
+
+    // Same rule as /api/advising/extract, for transcripts saved before it
+    // existed: an "IP" grade always means in-progress.
+    for (const course of transcript.courses) {
+      if (course.grade?.trim().toUpperCase() === "IP") course.status = "in-progress";
+    }
     const curriculum = curriculumSnap.data() as CurriculumData;
 
     console.log(
@@ -529,14 +575,14 @@ export async function POST(
 
     if ((transcript.warnings ?? []).some((w: string) => w.startsWith("TRANSCRIPT_CREDIT_MISMATCH"))) {
       return NextResponse.json(
-        { error: "Some courses on your transcript may not have been read correctly. Please review your transcript before generating a schedule." },
+        { error: "Some courses on your transcript may not have been read correctly. Please review your transcript before generating a schedule.", retryable: false },
         { status: 409 }
       );
     }
 
     if (!transcript.courses.some((c) => ["completed", "transfer", "in-progress"].includes(c.status))) {
       return NextResponse.json(
-        { error: "No completed courses were found on your transcript, so a schedule can't be generated. Please re-upload your transcript." },
+        { error: "No completed courses were found on your transcript, so a schedule can't be generated. Please re-upload your transcript.", retryable: false },
         { status: 409 }
       );
     }
@@ -710,6 +756,8 @@ export async function POST(
         );
         schedule.warnings = [...schedule.warnings, ...repairWarnings];
 
+        schedule.terms = moveCoursesToEarliestTerms(schedule, futureTerms, courseAvailability);
+
         const limited = enforceTermCreditLimit(schedule, futureTerms, courseAvailability);
         schedule.terms = limited.terms;
         schedule.warnings = [...schedule.warnings, ...limited.warnings];
@@ -758,10 +806,11 @@ export async function POST(
 
 
     /*
-      Return to frontend.
+      Report back to the worker. The page reads the saved schedule through GET.
     */
 
     return NextResponse.json({
+      success: true,
       message: "Schedule generated successfully.",
       schedule,
       academicProgress,

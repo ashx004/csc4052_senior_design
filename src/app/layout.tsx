@@ -4,6 +4,7 @@ import './global.css';
 import { AuthProvider } from "@/src/context/AuthContext";
 import { StudyPlanProvider } from "@/src/context/StudyPlanContext";
 import FocusBar from "@/src/components/studyPlan/FocusBar";
+import NotificationToast from "@/src/components/studyPlan/NotificationToast";
 import ThemeInitializer from "@/src/components/ThemeInitializer";
 
 const jakarta = Plus_Jakarta_Sans({
@@ -39,6 +40,10 @@ export default function RootLayout({
               task navigates to, not just the dashboard. */}
           <StudyPlanProvider>
             <FocusBar />
+            {/* Here rather than in the dashboard layout so notifications
+                (e.g. an advising upload or schedule finishing in the
+                background) pop up on every page, course pages included. */}
+            <NotificationToast />
             {children}
           </StudyPlanProvider>
         </AuthProvider>
