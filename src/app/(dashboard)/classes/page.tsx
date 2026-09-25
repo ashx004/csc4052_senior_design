@@ -11,7 +11,7 @@ import { db } from '@/src/library/firebase';
 import { Minus } from "lucide-react";
 import { Term } from "@/src/library/academicTerm";
 import { EnrollmentStatus, getEnrollmentStatus } from "@/src/library/enrollmentStatus";
-import type { StructuredClassSchedule } from "@/src/library/classSchedule";
+import { formatClassMeetingSchedule, type StructuredClassSchedule } from "@/src/library/classSchedule";
 
 // database fields that a class should have (YOU MUST FOLLOW THIS STRUCTURE IF YOU INSERT A CLASS!!!!)
 // note that only className, classCode, and term are required, the rest are optional
@@ -97,6 +97,7 @@ async function getAllEnrollments(userId: string): Promise<ClassCardProps[]> {
             classCode: data.classCode,
             term: data.term,
             color: data.color,
+            scheduleLabel: formatClassMeetingSchedule(data) ?? undefined,
             status: getEnrollmentStatus(data),
         });
     });
@@ -120,6 +121,11 @@ export default function Classes() {
     // Holds the class being asked about — offers "mark completed" as a real
     // alternative to permanent deletion, instead of just a plain confirm.
     const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+
+    useEffect(() => {
+        const requestedClassId = new URLSearchParams(window.location.search).get("editSchedule");
+        if (requestedClassId) setScheduleClassId(requestedClassId);
+    }, []);
 
     // Define the data re-fetch function cleanly
     const refreshEnrollments = () => {
