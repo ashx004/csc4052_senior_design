@@ -39,6 +39,33 @@ export function formatClassMeetingSchedule(schedule: StructuredClassSchedule): s
   return `${days} ${formatTime(schedule.meetingStartTime)}–${formatTime(schedule.meetingEndTime)}`;
 }
 
+const DAYS_BY_JS_INDEX: ClassMeetingDay[] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+
+export function isClassMeetingOnDate(schedule: StructuredClassSchedule, date: Date): boolean {
+  const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return Boolean(schedule.meetingDays?.includes(DAYS_BY_JS_INDEX[date.getDay()]) &&
+    (!schedule.termStartDate || key >= schedule.termStartDate) &&
+    (!schedule.termEndDate || key <= schedule.termEndDate));
+}
+
+export function getClassMeetingException(schedule: StructuredClassSchedule, date: Date): ClassMeetingException | undefined {
+  const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return schedule.meetingExceptions?.find((exception) => exception.date === key);
+}
+
+export function zonedClassDateTime(date: Date, time: string, timeZone: string): Date {
+  const [hours, minutes] = time.split(":").map(Number);
+  const desired = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes);
+  const formatter = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  const toUtc = (value: Date) => {
+    const parts = Object.fromEntries(formatter.formatToParts(value).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+    return Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute));
+  };
+  let instant = new Date(desired + (desired - toUtc(new Date(desired))));
+  instant = new Date(instant.getTime() + (desired - toUtc(instant)));
+  return instant;
+}
+
 function formatTime(value: string): string {
   const [hours, minutes] = value.split(":").map(Number);
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return value;
