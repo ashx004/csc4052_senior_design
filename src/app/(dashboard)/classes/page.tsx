@@ -5,6 +5,7 @@ import { useAuth } from "@/src/context/AuthContext";
 import { useSetPageContext } from "@/src/context/AIPageContext";
 import ClassCard, { ClassCardProps } from '@/src/components/classes/ClassCard';
 import AddEnrollmentModal from '@/src/components/classes/AddEnrollmentModal';
+import EditClassScheduleModal from '@/src/components/classes/EditClassScheduleModal';
 import { doc, getDoc, collection, getDocs, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
 import { Minus } from "lucide-react";
@@ -115,6 +116,7 @@ export default function Classes() {
     const { user, loading } = useAuth();
     const [enrollments, setEnrollments] = useState<ClassCardProps[]>([]);
     const [deleteMode, setDeleteMode] = useState(false);
+    const [scheduleClassId, setScheduleClassId] = useState<string | null>(null);
     // Holds the class being asked about — offers "mark completed" as a real
     // alternative to permanent deletion, instead of just a plain confirm.
     const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
@@ -209,6 +211,14 @@ export default function Classes() {
                 onToggleDeleteMode={() => setDeleteMode((d) => !d)}
             />
 
+            {scheduleClassId && (
+                <EditClassScheduleModal
+                    classId={scheduleClassId}
+                    onClose={() => setScheduleClassId(null)}
+                    onSaved={refreshEnrollments}
+                />
+            )}
+
             {confirmingClass && confirmingClass.classId && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
                     <div className="w-full max-w-sm rounded-lg bg-bg-container p-6 shadow-xl">
@@ -258,6 +268,7 @@ export default function Classes() {
                                 <ClassCard
                                     {...enrollment}
                                     onColorChange={(color) => enrollment.classId && handleColorChange(enrollment.classId, color)}
+                                    onScheduleEdit={() => enrollment.classId && setScheduleClassId(enrollment.classId)}
                                 />
                                 {deleteMode && (
                                     <button
