@@ -74,6 +74,18 @@ export function noteHeadings(doc: unknown): { level: number; text: string }[] {
     .filter((h) => h.text);
 }
 
+/** What a note card shows: the opening heading (if the note starts with
+ *  one) on its own, then the text after it, one line per block. */
+export function notePreview(note: Pick<Note, "content" | "plainText">): { heading: string | null; body: string } {
+  const root = note.content as Node | null;
+  const blocks = (root?.content ?? []).filter((n) => noteToPlainText({ content: [n] }));
+  const lines = (text: string) => text.replace(/\n\s*\n+/g, "\n").trim();
+  if (blocks[0]?.type === "heading") {
+    return { heading: noteToPlainText({ content: [blocks[0]] }), body: lines(noteToPlainText({ content: blocks.slice(1) })) };
+  }
+  return { heading: null, body: lines(blocks.length ? noteToPlainText({ content: blocks }) : note.plainText ?? "") };
+}
+
 export function matchesSearch(note: Note, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;

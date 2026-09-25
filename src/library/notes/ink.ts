@@ -3,10 +3,12 @@ import type { InkColor, InkStroke } from "./types";
 
 export const PENCIL_WIDTHS = { min: 1, max: 12, default: 3 };
 export const HIGHLIGHTER_WIDTH = 18;
-export const HIGHLIGHTER_COLORS: { color: Exclude<InkColor, "ink">; label: string; rgb: string }[] = [
-  { color: "yellow", label: "Yellow", rgb: "250, 204, 21" },
-  { color: "green", label: "Green", rgb: "74, 222, 128" },
-  { color: "pink", label: "Pink", rgb: "244, 114, 182" },
+// darkRgb: on dark paper a plain yellow wash turns olive, so dark mode
+// uses warmer, deeper tints (screen-blended by the ink layer).
+export const HIGHLIGHTER_COLORS: { color: Exclude<InkColor, "ink">; label: string; rgb: string; darkRgb: string }[] = [
+  { color: "yellow", label: "Yellow", rgb: "250, 204, 21", darkRgb: "255, 170, 30" },
+  { color: "green", label: "Green", rgb: "74, 222, 128", darkRgb: "40, 200, 140" },
+  { color: "pink", label: "Pink", rgb: "244, 114, 182", darkRgb: "240, 100, 170" },
 ];
 
 function distanceToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {

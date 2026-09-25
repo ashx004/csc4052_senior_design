@@ -14,10 +14,10 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import {
+  ArrowUpDown,
   BookCopy,
   Check,
   CheckSquare,
-  FileText,
   FolderPlus,
   LayoutGrid,
   Layers,
@@ -51,6 +51,8 @@ import { classLabel } from "./ClassSelect";
 import CreateNoteModal from "./CreateNoteModal";
 import GenerateFromNotebookModal from "./GenerateFromNotebookModal";
 import NotesUploadModal from "./NotesUploadModal";
+import Dropdown from "./Dropdown";
+import { NotePreview, NoteTypeIcon, noteTypeLabel } from "./noteVisuals";
 
 type Folder = "all" | "unfiled" | string;
 const VIEW_KEY = "catalyst:notesView";
@@ -62,11 +64,18 @@ function relative(date: Date): string {
   return date.toLocaleDateString();
 }
 
-function NoteIcon({ note }: { note: Note }) {
-  return note.kind === "typed" ? (
-    <NotebookText size={16} className="shrink-0 text-primary" />
-  ) : (
-    <FileText size={16} className="shrink-0 text-text-muted" />
+const SORT_OPTIONS: { value: NoteSort; label: string }[] = [
+  { value: "recent", label: "Most recent" },
+  { value: "title", label: "Title" },
+  { value: "class", label: "Class" },
+  { value: "notebook", label: "Notebook" },
+];
+
+function SelectBox({ checked }: { checked: boolean }) {
+  return (
+    <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${checked ? "border-primary bg-primary text-text-inverse" : "border-border-hover bg-bg-container"}`}>
+      {checked && <Check size={13} />}
+    </span>
   );
 }
 
@@ -99,12 +108,12 @@ function FolderButton({
       type="button"
       onClick={onClick}
       aria-current={active ? "true" : undefined}
-      className={`flex w-full shrink-0 items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors md:w-full ${
+      className={`flex w-auto shrink-0 items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors md:w-full ${
         isOver ? "bg-primary text-text-inverse" : active ? "bg-bg-warm font-medium text-text-main" : "text-text-main hover:bg-bg-main"
       }`}
     >
       {icon}
-      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <span className="min-w-0 truncate md:flex-1">{label}</span>
       {badge && !isOver && <span className="hidden shrink-0 rounded bg-bg-main px-1.5 text-[10px] text-text-muted lg:inline">{badge}</span>}
       <span className={`shrink-0 text-xs tabular-nums ${isOver ? "" : "text-text-muted"}`}>{count}</span>
     </button>
@@ -291,45 +300,42 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setDraggingId(null)}>
       <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 md:py-8">
         {/* md:pl-12 clears the site's fixed menu button (Sidebar.tsx) when the sidebar is collapsed. */}
-        <header className="mb-6 flex flex-wrap items-end justify-between gap-4 md:pl-12" data-tutorial="notes-heading">
-          <div className="min-w-0">
+        <header className="mb-6 md:pl-12" data-tutorial="notes-heading">
+          <div className="flex items-center justify-between gap-4">
             <h1 className="text-3xl font-semibold tracking-tight text-text-main">Notes</h1>
-            {courseTab ? (
-              <p className="mt-1 text-sm text-text-muted">{scopedClass ? classLabel(scopedClass) : "This class"}</p>
-            ) : (
-              <div className="mt-2 flex items-center gap-2">
-                <label htmlFor="notes-scope" className="text-sm text-text-muted">
-                  Showing
-                </label>
-                <select
-                  id="notes-scope"
-                  value={scope}
-                  onChange={(e) => {
-                    setScope(e.target.value);
-                    setFolder("all");
-                    setSelected(new Set());
-                  }}
-                  className="rounded-lg border border-border-light bg-bg-container px-2.5 py-1.5 text-sm text-text-main focus:border-primary focus:outline-none"
-                  data-tutorial="notes-scope"
-                >
-                  <option value="">General - all classes</option>
-                  {classes.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {classLabel(c)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+            <button
+              type="button"
+              onClick={() => setModal("choice")}
+              className="flex shrink-0 items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-text-inverse shadow-sm hover:bg-primary-hover"
+              data-tutorial="notes-upload"
+            >
+              <Plus size={17} /> Add notes
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => setModal("choice")}
-            className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-text-inverse shadow-sm hover:bg-primary-hover"
-            data-tutorial="notes-upload"
-          >
-            <Plus size={17} /> Add notes
-          </button>
+          {courseTab ? (
+            <p className="mt-1.5 text-sm text-text-muted">{scopedClass ? classLabel(scopedClass) : "This class"}</p>
+          ) : (
+            <div className="mt-2 flex items-center gap-2">
+              <label htmlFor="notes-scope" className="text-sm text-text-muted">
+                Showing
+              </label>
+              <Dropdown
+                id="notes-scope"
+                value={scope}
+                onChange={(v) => {
+                  setScope(v);
+                  setFolder("all");
+                  setSelected(new Set());
+                }}
+                options={[
+                  { value: "", label: "General - all classes" },
+                  ...classes.map((c) => ({ value: c.id, label: c.classCode || c.className, hint: c.classCode ? c.className : undefined })),
+                ]}
+                className="w-60 max-w-[calc(100vw-7rem)]"
+                dataTutorial="notes-scope"
+              />
+            </div>
+          )}
         </header>
 
         {message && (
@@ -406,9 +412,18 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
               )}
             </div>
             {scopedNotebooks.length === 0 && newNotebookName === null && (
-              <p className="mt-2 hidden text-xs leading-relaxed text-text-muted md:block">
-                Group notes into notebooks - drag notes onto one, or select several and use Move.
-              </p>
+              <button
+                type="button"
+                onClick={() => setNewNotebookName("")}
+                className="mt-3 hidden w-full flex-col gap-1 rounded-xl border border-dashed border-border-hover p-3 text-left transition-colors hover:border-primary hover:bg-bg-warm md:flex"
+              >
+                <span className="flex items-center gap-2 text-sm font-medium text-text-main">
+                  <FolderPlus size={16} className="text-primary" /> New notebook
+                </span>
+                <span className="text-xs leading-relaxed text-text-muted">
+                  Group notes by topic or exam - a notebook can mix classes. Drag notes onto it, or select several and use Move.
+                </span>
+              </button>
             )}
           </aside>
 
@@ -474,17 +489,7 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
                   className="w-full rounded-lg border border-border-light bg-bg-container py-2 pl-9 pr-3 text-sm text-text-main focus:border-primary focus:outline-none"
                 />
               </div>
-              <select
-                value={sort}
-                onChange={(e) => setSort(e.target.value as NoteSort)}
-                aria-label="Sort notes"
-                className="rounded-lg border border-border-light bg-bg-container px-2.5 py-2 text-sm text-text-main focus:border-primary focus:outline-none"
-              >
-                <option value="recent">Most recent</option>
-                <option value="title">Title</option>
-                <option value="class">Class</option>
-                <option value="notebook">Notebook</option>
-              </select>
+              <Dropdown value={sort} onChange={setSort} options={SORT_OPTIONS} ariaLabel="Sort notes" icon={<ArrowUpDown size={14} />} align="right" className="w-40" />
               <div className="flex rounded-lg border border-border-light bg-bg-container p-0.5" role="group" aria-label="View">
                 <button type="button" onClick={() => setViewSaved("card")} aria-pressed={view === "card"} aria-label="Card view" className={`rounded-md p-1.5 ${view === "card" ? "bg-bg-warm text-text-main" : "text-text-muted"}`}>
                   <LayoutGrid size={16} />
@@ -562,77 +567,102 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
               </div>
             ) : view === "card" ? (
               <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {listed.map((n) => (
-                  <DraggableNote key={n.id} id={n.id}>
-                    {({ ref, listeners, attributes, dragging }) => (
-                      <li
-                        ref={ref}
-                        {...listeners}
-                        {...attributes}
-                        className={`group relative flex h-44 cursor-pointer select-none flex-col rounded-2xl border bg-bg-container p-4 text-left shadow-sm transition ${
-                          selected.has(n.id) ? "border-primary ring-1 ring-primary" : "border-border-light hover:border-border-hover hover:shadow-md"
-                        } ${dragging ? "opacity-40" : ""}`}
-                        onClick={() => (selectMode ? toggle(n.id) : openNote(n.id))}
-                        onKeyDown={(e) => e.key === "Enter" && (selectMode ? toggle(n.id) : openNote(n.id))}
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`${n.title}${selectMode ? (selected.has(n.id) ? ", selected" : ", not selected") : ""}`}
-                      >
-                        <div className="flex items-start gap-2">
-                          <NoteIcon note={n} />
-                          <span className="min-w-0 flex-1 truncate font-semibold text-text-main">{n.title}</span>
-                          {(selectMode || selected.has(n.id)) && (
-                            <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${selected.has(n.id) ? "border-primary bg-primary text-text-inverse" : "border-border-hover"}`}>
-                              {selected.has(n.id) && <Check size={13} />}
-                            </span>
-                          )}
-                        </div>
-                        <p className="mt-2 line-clamp-4 flex-1 text-sm leading-relaxed text-text-muted">
-                          {n.kind === "typed" ? n.plainText || "Empty note" : `${(n.fileType ?? "file").toUpperCase()} document${n.source === "manual" ? " added from class" : ""}`}
-                        </p>
-                        <div className="mt-2 flex items-center gap-2 text-xs text-text-muted">
-                          {classOf(n.courseId) && <span className="truncate rounded bg-bg-main px-1.5 py-0.5">{classOf(n.courseId)!.classCode || classOf(n.courseId)!.className}</span>}
-                          {n.notebookId && <span className="truncate">{notebooks.find((b) => b.id === n.notebookId)?.name}</span>}
-                          <span className="ml-auto shrink-0">{relative(n.updatedAt)}</span>
-                        </div>
-                      </li>
-                    )}
-                  </DraggableNote>
-                ))}
+                {listed.map((n) => {
+                  const c = classOf(n.courseId);
+                  const book = n.notebookId ? notebooks.find((b) => b.id === n.notebookId) : undefined;
+                  return (
+                    <DraggableNote key={n.id} id={n.id}>
+                      {({ ref, listeners, attributes, dragging }) => (
+                        <li
+                          ref={ref}
+                          {...listeners}
+                          {...attributes}
+                          className={`group relative flex cursor-pointer select-none flex-col overflow-hidden rounded-2xl border bg-bg-container text-left shadow-sm transition ${
+                            selected.has(n.id) ? "border-primary ring-1 ring-primary" : "border-border-light hover:border-border-hover hover:shadow-md"
+                          } ${dragging ? "opacity-40" : ""}`}
+                          onClick={() => (selectMode ? toggle(n.id) : openNote(n.id))}
+                          onKeyDown={(e) => e.key === "Enter" && (selectMode ? toggle(n.id) : openNote(n.id))}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`${n.title}${selectMode ? (selected.has(n.id) ? ", selected" : ", not selected") : ""}`}
+                        >
+                          <div className="relative h-32 overflow-hidden border-b border-border-light bg-bg-main">
+                            <NotePreview uid={uid} note={n} />
+                            {(selectMode || selected.has(n.id)) && (
+                              <span className="absolute right-2.5 top-2.5">
+                                <SelectBox checked={selected.has(n.id)} />
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-col gap-1.5 px-3.5 py-3">
+                            <div className="flex items-center gap-2.5">
+                              <NoteTypeIcon note={n} size="sm" />
+                              <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text-main" title={n.title}>
+                                {n.title}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-text-muted">
+                              {c && <span className="shrink-0 rounded bg-bg-main px-1.5 py-0.5">{c.classCode || c.className}</span>}
+                              {book ? (
+                                <span className="flex min-w-0 items-center gap-1 truncate">
+                                  <BookCopy size={12} className="shrink-0" /> <span className="truncate">{book.name}</span>
+                                </span>
+                              ) : (
+                                <span className="truncate">{noteTypeLabel(n)}</span>
+                              )}
+                              <span className="ml-auto shrink-0 tabular-nums">{relative(n.updatedAt)}</span>
+                            </div>
+                          </div>
+                        </li>
+                      )}
+                    </DraggableNote>
+                  );
+                })}
               </ul>
             ) : (
-              <ul className="divide-y divide-border-light overflow-hidden rounded-2xl border border-border-light bg-bg-container">
-                {listed.map((n) => (
-                  <DraggableNote key={n.id} id={n.id}>
-                    {({ ref, listeners, attributes, dragging }) => (
-                      <li
-                        ref={ref}
-                        {...listeners}
-                        {...attributes}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => (selectMode ? toggle(n.id) : openNote(n.id))}
-                        onKeyDown={(e) => e.key === "Enter" && (selectMode ? toggle(n.id) : openNote(n.id))}
-                        className={`flex cursor-pointer select-none items-center gap-3 px-4 py-3 transition ${selected.has(n.id) ? "bg-bg-warm" : "hover:bg-bg-main"} ${dragging ? "opacity-40" : ""}`}
-                      >
-                        {(selectMode || selected.has(n.id)) && (
-                          <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${selected.has(n.id) ? "border-primary bg-primary text-text-inverse" : "border-border-hover"}`}>
-                            {selected.has(n.id) && <Check size={13} />}
-                          </span>
+              <div className="overflow-hidden rounded-2xl border border-border-light bg-bg-container">
+                <div className="flex items-center gap-3 border-b border-border-light bg-bg-main px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-text-muted" aria-hidden="true">
+                  {selectMode && <span className="w-5 shrink-0" />}
+                  <span className="min-w-0 flex-1 pl-10">Name</span>
+                  <span className="hidden w-32 sm:block">Class</span>
+                  <span className="hidden w-32 md:block">Notebook</span>
+                  <span className="w-20 shrink-0 text-right">Edited</span>
+                </div>
+                <ul className="divide-y divide-border-light">
+                  {listed.map((n) => {
+                    const c = classOf(n.courseId);
+                    return (
+                      <DraggableNote key={n.id} id={n.id}>
+                        {({ ref, listeners, attributes, dragging }) => (
+                          <li
+                            ref={ref}
+                            {...listeners}
+                            {...attributes}
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`${n.title}${selectMode ? (selected.has(n.id) ? ", selected" : ", not selected") : ""}`}
+                            onClick={() => (selectMode ? toggle(n.id) : openNote(n.id))}
+                            onKeyDown={(e) => e.key === "Enter" && (selectMode ? toggle(n.id) : openNote(n.id))}
+                            className={`flex cursor-pointer select-none items-center gap-3 px-4 py-2.5 transition ${selected.has(n.id) ? "bg-bg-warm" : "hover:bg-bg-main"} ${dragging ? "opacity-40" : ""}`}
+                          >
+                            {selectMode && <SelectBox checked={selected.has(n.id)} />}
+                            <NoteTypeIcon note={n} />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-medium text-text-main">{n.title}</span>
+                              <span className="block truncate text-xs text-text-muted">
+                                {n.kind === "typed" ? (n.plainText || "Empty note").replace(/\s+/g, " ") : noteTypeLabel(n)}
+                              </span>
+                            </span>
+                            <span className="hidden w-32 truncate text-xs text-text-muted sm:block">{c ? c.classCode || c.className : "General"}</span>
+                            <span className="hidden w-32 truncate text-xs text-text-muted md:block">{notebooks.find((b) => b.id === n.notebookId)?.name ?? ""}</span>
+                            <span className="w-20 shrink-0 text-right text-xs tabular-nums text-text-muted">{relative(n.updatedAt)}</span>
+                          </li>
                         )}
-                        <NoteIcon note={n} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium text-text-main">{n.title}</span>
-                          <span className="block truncate text-xs text-text-muted">{n.kind === "typed" ? n.plainText || "Empty note" : `${(n.fileType ?? "file").toUpperCase()} document`}</span>
-                        </span>
-                        <span className="hidden w-32 truncate text-xs text-text-muted sm:block">{classOf(n.courseId) ? classOf(n.courseId)!.classCode || classOf(n.courseId)!.className : "General"}</span>
-                        <span className="hidden w-32 truncate text-xs text-text-muted md:block">{notebooks.find((b) => b.id === n.notebookId)?.name ?? "-"}</span>
-                        <span className="w-20 shrink-0 text-right text-xs text-text-muted">{relative(n.updatedAt)}</span>
-                      </li>
-                    )}
-                  </DraggableNote>
-                ))}
-              </ul>
+                      </DraggableNote>
+                    );
+                  })}
+                </ul>
+              </div>
             )}
           </section>
         </div>

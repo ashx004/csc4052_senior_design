@@ -49,6 +49,7 @@ function toNote(id: string, d: DocumentData): Note {
     url: d.url,
     source: d.source,
     hidden: d.hidden === true,
+    scan: d.scan === true,
   };
 }
 
@@ -206,6 +207,9 @@ export interface ResourceSummary {
   fileType: string;
   url: string;
   category?: string;
+  /** "ocr_document" for scans (their file is a transcript; the pages are
+   *  images). */
+  resourceKind?: string;
   /** When the file was uploaded - auto-added entries use it so they sort by
    *  their real age instead of all looking "just now". */
   uploadedAt?: unknown;
@@ -236,6 +240,7 @@ export async function addResourceToNotes(
     resourceId: resource.id,
     fileType: resource.fileType,
     url: resource.url,
+    scan: resource.resourceKind === "ocr_document",
     source,
     plainText: "",
     createdAt: resource.uploadedAt ?? serverTimestamp(),
@@ -266,13 +271,15 @@ export async function syncClassDocuments(uid: string, courseIds: string[], exist
         await addResourceToNotes(
           uid,
           courseId,
-          { id: resourceId, name: data.name ?? "Untitled", fileType: data.fileType ?? "", url, uploadedAt: data.uploadedAt },
+          { id: resourceId, name: data.name ?? "Untitled", fileType: data.fileType ?? "", url, resourceKind: data.resourceKind, uploadedAt: data.uploadedAt },
           "tag"
         );
       } else {
         const fixes: DocumentData = {};
         // OCR documents get their transcript URL after processing finishes.
         if (entry.url !== url || entry.fileType !== data.fileType) Object.assign(fixes, { url, fileType: data.fileType ?? "" });
+        const scan = data.resourceKind === "ocr_document";
+        if (Boolean(entry.scan) !== scan) fixes.scan = scan;
         // An auto-added entry nobody has opened or annotated yet (created and
         // updated at the same moment) sorts by the file's upload date.
         const uploaded = data.uploadedAt ? toDate(data.uploadedAt) : null;

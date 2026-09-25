@@ -1518,6 +1518,7 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                                     name: previewResource.name,
                                                     fileType: previewResource.fileType,
                                                     url: previewResource.url,
+                                                    resourceKind: previewResource.resourceKind,
                                                 });
                                                 setNotesState("in");
                                             } catch (error) {

@@ -35,12 +35,12 @@ function drawStroke(ctx: CanvasRenderingContext2D, stroke: InkStroke, inkColor: 
   ctx.lineJoin = "round";
   ctx.lineWidth = stroke.width;
   if (stroke.tool === "highlighter") {
-    const rgb = HIGHLIGHTER_COLORS.find((c) => c.color === stroke.color)?.rgb ?? HIGHLIGHTER_COLORS[0].rgb;
+    const color = HIGHLIGHTER_COLORS.find((c) => c.color === stroke.color) ?? HIGHLIGHTER_COLORS[0];
     // One path per stroke, so a stroke that crosses itself doesn't darken.
     // Multiply keeps text readable through it on light paper; on dark
-    // paper multiply would vanish, so it's a plain translucent wash there.
-    ctx.globalCompositeOperation = dark ? "source-over" : "multiply";
-    ctx.strokeStyle = `rgba(${rgb}, ${dark ? 0.35 : 0.45})`;
+    // paper multiply would vanish, so it's a screen-blended glow there.
+    ctx.globalCompositeOperation = dark ? "screen" : "multiply";
+    ctx.strokeStyle = `rgba(${dark ? color.darkRgb : color.rgb}, ${dark ? 0.5 : 0.45})`;
   } else {
     ctx.strokeStyle = inkColor;
   }

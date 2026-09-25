@@ -3,6 +3,7 @@ import {
   matchesSearch,
   noteHeadings,
   notebookInCourse,
+  notePreview,
   notebookRoom,
   noteToMarkdown,
   noteToPlainText,
@@ -116,5 +117,27 @@ describe("sortNotes", () => {
     expect(ids(sortNotes(notes, "title", classes, notebooks))).toBe("213");
     expect(ids(sortNotes(notes, "class", classes, notebooks))).toBe("312");
     expect(ids(sortNotes(notes, "notebook", classes, notebooks))).toBe("312");
+  });
+});
+
+describe("notePreview", () => {
+  it("pulls the opening heading out and keeps one line per block", () => {
+    expect(notePreview({ content: doc })).toEqual({ heading: "Trees", body: expect.stringMatching(/^An AVL tree is balanced\nrotate left\nrotate right/) });
+  });
+
+  it("skips empty leading paragraphs and has no heading when the note starts with text", () => {
+    const content = {
+      type: "doc",
+      content: [
+        { type: "paragraph" },
+        { type: "paragraph", content: [{ type: "text", text: "Just text" }] },
+        { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Later" }] },
+      ],
+    };
+    expect(notePreview({ content })).toEqual({ heading: null, body: "Just text\nLater" });
+  });
+
+  it("falls back to the stored plain text", () => {
+    expect(notePreview({ content: undefined, plainText: "saved text" })).toEqual({ heading: null, body: "saved text" });
   });
 });

@@ -46,6 +46,8 @@ export interface Note {
   /** A Notes-tagged document the student removed from the Notes tab. Kept
    *  (hidden) so the automatic sync doesn't add it straight back. */
   hidden?: boolean;
+  /** Document notes: an OCR scan (photographed pages plus a transcript). */
+  scan?: boolean;
 }
 
 export interface Notebook {

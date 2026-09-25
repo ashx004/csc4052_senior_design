@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, FileText, Loader2, Maximize2, Minimize2, NotebookText, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
+import { Check, Loader2, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
 import type { ClassOption, Note } from "@/src/library/notes/types";
+import { NoteTypeIcon } from "./noteVisuals";
 
 const RECENT_COUNT = 20;
 
@@ -140,16 +141,12 @@ export default function NoteWorkspace({
                     key={n.id}
                     type="button"
                     onClick={() => router.push(`/notes/${n.id}`)}
-                    className={`mb-0.5 flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left transition-colors ${
+                    className={`mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors ${
                       active ? "bg-bg-warm" : "hover:bg-bg-main"
                     }`}
                     aria-current={active ? "page" : undefined}
                   >
-                    {n.kind === "typed" ? (
-                      <NotebookText size={15} className="mt-0.5 shrink-0 text-primary" />
-                    ) : (
-                      <FileText size={15} className="mt-0.5 shrink-0 text-text-muted" />
-                    )}
+                    <NoteTypeIcon note={n} size="sm" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium text-text-main">{n.title}</span>
                       <span className="block truncate text-xs text-text-muted">

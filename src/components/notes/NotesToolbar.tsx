@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Bold, Eraser, Highlighter, Italic, ListTree, MousePointer2, Pencil, Smile, Type, Undo2 } from "lucide-react";
+import { Bold, Eraser, Highlighter, Italic, ListTree, MousePointer2, Pencil, Sticker, TextCursorInput, Type, Undo2 } from "lucide-react";
 import { HIGHLIGHTER_COLORS, PENCIL_WIDTHS } from "@/src/library/notes/ink";
 import { STICKERS, type ToolMode, type ToolState } from "./tools";
 
@@ -151,7 +151,8 @@ export default function NotesToolbar({
       {variant === "document" && (
         <>
           <ToolButton label="Text box" active={tool.mode === "text"} onClick={() => setMode("text")}>
-            <span className="text-xs font-bold">T+</span>
+            <TextCursorInput size={17} />
+            <span className="ml-1.5 hidden text-xs font-medium sm:inline">Text</span>
           </ToolButton>
           <ToolButton
             label="Stickers"
@@ -161,7 +162,8 @@ export default function NotesToolbar({
               setPopover(popover === "sticker" ? null : "sticker");
             }}
           >
-            <Smile size={17} />
+            <Sticker size={17} />
+            <span className="ml-1.5 hidden text-xs font-medium sm:inline">Sticker</span>
           </ToolButton>
         </>
       )}
