@@ -41,8 +41,9 @@ export default function AdvisingPermissionModal({
         </h2>
 
         <p
-          className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-300" >
-          Studora uses your transcript and curriculum sheet to identify your
+          className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-300"
+          data-tutorial="advising-setup-why" >
+          Catalyst uses your transcript and curriculum sheet to identify your
           completed courses and remaining degree requirements.
         </p>
 
@@ -55,6 +56,7 @@ export default function AdvisingPermissionModal({
           <button
             type="button"
             onClick={onAccept}
+            data-tutorial="advising-setup-accept"
             className="rounded-lg bg-[#b08957] px-4 py-2.5 text-sm font-medium
             text-white transition hover:bg-[#9c7849]" >
             I’m fine with uploading them
@@ -63,6 +65,7 @@ export default function AdvisingPermissionModal({
           <button
             type="button"
             onClick={onDecline}
+            data-tutorial="advising-setup-decline"
             className="rounded-lg border border-[#d8d3ca] px-4 py-2.5 text-sm font-medium
             transition hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700" >
             I don’t want to upload them

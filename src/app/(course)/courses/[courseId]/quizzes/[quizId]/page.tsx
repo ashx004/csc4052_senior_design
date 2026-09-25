@@ -23,6 +23,8 @@ import QuizResults from '@/src/components/quizzes/QuizResults';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
 import { buildQuizSuggestions, type QuizResultPageContext } from '@/src/library/Contextual_AI/contextualAi';
 import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
+import PageTutorial from '@/src/components/tutorial/PageTutorial';
+import courseQuizSteps from '@/src/library/tutorials/steps/course-quiz';
 
 interface QuizQuestion {
   id: string;
@@ -466,6 +468,7 @@ export default function QuizTakingPage() {
 
   return (
     <div className="min-h-screen bg-[#FAFAF8]">
+      <PageTutorial id="course-quiz" steps={courseQuizSteps} />
       {/* Header */}
       <div className="relative flex h-[60px] items-center border-b border-border-light px-6 md:px-14">
         <div className="relative z-10 flex min-w-0 items-center gap-3">
@@ -476,7 +479,7 @@ export default function QuizTakingPage() {
             <ArrowLeft size={20} className="text-text-main" />
           </button>
         </div>
-        <div className="pointer-events-none absolute inset-x-16 min-w-0 text-center md:inset-x-28">
+        <div className="pointer-events-none absolute inset-x-16 min-w-0 text-center md:inset-x-28" data-tutorial="course-quiz-heading">
           <p className="truncate text-xs text-text-muted">{courseDisplayName}</p>
           <h1 className="truncate text-xl font-bold text-[#1a1a2e]">{quizName}</h1>
         </div>
@@ -485,7 +488,7 @@ export default function QuizTakingPage() {
       <div className="mx-auto max-w-3xl px-6 py-8 md:px-14">
         {mode === 'landing' && (
           <div className="flex flex-col gap-8 pb-10">
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3" data-tutorial="course-quiz-actions">
               <button
                 onClick={handleResetToFullQuiz}
                 className="rounded-xl bg-[#1a1a2e] px-8 py-4 text-base font-semibold text-text-inverse transition-colors hover:bg-[#2a2a3e]"

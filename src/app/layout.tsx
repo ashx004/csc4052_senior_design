@@ -3,6 +3,7 @@ import { Plus_Jakarta_Sans } from "next/font/google";
 import './global.css';
 import { AuthProvider } from "@/src/context/AuthContext";
 import { StudyPlanProvider } from "@/src/context/StudyPlanContext";
+import { TutorialProvider } from "@/src/context/TutorialContext";
 import FocusBar from "@/src/components/studyPlan/FocusBar";
 import NotificationToast from "@/src/components/studyPlan/NotificationToast";
 import ThemeInitializer from "@/src/components/ThemeInitializer";
@@ -21,7 +22,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={jakarta.variable}>
+    <html lang="en" className={jakarta.variable} suppressHydrationWarning>
       <body 
         className="
           min-h-screen
@@ -44,7 +45,10 @@ export default function RootLayout({
                 (e.g. an advising upload or schedule finishing in the
                 background) pop up on every page, course pages included. */}
             <NotificationToast />
-            {children}
+            {/* Mounted once at the root (not per-layout) so
+                tutorial progress survives navigating between the dashboard
+                and course route groups without refetching. */}
+            <TutorialProvider>{children}</TutorialProvider>
           </StudyPlanProvider>
         </AuthProvider>
       </body>

@@ -1,7 +1,8 @@
 import { randomUUID } from "crypto";
 import { z } from "zod";
-import { resolveModelFromKey } from "@/src/library/ollamaClient";
-import { stripThinkLeak } from "@/src/library/stripThinkLeak";
+import { resolveModelFromKey, mainModelContextOption } from "@/src/library/ollamaClient";
+import { stripThinkLeak, extractFirstJsonObject } from "@/src/library/stripThinkLeak";
+import { thinkField } from "@/src/library/thinkMode";
 
 // Shared between api/generate-quiz/route.ts (the standalone course-page
 // flow) and api/chat/route.ts's create_quiz tool - same generation +
@@ -134,6 +135,7 @@ async function callOllama(prompt: string, questionCount: number, baseUrl: string
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+        "X-Catalyst-Feature": "quiz-generation",
       },
       body: JSON.stringify({
         model: resolveModelFromKey(modelKey),
@@ -146,9 +148,9 @@ async function callOllama(prompt: string, questionCount: number, baseUrl: string
           { role: "user", content: prompt },
         ],
         stream: false,
-        think: false,
+        ...thinkField("quiz"),
         format: buildQuizJsonSchema(questionCount),
-        options: { temperature: 0 },
+        options: { temperature: 0, ...mainModelContextOption() },
       }),
       signal: controller.signal,
     });
@@ -179,7 +181,7 @@ async function generateQuizWithRetry(
       if (!rawContent) throw new Error("Ollama returned an empty message.");
 
       const content = stripThinkLeak(rawContent);
-      return QuizResponseSchema.parse(JSON.parse(content));
+      return QuizResponseSchema.parse(JSON.parse(extractFirstJsonObject(content)));
     } catch (error) {
       lastError = error;
       console.error(`Quiz Ollama attempt ${attempt} failed:`, error);
