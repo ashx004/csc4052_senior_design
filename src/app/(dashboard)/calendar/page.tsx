@@ -18,6 +18,8 @@ import { useCalendarConnection } from "@/src/hooks/useCalendarConnection";
 import { useCalendarEvents } from "@/src/hooks/useCalendarEvents";
 import { useLocalCalendarEvents } from "@/src/hooks/useLocalCalendarEvents";
 import { getWeekStart } from "@/src/library/calendarHelpers";
+import PageTutorial from "@/src/components/tutorial/PageTutorial";
+import calendarSteps from "@/src/library/tutorials/steps/calendar";
 
 import type { CalendarView } from "@/src/components/calendar/calendarTypes";
 import { useSetPageContext } from "@/src/context/AIPageContext";
@@ -159,6 +161,7 @@ export default function CalendarPage() {
 
   return (
     <section className="min-h-screen bg-bg-main px-8 py-8 text-text-main">
+      <PageTutorial id="calendar" steps={calendarSteps} />
       <div className="mx-auto max-w-7xl">
         {/* ── Page header ── */}
         <header className="mb-7 flex items-start justify-between gap-6">
@@ -169,7 +172,7 @@ export default function CalendarPage() {
               <span>/</span>
               <span className="font-medium text-text-main">Calendar</span>
             </div>
-            <h1 className="text-3xl font-semibold tracking-tight text-text-main">
+            <h1 className="text-3xl font-semibold tracking-tight text-text-main" data-tutorial="calendar-heading">
               Calendar
             </h1>
           </div>
@@ -189,6 +192,7 @@ export default function CalendarPage() {
             <button
               type="button"
               onClick={() => setShowAddEvent(true)}
+              data-tutorial="calendar-add-event"
               className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-text-inverse shadow-sm transition hover:bg-primary-hover"
             >
               <Plus size={16} strokeWidth={2} />
@@ -239,7 +243,8 @@ export default function CalendarPage() {
             <div
               className="
                 flex overflow-hidden rounded-lg
-                border border-border-light bg-bg-container" >
+                border border-border-light bg-bg-container"
+              data-tutorial="calendar-view-toggle" >
               <button
                 type="button"
                 onClick={() => setView("month")}

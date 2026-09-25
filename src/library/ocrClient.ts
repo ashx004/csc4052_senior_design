@@ -1,11 +1,17 @@
-import { resolveOllamaBaseUrl, resolveModelFromKey } from "./ollamaClient";
+import { resolveOllamaBaseUrl, secondaryContextOption } from "./ollamaClient";
 import { createTimeoutSignal } from "./withTimeout";
 
-// Server-only: transcribes an image via Muse Glimmer (the app's one main
-// model - multimodal enough to cover OCR too, see resolveModelFromKey)
-// running on the primary box. Never import this from a client component —
-// OLLAMA_PRIMARY_URL / OLLAMA_AUTH_TOKEN are not NEXT_PUBLIC_ and must stay
-// server-side.
+// Server-only: transcribes an image via a small dedicated vision model
+// (OLLAMA_MODEL_OCR) running on the SECONDARY box, not Primary. Deliberately
+// split from the main model (previously shared it — one multimodal model
+// covering chat, quiz/flashcards, advising, AND OCR): Primary's main model
+// alone uses nearly its entire VRAM budget, so any second model call landing
+// on Primary evicts it (confirmed empirically — see the qwen3:30b-a3b +
+// qwen3-vl:4b coexistence test in the model-selection benchmark). Routing
+// OCR to Secondary instead means Primary only ever loads the one main model
+// and is never evicted by an incoming OCR request. Never import this from a
+// client component — OLLAMA_SECONDARY_URL / OLLAMA_AUTH_TOKEN are not
+// NEXT_PUBLIC_ and must stay server-side.
 //
 // Uses the same /api/chat endpoint, bearer auth, and `data.message.content`
 // response shape as every other model call in this codebase (chat, chunk
@@ -30,13 +36,21 @@ const OCR_SYSTEM_PROMPT = `You are an OCR engine for college notes. Transcribe A
 const OCR_TIMEOUT_MS = 120_000;
 
 export async function ocrImage(imageBytes: Buffer, signal?: AbortSignal): Promise<string> {
-  if (!process.env.OLLAMA_PRIMARY_URL || !process.env.OLLAMA_AUTH_TOKEN) {
+  if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN) {
     throw new Error("OCR service is not configured.");
+  }
+  // Config lives in the env, not in code: no hardcoded model-name fallback —
+  // an unset OLLAMA_MODEL_OCR is a deployment error that should surface
+  // loudly, not silently fall back to some arbitrary tag (or worse, to the
+  // main model, which would defeat the whole point of splitting this out).
+  const model = process.env.OLLAMA_MODEL_OCR;
+  if (!model) {
+    throw new Error("OLLAMA_MODEL_OCR is not configured.");
   }
 
   const baseUrl = await resolveOllamaBaseUrl(
-    process.env.OLLAMA_PRIMARY_URL,
-    process.env.OLLAMA_PRIMARY_FALLBACK_URL
+    process.env.OLLAMA_SECONDARY_URL,
+    process.env.OLLAMA_SECONDARY_FALLBACK_URL
   );
 
   const { signal: timeoutSignal, cancel } = createTimeoutSignal(OCR_TIMEOUT_MS, "OCR transcription");
@@ -48,12 +62,13 @@ export async function ocrImage(imageBytes: Buffer, signal?: AbortSignal): Promis
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+        "X-Catalyst-Feature": "ocr",
       },
       signal: combinedSignal,
       body: JSON.stringify({
-        model: resolveModelFromKey("ocr"),
+        model,
         stream: false,
-        options: { temperature: 0.1 },
+        options: { temperature: 0.1, ...secondaryContextOption() },
         messages: [
           { role: "system", content: OCR_SYSTEM_PROMPT },
           {

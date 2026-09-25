@@ -3,7 +3,10 @@
 import { FormEvent, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { FileDown, Globe, History, Loader2, Mic, Paperclip, BookOpen, ListChecks, Wrench } from "lucide-react";
+import { FileDown, History, Loader2, Paperclip, BookOpen, ListChecks, Wrench, Volume2, Square } from "lucide-react";
+import { isSpeechSupported, speak, stopSpeaking } from "@/src/library/tts";
+import { useSpeechToText } from "@/src/library/useSpeechToText";
+import MicButton from "@/src/components/aiAssistant/MicButton";
 import ToolboxPanel from "@/src/components/aiAssistant/ToolboxPanel";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -23,7 +26,9 @@ import ChatUploadModal from "@/src/components/aiAssistant/ChatUploadModal";
 import ChatHistoryPanel from "@/src/components/aiAssistant/ChatHistoryPanel";
 import { readChatStream, TOOL_STATUS_LABELS } from "@/src/library/chatStream";
 import { useChatStatus } from "@/src/library/useChatStatus";
-import { getEffectiveModelKey, getStoredExtraTools, setStoredExtraTools } from "@/src/library/chatMode";
+import { getEffectiveModelKey } from "@/src/library/chatMode";
+import PageTutorial from "@/src/components/tutorial/PageTutorial";
+import aiAssistantSteps from "@/src/library/tutorials/steps/ai-assistant";
 
 type ChatMessage = StoredChatMessage;
 
@@ -38,11 +43,15 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
   isPending,
   toolStatus,
   onCopy,
+  isSpeaking,
+  onToggleSpeak,
 }: {
   message: ChatMessage;
   isPending: boolean;
   toolStatus: string | null;
   onCopy: (text: string) => void;
+  isSpeaking: boolean;
+  onToggleSpeak: (message: ChatMessage) => void;
 }) {
   const isUser = message.role === "user";
 
@@ -82,14 +91,31 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
               </ReactMarkdown>
             </div>
 
-            <button
-              type="button"
-              onClick={() => onCopy(message.text)}
-              className="mt-2 rounded-md border border-border-light bg-bg-container px-2 py-1 text-xs text-text-muted opacity-80 transition hover:bg-bg-warm group-hover:opacity-100"
-              aria-label="Copy assistant message"
-            >
-              ⧉
-            </button>
+            <div className="mt-2 flex flex-col gap-1.5">
+              <button
+                type="button"
+                onClick={() => onCopy(message.text)}
+                className="rounded-md border border-border-light bg-bg-container px-2 py-1 text-xs text-text-muted opacity-80 transition hover:bg-bg-warm group-hover:opacity-100"
+                aria-label="Copy assistant message"
+              >
+                ⧉
+              </button>
+              {isSpeechSupported() && (
+                <button
+                  type="button"
+                  onClick={() => onToggleSpeak(message)}
+                  className={`rounded-md border px-2 py-1 text-xs opacity-80 transition hover:bg-bg-warm group-hover:opacity-100 ${
+                    isSpeaking
+                      ? "border-primary bg-primary/10 text-primary opacity-100"
+                      : "border-border-light bg-bg-container text-text-muted"
+                  }`}
+                  aria-label={isSpeaking ? "Stop reading message aloud" : "Read message aloud"}
+                  title={isSpeaking ? "Stop reading aloud" : "Read aloud"}
+                >
+                  {isSpeaking ? <Square size={12} /> : <Volume2 size={12} />}
+                </button>
+              )}
+            </div>
           </div>
 
           {message.generatedFiles && (
@@ -251,30 +277,9 @@ function AIAssistantPageContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [input, setInput] = useState("");
-  // Off by default - web/YouTube search reach outside the student's own
-  // course materials and aren't needed for most questions, so they're kept
-  // out of the tool schema entirely unless explicitly turned on, rather
-  // than always being one of the options the model has to weigh.
-  const [extraTools, setExtraTools] = useState(false);
+  const stt = useSpeechToText({ text: input, onText: setInput, maxLength: MAX_CHAT_INPUT_CHARS });
   const [toolboxOpen, setToolboxOpen] = useState(false);
   const toolboxBtnRef = useRef<HTMLButtonElement | null>(null);
-
-  // Starts false above (SSR-safe - localStorage doesn't exist server-side)
-  // and syncs to whatever was actually saved right after mount, same
-  // pattern AIPanel.tsx uses for its own open/closed persistence. A student
-  // who deliberately turns this on for an ongoing project/study session
-  // shouldn't have it silently reset every time they reload the page.
-  useEffect(() => {
-    setExtraTools(getStoredExtraTools());
-  }, []);
-
-  function toggleExtraTools() {
-    setExtraTools((prev) => {
-      const next = !prev;
-      setStoredExtraTools(next);
-      return next;
-    });
-  }
   const [hasStarted, setHasStarted] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   // Non-null right after resuming a session long enough to cap (see
@@ -289,8 +294,6 @@ function AIAssistantPageContent() {
   const [chatContext, setChatContext] = useState<ChatContext | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showHistoryPanel, setShowHistoryPanel] = useState(false);
-  const [isListening, setIsListening] = useState(false);
-  const [micSupported, setMicSupported] = useState(true);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   // Only set for a session resumed mid-generation via loadSession (see
   // generatingWatchRef below) — isSending/chatStatus alone can't tell the
@@ -305,7 +308,6 @@ function AIAssistantPageContent() {
   // and the assistant answers as if it has no idea what classes exist.
   const chatContextPromiseRef = useRef<Promise<ChatContext | null> | null>(null);
   const nextId = useRef(1);
-  const recognitionRef = useRef<any>(null);
   const summaryRef = useRef("");
   const summarizedCountRef = useRef(0);
   const titleRef = useRef("");
@@ -316,62 +318,6 @@ function AIAssistantPageContent() {
   useEffect(() => {
     return () => generatingWatchRef.current?.();
   }, []);
-
-  useEffect(() => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      setMicSupported(false);
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = "en-US";
-
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript as string;
-      setInput((prev) =>
-        (prev.trim() ? `${prev.trim()} ${transcript}` : transcript).slice(0, MAX_CHAT_INPUT_CHARS)
-      );
-    };
-
-    recognition.onerror = (event: any) => {
-      console.error("Speech recognition error:", event.error);
-      setIsListening(false);
-    };
-
-    recognition.onend = () => setIsListening(false);
-
-    recognitionRef.current = recognition;
-
-    return () => {
-      try {
-        recognition.stop();
-      } catch {
-        // already stopped — fine
-      }
-    };
-  }, []);
-
-  function handleMicClick() {
-    if (!micSupported || !recognitionRef.current) return;
-
-    if (isListening) {
-      recognitionRef.current.stop();
-      setIsListening(false);
-      return;
-    }
-
-    try {
-      recognitionRef.current.start();
-      setIsListening(true);
-    } catch (error) {
-      console.error("Couldn't start speech recognition:", error);
-    }
-  }
 
   // Distinct from chatContext itself (which is legitimately null both
   // before loading AND after a failed load) — gates whether to show a
@@ -514,6 +460,7 @@ function AIAssistantPageContent() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    stt.stop();
 
     const trimmed = input.trim();
     if (!trimmed || isSending) {
@@ -578,7 +525,6 @@ function AIAssistantPageContent() {
           summarizedCount: summarizedCountRef.current,
           currentSessionId: sessionId.current,
           modelKey: getEffectiveModelKey("chat"),
-          extraTools,
         }),
       });
 
@@ -654,6 +600,8 @@ function AIAssistantPageContent() {
   function handleNewChat() {
     generatingWatchRef.current?.();
     generatingWatchRef.current = null;
+    stopSpeaking();
+    setSpeakingMessageId(null);
     setIsResuming(false);
     setHasStarted(false);
     setInput("");
@@ -675,6 +623,30 @@ function AIAssistantPageContent() {
     } catch {
       console.log("Copy failed");
     }
+  }, []);
+
+  // Which message's read-aloud is currently playing, if any - a chat only
+  // ever has one utterance active, so toggling a different message cancels
+  // whatever was already speaking (see speak()'s own doc comment).
+  const [speakingMessageId, setSpeakingMessageId] = useState<number | null>(null);
+
+  const handleToggleSpeak = useCallback(
+    (message: ChatMessage) => {
+      if (speakingMessageId === message.id) {
+        stopSpeaking();
+        setSpeakingMessageId(null);
+        return;
+      }
+      setSpeakingMessageId(message.id);
+      speak(message.text, () => setSpeakingMessageId(null));
+    },
+    [speakingMessageId]
+  );
+
+  // A message being read aloud shouldn't keep "reading" silently after the
+  // student navigates away or starts a new chat.
+  useEffect(() => {
+    return () => stopSpeaking();
   }, []);
 
   function handleUploaded(fileNames: string[], classCode: string) {
@@ -719,12 +691,13 @@ function AIAssistantPageContent() {
 
   return (
     <section className="flex h-screen flex-col bg-bg-main text-text-main">
+      <PageTutorial id="ai-assistant" steps={aiAssistantSteps} />
       <header className="relative flex h-[60px] shrink-0 items-center justify-between border-b border-border-light px-6">
         <h1 className="absolute left-1/2 -translate-x-1/2 text-center text-lg font-semibold tracking-[0.45em] text-text-main">
           Catalyst assistant.
         </h1>
 
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-1" data-tutorial="ai-toolbar">
           <button
             type="button"
             onClick={() => setShowHistoryPanel(true)}
@@ -809,6 +782,8 @@ function AIAssistantPageContent() {
                   isPending={message.text === "" && (isSending || isResuming)}
                   toolStatus={chatStatus.status}
                   onCopy={handleCopy}
+                  isSpeaking={speakingMessageId === message.id}
+                  onToggleSpeak={handleToggleSpeak}
                 />
               ))}
 
@@ -833,6 +808,7 @@ function AIAssistantPageContent() {
               ref={toolboxBtnRef}
               onClick={() => setToolboxOpen((open) => !open)}
               title="See what the assistant can do"
+              data-tutorial="ai-toolbox-btn"
               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition ${
                 toolboxOpen ? "bg-primary text-text-inverse" : "text-primary hover:bg-bg-warm"
               }`}
@@ -845,27 +821,8 @@ function AIAssistantPageContent() {
             <ToolboxPanel
               open={toolboxOpen}
               onClose={() => setToolboxOpen(false)}
-              extraTools={extraTools}
-              onToggleExtraTools={toggleExtraTools}
               anchorRef={toolboxBtnRef}
             />
-
-            <button
-              type="button"
-              onClick={toggleExtraTools}
-              title={
-                extraTools
-                  ? "Web & video search on — the assistant can search the internet"
-                  : "Web & video search off — turn on to let the assistant search beyond your course materials"
-              }
-              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition ${
-                extraTools ? "bg-primary text-text-inverse" : "text-primary hover:bg-bg-warm"
-              }`}
-              aria-label={extraTools ? "Turn off web and video search" : "Turn on web and video search"}
-              aria-pressed={extraTools}
-            >
-              <Globe size={18} strokeWidth={2} />
-            </button>
 
             <button
               type="button"
@@ -878,33 +835,20 @@ function AIAssistantPageContent() {
 
             <input
               value={input}
-              onChange={(event) => setInput(event.target.value.slice(0, MAX_CHAT_INPUT_CHARS))}
-              placeholder="Ask Catalyst anything..."
+              onChange={(event) => {
+                // Typing takes over from dictation - otherwise the next
+                // speech result would overwrite what was just typed.
+                stt.stop();
+                setInput(event.target.value.slice(0, MAX_CHAT_INPUT_CHARS));
+              }}
+              placeholder={stt.listening ? "Listening..." : "Ask Catalyst anything..."}
               disabled={isSending}
               maxLength={MAX_CHAT_INPUT_CHARS}
+              data-tutorial="ai-chat-input"
               className="min-w-1 flex-1 bg-transparent text-sm text-text-main outline-none placeholder:text-text-muted disabled:opacity-60"
             />
 
-            <button
-              type="button"
-              onClick={handleMicClick}
-              disabled={!micSupported}
-              title={
-                micSupported
-                  ? isListening
-                    ? "Stop listening"
-                    : "Voice input"
-                  : "Voice input isn't supported in this browser"
-              }
-              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-40 ${
-                isListening
-                  ? "animate-pulse bg-alert-error text-text-inverse"
-                  : "text-primary hover:bg-bg-warm"
-              }`}
-              aria-label={isListening ? "Stop voice input" : "Start voice input"}
-            >
-              <Mic size={18} strokeWidth={2} />
-            </button>
+            <MicButton stt={stt} />
 
             <button
               type="submit"
@@ -915,6 +859,11 @@ function AIAssistantPageContent() {
               ➤
             </button>
           </form>
+          {stt.error && (
+            <p role="status" className="mt-2 text-center text-xs text-alert-error">
+              {stt.error}
+            </p>
+          )}
         </div>
       </main>
 

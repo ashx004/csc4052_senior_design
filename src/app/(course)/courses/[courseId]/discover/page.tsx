@@ -16,6 +16,8 @@ import type { LearnQuestion } from '@/src/library/discover/types';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
 import { buildLearnQuestionSuggestions, type LearnQuestionsPageContext } from '@/src/library/Contextual_AI/contextualAi';
 import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
+import PageTutorial from '@/src/components/tutorial/PageTutorial';
+import courseDiscoverSteps from '@/src/library/tutorials/steps/course-discover';
 
 interface PublicStudySetWithId extends PublicStudySet {
   id: string;
@@ -174,8 +176,9 @@ export default function DiscoverPage() {
 
   return (
     <div className="min-h-screen bg-[#FAFAF8]">
+      <PageTutorial id="course-discover" steps={courseDiscoverSteps} />
       {/* Header */}
-      <div className="flex h-[60px] items-center border-b border-border-light px-6 md:px-14">
+      <div className="flex h-[60px] items-center border-b border-border-light px-6 md:px-14" data-tutorial="course-discover-heading">
         <div className="ml-4 flex translate-y-3 items-center gap-3">
           <Compass size={22} className="text-[#8B6914]" />
           <h1 className="ml-1 text-xl font-bold text-[#1a1a2e]">Discover</h1>
@@ -184,7 +187,7 @@ export default function DiscoverPage() {
 
       <div className="px-6 py-8 md:px-14">
         {/* Recommended Study Sets */}
-        <section>
+        <section data-tutorial="course-discover-sets">
           <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
             Based on your recent studying
           </p>
@@ -215,7 +218,7 @@ export default function DiscoverPage() {
         </section>
 
         {/* Learn Questions — compact widget */}
-        <section className="mt-8">
+        <section className="mt-8" data-tutorial="course-discover-learn-questions">
           <h2 className="text-lg font-bold text-[#1a1a2e] mb-1">Learn Questions</h2>
           <p className="text-sm text-gray-500 mb-4">
             Test yourself with random questions from all your active courses.
@@ -242,7 +245,7 @@ export default function DiscoverPage() {
         </section>
 
         {/* Switch It Up With a Game */}
-        <section className="mt-8">
+        <section className="mt-8" data-tutorial="course-discover-game">
           <h2 className="text-lg font-bold text-[#1a1a2e] mb-1">Switch It Up With a Game</h2>
           <p className="text-sm text-gray-500 mb-4">
             Answer questions, build with blocks, and make studying fun.

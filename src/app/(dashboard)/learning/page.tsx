@@ -47,6 +47,8 @@ import RescheduleModal from "@/src/components/studyPlan/RescheduleModal";
 import SetupModal from "@/src/components/studyPlan/SetupFlow/SetupModal";
 import ListView from "@/src/components/studyPlan/Views/ListView";
 import BoardView from "@/src/components/studyPlan/Views/BoardView";
+import PageTutorial from "@/src/components/tutorial/PageTutorial";
+import learningSteps from "@/src/library/tutorials/steps/learning";
 import ScheduleView from "@/src/components/studyPlan/Views/ScheduleView";
 
 const CLASSES_ANCHOR = "learning-classes";
@@ -604,20 +606,23 @@ export default function LearningPage() {
 
   return (
     <div className="min-h-screen bg-beige-canvas px-6 py-8 sm:px-10">
+      <PageTutorial id="learning" steps={learningSteps} />
       <div className="mx-auto max-w-6xl space-y-8">
-        <WorkspaceHeader
-          userName={user?.displayName?.split(" ")[0] ?? "Student"}
-          userInitial={(user?.displayName ?? user?.email ?? "S")
-            .charAt(0)
-            .toUpperCase()}
-          onProfile={() => router.push("/profile")}
-          notificationsOpen={notificationsOpen}
-          notifications={notifications}
-          unreadCount={unreadCount}
-        onNotifications={handleNotificationsToggle}
-          onMarkNotificationRead={markRead}
-          onDismissNotification={dismissNotification}
-        />
+        <div data-tutorial="learning-header">
+          <WorkspaceHeader
+            userName={user?.displayName?.split(" ")[0] ?? "Student"}
+            userInitial={(user?.displayName ?? user?.email ?? "S")
+              .charAt(0)
+              .toUpperCase()}
+            onProfile={() => router.push("/profile")}
+            notificationsOpen={notificationsOpen}
+            notifications={notifications}
+            unreadCount={unreadCount}
+          onNotifications={handleNotificationsToggle}
+            onMarkNotificationRead={markRead}
+            onDismissNotification={dismissNotification}
+          />
+        </div>
 
         {!plan && carryoverChecked && carryoverTasks.length > 0 && (
           <CarryoverPrompt
@@ -627,11 +632,13 @@ export default function LearningPage() {
           />
         )}
 
-        <HeroBanner
-          hasPlan={planIsUsable}
-          onExploreClasses={handleExploreClasses}
-          onStartPlan={handleHeroStartPlan}
-        />
+        <div data-tutorial="learning-hero">
+          <HeroBanner
+            hasPlan={planIsUsable}
+            onExploreClasses={handleExploreClasses}
+            onStartPlan={handleHeroStartPlan}
+          />
+        </div>
 
         {/* Explore view: stats + classes + today's plan sidebar */}
         {(activeView === "explore" || (!activeView && !planIsUsable)) && (
@@ -639,7 +646,7 @@ export default function LearningPage() {
             <StatCards {...workspaceStats} />
 
             <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[2fr_1fr]">
-              <div id={CLASSES_ANCHOR} className="min-w-0 scroll-mt-8">
+              <div id={CLASSES_ANCHOR} data-tutorial="learning-classes" className="min-w-0 scroll-mt-8">
                 <ClassGrid
                   classes={classes}
                   onClassClick={(id) => router.push(`/courses/${id}/learning`)}

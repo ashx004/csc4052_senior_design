@@ -1,6 +1,7 @@
 import { z } from "zod";
-import { resolveModelFromKey } from "@/src/library/ollamaClient";
-import { stripThinkLeak } from "@/src/library/stripThinkLeak";
+import { resolveModelFromKey, mainModelContextOption } from "@/src/library/ollamaClient";
+import { stripThinkLeak, extractFirstJsonObject } from "@/src/library/stripThinkLeak";
+import { thinkField } from "@/src/library/thinkMode";
 
 // Shared between api/generate-flashcards/route.ts (the standalone
 // course-page flow) and api/chat/route.ts's create_flashcards tool - the
@@ -86,14 +87,15 @@ async function callOllamaForFlashcards(messages: unknown[], baseUrl: string, mod
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+        "X-Catalyst-Feature": "flashcard-generation",
       },
       body: JSON.stringify({
         model: resolveModelFromKey(modelKey),
         messages,
         stream: false,
-        think: false,
+        ...thinkField("flashcards"),
         format: FLASHCARD_JSON_SCHEMA,
-        options: { temperature: 0 },
+        options: { temperature: 0, ...mainModelContextOption() },
       }),
       signal: controller.signal,
     });
@@ -126,7 +128,7 @@ export async function generateFlashcardsWithRetry(
 
       const data = await response.json();
       const content = stripThinkLeak(data?.message?.content ?? "");
-      return FlashcardResponseSchema.parse(JSON.parse(content));
+      return FlashcardResponseSchema.parse(JSON.parse(extractFirstJsonObject(content)));
     } catch (error) {
       lastError = error;
       console.error(`Flashcard generation attempt ${attempt} failed:`, error);

@@ -11,8 +11,7 @@ const links = [
   { label: "Learning", href: "/learning", icon: BookOpen },
   { label: "Calendar", href: "/calendar", icon: Calendar },
   { label: "AI Assistant", href: "/ai-assistant", icon: MessageSquare },
-  { label: "Advising", href: "/advising", icon: Users },
-  { label: "Advising New & Improved", href: "/advising_new", icon: Users },
+  { label: "Advising", href: "/advising_new", icon: Users },
   { label: "Profile", href: "/profile", icon: User },
   { label: "Notes", href: "/notes", icon: Notebook },
 ];
@@ -22,7 +21,7 @@ export default function GeneralSidebar() {
 
   return (
     <Sidebar>
-      <ul className="flex flex-col gap-1">
+      <ul className="flex flex-col gap-1" data-tutorial="sidebar-nav">
         {links.map(({ label, href, icon: Icon }) => {
           const isActive = pathname === href;
 
