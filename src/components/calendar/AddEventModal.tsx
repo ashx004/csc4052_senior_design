@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import { addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
 import { useAuth } from "@/src/context/AuthContext";
@@ -45,6 +46,7 @@ function localISOString(date: string, time: string): string {
 
 export default function AddEventModal({ isOpen, onClose, onEventAdded, event, events = [] }: AddEventModalProps) {
   const { user } = useAuth();
+  const router = useRouter();
   const isEditing = Boolean(event);
   const canEdit = !event || event.source === "local";
   const [classes, setClasses] = useState<ClassOption[]>([]);
@@ -178,6 +180,15 @@ export default function AddEventModal({ isOpen, onClose, onEventAdded, event, ev
           <button type="button" onClick={close} className="text-text-muted hover:text-text-main" aria-label="Close event editor">Close</button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {event?.source === "class" && (
+            <section className="rounded-lg border border-border-light bg-bg-main p-3 text-sm text-text-main">
+              <p className="font-medium">Class meeting details</p>
+              <p className="mt-1 text-text-muted">{event.location ? `Location: ${event.location}` : "No room or location has been added."}</p>
+              {event.classException && <p className="mt-1 text-text-muted">This occurrence uses a one-time schedule override.</p>}
+              {event.conflictTitles?.length ? <p role="alert" className="mt-2 text-alert-error">Conflicts with: {event.conflictTitles.join(", ")}</p> : null}
+              {event.classId && <button type="button" onClick={() => router.push(`/classes?editSchedule=${encodeURIComponent(event.classId!)}`)} className="mt-3 rounded-md border border-border-light px-3 py-1.5 text-xs font-medium hover:bg-bg-warm">Edit class schedule</button>}
+            </section>
+          )}
           <label className="block text-sm font-medium text-text-muted">Title *<input required disabled={!canEdit} value={title} onChange={(change) => { setTitle(change.target.value); resetConflict(); }} className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm text-text-main outline-none focus:border-primary" /></label>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block text-sm font-medium text-text-muted">Type<select disabled={!canEdit} value={kind} onChange={(change) => setKind(change.target.value as NonNullable<CalendarEvent["kind"]>)} className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm text-text-main"><option value="event">Event</option><option value="study">Study block</option><option value="assignment">Assignment</option><option value="exam">Exam</option><option value="class">Class meeting</option></select></label>
