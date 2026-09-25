@@ -164,6 +164,18 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
             <span>Discover</span>
           </Link>
 
+          {/* Notes - this class's own notes and notebooks (see NotesLibrary) */}
+          <Link
+            href={`${base}/notes`}
+            className={`flex items-center gap-3 text-sm font-semibold px-3 py-3 mt-1 rounded-xl transition-colors ${
+              pathname === `${base}/notes`
+                ? "bg-white/15 text-white"
+                : "text-white/65 hover:bg-white/10 hover:text-white"
+            }`}
+          >
+            <span>Notes</span>
+          </Link>
+
           {/* Learning — plain button, no dropdown */}
           <button
             onClick={() => router.push(`${base}/learning`)}

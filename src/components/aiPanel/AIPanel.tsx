@@ -37,7 +37,10 @@ export default function AIPanel() {
   const stt = useSpeechToText({ text: input, onText: setInput, maxLength: 4000 });
 
   useEffect(() => {
-    setIsOpen(typeof window !== "undefined" && window.localStorage.getItem(STORAGE_KEY) === "true");
+    // On phones the panel covers the whole page, so it never reopens on its
+    // own there - only when the student taps the chat button.
+    const phone = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
+    setIsOpen(!phone && typeof window !== "undefined" && window.localStorage.getItem(STORAGE_KEY) === "true");
   }, []);
 
   function toggleOpen(next: boolean) {
@@ -70,12 +73,14 @@ export default function AIPanel() {
         </button>
       )}
 
+      {/* In the layout on md+; on phones it's a full-width panel over the
+          page (a 384px column would leave a ~390px phone nothing). */}
       <aside
-        className={`h-screen shrink-0 overflow-hidden border-l border-border-light bg-bg-container transition-[width] duration-300 ease-in-out ${
-          isOpen ? "w-96" : "w-0"
+        className={`fixed inset-y-0 right-0 z-40 h-screen shrink-0 overflow-hidden border-l border-border-light bg-bg-container transition-[width] duration-300 ease-in-out md:static md:z-auto ${
+          isOpen ? "w-full md:w-96" : "w-0"
         }`}
       >
-        <div className="flex h-full min-w-[24rem] flex-col">
+        <div className="flex h-full w-screen flex-col md:w-auto md:min-w-[24rem]">
           <div className="flex items-center justify-between border-b border-border-light px-4 py-4">
             <h2 className="text-sm font-semibold tracking-[0.2em] text-text-main">CATALYST</h2>
             <button
