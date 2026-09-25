@@ -20,6 +20,7 @@ interface AddEventModalProps {
   onEventAdded?: () => void;
   event?: CalendarEvent | null;
   events?: CalendarEvent[];
+  onOpenEvent?: (event: CalendarEvent) => void;
 }
 
 function dateInputValue(value: string, allDay: boolean): string {
@@ -44,7 +45,7 @@ function localISOString(date: string, time: string): string {
   return new Date(`${date}T${time || "00:00"}:00`).toISOString();
 }
 
-export default function AddEventModal({ isOpen, onClose, onEventAdded, event, events = [] }: AddEventModalProps) {
+export default function AddEventModal({ isOpen, onClose, onEventAdded, event, events = [], onOpenEvent }: AddEventModalProps) {
   const { user } = useAuth();
   const router = useRouter();
   const isEditing = Boolean(event);
@@ -107,6 +108,9 @@ export default function AddEventModal({ isOpen, onClose, onEventAdded, event, ev
   }, [isOpen, event?.id]);
 
   const selectedClass = useMemo(() => classes.find((entry) => entry.id === classId), [classes, classId]);
+  const conflictingEvents = useMemo(() => event?.conflictTitles?.flatMap((title) =>
+    events.filter((candidate) => candidate.source !== "class" && candidate.title === title)
+  ) ?? [], [event?.conflictTitles, events]);
 
   function close() {
     if (!saving) onClose();
@@ -185,7 +189,7 @@ export default function AddEventModal({ isOpen, onClose, onEventAdded, event, ev
               <p className="font-medium">Class meeting details</p>
               <p className="mt-1 text-text-muted">{event.location ? `Location: ${event.location}` : "No room or location has been added."}</p>
               {event.classException && <p className="mt-1 text-text-muted">This occurrence uses a one-time schedule override.</p>}
-              {event.conflictTitles?.length ? <p role="alert" className="mt-2 text-alert-error">Conflicts with: {event.conflictTitles.join(", ")}</p> : null}
+              {event.conflictTitles?.length ? <div role="alert" className="mt-2 text-alert-error"><p>Conflicts with: {event.conflictTitles.join(", ")}</p>{conflictingEvents.map((conflict) => <button key={conflict.id} type="button" onClick={() => onOpenEvent?.(conflict)} className="mt-1 mr-2 rounded border border-alert-error px-2 py-1 text-xs hover:bg-alert-error/10">Open {conflict.source === "local" ? "and edit" : "details for"} {conflict.title}</button>)}</div> : null}
               {event.classId && <button type="button" onClick={() => router.push(`/classes?editSchedule=${encodeURIComponent(event.classId!)}`)} className="mt-3 rounded-md border border-border-light px-3 py-1.5 text-xs font-medium hover:bg-bg-warm">Edit class schedule</button>}
             </section>
           )}

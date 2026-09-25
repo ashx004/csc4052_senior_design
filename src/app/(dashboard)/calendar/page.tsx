@@ -407,6 +407,7 @@ export default function CalendarPage() {
         onClose={() => { setShowAddEvent(false); setSelectedEvent(null); }}
         event={selectedEvent}
         events={eventsWithConflicts}
+        onOpenEvent={(event) => setSelectedEvent(event)}
         onEventAdded={() => {
           refetchLocal();
         }}
