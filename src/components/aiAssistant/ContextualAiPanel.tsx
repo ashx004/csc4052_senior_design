@@ -15,6 +15,8 @@ import { createPortal } from "react-dom";
 import { ChevronDown, Send, Sparkles, Loader2,Maximize2,Minimize2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import type { PageContext, SuggestionItem } from "@/src/library/Contextual_AI/contextualAi";
+import { useSpeechToText } from "@/src/library/useSpeechToText";
+import MicButton from "./MicButton";
 import { getPanelChatSession, subscribeToPanelChatSession } from "@/src/library/chatMemory";
 import { getEffectiveModelKey } from "@/src/library/chatMode";
 
@@ -64,6 +66,7 @@ export default function ContextualAiPanel({
 }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
+  const stt = useSpeechToText({ text: input, onText: setInput });
   const [isStreaming, setIsStreaming] = useState(false);
   const [toolStatus, setToolStatus] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -141,6 +144,9 @@ export default function ContextualAiPanel({
     async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed || isStreaming) return;
+      // Stop dictation first, so late speech results can't refill the
+      // input this clears below.
+      stt.stop();
 
       // A message the user is actively sending makes this stream
       // authoritative — stop watching a previous resumed-live generation
@@ -281,10 +287,19 @@ export default function ContextualAiPanel({
         abortRef.current = null;
       }
     },
-    [messages, isStreaming, chatContext, pageContext, panelContextKey]
+    [messages, isStreaming, chatContext, pageContext, panelContextKey, stt.stop]
   );
 
   // ─── Handlers ───────────────────────────────────────────────
+
+  // Grow/shrink the textarea whenever its text changes, not only on typing
+  // (onInput below) - dictation and sending both set it programmatically.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }, [input]);
 
   const handleSubmit = () => sendMessage(input);
 
@@ -539,9 +554,13 @@ export default function ContextualAiPanel({
       <textarea
         ref={inputRef}
         value={input}
-        onChange={(e) => setInput(e.target.value)}
+        onChange={(e) => {
+          // Typing takes over from dictation (see useSpeechToText).
+          stt.stop();
+          setInput(e.target.value);
+        }}
         onKeyDown={handleKeyDown}
-        placeholder="Ask your study question here"
+        placeholder={stt.listening ? "Listening..." : "Ask your study question here"}
         rows={1}
         disabled={isStreaming}
         className="
@@ -566,6 +585,8 @@ export default function ContextualAiPanel({
         }}
       />
 
+      <MicButton stt={stt} className="h-8 w-8" iconSize={16} disabled={isStreaming} />
+
       <button
         type="button"
         onClick={handleSubmit}
@@ -587,6 +608,12 @@ export default function ContextualAiPanel({
         <Send size={16} />
       </button>
     </div>
+
+    {stt.error && (
+      <p role="status" className="mt-2 text-center text-xs text-alert-error">
+        {stt.error}
+      </p>
+    )}
 
     <p className="mt-2 text-center text-[10px] text-text-muted opacity-60">
       Enhanced by AI
