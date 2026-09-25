@@ -222,8 +222,6 @@ export default function CalendarPage() {
   return (
     <section className="min-h-screen bg-bg-main px-4 py-8 text-text-main sm:px-8">
       <PageTutorial id="calendar" steps={calendarSteps} />
-    <section className="min-h-screen bg-bg-main px-4 py-8 text-text-main sm:px-8">
-      <PageTutorial id="calendar" steps={calendarSteps} />
       <div className="mx-auto max-w-7xl">
         {/* ── Page header ── */}
         <header className="mb-7 flex items-start justify-between gap-6">
@@ -263,7 +261,6 @@ export default function CalendarPage() {
             )}
             <button
               type="button"
-              onClick={() => { setSelectedEvent(null); setShowAddEvent(true); }}
               data-tutorial="calendar-add-event"
               onClick={() => { setSelectedEvent(null); setShowAddEvent(true); }}
               className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-text-inverse shadow-sm transition hover:bg-primary-hover"
