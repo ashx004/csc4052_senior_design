@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyRequestAuth, isInternalRequest } from "@/src/library/verifyAuth";
 import { extractPdfTextFromUrl, resolveInternalUrl, } from "@/src/library/pdfExtract";
+import { EXTRACTION_JOBS, enqueueAdvisingJob, readAdvisingJob } from "@/src/library/advisingJobs";
 import { extractTranscriptWithOllama, extractCurriculumWithOllama, } from "@/src/library/advisingOllama";
 import { FieldValue, } from "firebase-admin/firestore";
 import { adminDb, } from "@/src/library/firebaseAdmin";
@@ -9,7 +10,6 @@ import { cleanTranscriptTextForOllama } from "@/src/library/advisingTranscriptCl
 import { findTermCreditMismatches } from "@/src/library/advisingTranscriptChecks";
 import { checkRateLimit } from "@/src/library/rateLimit";
 
-const JOB_COLLECTION = "advisingExtractionJobs";
 const EXTRACT_RATE_LIMIT_WINDOW_MS = 60_000;
 const EXTRACT_RATE_LIMIT_MAX = 5; // one real upload plus a couple of retries, generously
 
@@ -42,67 +42,28 @@ async function enqueueExtraction(request: NextRequest) {
     return NextResponse.json({ error: "Too many requests. Please wait a moment." }, { status: 429 });
   }
 
-  const jobRef = adminDb.collection(JOB_COLLECTION).doc(auth.uid);
-  const existing = (await jobRef.get()).data();
-
-  // Already in flight - don't start a second, duplicate extraction. Still
-  // fall through to the best-effort ping below though: claiming is
-  // transaction-protected (see claimNextJob in advising-jobs/worker), so
-  // it's harmless to nudge a job that's genuinely being worked on, and it's
-  // what actually rescues one that's stuck (e.g. the one active attempt
-  // died without requeuing itself - a bare retry click would otherwise just
-  // re-attach to the same stalled "queued"/"processing" doc forever).
-  const alreadyInFlight = existing?.status === "queued" || existing?.status === "processing";
-
-  if (!alreadyInFlight) {
-    await jobRef.set({
-      userId: auth.uid,
-      status: "queued",
-      attempts: 0,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      startedAt: null,
-      completedAt: null,
-      failedAt: null,
-      nextAttemptAt: new Date(),
-      leaseExpiresAt: null,
-      lastError: null,
-      needsManualTransferReview: false,
-      unreadableTransferInfo: null,
-    });
-  }
-
-  // Best-effort immediate pickup, same pattern as /api/embed-document - the
-  // dedicated worker process (npm run worker:advising) also drains any job
-  // that survives a server restart or a failed first attempt.
-  if (process.env.INTERNAL_API_SECRET) {
-    fetch(resolveInternalUrl(request, "/api/advising-jobs/worker"), {
-      method: "POST",
-      headers: { "x-internal-secret": process.env.INTERNAL_API_SECRET },
-    }).catch((error) => console.error(`Failed to start advising worker for ${auth.uid}:`, error));
-  }
+  await enqueueAdvisingJob(request, EXTRACTION_JOBS, auth.uid, {
+    needsManualTransferReview: false,
+    unreadableTransferInfo: null,
+  });
 
   return NextResponse.json({ queued: true, status: "queued" }, { status: 202 });
 }
 
-// Browser-facing: polled by the frontend until the job completes or fails.
+// Browser-facing: polled by the frontend until the job completes or fails,
+// and read on page load to resume a job the student left running.
 export async function GET(request: NextRequest) {
   const auth = await verifyRequestAuth(request);
   if (!auth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const jobDoc = await adminDb.collection(JOB_COLLECTION).doc(auth.uid).get();
-  if (!jobDoc.exists) {
-    return NextResponse.json({ status: "none" });
-  }
-
-  const data = jobDoc.data()!;
+  const { status, data } = await readAdvisingJob(request, EXTRACTION_JOBS, auth.uid);
   return NextResponse.json({
-    status: data.status,
-    lastError: data.lastError ?? null,
-    needsManualTransferReview: data.needsManualTransferReview ?? false,
-    unreadableTransferInfo: data.unreadableTransferInfo ?? null,
+    status,
+    lastError: data?.lastError ?? null,
+    needsManualTransferReview: data?.needsManualTransferReview ?? false,
+    unreadableTransferInfo: data?.unreadableTransferInfo ?? null,
   });
 }
 
@@ -151,6 +112,11 @@ async function processExtraction(request: NextRequest) {
       if (!course.grade) continue;
       const cleaned = course.grade.trim().replace(/\s+R$/i, "");
       course.grade = cleaned === "" || cleaned.toUpperCase() === "R" ? null : cleaned;
+
+      // An "IP" grade always means the course is being taken now. The model
+      // occasionally labels it something else, and then the course counts as
+      // not taken yet and the schedule starts in the current quarter.
+      if (course.grade?.toUpperCase() === "IP") course.status = "in-progress";
     }
 
     transcriptData.warnings.push(...creditMismatches);

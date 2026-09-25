@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import AdvisingPermissionModal from "@/src/components/advising/AdvisingPermissionModal";
 import AdvisingUploadModal from "@/src/components/advising/AdvisingUploadModal";
 import ExistingDocumentsModal from "@/src/components/advising/ExistingDocumentsModal";
@@ -31,6 +31,26 @@ type GeneratedSchedule = {
   warnings: string[];
 };
 
+// Status of an advising background job, as reported by GET
+// /api/advising/extract and GET /api/advising/generate. "stale" means the job
+// stopped responding, so it's treated as not running.
+type JobStatus = "none" | "queued" | "processing" | "complete" | "failed" | "stale";
+
+type JobStatusResponse = {
+  status: JobStatus;
+  lastError: string | null;
+  // extraction jobs
+  needsManualTransferReview?: boolean;
+  unreadableTransferInfo?: { rowCount: number; totalCreditHours: number } | null;
+  // schedule jobs: the saved schedule, once complete
+  schedule?: GeneratedSchedule | null;
+};
+
+const isRunning = (status: JobStatus) => status === "queued" || status === "processing";
+
+const JOB_POLL_INTERVAL_MS = 4000;
+const MAX_JOB_POLL_MS = 20 * 60 * 1000;
+
 
 export default function AdvisingPage() {
   const [showPermissionModal, setShowPermissionModal] = useState<boolean>(false);
@@ -49,6 +69,45 @@ export default function AdvisingPage() {
   const [scheduleNeedsRegeneration, setScheduleNeedsRegeneration] = useState<boolean>(false);
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
 
+  // Upload/generate jobs run on the server, so leaving this page doesn't stop
+  // them - a popup (NotificationToast) reports the result wherever the
+  // student is. This only stops this page's status polling once it's gone.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  async function fetchJobStatus(url: string) {
+    const token = await user!.getIdToken();
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error ?? "Could not check on your advising request.");
+    }
+    return data as JobStatusResponse;
+  }
+
+  // Polls a job until it finishes. Returns the final status data, or null if
+  // the student left the page first (the job keeps running on the server).
+  async function waitForJob(url: string, fallbackError: string) {
+    const deadline = Date.now() + MAX_JOB_POLL_MS;
+
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, JOB_POLL_INTERVAL_MS));
+      if (!mountedRef.current) return null;
+
+      const data = await fetchJobStatus(url);
+      if (data.status === "complete") return data;
+      if (data.status === "failed") throw new Error(data.lastError ?? fallbackError);
+      if (!isRunning(data.status)) {
+        throw new Error("Your request stopped responding. Please try again.");
+      }
+    }
+
+    throw new Error("This is taking longer than expected. You'll get a notification when it's done.");
+  }
+
   useEffect(() => {
   if (loading || !user) {
     return;
@@ -58,6 +117,31 @@ export default function AdvisingPage() {
         try {
         setIsCheckingDocuments(true);
         setErrorMessage("");
+
+        // Pick up where the student left off - but only if an upload or a
+        // schedule is actually still being worked on. Otherwise (nothing
+        // running, or it already finished or failed) the page opens normally.
+        const [extractionJob, scheduleJob] = await Promise.all([
+          fetchJobStatus("/api/advising/extract"),
+          fetchJobStatus("/api/advising/generate"),
+        ]);
+
+        if (isRunning(extractionJob.status)) {
+          setIsCheckingDocuments(false);
+          resumeExtraction();
+          return;
+        }
+
+        if (scheduleJob.status === "complete" && scheduleJob.schedule) {
+          setGeneratedSchedule(scheduleJob.schedule);
+        }
+
+        if (isRunning(scheduleJob.status)) {
+          setDocumentsReady(true);
+          setIsCheckingDocuments(false);
+          resumeScheduleGeneration();
+          return;
+        }
 
         const response = await fetch(
             `/api/advising/upload?userId=${encodeURIComponent(
@@ -181,6 +265,19 @@ export default function AdvisingPage() {
             {isGeneratingSchedule ? "Generating Schedule..." : "Generate Schedule"}
 
           </button>
+
+               {isGeneratingSchedule && (
+                  <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">
+                    This can take a minute. Feel free to leave this page — you'll get a notification when your schedule is ready.
+                  </p>
+                )}
+
+               {errorMessage && !isGeneratingSchedule && (
+                  <div className="mt-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700
+                  dark:border-red-800 dark:bg-red-950/30 dark:text-red-300">
+                    {errorMessage}
+                  </div>
+                )}
 
                {scheduleNeedsRegeneration && (
                   <p className="mt-3 text-sm text-amber-700">
@@ -462,73 +559,55 @@ export default function AdvisingPage() {
     // Extraction runs as a background job (it can involve several sequential
     // AI calls, easily taking a few minutes) instead of one long blocking
     // request, so poll for the result rather than waiting on this response.
-    const POLL_INTERVAL_MS = 4000;
-    const MAX_POLL_MS = 20 * 60 * 1000;
-    const deadline = Date.now() + MAX_POLL_MS;
-
-    while (Date.now() < deadline) {
-
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-
-      const statusToken = await user.getIdToken();
-
-      const statusResponse =
-        await fetch(
-          "/api/advising/extract",
-          { headers: { Authorization: `Bearer ${statusToken}` } }
-        );
-
-      const statusData = await statusResponse.json();
-
-      if (!statusResponse.ok) {
-        throw new Error(
-          statusData.error ??
-            "The documents could not be read."
-        );
-      }
-
-      if (statusData.status === "complete") {
-
-        if (statusData.needsManualTransferReview && statusData.unreadableTransferInfo) {
-          setTransferReviewInfo({
-            rowCount: statusData.unreadableTransferInfo.rowCount,
-            totalCreditHours: statusData.unreadableTransferInfo.totalCreditHours,
-          });
-        } else {
-          setTransferReviewInfo(null);
-        }
-
-        return true;
-      }
-
-      if (statusData.status === "failed") {
-        throw new Error(
-          statusData.lastError ??
-            "The documents could not be read."
-        );
-      }
-
-      // status is "queued" or "processing" - keep polling.
-    }
-
-    throw new Error(
-      "This is taking longer than expected. Please check back in a few minutes."
-    );
-
+    return await finishExtraction();
 
   } catch (error) {
 
-    setErrorMessage(
-      error instanceof Error
-        ? error.message
-        : "The documents could not be read."
-    );
+    if (mountedRef.current) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "The documents could not be read."
+      );
+      setIsExtracting(false);
+    }
 
     return false;
-  } finally {
-    setIsExtracting(false);
   }
 }
+
+  // Waits for the running extraction job and applies its result. Shared by a
+  // fresh upload and by returning to the page while one is still running.
+  async function finishExtraction(): Promise<boolean> {
+    try {
+      const statusData = await waitForJob("/api/advising/extract", "The documents could not be read.");
+      if (!statusData) return false; // left the page - the popup takes it from here
+
+      if (statusData.needsManualTransferReview && statusData.unreadableTransferInfo) {
+        setTransferReviewInfo({
+          rowCount: statusData.unreadableTransferInfo.rowCount,
+          totalCreditHours: statusData.unreadableTransferInfo.totalCreditHours,
+        });
+      } else {
+        setTransferReviewInfo(null);
+      }
+
+      return true;
+    } finally {
+      if (mountedRef.current) setIsExtracting(false);
+    }
+  }
+
+  async function resumeExtraction() {
+    setIsExtracting(true);
+    try {
+      if (await finishExtraction()) setDocumentsReady(true);
+    } catch (error) {
+      if (mountedRef.current) {
+        setErrorMessage(error instanceof Error ? error.message : "The documents could not be read.");
+      }
+    }
+  }
 
   async function generateSchedule() {
 
@@ -569,23 +648,44 @@ export default function AdvisingPage() {
         );
       }
 
-      setGeneratedSchedule(data.schedule);
-      setScheduleNeedsRegeneration(false);
-
-      console.log("Generated Schedule:", data.schedule);
-
+      // Generation runs as a background job, like extraction - wait for it.
+      await finishScheduleGeneration();
 
     } catch (error) {
 
-      setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "The schedule could not be generated."
-      );
+      if (mountedRef.current) {
+        setErrorMessage(
+          error instanceof Error
+            ? error.message
+            : "The schedule could not be generated."
+        );
+        setIsGeneratingSchedule(false);
+      }
+    }
+  }
 
+  // Waits for the running schedule job and shows the saved schedule. Shared
+  // by clicking Generate and by returning to the page while one is running.
+  async function finishScheduleGeneration() {
+    try {
+      const statusData = await waitForJob("/api/advising/generate", "The schedule could not be generated.");
+      if (!statusData) return; // left the page - the popup takes it from here
+
+      setGeneratedSchedule(statusData.schedule ?? null);
+      setScheduleNeedsRegeneration(false);
     } finally {
+      if (mountedRef.current) setIsGeneratingSchedule(false);
+    }
+  }
 
-      setIsGeneratingSchedule(false);
+  async function resumeScheduleGeneration() {
+    setIsGeneratingSchedule(true);
+    try {
+      await finishScheduleGeneration();
+    } catch (error) {
+      if (mountedRef.current) {
+        setErrorMessage(error instanceof Error ? error.message : "The schedule could not be generated.");
+      }
     }
   }
 
@@ -623,7 +723,8 @@ export default function AdvisingPage() {
         {isExtracting && (
             <div className="mt-4 rounded-lg border border-[#d8d3ca] bg-white px-4 py-3
             text-sm text-gray-600 dark:border-gray-700 dark:bg-[#202020] dark:text-gray-300">
-                Reading your transcript and curriculum sheet — this can take a few minutes...
+                Reading your transcript and curriculum sheet — this can take a few minutes.
+                Feel free to leave this page; you'll get a notification when it's done.
             </div>
             )}
 
@@ -654,6 +755,7 @@ export default function AdvisingPage() {
         }}
         onReplace={() => {
             setShowExistingModal(false);
+            setGeneratedSchedule(null); // was built from the documents being replaced
             setShowUploadModal(true);
             setUploadSuccess(false);
             setUsingExistingDocuments(false);
@@ -670,6 +772,7 @@ export default function AdvisingPage() {
             onUploaded={async () => {
               setShowUploadModal(false);
               setUploadSuccess(true);
+              setGeneratedSchedule(null);
               setUsingExistingDocuments(false);
               setErrorMessage("");
               const success = await extractDocuments();

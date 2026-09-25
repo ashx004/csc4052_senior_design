@@ -1623,6 +1623,68 @@ async function extractProgramInfoFromTextWithOllama(
 
 
 /*
+  Curriculum tables flatten badly: side-by-side columns run together, and
+  the model drops rows. Confirmed on the CS curriculum: CSC 430 ("430 CSC 220
+  3 R 6") was never extracted, and FYE 100 only appears in the checklist's
+  PREREQUISITE column next to COMM 101, so it never became a requirement even
+  though the program requires it (1 credit, freshman year).
+
+  The same curriculum's term-by-term plan lists every course cleanly as
+  "CODE Title credits" ("FYE 100 Freshman Year Experience 1"). Any course
+  written that way that isn't already a requirement, choice option or
+  concentration course is added as a required course. The title must contain
+  lowercase letters, which filters out all-caps table noise ("GPA 262",
+  "HOURS 120") and prerequisite lists ("MATH 112 or 240").
+*/
+const PLAN_COURSE_LINE =
+  /\b([A-Z]{2,5}) (\d{3,4})\s+([A-Z][A-Za-z.&,'\/-]*(?: [A-Za-z.&,'\/-]+)*?)\s+(\d)(?=\s|$)/g;
+
+function recoverPlanCoursesMissingFromRequirements(
+  curriculumText: string,
+  requirements: NormalizedRequirement[],
+  concentrations: ReturnType<typeof normalizeConcentration>[]
+): NormalizedRequirement[] {
+
+  const key = (code: string) => code.replace(/\s+/g, "").toUpperCase();
+  const covered = new Set<string>();
+
+  for (const requirement of [...requirements, ...concentrations.flatMap((c) => c.requirements)]) {
+    for (const code of [
+      requirement.courseCode,
+      ...requirement.courseOptions.map((option) => option.courseCode),
+      ...(requirement.eligibilityRules?.allowedCourseCodes ?? []),
+    ]) {
+      if (code) covered.add(key(code));
+    }
+  }
+
+  const recovered = new Map<string, NormalizedRequirement>();
+
+  for (const [line, subject, number, title, credits] of curriculumText.matchAll(PLAN_COURSE_LINE)) {
+    const courseCode = `${subject} ${number}`;
+    if (!/[a-z]/.test(title) || covered.has(key(courseCode)) || recovered.has(key(courseCode))) continue;
+
+    recovered.set(key(courseCode), normalizeRequirement({
+      requirementId: `plan-${key(courseCode).toLowerCase()}`,
+      requirementName: `${courseCode} ${title}`,
+      description: "Listed in the curriculum's term-by-term plan.",
+      requirementType: "specific-course",
+      numberRequired: 1,
+      creditsRequired: Number(credits),
+      courseCode,
+      courseTitle: title,
+      sourceText: line.trim(),
+    }));
+  }
+
+  if (recovered.size > 0) {
+    console.log(`PLAN COURSES ADDED AS REQUIREMENTS: ${[...recovered.values()].map((r) => r.courseCode).join(", ")}`);
+  }
+  return [...recovered.values()];
+}
+
+
+/*
   Run the three smaller curriculum extractions,
   normalize them, then combine them.
 */
@@ -1686,6 +1748,11 @@ export async function extractCurriculumWithOllama(
           )
           .map(normalizeConcentration)
       : [];
+
+
+  requirements.push(
+    ...recoverPlanCoursesMissingFromRequirements(curriculumText, requirements, concentrations)
+  );
 
 
   const combined = {
