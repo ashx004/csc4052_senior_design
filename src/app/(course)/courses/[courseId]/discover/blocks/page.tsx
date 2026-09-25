@@ -5,6 +5,8 @@ import { useParams, useRouter } from "next/navigation";
 import { ChevronLeft, Loader2, Volume2, VolumeX, X } from "lucide-react";
 import { useAuth } from "@/src/context/AuthContext";
 import BlocksIntro from "@/src/components/discover/blocks/BlocksIntro";
+import PageTutorial from "@/src/components/tutorial/PageTutorial";
+import courseBlocksSteps from "@/src/library/tutorials/steps/course-blocks";
 import BlocksGame from "@/src/components/discover/blocks/BlocksGame";
 import BlocksGameOver from "@/src/components/discover/blocks/BlocksGameOver";
 import { buildChatContext, type ChatContext } from "@/src/library/chatContext";
@@ -111,7 +113,12 @@ export default function BlocksPage() {
         </div>
       </div>
 
-      {view === "intro" && <BlocksIntro onStart={() => setView("playing")} />}
+      {view === "intro" && (
+        <>
+          <PageTutorial id="course-blocks" steps={courseBlocksSteps} />
+          <BlocksIntro onStart={() => setView("playing")} />
+        </>
+      )}
       {view === "playing" && <BlocksGame key={gameKey} uid={user.uid} onGameOver={handleGameOver} isMuted={isMuted} />}
       {view === "gameover" && result && (
         <BlocksGameOver

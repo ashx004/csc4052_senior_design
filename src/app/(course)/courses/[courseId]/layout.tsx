@@ -59,7 +59,9 @@ export default function CourseLayout({
   return (
     <div className="flex h-screen">
       <CourseSidebar courseId={courseId} courseName={courseName ?? undefined} />
-      <main className="flex-1 overflow-y-auto">{children}</main>
+      {/* pt-16 on phones: clears the fixed menu button (Sidebar.tsx), which
+          is always showing there and otherwise sits on the page heading. */}
+      <main className="flex-1 overflow-y-auto pt-16 md:pt-0">{children}</main>
     </div>
   );
 }

@@ -1,5 +1,6 @@
-import { Agent, setGlobalDispatcher } from "undici";
-import { resolveOllamaBaseUrl, resolveModelFromKey } from "@/src/library/ollamaClient";
+import { Agent, fetch as undiciFetch } from "undici";
+import { resolveOllamaBaseUrl, resolveModelFromKey, mainModelContextOption } from "@/src/library/ollamaClient";
+import { thinkField } from "@/src/library/thinkMode";
 
 // tapout at 5 mins
 const OLLAMA_TIMEOUT_MS = Number(process.env.ADVISING_OLLAMA_TIMEOUT_MS) || 300000;
@@ -7,34 +8,33 @@ const OLLAMA_TIMEOUT_MS = Number(process.env.ADVISING_OLLAMA_TIMEOUT_MS) || 3000
 // Which model advising uses. One place to change it. Set OLLAMA_MODEL_ADVISING in
 // .env to override without touching code.
 const ADVISING_MODEL =
-  process.env.OLLAMA_MODEL_ADVISING || resolveModelFromKey("museGlimmer");
+  process.env.OLLAMA_MODEL_ADVISING || resolveModelFromKey();
 
 // Context window. Ollama silently TRUNCATES input that does not fit, so it must
 // cover prompt + transcript/curriculum text + the model's 15-20k-token JSON reply.
-// Only sent when ADVISING_NUM_CTX is set (e.g. 32768).
-const ADVISING_NUM_CTX = Number(process.env.ADVISING_NUM_CTX) || undefined;
+// Defaults to the shared OLLAMA_MAIN_NUM_CTX (see mainModelContextOption):
+// advising runs on the same resident model as chat, and a different num_ctx
+// here would make Primary reload that model every time a student switched
+// between advising and any other AI feature. ADVISING_NUM_CTX still wins if
+// set, but should equal OLLAMA_MAIN_NUM_CTX for exactly that reason.
+const ADVISING_NUM_CTX = Number(process.env.ADVISING_NUM_CTX) || mainModelContextOption().num_ctx;
 
-// gpt-oss takes "low" | "medium" | "high". Other thinking models take true/false.
-// Models WITHOUT thinking support reject the field, so "omit" sends nothing.
-// ADVISING_THINK_MODE: "off" (send false - thinking disabled, fastest)
-//                      "on"  (send true)
-//                      "levels" (gpt-oss: low/medium/high)
-//                      "omit" (default: send nothing, model decides)
-function thinkPayload(level: "low" | "medium" | "high"): string | boolean | undefined {
-  const mode = process.env.ADVISING_THINK_MODE ?? "omit";
-  if (mode === "levels") return level;
-  if (mode === "on") return true;
-  if (mode === "off") return false;
-  return undefined;
-}
+// ADVISING_THINK_MODE ("on" | "off" | "levels" | "low"/"medium"/"high" |
+// "omit", default "omit") - see thinkMode.ts. "levels" sends each advising
+// step's own low/medium/high below (gpt-oss style models).
 
 
 // undici's default headersTimeout (5 min) can be too short over the
 // Cloudflare-tunneled Ollama path, where the first response byte can take
 // longer to arrive than a direct LAN connection would. This raises that
-// ceiling specifically for Ollama calls without touching global fetch
-// behavior elsewhere in the app.
-setGlobalDispatcher(new Agent({ headersTimeout: 600_000 })); // 10 minutes
+// ceiling for this file's Ollama calls only: they go through undici's own
+// fetch with this agent passed per request. It used to be installed with
+// setGlobalDispatcher, which swapped undici 8's agent in under Node's
+// built-in fetch (a different bundled undici) for the whole server process
+// and broke gzip decoding for every other fetch - including the auth
+// middleware's download of Google's signing keys, so every login bounced
+// back to /login in production builds (found 2026-09-24).
+const ollamaAgent = new Agent({ headersTimeout: 600_000 }); // 10 minutes
 
 
   // Returns just the JSON object from a model reply: handles ```json fences,
@@ -114,7 +114,8 @@ async function callAdvisingOllama(
   }, OLLAMA_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${baseUrl}/api/chat`, {
+    const response = await undiciFetch(`${baseUrl}/api/chat`, {
+      dispatcher: ollamaAgent,
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -125,7 +126,7 @@ async function callAdvisingOllama(
         model: ADVISING_MODEL,
         messages,
         stream: true,
-        ...(thinkPayload(think) === undefined ? {} : { think: thinkPayload(think) }),
+        ...thinkField("advising", think),
         options: {
           temperature: 0,
           num_predict: numPredict,
