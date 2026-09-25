@@ -1,7 +1,7 @@
 import { doc, getDoc, updateDoc, deleteField, Timestamp } from "firebase/firestore";
 import { db } from "./firebase";
 import { firestoreGet, firestoreUpdate } from "./firestoreRest";
-import { resolveOllamaBaseUrl } from "./ollamaClient";
+import { resolveOllamaBaseUrl, secondaryContextOption } from "./ollamaClient";
 import { stripThinkLeak } from "./stripThinkLeak";
 
 // The "Core memory" tier of a small, tiered memory system — a short,
@@ -89,7 +89,7 @@ export async function maybeUpdateStudentProfile(
   const resetCounter = () =>
     firestoreUpdate(idToken, "users", userId, { learnerProfileMessageCount: 0 });
 
-  if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN) {
+  if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN || !process.env.OLLAMA_SUMMARY_MODEL) {
     await resetCounter();
     return;
   }
@@ -110,12 +110,12 @@ export async function maybeUpdateStudentProfile(
       },
       signal: controller.signal,
       body: JSON.stringify({
-        model: process.env.OLLAMA_SUMMARY_MODEL || "llama3.2:3b",
+        model: process.env.OLLAMA_SUMMARY_MODEL,
         stream: false,
         // Explicit, costs nothing; stripThinkLeak below stays as the safety
         // net for any model swapped into OLLAMA_SUMMARY_MODEL that ignores it.
         think: false,
-        options: { temperature: 0.2 },
+        options: { temperature: 0.2, ...secondaryContextOption() },
         messages: [
           {
             role: "system",

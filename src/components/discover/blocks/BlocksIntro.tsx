@@ -20,7 +20,7 @@ export default function BlocksIntro({ onStart }: BlocksIntroProps) {
         />
       </div>
 
-      <h1 className="max-w-xl text-2xl font-bold text-[#1a1a2e] sm:text-3xl">
+      <h1 className="max-w-xl text-2xl font-bold text-[#1a1a2e] sm:text-3xl" data-tutorial="blocks-intro">
         Build, Play, And Learn With Blocks!
       </h1>
       <p className="mt-3 max-w-[460px] text-base text-gray-500">
@@ -31,6 +31,7 @@ export default function BlocksIntro({ onStart }: BlocksIntroProps) {
         <button
           type="button"
           onClick={onStart}
+          data-tutorial="blocks-play"
           className="w-full rounded-full bg-[#1a1a2e] px-8 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#2a2a3e]"
         >
           Play Blocks
@@ -38,6 +39,7 @@ export default function BlocksIntro({ onStart }: BlocksIntroProps) {
         <button
           type="button"
           onClick={() => setShowInstructions(true)}
+          data-tutorial="blocks-how-to"
           className="w-full rounded-full border border-border-light bg-bg-warm px-8 py-3 text-sm font-semibold text-[#1a1a2e] transition-colors hover:bg-[#F5F0EB]"
         >
           How to Play

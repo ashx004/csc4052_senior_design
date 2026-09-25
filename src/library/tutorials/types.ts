@@ -9,6 +9,7 @@ export type TutorialId =
   | "calendar"
   | "ai-assistant"
   | "advising_new"
+  | "advising-setup"
   | "profile"
   | "notes"
   | "course"
@@ -17,6 +18,7 @@ export type TutorialId =
   | "course-quiz"
   | "course-discover"
   | "course-discover-set"
+  | "course-blocks"
   | "settings";
 
 export const ALL_TUTORIAL_IDS: TutorialId[] = [
@@ -26,6 +28,7 @@ export const ALL_TUTORIAL_IDS: TutorialId[] = [
   "calendar",
   "ai-assistant",
   "advising_new",
+  "advising-setup",
   "profile",
   "notes",
   "course",
@@ -34,6 +37,7 @@ export const ALL_TUTORIAL_IDS: TutorialId[] = [
   "course-quiz",
   "course-discover",
   "course-discover-set",
+  "course-blocks",
   "settings",
 ];
 

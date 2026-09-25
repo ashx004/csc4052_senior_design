@@ -1,6 +1,7 @@
 import { z } from "zod";
-import { resolveModelFromKey } from "@/src/library/ollamaClient";
+import { resolveModelFromKey, mainModelContextOption } from "@/src/library/ollamaClient";
 import { stripThinkLeak, extractFirstJsonObject } from "@/src/library/stripThinkLeak";
+import { thinkField } from "@/src/library/thinkMode";
 
 // Shared between api/generate-flashcards/route.ts (the standalone
 // course-page flow) and api/chat/route.ts's create_flashcards tool - the
@@ -92,9 +93,9 @@ async function callOllamaForFlashcards(messages: unknown[], baseUrl: string, mod
         model: resolveModelFromKey(modelKey),
         messages,
         stream: false,
-        think: false,
+        ...thinkField("flashcards"),
         format: FLASHCARD_JSON_SCHEMA,
-        options: { temperature: 0 },
+        options: { temperature: 0, ...mainModelContextOption() },
       }),
       signal: controller.signal,
     });
