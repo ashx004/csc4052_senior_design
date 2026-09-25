@@ -1,4 +1,4 @@
-import { resolveOllamaBaseUrl } from "./ollamaClient";
+import { resolveOllamaBaseUrl, secondaryContextOption } from "./ollamaClient";
 import { stripThinkLeak } from "./stripThinkLeak";
 
 // Uses the fast secondary model to restate what a student's raw chat
@@ -66,14 +66,16 @@ function mightBeAmbiguous(message: string): boolean {
 // evicting/reloading whichever of its two small models wasn't most
 // recently used (no OLLAMA_MAX_LOADED_MODELS set, so only one stayed
 // resident). Fixed at the infra level (both models now kept loaded
-// simultaneously, OLLAMA_KEEP_ALIVE=-1) — this extra headroom is just
-// defense-in-depth for real concurrent-request queueing, not the reload
-// case anymore.
+// simultaneously, OLLAMA_KEEP_ALIVE=1h as of 2026-08-15, was -1) — this
+// extra headroom is just defense-in-depth for real concurrent-request
+// queueing, not the reload case anymore. 1h is long enough that this fix
+// still holds for any realistic back-to-back usage; it only lapses after a
+// full hour of total inactivity, at which point both models unload anyway.
 const CLARIFY_TIMEOUT_MS = 20000;
 
 export async function clarifyUserQuery(message: string): Promise<string | null> {
   if (process.env.ENABLE_QUERY_CLARIFICATION === "false") return null;
-  if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN) return null;
+  if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN || !process.env.OLLAMA_CLARIFIER_MODEL) return null;
   if (message.trim().length < MIN_MESSAGE_LENGTH) return null;
   if (!mightBeAmbiguous(message)) return null;
 
@@ -84,6 +86,7 @@ export async function clarifyUserQuery(message: string): Promise<string | null> 
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+        "X-Catalyst-Feature": "query-clarifier",
       },
       signal: AbortSignal.timeout(CLARIFY_TIMEOUT_MS),
       body: JSON.stringify({
@@ -95,14 +98,14 @@ export async function clarifyUserQuery(message: string): Promise<string | null> 
         // and a genuinely novel ambiguous backreference ("what did you say
         // earlier about the thing with...") at roughly 15-30x lower latency
         // (~150-270ms), since llama3.2 isn't a reasoning-hybrid model at all.
-        model: process.env.OLLAMA_CLARIFIER_MODEL || "llama3.2:3b",
+        model: process.env.OLLAMA_CLARIFIER_MODEL,
         stream: false,
         // Kept for defense-in-depth even though llama3.2:3b actually
         // respects it (unlike the reasoning model this replaced) - costs nothing,
         // and stripThinkLeak below still guards any future model swapped in
         // here that doesn't respect it.
         think: false,
-        options: { temperature: 0.1 },
+        options: { temperature: 0.1, ...secondaryContextOption() },
         messages: [
           { role: "system", content: CLARIFIER_SYSTEM_PROMPT },
           { role: "user", content: message },

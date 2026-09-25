@@ -14,30 +14,65 @@ export async function resolveOllamaBaseUrl(baseUrl: string, fallbackUrl?: string
   return resolveReachableUrl(baseUrl, fallbackUrl, (url) => probeUrl(url, "/api/tags", authHeaders));
 }
 
-// Single choke point for every large/main-model call in the app (chat,
-// quiz generation, flashcard generation, AI advising, discover question
-// generation, and OCR/vision - it's multimodal enough to cover that too).
-// Unified 2026-09-21: previously a per-task/per-client-preference allow-list
-// picking between several large models: now
-// there's only one main model, so every key (including the legacy ones and
-// the internal-only "ocr" key) resolves to the same place. `key` is kept as
-// a parameter only because callers still pass one through (client-stored
-// preference, warm-model requests) - nothing it can contain selects a
-// different model anymore, so a stale/unrecognized client value is
-// harmless. Outsourced small tasks (embeddings, query clarification,
-// contextual chunking, student-profile/course-summary background
-// summarization) deliberately do NOT go through this - they call their own
-// small models directly, unchanged.
+// Single choke point for every large-model call that must land on Primary
+// (chat, quiz generation, flashcard generation, AI advising, discover
+// question generation). OCR/vision is a SEPARATE dedicated model on
+// Secondary now (see ocrClient.ts) — deliberately not routed through here,
+// so Primary only ever loads this one model and is never evicted by a
+// second one. `key` is kept as a parameter only because callers still pass
+// one through (client-stored preference, warm-model requests) - nothing it
+// can contain selects a different model, so a stale/unrecognized client
+// value is harmless.
+//
+// Config lives in the env, not in code: no hardcoded model-name fallback
+// here on purpose — an unset OLLAMA_MODEL_MAIN is a deployment error that
+// should surface loudly, not silently default to some arbitrary tag.
 export function resolveModelFromKey(_key?: string): string {
-  return process.env.OLLAMA_MODEL_MUSE_GLIMMER || "muse-glimmer:latest";
+  const model = process.env.OLLAMA_MODEL_MAIN;
+  if (!model) throw new Error("OLLAMA_MODEL_MAIN is not configured.");
+  return model;
+}
+
+// Context window for EVERY main-model call on Primary (chat, quiz,
+// flashcards, discover, course summary, advising, warm-up). Ollama reloads
+// a model whenever a request asks for a different num_ctx than it's loaded
+// with, so one site sending 32768 and another sending nothing (Ollama's
+// default) made Primary reload the same model back and forth between
+// features. Keep this at a size that fits fully in VRAM with
+// OLLAMA_NUM_PARALLEL slots - Ollama reserves KV cache for num_ctx x
+// parallel. Unset sends nothing (Ollama's server default applies).
+export function mainModelContextOption(): { num_ctx?: number } {
+  const numCtx = Number(process.env.OLLAMA_MAIN_NUM_CTX);
+  return Number.isFinite(numCtx) && numCtx > 0 ? { num_ctx: numCtx } : {};
+}
+
+// Same idea for Secondary: OCR and the small text tasks (clarifier, student
+// profile, contextual chunking, chat compaction) share one resident model
+// there, so they must all ask for one num_ctx or Ollama reloads it between
+// them. Must cover an OCR photo on its own - a phone photo of a notebook
+// page measured ~4,040 prompt tokens, which 4096 truncated.
+export function secondaryContextOption(): { num_ctx?: number } {
+  const numCtx = Number(process.env.OLLAMA_SECONDARY_NUM_CTX);
+  return Number.isFinite(numCtx) && numCtx > 0 ? { num_ctx: numCtx } : {};
 }
 
 // Whichever model is currently selected for the AI Chat task (per-task pick,
 // or the unified pick if "reduce cold boots" is on) is meant to boot
-// immediately on selection and then stay resident indefinitely, until the
-// student picks a different one - not just a hardcoded "fast" tier. See
-// chat/route.ts and warm-model/route.ts, the two callers that load a chat
-// model: both use this unconditionally, regardless of which key it is.
+// immediately on selection and stay resident while actively used - not just
+// a hardcoded "fast" tier. See chat/route.ts and warm-model/route.ts, the
+// two callers that load a chat model: both use this unconditionally,
+// regardless of which key it is.
+// Changed 2026-08-15 from -1 (never unload) to a finite window: an idle-loaded
+// model is pure GPU power draw with nobody using it, so it auto-unloads after
+// a period of no use rather than camping in VRAM forever.
+// Changed 2026-08-16: reads from OLLAMA_MODEL_KEEP_ALIVE instead of a
+// hardcoded literal. One model serves every Primary task (see
+// resolveModelFromKey), so reloading it from cold costs more than it did
+// when the load was spread across several models, and there's no second
+// large model's VRAM footprint to weigh against keeping it around.
+// Defaults to "2h" if the env var is unset. This explicit per-request value
+// overrides the daemon-level OLLAMA_KEEP_ALIVE default (1h on both boxes as
+// of 2026-08-15).
 // Quiz/flashcard generation deliberately never sets keep_alive at all (see
 // those routes) - those are one-off calls, not meant to camp in VRAM.
-export const FAST_MODEL_KEEP_ALIVE = -1;
+export const FAST_MODEL_KEEP_ALIVE = process.env.OLLAMA_MODEL_KEEP_ALIVE || "2h";

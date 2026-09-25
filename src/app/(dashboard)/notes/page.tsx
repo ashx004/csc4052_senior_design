@@ -32,6 +32,8 @@ import {
   deleteUserResource,
   MAX_FILE_SIZE_BYTES,
 } from "@/src/components/resourceManagement/fileUploadService";
+import PageTutorial from "@/src/components/tutorial/PageTutorial";
+import notesSteps from "@/src/library/tutorials/steps/notes";
 
 type Category = "classDoc" | "notes" | "assignments";
 type OcrStatus = "queued" | "processing" | "complete" | "failed";
@@ -721,9 +723,10 @@ export default function Notes() {
 
   return (
     <section className="min-h-screen bg-bg-main px-8 py-8 text-text-main">
+      <PageTutorial id="notes" steps={notesSteps} />
       <div className="mx-auto max-w-7xl">
         {/* ── Page header ── */}
-        <header className="mb-7 flex items-start justify-between gap-6">
+        <header className="mb-7 flex items-start justify-between gap-6" data-tutorial="notes-heading">
           <div>
             <div className="mb-2 mt-9 flex items-center gap-2 text-xs text-text-muted">
               <Notebook size={15} strokeWidth={1.8} />
@@ -761,7 +764,7 @@ export default function Notes() {
             </Link>
           </div>
         ) : (
-          <div className="rounded-3xl border border-border-light bg-bg-container p-6 shadow-sm">
+          <div className="rounded-3xl border border-border-light bg-bg-container p-6 shadow-sm" data-tutorial="notes-upload">
             <div className="mb-5 flex flex-col gap-4 sm:flex-row">
               <label className="block flex-1">
                 <span className="mb-1.5 block text-xs font-medium text-text-muted">Class</span>
