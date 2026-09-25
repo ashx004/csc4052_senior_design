@@ -8,6 +8,7 @@ import { db } from '@/src/library/firebase';
 import { Minus } from "lucide-react";
 import { Term, parseCourseCode, getCurrentTerm } from '@/src/library/academicTerm';
 import { randomClassColor } from '@/src/library/classColors';
+import CourseCatalogView from '@/src/components/advising/CourseCatalogView';
 
 const TERM_OPTIONS: Term[] = ["Fall", "Winter", "Spring", "Summer"];
 const CLASS_CODE_DEBOUNCE_MS = 300;
@@ -66,6 +67,9 @@ export default function AddEnrollmentModal({
   const [courseSuggestions, setCourseSuggestions] = useState<CourseSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [creditHours, setCreditHours] = useState<string>("");
+  // Former standalone Advising page, now reachable only from here - see
+  // "See course catalog" link at the bottom of the form below.
+  const [catalogOpen, setCatalogOpen] = useState(false);
 
   // Handle generic input changes dynamically
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -399,7 +403,27 @@ export default function AddEnrollmentModal({
               </div>
             </form>
 
+            {/* Not sure of your exact class code/title yet? The old
+                Advising page's course-offering browser lives here now
+                instead of its own sidebar entry. */}
+            <p className="mt-4 text-center text-xs text-text-muted">
+              Not sure what to search for?{" "}
+              <button
+                type="button"
+                onClick={() => setCatalogOpen(true)}
+                className="font-medium text-primary hover:underline"
+              >
+                See course catalog
+              </button>
+            </p>
+
           </div>
+        </div>
+      )}
+
+      {catalogOpen && (
+        <div className="fixed inset-0 z-[60]">
+          <CourseCatalogView onClose={() => setCatalogOpen(false)} />
         </div>
       )}
     </>

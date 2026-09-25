@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Agent, fetch as undiciFetch } from "undici";
 import type { DocumentData, UpdateData } from "firebase-admin/firestore";
 import { adminDb } from "@/src/library/firebaseAdmin";
 import { resolveInternalUrl } from "@/src/library/pdfExtract";
@@ -49,6 +50,15 @@ const JOB_KINDS: JobKind[] = [
 ];
 
 const MAX_ATTEMPTS = 3;
+
+// The processing route only answers once the whole job is done - up to 4
+// sequential AI calls for an extraction - which runs past fetch's default
+// 5-minute wait for response headers. This agent raises that to the job's
+// lease for this one call only. It must NOT be installed globally with
+// setGlobalDispatcher: that broke gzip decoding for every other fetch in the
+// server (including login's download of Google's signing keys) - see the
+// same note on ollamaAgent in advisingOllama.ts.
+const processingAgent = new Agent({ headersTimeout: JOB_LEASE_MS });
 
 type AdvisingJob = {
   userId: string;
@@ -135,7 +145,8 @@ export async function POST(request: NextRequest) {
     // The processing route recognizes this server-only secret and performs
     // its Firestore reads/writes with Firebase Admin - no browser Firebase
     // API key or client token is needed for queued work.
-    const processingResponse = await fetch(resolveInternalUrl(request, kind.processPath), {
+    const processingResponse = await undiciFetch(resolveInternalUrl(request, kind.processPath), {
+      dispatcher: processingAgent,
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -143,9 +154,11 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify({ userId: job.data.userId }),
     });
-    const result = await processingResponse.json().catch(() => ({}));
+    const result = (await processingResponse.json().catch(() => ({}))) as Record<string, unknown>;
     if (!processingResponse.ok || result.success !== true) {
-      const message = result.error || `${kind.label} failed (${processingResponse.status}).`;
+      const message = typeof result.error === "string" && result.error
+        ? result.error
+        : `${kind.label} failed (${processingResponse.status}).`;
       throw result.retryable === false ? new PermanentJobError(message) : new Error(message);
     }
 

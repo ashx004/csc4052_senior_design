@@ -6,6 +6,9 @@ import AdvisingUploadModal from "@/src/components/advising/AdvisingUploadModal";
 import ExistingDocumentsModal from "@/src/components/advising/ExistingDocumentsModal";
 import TransferCreditForm from "@/src/components/advising/TransferCreditForm";
 import { useAuth } from "@/src/context/AuthContext";
+import PageTutorial from "@/src/components/tutorial/PageTutorial";
+import advisingNewSteps from "@/src/library/tutorials/steps/advising_new";
+import advisingSetupSteps from "@/src/library/tutorials/steps/advising-setup";
 
 
 type GeneratedCourse = {
@@ -233,18 +236,20 @@ export default function AdvisingPage() {
   return (
     <main
       className="min-h-screen bg-[#f7f5f1] text-[#1f2933] dark:bg-[#171717] dark:text-gray-100 px-6 py-12" >
+      <PageTutorial id="advising_new" steps={advisingNewSteps} />
       <div className="mx-auto w-full max-w-4xl py-8">
 
         {/* Welcome Section */}
         <section
-          className="rounded-2xl border border-[#d8d3ca] bg-white p-8 shadow-sm 
-          dark:border-gray-700 dark:bg-[#202020]" >
+          className="rounded-2xl border border-[#d8d3ca] bg-white p-8 shadow-sm
+          dark:border-gray-700 dark:bg-[#202020]"
+          data-tutorial="advising-new-welcome" >
           <h1 className="text-3xl font-semibold">
             Welcome to Advising
           </h1>
 
           <p className="mt-4 text-sm leading-6 text-gray-600 dark:text-gray-300">
-            Studora's advising feature helps you understand your academic progress and plan
+            Catalyst's advising feature helps you understand your academic progress and plan
             the courses you may need to take next.
           </p>
 
@@ -258,6 +263,7 @@ export default function AdvisingPage() {
             type="button"
             onClick={generateSchedule}
             disabled={isGeneratingSchedule}
+            data-tutorial="advising-new-generate"
             className="mt-8 rounded-lg bg-[#b08957] px-6 py-3 text-sm font-medium
             text-white transition hover:bg-[#9c7849] disabled:cursor-not-allowed
             disabled:opacity-60" >
@@ -347,6 +353,7 @@ export default function AdvisingPage() {
               bg-bg-main
               p-5
             "
+            data-tutorial="advising-new-preview"
           >
 
             {!generatedSchedule && (
@@ -736,6 +743,12 @@ export default function AdvisingPage() {
             </div>
             )}            
       </main>
+
+      {/* Students without documents only ever see this prompt, so they get
+          their own short tour of it; the main advising_new tour plays once
+          their documents are ready. Mounted only while the prompt is open,
+          so returning students never get a tour waiting on absent targets. */}
+      {showPermissionModal && <PageTutorial id="advising-setup" steps={advisingSetupSteps} />}
 
       <AdvisingPermissionModal
         isOpen={showPermissionModal}

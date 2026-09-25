@@ -1,5 +1,7 @@
 import { z } from "zod";
-import { resolveOllamaBaseUrl, resolveModelFromKey } from "@/src/library/ollamaClient";
+import { Agent, fetch as undiciFetch } from "undici";
+import { resolveOllamaBaseUrl, resolveModelFromKey, mainModelContextOption } from "@/src/library/ollamaClient";
+import { thinkField } from "@/src/library/thinkMode";
 import {
   transcriptExtractionSchema,
   curriculumExtractionSchema,
@@ -32,13 +34,18 @@ const OLLAMA_TIMEOUT_MS = Number(process.env.ADVISING_OLLAMA_TIMEOUT_MS) || 3000
 // Which model advising uses. One place to change it. Set OLLAMA_MODEL_ADVISING in
 // .env to override without touching code.
 const ADVISING_MODEL =
-  process.env.OLLAMA_MODEL_ADVISING || resolveModelFromKey("museGlimmer");
+  process.env.OLLAMA_MODEL_ADVISING || resolveModelFromKey();
 
 // Context window. Ollama silently TRUNCATES input that does not fit, so it must
 // cover prompt + transcript/curriculum text + the model's JSON reply (and any
 // thinking tokens). Always sent - leaving it out falls back to Ollama's much
-// smaller default window.
-const ADVISING_NUM_CTX = Number(process.env.ADVISING_NUM_CTX) || 32768;
+// smaller default window. Defaults to the shared OLLAMA_MAIN_NUM_CTX (see
+// mainModelContextOption): advising runs on the same resident model as chat,
+// and a different num_ctx here would make Primary reload that model every
+// time a student switched between advising and any other AI feature.
+// ADVISING_NUM_CTX still wins if set, but should equal OLLAMA_MAIN_NUM_CTX.
+const ADVISING_NUM_CTX =
+  Number(process.env.ADVISING_NUM_CTX) || mainModelContextOption().num_ctx || 32768;
 
 // Rough token estimate (~3.5 chars per token for English + JSON). Only used to
 // budget the reply, so it errs on the high side.
@@ -51,24 +58,23 @@ function estimateTokens(messages: { content: string }[]): number {
 // be used - the reply would just hit the end of the window mid-JSON.
 const MIN_REPLY_TOKENS = 2048;
 
-// gpt-oss takes "low" | "medium" | "high". Other thinking models take true/false.
-// Models WITHOUT thinking support reject the field, so "omit" sends nothing.
-// ADVISING_THINK_MODE: "off" (send false - thinking disabled, fastest)
-//                      "on"  (send true)
-//                      "levels" (gpt-oss: low/medium/high)
-//                      "omit" (default: send nothing, model decides)
-function thinkPayload(level: "low" | "medium" | "high"): string | boolean | undefined {
-  const mode = process.env.ADVISING_THINK_MODE ?? "omit";
-  if (mode === "levels") return level;
-  if (mode === "on") return true;
-  if (mode === "off") return false;
-  return undefined;
-}
+// ADVISING_THINK_MODE ("on" | "off" | "levels" | "low"/"medium"/"high" |
+// "omit", default "omit") - see thinkMode.ts. "levels" sends each advising
+// step's own low/medium/high below (gpt-oss style models).
+
+// undici's default headersTimeout (5 min) can be too short over the
+// Cloudflare-tunneled Ollama path, where the first response byte can take
+// longer to arrive than a direct LAN connection would. This raises that
+// ceiling for this file's Ollama calls only: they go through undici's own
+// fetch with this agent passed per request. It used to be installed with
+// setGlobalDispatcher, which swapped undici 8's agent in under Node's
+// built-in fetch (a different bundled undici) for the whole server process
+// and broke gzip decoding for every other fetch - including the auth
+// middleware's download of Google's signing keys, so every login bounced
+// back to /login in production builds (found 2026-09-24).
+const ollamaAgent = new Agent({ headersTimeout: 600_000 }); // 10 minutes
 
 
-// The 30-minute outbound-fetch headers timeout (covering both individual
-// Ollama calls and /api/advising-jobs/worker's server-to-server call) is set
-// process-wide in src/instrumentation.ts, not here - see that file for why.
 
 
   // Returns just the JSON object from a model reply: handles ```json fences,
@@ -121,6 +127,12 @@ type OllamaCallOptions = {
   // Zod schema the reply must match. Sent to Ollama as `format`, which
   // constrains generation to that JSON shape (same as quiz/flashcards).
   schema?: z.ZodType;
+  // Identifies which of this file's several callers (transcript extraction,
+  // curriculum extraction, schedule generation, ...) actually made this
+  // request - read by the gatekeeper proxy in front of Ollama and shown in
+  // its Discord transparency ping, so "advising" traffic doesn't all show
+  // up looking identical. Purely observational; Ollama itself ignores it.
+  feature?: string;
 };
 
 // Failures that say nothing about the request itself - the Cloudflare tunnel
@@ -159,6 +171,7 @@ async function callAdvisingOllamaOnce(
   options: OllamaCallOptions
 ): Promise<string> {
   const think = options.think ?? "low";
+  const feature = options.feature ?? "advising-unspecified";
 
   const inputTokens = estimateTokens(messages);
   const roomForReply = ADVISING_NUM_CTX - inputTokens;
@@ -194,17 +207,19 @@ async function callAdvisingOllamaOnce(
       : new TransientOllamaError(`connection failed: ${error.message}`);
 
   try {
-    const response = await fetch(`${baseUrl}/api/chat`, {
+    const response = await undiciFetch(`${baseUrl}/api/chat`, {
+      dispatcher: ollamaAgent,
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+        "X-Catalyst-Feature": feature,
       },
       body: JSON.stringify({
         model: ADVISING_MODEL,
         messages,
         stream: true,
-        ...(thinkPayload(think) === undefined ? {} : { think: thinkPayload(think) }),
+        ...thinkField("advising", think),
         ...(format ? { format } : {}),
         options: {
           temperature: 0,
@@ -689,7 +704,7 @@ row(s) you missed.
     },
   ];
 
-  return callAdvisingOllama(messages, { think: "medium", schema: transcriptExtractionSchema });
+  return callAdvisingOllama(messages, { think: "medium", schema: transcriptExtractionSchema, feature: "advising-extract-transcript" });
 }
 
 
@@ -1244,7 +1259,7 @@ async function extractConcentrationsFromTextWithOllama(
 
     { role: "user", content: curriculumText },
   ],
-    { think: "medium", schema: concentrationsReplySchema },
+    { think: "medium", schema: concentrationsReplySchema, feature: "advising-extract-concentrations" },
 );
 }
 
@@ -1282,7 +1297,7 @@ async function extractProgramInfoFromTextWithOllama(
         },
 
         { role: "user", content: curriculumText, },
-      ], { schema: programInfoReplySchema });
+      ], { schema: programInfoReplySchema, feature: "advising-extract-program-info" });
     }
 
 
@@ -1618,7 +1633,7 @@ async function extractProgramInfoFromTextWithOllama(
       `,
     },
         { role: "user", content: curriculumText, }, ], 
-        { think: "medium", schema: requirementsReplySchema });
+        { think: "medium", schema: requirementsReplySchema, feature: "advising-extract-curriculum" });
 }
 
 
@@ -1994,5 +2009,5 @@ and explain why in warnings.
       content: JSON.stringify(input) },
   ];
 
-  return callAdvisingOllama(messages, { think: "medium", schema: generatedAdvisingScheduleSchema });
+  return callAdvisingOllama(messages, { think: "medium", schema: generatedAdvisingScheduleSchema, feature: "advising-generate-schedule" });
 }

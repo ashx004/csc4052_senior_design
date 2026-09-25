@@ -2,7 +2,17 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Menu, Settings, ChevronLeft } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { TUTORIAL_OVERLAY_ATTR, TUTORIAL_TARGET_EVENT } from "@/src/components/tutorial/TutorialOverlay";
+
+// Below Tailwind's `md` breakpoint the panel slides in over the page instead
+// of sitting in the layout - a 288px column left a phone with ~100px for the
+// page itself.
+const PHONE_QUERY = "(max-width: 767px)";
+
+function isPhoneWidth(): boolean {
+  return typeof window !== "undefined" && window.matchMedia(PHONE_QUERY).matches;
+}
 
 interface SidebarProps {
   children: React.ReactNode;
@@ -11,12 +21,22 @@ interface SidebarProps {
 export default function Sidebar({ children }: SidebarProps) {
   const [isOpen, setIsOpen] = useState(true);
   const router = useRouter();
+  const pathname = usePathname();
   const sidebarRef = useRef<HTMLElement>(null);
+
+  // Start closed on phones (it would cover the whole page), and close after
+  // navigating there, since the panel sits on top of the page it opened.
+  useEffect(() => {
+    if (isPhoneWidth()) setIsOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     if (!isOpen) return;
 
     function handleClickOutside(e: MouseEvent) {
+      // Clicks on the guided tour's own controls aren't "outside" clicks -
+      // closing here reflowed the page under the tour's spotlight.
+      if ((e.target as Element | null)?.closest?.(`[${TUTORIAL_OVERLAY_ATTR}]`)) return;
       if (sidebarRef.current && !sidebarRef.current.contains(e.target as Node)) {
         setIsOpen(false);
       }
@@ -25,6 +45,20 @@ export default function Sidebar({ children }: SidebarProps) {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isOpen]);
+
+  // A tour step pointing at something in here (e.g. the nav links) needs the
+  // panel open, even if the student collapsed it earlier. On phones the open
+  // panel covers the page, so a step pointing anywhere else closes it again.
+  useEffect(() => {
+    function handleTutorialTarget(e: Event) {
+      const element = (e as CustomEvent<{ element: Element }>).detail?.element;
+      if (!element) return;
+      if (sidebarRef.current?.contains(element)) setIsOpen(true);
+      else if (isPhoneWidth()) setIsOpen(false);
+    }
+    window.addEventListener(TUTORIAL_TARGET_EVENT, handleTutorialTarget);
+    return () => window.removeEventListener(TUTORIAL_TARGET_EVENT, handleTutorialTarget);
+  }, []);
 
   return (
     <>
@@ -39,10 +73,15 @@ export default function Sidebar({ children }: SidebarProps) {
         </button>
       )}
 
-      {/* Sidebar panel — in document flow, pushes content right */}
+      {/* Phones only: dims the page behind the open panel; tapping it closes
+          the panel (handled by the outside-click listener above). */}
+      {isOpen && <div className="fixed inset-0 z-40 bg-black/40 md:hidden" aria-hidden="true" />}
+
+      {/* Sidebar panel — in document flow on md+ (pushes content right),
+          fixed over the page on phones */}
       <aside
         ref={sidebarRef}
-        className={`h-screen shrink-0 overflow-hidden bg-navy text-white transition-[width] duration-300 ease-in-out ${
+        className={`fixed inset-y-0 left-0 z-50 h-screen shrink-0 overflow-hidden bg-navy text-white transition-[width] duration-300 ease-in-out md:static md:z-auto ${
           isOpen ? "w-72" : "w-0"
         }`}
       >
