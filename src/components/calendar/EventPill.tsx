@@ -1,5 +1,6 @@
 import { eventToneClasses } from "@/src/components/calendar/calendarTypes";
 import type { CalendarEvent } from "@/src/components/calendar/calendarTypes";
+import { AlertTriangle } from "lucide-react";
 
 type EventPillProps = {
   event: CalendarEvent;
@@ -53,9 +54,10 @@ export default function EventPill({ event, onClick, onDragStart }: EventPillProp
       draggable={Boolean(onDragStart)}
       onDragStart={(dragEvent) => { dragEvent.dataTransfer.effectAllowed = "move"; onDragStart?.(event); }}
       style={event.color ? { backgroundColor: event.color, color: readableTextColor(event.color) } : undefined}
-      className={`truncate rounded-md px-2 py-1 text-[11px] font-medium leading-tight ${toneClass}`}
+      title={event.conflictTitles?.length ? `Conflicts with ${event.conflictTitles.join(", ")}` : event.title}
+      className={`truncate rounded-md px-2 py-1 text-[11px] font-medium leading-tight ${toneClass} ${event.conflictTitles?.length ? "ring-2 ring-alert-error" : ""}`}
     >
-      <span>{event.title}</span>
+      <span className="flex items-center gap-1">{event.conflictTitles?.length ? <AlertTriangle size={11} aria-label="Schedule conflict" /> : null}{event.title}</span>
 
       {!event.allDay && event.startTime && event.endTime && (
         <span className="block font-normal opacity-80">
