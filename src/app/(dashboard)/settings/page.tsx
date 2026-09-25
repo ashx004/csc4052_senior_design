@@ -74,7 +74,14 @@ export default function Settings() {
     const [isUpdatingAccount, setIsUpdatingAccount] = useState<boolean>(false);
 
     const router = useRouter();
+    const [aiModels, setAiModels] = useState<{ main: string | null; ocr: string | null } | null>(null);
 
+    useEffect(() => {
+        fetch("/api/ai-models")
+            .then((res) => (res.ok ? res.json() : null))
+            .then((data) => setAiModels(data))
+            .catch(() => setAiModels(null));
+    }, []);
 
     useEffect(() => {
         const storedMode = getStoredThemeMode();
@@ -615,12 +622,26 @@ export default function Settings() {
                 </span>
 
                 <span className="text-sm text-text-muted">
-                    Meta&apos;s Muse Glimmer
+                    {aiModels?.main ?? "—"}
                 </span>
             </div>
 
             <div className="flex w-3/4 self-center px-2 py-1 text-xs text-text-muted">
-                Powers AI Chat, Quiz &amp; Flashcard generation, Advising, Discover, and document OCR
+                Powers AI Chat, Quiz &amp; Flashcard generation, Advising, and Discover
+            </div>
+
+            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
+                        bg-bg-main text-text-main">
+                <span className="text-sm">
+                    Document scanning model
+                </span>
+                <span className="text-sm text-text-muted">
+                    {aiModels?.ocr ?? "—"}
+                </span>
+            </div>
+
+            <div className="flex w-3/4 self-center px-2 py-1 text-xs text-text-muted">
+                Reads text from uploaded photos and scans (OCR)
             </div>
 
             {/* Focus Mode
