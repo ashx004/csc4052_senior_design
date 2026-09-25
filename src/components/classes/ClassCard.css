@@ -57,6 +57,14 @@
   text-align: center;
 }
 
+.class-card-schedule {
+  margin: 8px 0 0;
+  color: var(--color-text-main);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: center;
+}
+
 .class-card-schedule-edit {
   display: flex;
   align-items: center;

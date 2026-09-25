@@ -16,6 +16,7 @@ export interface ClassCardProps {
   color?: string;
   variant?: "default" | "compact";
   status?: EnrollmentStatus;
+  scheduleLabel?: string;
   // Omitted by callers that don't want the color square editable (e.g. a
   // read-only preview) — when present, a pencil icon appears on the banner.
   onColorChange?: (color: string) => void;
@@ -31,6 +32,7 @@ export default function ClassCard({
   variant = "default",
   onColorChange,
   onScheduleEdit,
+  scheduleLabel,
 }: ClassCardProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -102,6 +104,7 @@ export default function ClassCard({
         </Link>
         <p className="class-card-code">{classCode}</p>
         <p className="class-card-term">{term}</p>
+        {scheduleLabel && <p className="class-card-schedule">{scheduleLabel}</p>}
         {onScheduleEdit && (
           <button
             type="button"

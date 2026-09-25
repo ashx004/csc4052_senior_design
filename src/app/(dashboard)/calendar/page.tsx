@@ -20,6 +20,7 @@ import { useCalendarConnection } from "@/src/hooks/useCalendarConnection";
 import { useCalendarEvents } from "@/src/hooks/useCalendarEvents";
 import { useLocalCalendarEvents } from "@/src/hooks/useLocalCalendarEvents";
 import { useClassCalendarEvents } from "@/src/hooks/useClassCalendarEvents";
+import { useCalendarReminders } from "@/src/hooks/useCalendarReminders";
 import { getWeekStart } from "@/src/library/calendarHelpers";
 
 import type { CalendarEvent, CalendarView } from "@/src/components/calendar/calendarTypes";
@@ -105,15 +106,26 @@ export default function CalendarPage() {
   const { events: classEvents, loading: classEventsLoading } = useClassCalendarEvents(localDateRange);
 
   const allEvents = useMemo(() => [...events, ...localEvents, ...classEvents], [events, localEvents, classEvents]);
+  const eventsWithConflicts = useMemo(() => allEvents.map((event) => {
+    if (event.source !== "class" || event.allDay) return event;
+    const start = new Date(event.startTime).getTime();
+    const end = new Date(event.endTime).getTime();
+    const conflictTitles = allEvents
+      .filter((candidate) => candidate.source !== "class" &&
+        new Date(candidate.endTime).getTime() > start && new Date(candidate.startTime).getTime() < end)
+      .map((candidate) => candidate.title);
+    return conflictTitles.length ? { ...event, conflictTitles } : event;
+  }), [allEvents]);
+  useCalendarReminders(eventsWithConflicts);
   const classOptions = useMemo(() => Array.from(new Map(
-    allEvents.filter((event) => event.classId && event.className).map((event) => [event.classId!, event.className!])
-  ).entries()), [allEvents]);
-  const filteredEvents = useMemo(() => allEvents.filter((event) =>
+    eventsWithConflicts.filter((event) => event.classId && event.className).map((event) => [event.classId!, event.className!])
+  ).entries()), [eventsWithConflicts]);
+  const filteredEvents = useMemo(() => eventsWithConflicts.filter((event) =>
     (showLocal || event.source !== "local") &&
     (showGoogle || event.source !== "google") &&
     (showClassMeetings || event.source !== "class") &&
     (classFilter === "all" || event.classId === classFilter)
-  ), [allEvents, showLocal, showGoogle, showClassMeetings, classFilter]);
+  ), [eventsWithConflicts, showLocal, showGoogle, showClassMeetings, classFilter]);
 
   // ── Navigation handlers ──────────────────────────────────────────────────
 
@@ -341,7 +353,7 @@ export default function CalendarPage() {
               loaded) and the connect banner just layer in once status
               resolves, without holding up anything that didn't depend on
               them. */}
-          {(localLoading || classEventsLoading) && allEvents.length === 0 ? (
+          {(localLoading || classEventsLoading) && eventsWithConflicts.length === 0 ? (
             <p className="py-12 text-center text-sm text-text-muted">
               Loading events...
             </p>
@@ -394,7 +406,7 @@ export default function CalendarPage() {
         isOpen={showAddEvent}
         onClose={() => { setShowAddEvent(false); setSelectedEvent(null); }}
         event={selectedEvent}
-        events={allEvents}
+        events={eventsWithConflicts}
         onEventAdded={() => {
           refetchLocal();
         }}
