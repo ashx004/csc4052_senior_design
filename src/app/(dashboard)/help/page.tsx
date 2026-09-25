@@ -135,9 +135,9 @@ const sections: FaqSection[] = [
     title: "Advising",
     items: [
       {
-        question: 'What\'s the difference between "Advising" and "Advising New & Improved"?',
+        question: "What does Advising do?",
         answer: [
-          "Advising is a browsable view of course/requirement recommendations you can search and filter. Advising New & Improved is the AI schedule generator — it reads your transcript and curriculum sheet and proposes a full suggested schedule for the rest of your degree.",
+          "Advising is the AI schedule generator. It reads your transcript and your program's curriculum sheet and proposes a suggested schedule for the rest of your degree, term by term.",
         ],
       },
       {
@@ -149,7 +149,7 @@ const sections: FaqSection[] = [
       {
         question: "What if I have transfer credit, AP credit, or a course that isn't showing up correctly?",
         answer: [
-          'Use "Add a completed course" on the Advising New & Improved page to manually record anything that didn\'t come through automatically from your transcript. If Catalyst couldn\'t confidently read part of your transcript, it will prompt you for this itself right after upload.',
+          'Use "Add a completed course" on the Advising page to manually record anything that didn\'t come through automatically from your transcript. If Catalyst couldn\'t confidently read part of your transcript, it will prompt you for this itself right after upload.',
         ],
       },
       {

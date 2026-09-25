@@ -8,6 +8,7 @@ import TransferCreditForm from "@/src/components/advising/TransferCreditForm";
 import { useAuth } from "@/src/context/AuthContext";
 import PageTutorial from "@/src/components/tutorial/PageTutorial";
 import advisingNewSteps from "@/src/library/tutorials/steps/advising_new";
+import advisingSetupSteps from "@/src/library/tutorials/steps/advising-setup";
 
 
 type GeneratedCourse = {
@@ -163,7 +164,7 @@ export default function AdvisingPage() {
           </h1>
 
           <p className="mt-4 text-sm leading-6 text-gray-600 dark:text-gray-300">
-            Studora's advising feature helps you understand your academic progress and plan
+            Catalyst's advising feature helps you understand your academic progress and plan
             the courses you may need to take next.
           </p>
 
@@ -589,6 +590,12 @@ export default function AdvisingPage() {
             </div>
             )}            
       </main>
+
+      {/* Students without documents only ever see this prompt, so they get
+          their own short tour of it; the main advising_new tour plays once
+          their documents are ready. Mounted only while the prompt is open,
+          so returning students never get a tour waiting on absent targets. */}
+      {showPermissionModal && <PageTutorial id="advising-setup" steps={advisingSetupSteps} />}
 
       <AdvisingPermissionModal
         isOpen={showPermissionModal}
