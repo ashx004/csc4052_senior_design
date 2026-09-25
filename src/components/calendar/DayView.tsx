@@ -104,6 +104,7 @@ export default function DayView({ events, selectedDate, onEventClick }: DayViewP
                       height={`h-[${heightPx}px]`}
                       style={{ top: `${topPx}px` }}
                       onClick={() => onEventClick?.(ev)}
+                      hasConflict={Boolean(ev.conflictTitles?.length)}
                     />
                   );
                 })}
