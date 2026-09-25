@@ -32,6 +32,10 @@ export type CalendarEvent = {
   recurrence?: "none" | "daily" | "weekly" | "monthly";
   recurrenceUntil?: string;
   reminderMinutes?: number;
+  // The names of overlapping non-class events, calculated for the visible
+  // calendar range. This is display-only and is never persisted as an event.
+  conflictTitles?: string[];
+  classException?: boolean;
   seriesId?: string;
 };
 
