@@ -3,13 +3,7 @@ import { Resend } from "resend";
 
 const resend = new Resend(process.env.RESEND_EMAIL_PRIVATE_KEY);
 
-type email_fields = {
-    to: string;
-    subject: string;
-    html: string;
-}
-
-export async function sendEmail(input: email_fields) {
+export async function sendEmail(input: {to: string, subject: string, html: string}) {
     const { data, error } = await resend.emails.send({
         from: process.env.RESEND_FROM_EMAIL!,
         to: [input.to],
