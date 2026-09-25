@@ -1,271 +1,222 @@
 "use client";
 
-import { useState, FormEvent, ChangeEvent } from "react";
-import { useAuth } from "@/src/context/AuthContext";
-import { addDoc, collection } from "firebase/firestore";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import { addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
-import type { EventTone } from "@/src/components/calendar/calendarTypes";
+import { useAuth } from "@/src/context/AuthContext";
+import type { CalendarEvent, EventTone } from "@/src/components/calendar/calendarTypes";
 
 const TONE_OPTIONS: EventTone[] = ["cream", "sage", "rose", "lavender", "brown", "blue"];
-
 const TONE_SWATCH_CLASSES: Record<EventTone, string> = {
-  cream: "bg-[#f3dfc0]",
-  sage: "bg-[#eef0d8]",
-  rose: "bg-[#ead7dc]",
-  lavender: "bg-[#eee3f2]",
-  brown: "bg-[#d8b99a]",
-  blue: "bg-[#4256d6]",
+  cream: "bg-[#f3dfc0]", sage: "bg-[#eef0d8]", rose: "bg-[#ead7dc]",
+  lavender: "bg-[#eee3f2]", brown: "bg-[#d8b99a]", blue: "bg-[#4256d6]",
 };
+type ClassOption = { id: string; name: string };
 
 interface AddEventModalProps {
   isOpen: boolean;
   onClose: () => void;
   onEventAdded?: () => void;
+  event?: CalendarEvent | null;
+  events?: CalendarEvent[];
+  onOpenEvent?: (event: CalendarEvent) => void;
 }
 
-export default function AddEventModal({ isOpen, onClose, onEventAdded }: AddEventModalProps) {
-  const { user } = useAuth();
+function dateInputValue(value: string, allDay: boolean): string {
+  if (!value) return "";
+  if (allDay) return value.slice(0, 10);
+  const date = new Date(value);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
 
+function timeInputValue(value: string): string {
+  if (!value) return "";
+  const date = new Date(value);
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function nextCalendarDate(dateStr: string): string {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+}
+
+function localISOString(date: string, time: string): string {
+  return new Date(`${date}T${time || "00:00"}:00`).toISOString();
+}
+
+export default function AddEventModal({ isOpen, onClose, onEventAdded, event, events = [], onOpenEvent }: AddEventModalProps) {
+  const { user } = useAuth();
+  const router = useRouter();
+  const isEditing = Boolean(event);
+  const canEdit = !event || event.source === "local";
+  const [classes, setClasses] = useState<ClassOption[]>([]);
   const [title, setTitle] = useState("");
   const [startDate, setStartDate] = useState("");
-  const [startTime, setStartTime] = useState("");
+  const [startTime, setStartTime] = useState("09:00");
   const [endDate, setEndDate] = useState("");
-  const [endTime, setEndTime] = useState("");
+  const [endTime, setEndTime] = useState("10:00");
   const [allDay, setAllDay] = useState(false);
   const [location, setLocation] = useState("");
   const [description, setDescription] = useState("");
   const [tone, setTone] = useState<EventTone>("cream");
+  const [kind, setKind] = useState<NonNullable<CalendarEvent["kind"]>>("event");
+  const [classId, setClassId] = useState("");
+  const [recurrence, setRecurrence] = useState<NonNullable<CalendarEvent["recurrence"]>>("none");
+  const [recurrenceUntil, setRecurrenceUntil] = useState("");
+  const [reminderMinutes, setReminderMinutes] = useState("0");
+  const [error, setError] = useState<string | null>(null);
+  const [conflictWarning, setConflictWarning] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  function resetForm() {
-    setTitle("");
-    setStartDate("");
-    setStartTime("");
-    setEndDate("");
-    setEndTime("");
-    setAllDay(false);
-    setLocation("");
-    setDescription("");
-    setTone("cream");
+  useEffect(() => {
+    if (!user) return;
+    getDocs(collection(db, "users", user.uid, "enrollment"))
+      .then((snapshot) => setClasses(snapshot.docs.map((classDoc) => {
+        const data = classDoc.data();
+        return { id: classDoc.id, name: data.className || data.classCode || "Untitled class" };
+      })))
+      .catch((loadError) => console.error("Couldn't load classes for calendar event:", loadError));
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setError(null);
+    setConflictWarning(null);
+    if (event) {
+      setTitle(event.title);
+      setAllDay(event.allDay);
+      setStartDate(dateInputValue(event.startTime, event.allDay));
+      setStartTime(event.allDay ? "09:00" : timeInputValue(event.startTime));
+      setEndDate(event.allDay ? "" : dateInputValue(event.endTime, false));
+      setEndTime(event.allDay ? "10:00" : timeInputValue(event.endTime));
+      setLocation(event.location || "");
+      setDescription(event.description || "");
+      setTone(event.tone || "cream");
+      setKind(event.kind || "event");
+      setClassId(event.classId || "");
+      setRecurrence(event.recurrence || "none");
+      setRecurrenceUntil(event.recurrenceUntil || "");
+      setReminderMinutes(String(event.reminderMinutes || 0));
+    } else {
+      const today = new Date();
+      const formattedToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      setTitle(""); setStartDate(formattedToday); setEndDate(formattedToday);
+      setStartTime("09:00"); setEndTime("10:00"); setAllDay(false); setLocation(""); setDescription("");
+      setTone("cream"); setKind("event"); setClassId(""); setRecurrence("none"); setRecurrenceUntil(""); setReminderMinutes("0");
+    }
+  }, [isOpen, event?.id]);
+
+  const selectedClass = useMemo(() => classes.find((entry) => entry.id === classId), [classes, classId]);
+  const conflictingEvents = useMemo(() => event?.conflictTitles?.flatMap((title) =>
+    events.filter((candidate) => candidate.source !== "class" && candidate.title === title)
+  ) ?? [], [event?.conflictTitles, events]);
+
+  function close() {
+    if (!saving) onClose();
   }
 
-  function handleClose() {
-    resetForm();
-    onClose();
-  }
+  function resetConflict() { setConflictWarning(null); }
 
-  function toISOString(dateStr: string, timeStr?: string): string {
-    if (timeStr) {
-      return new Date(`${dateStr}T${timeStr}`).toISOString();
+  async function handleSubmit(formEvent: FormEvent) {
+    formEvent.preventDefault();
+    if (!user || !canEdit) return;
+    if (!title.trim() || !startDate || (!allDay && !endDate)) {
+      setError("Enter a title, start date, and end date.");
+      return;
     }
-    return new Date(`${dateStr}T00:00:00`).toISOString();
-  }
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-
-    if (!user) {
-      alert("You must be logged in to add an event.");
+    const startTimeValue = allDay ? startDate : localISOString(startDate, startTime);
+    const endTimeValue = allDay ? nextCalendarDate(startDate) : localISOString(endDate, endTime);
+    if (!allDay && new Date(endTimeValue) <= new Date(startTimeValue)) {
+      setError("End time must be after start time.");
+      return;
+    }
+    const persistedEventId = event?.seriesId ?? event?.id;
+    const overlaps = events.filter((candidate) => candidate.id !== persistedEventId &&
+      new Date(candidate.endTime).getTime() > new Date(startTimeValue).getTime() &&
+      new Date(candidate.startTime).getTime() < new Date(endTimeValue).getTime());
+    if (overlaps.length > 0 && !conflictWarning) {
+      setConflictWarning(`This overlaps with ${overlaps.slice(0, 2).map((candidate) => candidate.title).join(" and ")}. Save again to keep the overlap.`);
       return;
     }
 
-    if (!title.trim()) {
-      alert("Title is required!");
-      return;
-    }
-
-    if (!startDate) {
-      alert("Start date is required!");
-      return;
-    }
-
-    if (!allDay && !endDate) {
-      alert("End date is required!");
-      return;
-    }
-
-    const startISO = toISOString(startDate, allDay ? undefined : startTime);
-    const endISO = allDay
-      ? toISOString(startDate, undefined).replace("T00:00:00", "T23:59:59")
-      : toISOString(endDate, endTime);
-
-    if (new Date(endISO) <= new Date(startISO)) {
-      alert("End time must be after start time!");
-      return;
-    }
-
+    setSaving(true); setError(null);
     const eventData = {
-      title: title.trim(),
-      startTime: startISO,
-      endTime: endISO,
-      allDay,
-      location: location.trim() || null,
-      description: description.trim() || null,
-      tone,
-      source: "local" as const,
+      title: title.trim(), startTime: startTimeValue, endTime: endTimeValue, allDay,
+      timeZone: allDay ? null : Intl.DateTimeFormat().resolvedOptions().timeZone,
+      location: location.trim() || null, description: description.trim() || null, tone,
+      kind, classId: classId || null, className: selectedClass?.name || event?.className || null,
+      recurrence, recurrenceUntil: recurrence === "none" ? null : recurrenceUntil || null,
+      reminderMinutes: Math.max(0, Number(reminderMinutes) || 0),
+      source: "local" as const, updatedAt: serverTimestamp(),
     };
-
     try {
-      const eventsRef = collection(db, "users", user.uid, "events");
-      await addDoc(eventsRef, eventData);
+      if (event) await updateDoc(doc(db, "users", user.uid, "events", event.seriesId ?? event.id), eventData);
+      else await addDoc(collection(db, "users", user.uid, "events"), { ...eventData, createdAt: serverTimestamp() });
       onEventAdded?.();
-    } catch (error) {
-      console.error("Error adding event:", error);
-      alert("Failed to add event. Please try again.");
-      return;
-    }
+      onClose();
+    } catch (saveError) {
+      console.error("Could not save calendar event:", saveError);
+      setError("Could not save the event. Please try again.");
+    } finally { setSaving(false); }
+  }
 
-    handleClose();
+  async function handleDelete() {
+    if (!user || !event || !canEdit || !window.confirm(`Delete "${event.title}"?`)) return;
+    setSaving(true);
+    try {
+      await deleteDoc(doc(db, "users", user.uid, "events", event.seriesId ?? event.id));
+      onEventAdded?.(); onClose();
+    } catch (deleteError) {
+      console.error("Could not delete calendar event:", deleteError);
+      setError("Could not delete the event. Please try again.");
+    } finally { setSaving(false); }
   }
 
   if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
-      <div className="w-full max-w-lg rounded-lg bg-bg-container p-6 shadow-xl transition-all max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between border-b pb-3 mb-4">
-          <h3 className="text-xl font-semibold text-text-main">Add New Event</h3>
-          <button onClick={handleClose} className="text-text-muted hover:text-text-main">
-            ✕
-          </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={close}>
+      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl bg-bg-container p-6 shadow-xl" onClick={(click) => click.stopPropagation()}>
+        <div className="mb-4 flex items-center justify-between border-b border-border-light pb-3">
+          <div><h3 className="text-xl font-semibold text-text-main">{isEditing ? "Edit event" : "Add event"}</h3>
+            {event?.source === "google" && <p className="mt-1 text-xs text-text-muted">Google events are managed in Google Calendar.</p>}
+            {event?.source === "class" && <p className="mt-1 text-xs text-text-muted">This meeting is generated from its class schedule. Update the class schedule to change it.</p>}</div>
+          <button type="button" onClick={close} className="text-text-muted hover:text-text-main" aria-label="Close event editor">Close</button>
         </div>
-
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="border-b pb-2">
-            <span className="text-xs font-bold uppercase text-red-500">Required *</span>
+          {event?.source === "class" && (
+            <section className="rounded-lg border border-border-light bg-bg-main p-3 text-sm text-text-main">
+              <p className="font-medium">Class meeting details</p>
+              <p className="mt-1 text-text-muted">{event.location ? `Location: ${event.location}` : "No room or location has been added."}</p>
+              {event.classException && <p className="mt-1 text-text-muted">This occurrence uses a one-time schedule override.</p>}
+              {event.conflictTitles?.length ? <div role="alert" className="mt-2 text-alert-error"><p>Conflicts with: {event.conflictTitles.join(", ")}</p>{conflictingEvents.map((conflict) => <button key={conflict.id} type="button" onClick={() => onOpenEvent?.(conflict)} className="mt-1 mr-2 rounded border border-alert-error px-2 py-1 text-xs hover:bg-alert-error/10">Open {conflict.source === "local" ? "and edit" : "details for"} {conflict.title}</button>)}</div> : null}
+              {event.classId && <button type="button" onClick={() => router.push(`/classes?editSchedule=${encodeURIComponent(event.classId!)}`)} className="mt-3 rounded-md border border-border-light px-3 py-1.5 text-xs font-medium hover:bg-bg-warm">Edit class schedule</button>}
+            </section>
+          )}
+          <label className="block text-sm font-medium text-text-muted">Title *<input required disabled={!canEdit} value={title} onChange={(change) => { setTitle(change.target.value); resetConflict(); }} className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm text-text-main outline-none focus:border-primary" /></label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="block text-sm font-medium text-text-muted">Type<select disabled={!canEdit} value={kind} onChange={(change) => setKind(change.target.value as NonNullable<CalendarEvent["kind"]>)} className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm text-text-main"><option value="event">Event</option><option value="study">Study block</option><option value="assignment">Assignment</option><option value="exam">Exam</option><option value="class">Class meeting</option></select></label>
+            <label className="block text-sm font-medium text-text-muted">Class<select disabled={!canEdit} value={classId} onChange={(change) => setClassId(change.target.value)} className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm text-text-main"><option value="">No class</option>{classes.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}</select></label>
           </div>
-
-          <div>
-            <label className="block text-sm font-medium text-text-muted">Title *</label>
-            <input
-              type="text"
-              required
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              placeholder="e.g. Team Meeting"
-            />
+          <label className="flex items-center gap-2 text-sm font-medium text-text-muted"><input type="checkbox" checked={allDay} disabled={!canEdit} onChange={(change) => { setAllDay(change.target.checked); resetConflict(); }} />All day</label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="block text-sm font-medium text-text-muted">Start date *<input type="date" required disabled={!canEdit} value={startDate} onChange={(change) => { setStartDate(change.target.value); if (!endDate) setEndDate(change.target.value); resetConflict(); }} className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm text-text-main" /></label>
+            {!allDay && <label className="block text-sm font-medium text-text-muted">Start time<input type="time" disabled={!canEdit} value={startTime} onChange={(change) => { setStartTime(change.target.value); resetConflict(); }} className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm text-text-main" /></label>}
+            {!allDay && <label className="block text-sm font-medium text-text-muted">End date *<input type="date" required disabled={!canEdit} value={endDate} onChange={(change) => { setEndDate(change.target.value); resetConflict(); }} className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm text-text-main" /></label>}
+            {!allDay && <label className="block text-sm font-medium text-text-muted">End time<input type="time" disabled={!canEdit} value={endTime} onChange={(change) => { setEndTime(change.target.value); resetConflict(); }} className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm text-text-main" /></label>}
           </div>
-
-          <div className="flex items-center gap-3">
-            <label className="text-sm font-medium text-text-muted">All Day</label>
-            <button
-              type="button"
-              onClick={() => setAllDay(!allDay)}
-              className={`relative h-6 w-11 rounded-full transition-colors ${
-                allDay ? "bg-primary" : "bg-border-hover"
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-bg-container shadow transition-transform ${
-                  allDay ? "translate-x-5" : ""
-                }`}
-              />
-            </button>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="block text-sm font-medium text-text-muted">Repeat<select disabled={!canEdit} value={recurrence} onChange={(change) => setRecurrence(change.target.value as NonNullable<CalendarEvent["recurrence"]>)} className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm text-text-main"><option value="none">Does not repeat</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></label>
+            <label className="block text-sm font-medium text-text-muted">Reminder<select disabled={!canEdit} value={reminderMinutes} onChange={(change) => setReminderMinutes(change.target.value)} className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm text-text-main"><option value="0">No reminder</option><option value="10">10 minutes before</option><option value="30">30 minutes before</option><option value="60">1 hour before</option><option value="1440">1 day before</option></select></label>
           </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label className="block text-sm font-medium text-text-muted">Start Date *</label>
-              <input
-                type="date"
-                required
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              />
-            </div>
-            {!allDay && (
-              <div>
-                <label className="block text-sm font-medium text-text-muted">Start Time</label>
-                <input
-                  type="time"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                />
-              </div>
-            )}
-            {!allDay && (
-              <>
-                <div>
-                  <label className="block text-sm font-medium text-text-muted">End Date *</label>
-                  <input
-                    type="date"
-                    required
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-text-muted">End Time</label>
-                  <input
-                    type="time"
-                    value={endTime}
-                    onChange={(e) => setEndTime(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                  />
-                </div>
-              </>
-            )}
-          </div>
-
-          <div className="border-b pb-2 pt-2">
-            <span className="text-xs font-bold uppercase text-text-muted">Optional</span>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-text-muted">Location</label>
-            <input
-              type="text"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              placeholder="e.g. Conference Room B"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-text-muted">Description</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm focus:border-primary focus:outline-none resize-none"
-              placeholder="Any notes about this event..."
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-text-muted mb-2">Color</label>
-            <div className="flex gap-2">
-              {TONE_OPTIONS.map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setTone(t)}
-                  className={`h-7 w-7 rounded-full ${TONE_SWATCH_CLASSES[t]} ${
-                    tone === t ? "ring-2 ring-primary ring-offset-1" : ""
-                  }`}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-6 flex justify-end gap-3 border-t pt-4">
-            <button
-              type="button"
-              onClick={handleClose}
-              className="rounded-md border border-border-light px-4 py-2 text-sm font-medium text-text-muted hover:bg-bg-warm"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-text-inverse hover:bg-primary-hover shadow-sm"
-            >
-              Save Event
-            </button>
+          {recurrence !== "none" && <label className="block text-sm font-medium text-text-muted">Repeat until (optional)<input type="date" disabled={!canEdit} value={recurrenceUntil} onChange={(change) => setRecurrenceUntil(change.target.value)} className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm text-text-main" /></label>}
+          <label className="block text-sm font-medium text-text-muted">Location<input disabled={!canEdit} value={location} onChange={(change) => setLocation(change.target.value)} className="mt-1 w-full rounded-md border border-border-light px-3 py-2 text-sm text-text-main" /></label>
+          <label className="block text-sm font-medium text-text-muted">Notes<textarea disabled={!canEdit} value={description} onChange={(change) => setDescription(change.target.value)} rows={3} className="mt-1 w-full resize-none rounded-md border border-border-light px-3 py-2 text-sm text-text-main" /></label>
+          <div><p className="text-sm font-medium text-text-muted">Color</p><div className="mt-2 flex gap-2">{TONE_OPTIONS.map((option) => <button key={option} type="button" disabled={!canEdit} onClick={() => setTone(option)} aria-label={`${option} color`} className={`h-7 w-7 rounded-full ${TONE_SWATCH_CLASSES[option]} ${tone === option ? "ring-2 ring-primary ring-offset-1" : ""}`} />)}</div></div>
+          {error && <p className="text-sm text-alert-error">{error}</p>}{conflictWarning && <p className="text-sm text-alert-error">{conflictWarning}</p>}
+          <div className="flex justify-between gap-3 border-t border-border-light pt-4">
+            {isEditing && canEdit ? <button type="button" onClick={handleDelete} disabled={saving} className="rounded-md px-3 py-2 text-sm font-medium text-alert-error hover:bg-alert-error-bg">Delete</button> : <span />}
+            <div className="flex gap-3"><button type="button" onClick={close} disabled={saving} className="rounded-md border border-border-light px-4 py-2 text-sm font-medium text-text-muted hover:bg-bg-warm">Cancel</button>{canEdit && <button type="submit" disabled={saving} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-text-inverse hover:bg-primary-hover disabled:opacity-50">{saving ? "Saving..." : isEditing ? "Save changes" : "Save event"}</button>}</div>
           </div>
         </form>
       </div>

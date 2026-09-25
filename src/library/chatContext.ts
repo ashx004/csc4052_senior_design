@@ -2,6 +2,7 @@ import { collection, doc, getDoc, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
 import { Term } from "./academicTerm";
 import { EnrollmentStatus, getEnrollmentStatus } from "./enrollmentStatus";
+import type { StructuredClassSchedule } from "./classSchedule";
 
 export type ChatDocument = {
   resourceId: string;
@@ -26,7 +27,7 @@ export type ChatDocument = {
   ocrScanned?: boolean;
 };
 
-export type ChatClass = {
+export type ChatClass = StructuredClassSchedule & {
   classId: string;
   className: string;
   classCode: string;
@@ -146,6 +147,12 @@ export async function buildChatContext(userId: string, email: string): Promise<C
         classSchedule: data.classSchedule ?? "",
         classRoom: data.classRoom ?? "",
         classDescription: data.classDescription ?? "",
+        meetingDays: Array.isArray(data.meetingDays) ? data.meetingDays : undefined,
+        meetingStartTime: typeof data.meetingStartTime === "string" ? data.meetingStartTime : undefined,
+        meetingEndTime: typeof data.meetingEndTime === "string" ? data.meetingEndTime : undefined,
+        meetingTimeZone: typeof data.meetingTimeZone === "string" ? data.meetingTimeZone : undefined,
+        termStartDate: typeof data.termStartDate === "string" ? data.termStartDate : undefined,
+        termEndDate: typeof data.termEndDate === "string" ? data.termEndDate : undefined,
         termSeason: data.termSeason,
         termYear: data.termYear,
         subject: data.subject,
