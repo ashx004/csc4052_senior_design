@@ -1,7 +1,7 @@
 import { doc, getDoc, updateDoc, deleteField, Timestamp } from "firebase/firestore";
 import { db } from "./firebase";
 import { firestoreGet, firestoreUpdate } from "./firestoreRest";
-import { resolveOllamaBaseUrl } from "./ollamaClient";
+import { resolveOllamaBaseUrl, secondaryContextOption } from "./ollamaClient";
 import { stripThinkLeak } from "./stripThinkLeak";
 
 // The "Core memory" tier of a small, tiered memory system — a short,
@@ -89,7 +89,7 @@ export async function maybeUpdateStudentProfile(
   const resetCounter = () =>
     firestoreUpdate(idToken, "users", userId, { learnerProfileMessageCount: 0 });
 
-  if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN) {
+  if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN || !process.env.OLLAMA_SUMMARY_MODEL) {
     await resetCounter();
     return;
   }
@@ -106,17 +106,16 @@ export async function maybeUpdateStudentProfile(
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+        "X-Catalyst-Feature": "student-profile",
       },
       signal: controller.signal,
       body: JSON.stringify({
-        model: process.env.OLLAMA_SUMMARY_MODEL || "qwen3:4b",
+        model: process.env.OLLAMA_SUMMARY_MODEL,
         stream: false,
-        // qwen3:4b ignores this at the model-weights level (confirmed via
-        // direct testing) - stripThinkLeak below is the real fix; setting
-        // this explicitly still costs nothing and helps any future model
-        // swapped into OLLAMA_SUMMARY_MODEL that does respect it.
+        // Explicit, costs nothing; stripThinkLeak below stays as the safety
+        // net for any model swapped into OLLAMA_SUMMARY_MODEL that ignores it.
         think: false,
-        options: { temperature: 0.2 },
+        options: { temperature: 0.2, ...secondaryContextOption() },
         messages: [
           {
             role: "system",

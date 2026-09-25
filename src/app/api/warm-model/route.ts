@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resolveOllamaBaseUrl, resolveModelFromKey, FAST_MODEL_KEEP_ALIVE } from "@/src/library/ollamaClient";
+import { resolveOllamaBaseUrl, resolveModelFromKey, FAST_MODEL_KEEP_ALIVE, mainModelContextOption } from "@/src/library/ollamaClient";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
 
@@ -8,11 +8,11 @@ const WARM_RATE_LIMIT_MAX = 10; // one toggle click each way, generously
 
 const WARM_TIMEOUT_MS = 120000; // matches OLLAMA_TIMEOUT_MS in api/chat/route.ts — a genuine cold load can take a while
 
-// "ocr" isn't a real TaskModelKey/UnifiedModelKey (see resolveModelFromKey) -
-// it's included here only so the settings page can eagerly co-warm vision
-// alongside fastResident (gpt-oss:20b), the one selection small enough for
-// both to sit resident together.
-const VALID_MODEL_KEYS = ["museGlimmer", "nemotron", "qwenCoder", "qwen3A3b", "fastResident", "ocr"];
+// Both keys resolve to the same model now (see resolveModelFromKey) - Muse
+// Glimmer is the only main model, used for chat/quiz/flashcards and for
+// OCR/vision alike. "ocr" is kept as a distinct accepted key only so a
+// caller can still explicitly ask to warm the OCR path by name.
+const VALID_MODEL_KEYS = ["museGlimmer", "ocr"];
 
 // Pre-loads the settings page's currently-effective chat model into VRAM,
 // so a change a student makes there pays its cold-boot cost right then
@@ -60,10 +60,19 @@ export async function POST(request: NextRequest) {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+        "X-Catalyst-Feature": "warm-model",
       },
       // No messages — Ollama loads the model into memory and returns
-      // immediately once ready, without generating any content.
-      body: JSON.stringify({ model, messages: [], stream: false, keep_alive: keepAlive }),
+      // immediately once ready, without generating any content. Same
+      // num_ctx as every real main-model call, or the first real request
+      // after this warm-up would reload the model at a different size.
+      body: JSON.stringify({
+        model,
+        messages: [],
+        stream: false,
+        keep_alive: keepAlive,
+        options: { ...mainModelContextOption() },
+      }),
       signal: controller.signal,
     });
 

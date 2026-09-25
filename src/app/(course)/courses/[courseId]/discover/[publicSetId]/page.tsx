@@ -24,6 +24,8 @@ import MatchingQuestionGroup from '@/src/components/quizzes/MatchingQuestionGrou
 import FlashCard from '@/src/components/learning/FlashCard';
 import VoteButtons from '@/src/components/discover/VoteButtons';
 import type { PublicStudySet, QuizQuestion } from '@/src/library/discover/types';
+import PageTutorial from '@/src/components/tutorial/PageTutorial';
+import courseDiscoverSetSteps from '@/src/library/tutorials/steps/course-discover-set';
 
 interface PublicStudySetWithId extends PublicStudySet {
   id: string;
@@ -274,6 +276,7 @@ export default function DiscoverSetPreviewPage() {
 
   return (
     <div className="min-h-screen bg-[#FAFAF8]">
+      <PageTutorial id="course-discover-set" steps={courseDiscoverSetSteps} />
       {/* Header */}
       <div className="flex h-[60px] items-center justify-between border-b border-border-light px-6 md:px-14">
         <div className="ml-4 flex min-w-0 translate-y-1 items-center gap-3">
@@ -294,7 +297,7 @@ export default function DiscoverSetPreviewPage() {
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-4">
+        <div className="flex shrink-0 items-center gap-4" data-tutorial="course-discover-set-vote">
           <span className="text-xs text-text-muted">by {set.creatorDisplayName}</span>
           {user && (
             <VoteButtons
@@ -310,7 +313,7 @@ export default function DiscoverSetPreviewPage() {
 
       <div className="mx-auto max-w-3xl px-6 py-8 md:px-14">
         {/* Save action */}
-        <div className="mb-8 flex items-center justify-between rounded-2xl border border-border-light bg-bg-container p-4">
+        <div className="mb-8 flex items-center justify-between rounded-2xl border border-border-light bg-bg-container p-4" data-tutorial="course-discover-set-save">
           <p className="text-sm text-text-muted">
             {alreadySaved
               ? 'This set is already in your study materials.'

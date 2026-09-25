@@ -1,4 +1,5 @@
 import { adminDb } from "@/src/library/firebaseAdmin";
+import { courseCodesStructurallyEquivalent } from "@/src/library/advisingSchedule";
 
 export type OfferedTerm = {
   offered: boolean;
@@ -58,31 +59,9 @@ export function findCachedCourse(
   courseCode: string,
   cache: CachedCourseOffering[]
 ): CachedCourseOffering | undefined {
-
-  const target = normalizeCourseCode(courseCode);
-
-  // Try exact match first
-  const exactMatch = cache.find((course) => normalizeCourseCode(course.courseCode) === target);
-
-  if (exactMatch) { return exactMatch; }
-
-  // Handle old 3-digit curriculum codes
-  // versus newer 4-digit cache codes.
-  //
-  // Example:
-  // CSC 493  -> CSC 4933
-  // ENGL 101 -> ENGL 1013
-  
-  const prefixMatch = cache.find(
-    (course) => { const cachedCode = normalizeCourseCode(course.courseCode);
-
-      return (
-        cachedCode.length === target.length + 1 && cachedCode.startsWith(target)
-      );
-    }
+  return cache.find((course) =>
+    courseCodesStructurallyEquivalent(courseCode, course.courseCode)
   );
-
-  return prefixMatch;
 }
 
 export function isCourseOfferedInTerm(

@@ -2,7 +2,11 @@
   "name": "catalyst",
   "private": true,
   "version": "0.0.0",
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "scripts": {
+    "postinstall": "node scripts/copy-pdf-worker.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -10,8 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "worker:ocr": "tsx scripts/ocrWorker.ts",
-    "postinstall": "node scripts/copy-pdf-worker.mjs"
+    "worker:ocr": "tsx scripts/ocrWorker.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1079.0",
@@ -25,6 +28,7 @@
     "docx-preview": "^0.3.7",
     "firebase": "^12.15.0",
     "firebase-admin": "^14.2.0",
+    "framer-motion": "^13.4.0",
     "googleapis": "^173.0.0",
     "jose": "^5.9.6",
     "katex": "^0.18.1",
@@ -41,6 +45,7 @@
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.0",
     "remark-math": "^6.0.0",
+    "undici": "8.10.2",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^4.4.3"
   },

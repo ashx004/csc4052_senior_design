@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Loader2, LayoutGrid, List } from "lucide-react";
+import { Loader2, LayoutGrid, List, X } from "lucide-react";
 import { useAuth } from "@/src/context/AuthContext";
 import { useSetPageContext } from "@/src/context/AIPageContext";
 import { useAdvisingCache } from "@/src/context/AdvisingCacheContext";
@@ -180,7 +180,16 @@ function CourseCard({
   );
 }
 
-export default function Advising() {
+/** The former standalone Advising page (course-offering catalog, backed by
+ *  the protohacks course-history source) — demoted from primary nav to a
+ *  supplementary "see the full catalog" view launched from the Add Class
+ *  dialog (see AddEnrollmentModal's "See course catalog" link), since
+ *  Advising New & Improved is the one AI-driven advising experience left in
+ *  the sidebar. Content and behavior are otherwise unchanged from the page
+ *  this was extracted from. `onClose` renders a close button — omit it to
+ *  use this standalone (e.g. embedded directly in a route) with no way to
+ *  dismiss itself. */
+export default function CourseCatalogView({ onClose }: { onClose?: () => void }) {
   const { user } = useAuth();
   const cache = useAdvisingCache<AdvisingResponse, AdvisingCourse>();
 
@@ -325,8 +334,18 @@ export default function Advising() {
     <div className="flex h-screen flex-col bg-bg-main text-text-main">
       <header className="relative flex h-[60px] shrink-0 items-center justify-between border-b border-border-light px-6">
         <h1 className="absolute left-1/2 -translate-x-1/2 text-center text-lg font-semibold tracking-[0.45em] text-text-main">
-          Advising.
+          Course Catalog.
         </h1>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close course catalog"
+            className="ml-auto rounded-md p-1.5 text-text-muted transition hover:bg-bg-warm hover:text-text-main"
+          >
+            <X size={20} />
+          </button>
+        )}
       </header>
 
       <div className="flex-1 overflow-y-auto p-8">

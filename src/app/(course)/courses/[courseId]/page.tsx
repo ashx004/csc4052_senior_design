@@ -11,6 +11,8 @@ import { useAuth } from '@/src/context/AuthContext';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
 import { buildPageTextSuggestions, type PageTextPageContext } from '@/src/library/Contextual_AI/contextualAi';
 import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
+import PageTutorial from '@/src/components/tutorial/PageTutorial';
+import courseSteps from '@/src/library/tutorials/steps/course';
 
 // Lazy-loaded: pulls in docx-preview, pdfjs-dist, xlsx, and syntax
 // highlighting — heavy, and not needed until this section actually renders.
@@ -228,9 +230,10 @@ export default function CourseOverview({
 
     return (
         <div className="min-h-screen bg-bg-main px-6 py-10 sm:px-10">
+            <PageTutorial id="course" steps={courseSteps} />
             <div className="mx-auto max-w-4xl">
                 {/* Header */}
-                <div className="mb-8">
+                <div className="mb-8" data-tutorial="course-heading">
                     <div className="flex items-center gap-2 text-sm text-text-muted">
                         <span className="font-medium text-primary">{enrollment.classCode}</span>
                         <span>&middot;</span>
@@ -245,7 +248,7 @@ export default function CourseOverview({
                     src/library/courseSummary.ts. Absent until at least one
                     supported document has been uploaded and indexed. */}
                 {enrollment.courseSummary && (
-                    <div className="mb-6 rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light">
+                    <div className="mb-6 rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light" data-tutorial="course-summary">
                         <div className="flex items-center gap-2">
                             <Sparkles size={16} className="text-primary" />
                             <h2 className="text-sm font-semibold text-text-main">Course Summary</h2>
@@ -257,7 +260,7 @@ export default function CourseOverview({
 
                 {/* Info cards */}
                 <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light">
+                    <div className="rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light" data-tutorial="course-details">
                         <div className="flex items-center justify-between">
                             <h2 className="text-sm font-semibold text-text-main">Class Details</h2>
                             <CircleIconButton
@@ -290,7 +293,7 @@ export default function CourseOverview({
                     </div>
 
                     {/* Instructor Card */}
-                    <div className="rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light">
+                    <div className="rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light" data-tutorial="course-instructor">
                         <div className="flex items-center justify-between">
                             <h2 className="text-sm font-semibold text-text-main">Instructor</h2>
                             <CircleIconButton
@@ -330,7 +333,7 @@ export default function CourseOverview({
                 </div>
 
                 {/* Course Resources */}
-                <div className="mt-6 rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light">
+                <div className="mt-6 rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light" data-tutorial="course-resources">
                     <h2 className="text-sm font-semibold text-text-main mb-4">Course Resources</h2>
                     {/* PASSING DOWN DYNAMIC CURRENT USER ID TO CLEANLY REROUTE CAROUSEL MINIO FETCHES */}
                     <ResourcePreview userId={user.uid} courseId={courseId} />

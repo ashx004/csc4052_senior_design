@@ -4,9 +4,11 @@
 // The client keeps them in React state only.
 
 import { NextRequest, NextResponse } from "next/server";
-import { resolveOllamaBaseUrl } from "@/src/library/ollamaClient";
+import { resolveOllamaBaseUrl, resolveModelFromKey, mainModelContextOption } from "@/src/library/ollamaClient";
+import { thinkField } from "@/src/library/thinkMode";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
+import { stripThinkLeak, extractFirstJsonObject } from "@/src/library/stripThinkLeak";
 import { z } from "zod";
 
 // --- Config ---
@@ -92,11 +94,11 @@ const RequestBodySchema = z.object({
 async function callOllama(prompt: string, count: number): Promise<string> {
   const configuredUrl = process.env.OLLAMA_PRIMARY_URL;
   const token = process.env.OLLAMA_AUTH_TOKEN;
-  const model = process.env.OLLAMA_MODEL_QUALITY;
+  const model = resolveModelFromKey();
 
-  if (!configuredUrl || !token || !model) {
+  if (!configuredUrl || !token) {
     throw new Error(
-      "Ollama is not configured. Set OLLAMA_PRIMARY_URL, OLLAMA_AUTH_TOKEN, and OLLAMA_MODEL_QUALITY."
+      "Ollama is not configured. Set OLLAMA_PRIMARY_URL and OLLAMA_AUTH_TOKEN."
     );
   }
 
@@ -114,13 +116,15 @@ async function callOllama(prompt: string, count: number): Promise<string> {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
+        "X-Catalyst-Feature": "discover-learn-question",
       },
       signal: controller.signal,
       body: JSON.stringify({
         model,
         stream: false,
+        ...thinkField("discover"),
         format: buildLearnQuestionsJsonSchema(count),
-        options: { temperature: 0 },
+        options: { temperature: 0, ...mainModelContextOption() },
         messages: [
           {
             role: "system",
@@ -217,7 +221,7 @@ export async function POST(req: NextRequest) {
   for (let attempt = 0; attempt < MAX_OLLAMA_ATTEMPTS; attempt++) {
     try {
       const raw = await callOllama(prompt, body.count);
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(extractFirstJsonObject(stripThinkLeak(raw)));
       const validated = GeneratedQuestionsResponseSchema.parse(parsed);
 
       // Semantic filter

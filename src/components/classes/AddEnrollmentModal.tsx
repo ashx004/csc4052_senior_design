@@ -9,6 +9,7 @@ import { Minus } from "lucide-react";
 import { Term, parseCourseCode, getCurrentTerm } from '@/src/library/academicTerm';
 import { randomClassColor } from '@/src/library/classColors';
 import { CLASS_MEETING_DAYS, type ClassMeetingDay } from '@/src/library/classSchedule';
+import CourseCatalogView from '@/src/components/advising/CourseCatalogView';
 
 const TERM_OPTIONS: Term[] = ["Fall", "Winter", "Spring", "Summer"];
 const CLASS_CODE_DEBOUNCE_MS = 300;
@@ -76,6 +77,9 @@ export default function AddEnrollmentModal({
   const [meetingTimeZone, setMeetingTimeZone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
   const [termStartDate, setTermStartDate] = useState("");
   const [termEndDate, setTermEndDate] = useState("");
+  // Former standalone Advising page, now reachable only from here - see
+  // "See course catalog" link at the bottom of the form below.
+  const [catalogOpen, setCatalogOpen] = useState(false);
 
   // Handle generic input changes dynamically
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -482,7 +486,27 @@ export default function AddEnrollmentModal({
               </div>
             </form>
 
+            {/* Not sure of your exact class code/title yet? The old
+                Advising page's course-offering browser lives here now
+                instead of its own sidebar entry. */}
+            <p className="mt-4 text-center text-xs text-text-muted">
+              Not sure what to search for?{" "}
+              <button
+                type="button"
+                onClick={() => setCatalogOpen(true)}
+                className="font-medium text-primary hover:underline"
+              >
+                See course catalog
+              </button>
+            </p>
+
           </div>
+        </div>
+      )}
+
+      {catalogOpen && (
+        <div className="fixed inset-0 z-[60]">
+          <CourseCatalogView onClose={() => setCatalogOpen(false)} />
         </div>
       )}
     </>
