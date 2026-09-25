@@ -19,37 +19,46 @@ import {
     setThemeMode,
     ThemeMode,
 } from "@/src/library/theme";
+import Link from "next/link";
+import { useAuth } from "@/src/context/AuthContext";
+import { useTutorial } from "@/src/context/TutorialContext";
+import PageTutorial from "@/src/components/tutorial/PageTutorial";
+import settingsSteps from "@/src/library/tutorials/steps/settings";
 import {
-    AiTask,
-    TaskModelKey,
-    UnifiedModelKey,
-    TASK_MODEL_OPTIONS,
-    UNIFIED_MODEL_OPTIONS,
-    getStoredTaskModel,
-    setStoredTaskModel,
-    getStoredReduceColdBoots,
-    setStoredReduceColdBoots,
-    getStoredUnifiedModel,
-    setStoredUnifiedModel,
-    getEffectiveModelKey,
-    resetModelPreferences,
-} from "@/src/library/chatMode";
+    getAvailableVoices,
+    getStoredVoiceURI,
+    isSpeechSupported,
+    setStoredVoiceURI,
+    speak,
+} from "@/src/library/tts";
 
 export default function Settings() {
+    const { user } = useAuth();
+    const { resetAll } = useTutorial();
+    const [tutorialsReset, setTutorialsReset] = useState(false);
+
+    function handleReplayTutorials() {
+        if (!user) return;
+        // Clears every tutorial's seen flag AND the "don't show me
+        // tutorials again" opt-out - a user who'd opted out needs both
+        // cleared, or this button would silently do nothing for them.
+        resetAll();
+        setTutorialsReset(true);
+        // The confirmation only needs to be seen once per click, not linger
+        // indefinitely — the next page visit is what actually shows a tour again.
+        setTimeout(() => setTutorialsReset(false), 3000);
+    }
+
 
     // const [notificationIsOn, setNotificationOn] = useState<boolean>(false);
     // const [studyRemIsOn, setstudyRemOn] = useState<boolean>(false);
     const [themeMode, setThemeModeState] = useState<ThemeMode>("light");
     const [coffee, setCoffeeState] = useState<boolean>(false);
-    // Per-task model choices, plus the "reduce cold boots" unified-model
-    // override - see chatMode.ts for the fastest->smartest ordering and the
-    // full rationale behind each default.
-    const [chatModel, setChatModelState] = useState<TaskModelKey>("qwen3A3b");
-    const [quizModel, setQuizModelState] = useState<TaskModelKey>("qwen3A3b");
-    const [flashcardsModel, setFlashcardsModelState] = useState<TaskModelKey>("qwen3A3b");
-    const [reduceColdBoots, setReduceColdBootsState] = useState<boolean>(true);
-    const [unifiedModel, setUnifiedModelState] = useState<UnifiedModelKey>("qwen3A3b");
     // const [focusIsOn, setFocusOn] = useState<boolean>(false);
+
+    const [ttsSupported, setTtsSupported] = useState(false);
+    const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+    const [selectedVoiceURI, setSelectedVoiceURI] = useState<string>("");
 
     const [showPasswordForm, setShowPasswordForm] = useState<boolean>(false);
     const [showEmailForm, setShowEmailForm] = useState<boolean>(false);
@@ -65,7 +74,14 @@ export default function Settings() {
     const [isUpdatingAccount, setIsUpdatingAccount] = useState<boolean>(false);
 
     const router = useRouter();
+    const [aiModels, setAiModels] = useState<{ main: string | null; ocr: string | null } | null>(null);
 
+    useEffect(() => {
+        fetch("/api/ai-models")
+            .then((res) => (res.ok ? res.json() : null))
+            .then((data) => setAiModels(data))
+            .catch(() => setAiModels(null));
+    }, []);
 
     useEffect(() => {
         const storedMode = getStoredThemeMode();
@@ -73,12 +89,39 @@ export default function Settings() {
         applyTheme(storedMode, storedCoffee);
         setThemeModeState(storedMode);
         setCoffeeState(storedCoffee);
-        setChatModelState(getStoredTaskModel("chat"));
-        setQuizModelState(getStoredTaskModel("quiz"));
-        setFlashcardsModelState(getStoredTaskModel("flashcards"));
-        setReduceColdBootsState(getStoredReduceColdBoots());
-        setUnifiedModelState(getStoredUnifiedModel());
     }, []);
+
+    // Voices load asynchronously — empty on the first call in most browsers
+    // until 'voiceschanged' fires (Safari sometimes has them immediately,
+    // hence the direct call too, not just the listener).
+    useEffect(() => {
+        if (!isSpeechSupported()) return;
+        setTtsSupported(true);
+
+        function loadVoices() {
+            const available = getAvailableVoices();
+            setVoices(available);
+            setSelectedVoiceURI((prev) => {
+                if (prev) return prev;
+                const stored = getStoredVoiceURI();
+                if (stored && available.some((v) => v.voiceURI === stored)) return stored;
+                return available.find((v) => v.default)?.voiceURI ?? available[0]?.voiceURI ?? "";
+            });
+        }
+
+        loadVoices();
+        window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
+        return () => window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
+    }, []);
+
+    function handleVoiceChange(voiceURI: string) {
+        setSelectedVoiceURI(voiceURI);
+        setStoredVoiceURI(voiceURI);
+    }
+
+    function handlePreviewVoice() {
+        speak("This is what I sound like reading a message aloud.", () => {});
+    }
 
     function handleThemeModeToggle() {
         const next = themeMode === "dark" ? "light" : "dark";
@@ -91,63 +134,6 @@ export default function Settings() {
         setCoffeeState(next);
         setCoffee(next);
     }
-
-    function warmModel(modelKey: string) {
-        fetch("/api/warm-model", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ modelKey }),
-        }).catch((error) => console.error("Model warm-up request failed:", error));
-    }
-
-    // Fire-and-forget: pays the cold-boot cost of switching the chat model
-    // right now instead of on the student's next chat message. Never blocks
-    // the calling UI or surfaces a failure — this is a best-effort latency
-    // optimization. Scoped to chat specifically (not quiz/flashcards) since
-    // that's the always-open surface the original warm-up optimization
-    // targeted - see getEffectiveModelKey for how "chat" resolves once
-    // reduceColdBoots is considered. gpt-oss:20b (fastResident) is small
-    // enough to sit resident alongside vision/OCR without either evicting
-    // the other, so picking it is the one case worth eagerly co-warming
-    // vision too, rather than leaving it lazy-loaded on first actual OCR
-    // use like every other selection.
-    function warmEffectiveChatModel() {
-        const effectiveKey = getEffectiveModelKey("chat");
-        warmModel(effectiveKey);
-        if (effectiveKey === "fastResident") warmModel("ocr");
-    }
-
-    function handleTaskModelChange(task: AiTask, value: TaskModelKey) {
-        if (task === "chat") setChatModelState(value);
-        else if (task === "quiz") setQuizModelState(value);
-        else setFlashcardsModelState(value);
-        setStoredTaskModel(task, value);
-        if (task === "chat" && !reduceColdBoots) warmEffectiveChatModel();
-    }
-
-    function handleReduceColdBootsToggle(event: ChangeEvent<HTMLInputElement>) {
-        const next = event.target.checked;
-        setReduceColdBootsState(next);
-        setStoredReduceColdBoots(next);
-        warmEffectiveChatModel();
-    }
-
-    function handleUnifiedModelChange(value: UnifiedModelKey) {
-        setUnifiedModelState(value);
-        setStoredUnifiedModel(value);
-        if (reduceColdBoots) warmEffectiveChatModel();
-    }
-
-    function handleRestoreModelDefaults() {
-        resetModelPreferences();
-        setChatModelState(getStoredTaskModel("chat"));
-        setQuizModelState(getStoredTaskModel("quiz"));
-        setFlashcardsModelState(getStoredTaskModel("flashcards"));
-        setReduceColdBootsState(getStoredReduceColdBoots());
-        setUnifiedModelState(getStoredUnifiedModel());
-        warmEffectiveChatModel();
-    }
-
 
     async function reauthenticateUser(password: string): Promise<void> {
         const user = auth.currentUser;
@@ -331,6 +317,7 @@ export default function Settings() {
 
     return (
         <section className="flex min-h-screen flex-col bg-bg-main text-text-main transition-colors duration-700">
+            <PageTutorial id="settings" steps={settingsSteps} />
             <header className="relative flex h-[73px] shrink-0 items-center justify-between border-b border-border-light bg-bg-container px-6
                             transition-colors duration-300">
                 <h1 className="absolute left-1/2 -translate-x-1/2 text-center text-lg font-semibold tracking-[0.45em] text-text-main">
@@ -478,7 +465,7 @@ export default function Settings() {
             </header>
 
             <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
-                        bg-bg-main text-text-main hover:bg-bg-warm">
+                        bg-bg-main text-text-main hover:bg-bg-warm" data-tutorial="settings-appearance">
 
                 <span className="text-sm">
                     Appearance
@@ -508,6 +495,101 @@ export default function Settings() {
 
             </div>
 
+            {/* Voice picker for the AI Assistant's "read aloud" button
+                (src/library/tts.ts). Deliberately lists the browser's own
+                named voices rather than a male/female/non-binary category
+                picker — voices aren't labeled by gender identity at the API
+                level, and availability varies by device, so a preview
+                button is the only honest way to choose one. */}
+            {ttsSupported && (
+                <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
+                            bg-bg-main text-text-main hover:bg-bg-warm">
+
+                    <div>
+                        <span className="text-sm">
+                            Read-aloud voice
+                        </span>
+                        <p className="text-xs text-text-muted">
+                            Used by the speaker icon under AI Assistant messages.
+                        </p>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-2">
+                        <select
+                            id="tts-voice-select"
+                            value={selectedVoiceURI}
+                            onChange={(e) => handleVoiceChange(e.target.value)}
+                            className="rounded-md border border-border-light bg-bg-container px-2 py-1.5 text-xs text-text-main focus:border-primary focus:outline-none"
+                        >
+                            {voices.map((voice) => (
+                                <option key={voice.voiceURI} value={voice.voiceURI}>
+                                    {voice.name}
+                                </option>
+                            ))}
+                        </select>
+                        <button
+                            type="button"
+                            onClick={handlePreviewVoice}
+                            disabled={!selectedVoiceURI}
+                            className="rounded-md border border-border-light px-3 py-1.5 text-xs font-medium text-text-main transition hover:bg-bg-warm disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            Preview
+                        </button>
+                    </div>
+
+                </div>
+            )}
+
+            {/* Lets a user re-trigger every page's onboarding tour on demand
+                — useful if they skipped one by accident, or just want a
+                refresher. Clears tutorialsSeen for every id; each page's
+                <PageTutorial> then shows again the next time it's visited. */}
+            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
+                        bg-bg-main text-text-main hover:bg-bg-warm" data-tutorial="settings-tutorials">
+
+                <div>
+                    <span className="text-sm">
+                        Tutorials
+                    </span>
+                    <p className="text-xs text-text-muted">
+                        Replay the guided tour on every page next time you visit it.
+                    </p>
+                </div>
+
+                <button
+                    type="button"
+                    onClick={handleReplayTutorials}
+                    className="shrink-0 rounded-md border border-border-light px-3 py-1.5 text-xs font-medium text-text-main transition hover:bg-bg-warm"
+                >
+                    {tutorialsReset ? "Tours reset!" : "Replay tutorials"}
+                </button>
+
+            </div>
+
+            {/* Sits right under the tutorial control on purpose - anyone
+                who skipped or opted out of the guided tours still has a
+                self-serve way to get unstuck, without hunting for it. */}
+            <div className="flex w-3/4 self-center items-center justify-between py-3 px-2
+                        bg-bg-main text-text-main hover:bg-bg-warm" data-tutorial="settings-help">
+
+                <div>
+                    <span className="text-sm">
+                        Help &amp; FAQ
+                    </span>
+                    <p className="text-xs text-text-muted">
+                        Answers to common questions about using the site.
+                    </p>
+                </div>
+
+                <Link
+                    href="/help"
+                    className="shrink-0 rounded-md border border-border-light px-3 py-1.5 text-xs font-medium text-text-main transition hover:bg-bg-warm"
+                >
+                    Open Help
+                </Link>
+
+            </div>
+
             <div className="flex w-3/4 self-center items-center justify-between py-3 px-2
                         bg-bg-main text-text-main hover:bg-bg-warm">
 
@@ -533,120 +615,34 @@ export default function Settings() {
             </header>
 
             <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
-                        bg-bg-main text-text-main hover:bg-bg-warm">
+                        bg-bg-main text-text-main">
 
                 <span className="text-sm">
-                    AI Chat model
+                    AI Model
                 </span>
 
-                <select
-                    value={chatModel}
-                    onChange={(event) => handleTaskModelChange("chat", event.target.value as TaskModelKey)}
-                    disabled={reduceColdBoots}
-                    aria-label="AI Chat model"
-                    className="w-56 rounded-md border border-border-light bg-bg-container px-3 py-1.5 text-sm text-text-main
-                        focus:border-green-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                    {TASK_MODEL_OPTIONS.map((option) => (
-                        <option key={option.key} value={option.key} title={option.detail}>{option.label}</option>
-                    ))}
-                </select>
-            </div>
-
-            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
-                        bg-bg-main text-text-main hover:bg-bg-warm">
-
-                <span className="text-sm">
-                    Quiz Generation model
+                <span className="text-sm text-text-muted">
+                    {aiModels?.main ?? "—"}
                 </span>
-
-                <select
-                    value={quizModel}
-                    onChange={(event) => handleTaskModelChange("quiz", event.target.value as TaskModelKey)}
-                    disabled={reduceColdBoots}
-                    aria-label="Quiz Generation model"
-                    className="w-56 rounded-md border border-border-light bg-bg-container px-3 py-1.5 text-sm text-text-main
-                        focus:border-green-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                    {TASK_MODEL_OPTIONS.map((option) => (
-                        <option key={option.key} value={option.key} title={option.detail}>{option.label}</option>
-                    ))}
-                </select>
-            </div>
-
-            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
-                        bg-bg-main text-text-main hover:bg-bg-warm">
-
-                <span className="text-sm">
-                    Flashcard Generation model
-                </span>
-
-                <select
-                    value={flashcardsModel}
-                    onChange={(event) => handleTaskModelChange("flashcards", event.target.value as TaskModelKey)}
-                    disabled={reduceColdBoots}
-                    aria-label="Flashcard Generation model"
-                    className="w-56 rounded-md border border-border-light bg-bg-container px-3 py-1.5 text-sm text-text-main
-                        focus:border-green-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                    {TASK_MODEL_OPTIONS.map((option) => (
-                        <option key={option.key} value={option.key} title={option.detail}>{option.label}</option>
-                    ))}
-                </select>
-            </div>
-
-            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
-                        bg-bg-main text-text-main hover:bg-bg-warm">
-
-                <span className="text-sm">
-                    Reduce cold boots
-                </span>
-
-                <input
-                    type="checkbox"
-                    checked={reduceColdBoots}
-                    onChange={handleReduceColdBootsToggle}
-                    aria-label="Toggle reduce cold boots"
-                    className="h-4 w-4 cursor-pointer rounded border-border-light accent-primary"
-                />
             </div>
 
             <div className="flex w-3/4 self-center px-2 py-1 text-xs text-text-muted">
-                Reduces the occurrence of cold boots by selecting the best overall model for all tasks rather than various model selection.
+                Powers AI Chat, Quiz &amp; Flashcard generation, Advising, and Discover
             </div>
 
             <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
-                        bg-bg-main text-text-main hover:bg-bg-warm">
-
+                        bg-bg-main text-text-main">
                 <span className="text-sm">
-                    Model for all tasks
+                    Document scanning model
                 </span>
-
-                <select
-                    value={unifiedModel}
-                    onChange={(event) => handleUnifiedModelChange(event.target.value as UnifiedModelKey)}
-                    disabled={!reduceColdBoots}
-                    aria-label="Model for all tasks"
-                    className="w-56 rounded-md border border-border-light bg-bg-container px-3 py-1.5 text-sm text-text-main
-                        focus:border-green-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                    {UNIFIED_MODEL_OPTIONS.map((option) => (
-                        <option key={option.key} value={option.key} title={option.detail}>{option.label}</option>
-                    ))}
-                </select>
+                <span className="text-sm text-text-muted">
+                    {aiModels?.ocr ?? "—"}
+                </span>
             </div>
 
-            <div className="mt-2 flex w-3/4 self-center justify-end px-2 py-1">
-                <button
-                    type="button"
-                    onClick={handleRestoreModelDefaults}
-                    className="text-xs text-text-muted underline hover:text-text-main"
-                >
-                    Restore to default
-                </button>
+            <div className="flex w-3/4 self-center px-2 py-1 text-xs text-text-muted">
+                Reads text from uploaded photos and scans (OCR)
             </div>
-
-
 
             {/* Focus Mode
             <header className="mt-5 relative flex w-3/4 self-center 

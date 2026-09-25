@@ -4,7 +4,11 @@ import { useState, useEffect } from "react";
 import AdvisingPermissionModal from "@/src/components/advising/AdvisingPermissionModal";
 import AdvisingUploadModal from "@/src/components/advising/AdvisingUploadModal";
 import ExistingDocumentsModal from "@/src/components/advising/ExistingDocumentsModal";
+import TransferCreditForm from "@/src/components/advising/TransferCreditForm";
 import { useAuth } from "@/src/context/AuthContext";
+import PageTutorial from "@/src/components/tutorial/PageTutorial";
+import advisingNewSteps from "@/src/library/tutorials/steps/advising_new";
+import advisingSetupSteps from "@/src/library/tutorials/steps/advising-setup";
 
 
 type GeneratedCourse = {
@@ -43,6 +47,9 @@ export default function AdvisingPage() {
   const [documentsReady, setDocumentsReady] = useState<boolean>(false);
   const [generatedSchedule, setGeneratedSchedule,] = useState<GeneratedSchedule | null>(null);
   const [isGeneratingSchedule, setIsGeneratingSchedule,] = useState<boolean>(false);
+  const [transferReviewInfo, setTransferReviewInfo] = useState<{rowCount: number; totalCreditHours: number;} | null>(null);
+  const [showManualCourseForm, setShowManualCourseForm] = useState<boolean>(false);
+  const [scheduleNeedsRegeneration, setScheduleNeedsRegeneration] = useState<boolean>(false);
 
   useEffect(() => {
   if (loading || !user) {
@@ -91,6 +98,29 @@ export default function AdvisingPage() {
  }, [user, loading]);
 
 
+  // Give the advising model a head start loading into VRAM as soon as the
+  // upload modal opens, so cold-load time overlaps with the student's file
+  // upload instead of sitting on the extraction call's critical path (where
+  // it risks the Cloudflare tunnel's ~100s timeout - see advisingOllama.ts).
+  // Best-effort: extraction still works if this fails, just slower.
+  useEffect(() => {
+    if (!showUploadModal || !user) { return; }
+
+    user.getIdToken()
+      .then((token) =>
+        fetch("/api/warm-model", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ modelKey: "museGlimmer" }),
+        })
+      )
+      .catch(() => {});
+  }, [showUploadModal, user]);
+
+
   function handleAcceptUpload() {
     setShowPermissionModal(false);
     setShowUploadModal(true);
@@ -121,18 +151,20 @@ export default function AdvisingPage() {
   return (
     <main
       className="min-h-screen bg-[#f7f5f1] text-[#1f2933] dark:bg-[#171717] dark:text-gray-100 px-6 py-12" >
+      <PageTutorial id="advising_new" steps={advisingNewSteps} />
       <div className="mx-auto w-full max-w-4xl py-8">
 
         {/* Welcome Section */}
         <section
-          className="rounded-2xl border border-[#d8d3ca] bg-white p-8 shadow-sm 
-          dark:border-gray-700 dark:bg-[#202020]" >
+          className="rounded-2xl border border-[#d8d3ca] bg-white p-8 shadow-sm
+          dark:border-gray-700 dark:bg-[#202020]"
+          data-tutorial="advising-new-welcome" >
           <h1 className="text-3xl font-semibold">
             Welcome to Advising
           </h1>
 
           <p className="mt-4 text-sm leading-6 text-gray-600 dark:text-gray-300">
-            Studora's advising feature helps you understand your academic progress and plan
+            Catalyst's advising feature helps you understand your academic progress and plan
             the courses you may need to take next.
           </p>
 
@@ -146,6 +178,7 @@ export default function AdvisingPage() {
             type="button"
             onClick={generateSchedule}
             disabled={isGeneratingSchedule}
+            data-tutorial="advising-new-generate"
             className="mt-8 rounded-lg bg-[#b08957] px-6 py-3 text-sm font-medium
             text-white transition hover:bg-[#9c7849] disabled:cursor-not-allowed
             disabled:opacity-60" >
@@ -153,7 +186,48 @@ export default function AdvisingPage() {
             {isGeneratingSchedule ? "Generating Schedule..." : "Generate Schedule"}
 
           </button>
+
+               {scheduleNeedsRegeneration && (
+                  <p className="mt-3 text-sm text-amber-700">
+                    Your courses were updated. Click <strong>Generate Schedule</strong> again to see the changes reflected.
+                  </p>
+                )}
         </section>
+
+        {(transferReviewInfo || showManualCourseForm) && (
+          <section className="mt-8">
+            <TransferCreditForm
+              expectedRowCount={transferReviewInfo?.rowCount}
+              expectedTotalCreditHours={transferReviewInfo?.totalCreditHours}
+              heading={transferReviewInfo ? undefined : "Add a completed course"}
+              description={
+                transferReviewInfo ? undefined : "Add a course you've already completed elsewhere — transfer credit, AP credit, or anything not reflected above — so it counts toward your remaining requirements."
+              }
+              dismissLabel={transferReviewInfo ? "Skip for now" : "Close"}
+              onSaved={() => {
+                setTransferReviewInfo(null);
+                setShowManualCourseForm(false);
+                setScheduleNeedsRegeneration(true);
+              }}
+              onDismiss={() => {
+                setTransferReviewInfo(null);
+                setShowManualCourseForm(false);
+              }}
+            />
+          </section>
+        )}
+
+        {!transferReviewInfo && !showManualCourseForm && (
+          <section className="mt-8">
+            <button
+              type="button"
+              onClick={() => setShowManualCourseForm(true)}
+              className="text-sm font-medium text-[#b08957] hover:underline"
+            >
+              + Add a completed course
+            </button>
+          </section>
+        )}
 
         {/* Previous Schedule Section */}
         <section 
@@ -181,6 +255,7 @@ export default function AdvisingPage() {
               bg-bg-main
               p-5
             "
+            data-tutorial="advising-new-preview"
           >
 
             {!generatedSchedule && (
@@ -193,11 +268,12 @@ export default function AdvisingPage() {
             {generatedSchedule && (
               <div className="space-y-6">
 
-                {generatedSchedule.terms.map(
-                  (term) => (
 
-                    <section
-                      key={`${term.term}-${term.year}`}
+                {generatedSchedule.terms
+                  .filter((term) => term.courses.length > 0)
+                  .map(
+                    (term) => (
+                      <section key={`${term.term}-${term.year}`}
                       className="
                         rounded-xl
                         border
@@ -392,6 +468,15 @@ export default function AdvisingPage() {
     console.log("Transcript:", data.transcript);
     console.log("Curriculum:", data.curriculum);
 
+    if (data.needsManualTransferReview && data.unreadableTransferInfo) {
+      setTransferReviewInfo({
+        rowCount: data.unreadableTransferInfo.rowCount,
+        totalCreditHours: data.unreadableTransferInfo.totalCreditHours,
+      });
+    } else {
+      setTransferReviewInfo(null);
+    }
+
     return true;
 
 
@@ -447,6 +532,7 @@ export default function AdvisingPage() {
       }
 
       setGeneratedSchedule(data.schedule);
+      setScheduleNeedsRegeneration(false);
 
       console.log("Generated Schedule:", data.schedule);
 
@@ -504,6 +590,12 @@ export default function AdvisingPage() {
             </div>
             )}            
       </main>
+
+      {/* Students without documents only ever see this prompt, so they get
+          their own short tour of it; the main advising_new tour plays once
+          their documents are ready. Mounted only while the prompt is open,
+          so returning students never get a tour waiting on absent targets. */}
+      {showPermissionModal && <PageTutorial id="advising-setup" steps={advisingSetupSteps} />}
 
       <AdvisingPermissionModal
         isOpen={showPermissionModal}

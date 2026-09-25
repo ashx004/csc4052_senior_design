@@ -8,6 +8,8 @@ export type EventTone =
   | "brown"
   | "blue";
 
+export type EventCategory = "exam" | "deadline" | "class";
+
 export type CalendarConnectionStatus = "connected" | "disconnected" | "loading";
 
 export type CalendarEvent = {
@@ -22,6 +24,7 @@ export type CalendarEvent = {
   status?: "confirmed" | "tentative" | "cancelled";
   htmlLink?: string;
   tone?: EventTone;
+  category?: EventCategory;
   // Class-derived events use the enrollment's actual class color instead of
   // one of the small manual-event tone presets.
   color?: string;

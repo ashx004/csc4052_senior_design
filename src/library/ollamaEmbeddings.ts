@@ -4,7 +4,7 @@ import { resolveOllamaBaseUrl } from "./ollamaClient";
 // Never import this from a client component — OLLAMA_SECONDARY_URL /
 // OLLAMA_AUTH_TOKEN are not NEXT_PUBLIC_ and must stay server-side.
 export async function embedTexts(texts: string[], signal?: AbortSignal): Promise<number[][]> {
-  if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN) {
+  if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN || !process.env.OLLAMA_EMBED_MODEL) {
     throw new Error("Embedding service is not configured.");
   }
 
@@ -14,15 +14,18 @@ export async function embedTexts(texts: string[], signal?: AbortSignal): Promise
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+      "X-Catalyst-Feature": "embeddings",
     },
     signal,
     body: JSON.stringify({
-      model: process.env.OLLAMA_EMBED_MODEL || "nomic-embed-text:latest",
+      model: process.env.OLLAMA_EMBED_MODEL,
       input: texts,
-      // Every search_documents/indexing call needs this model — it should
-      // never sit idle-evicted between uses the way an occasional-use model
-      // reasonably would.
-      keep_alive: -1,
+      // Changed 2026-08-15 from -1 (never unload): an idle model is just GPU
+      // power draw with nobody using it. 2h keeps it loaded through a normal
+      // burst of indexing/search activity without camping in VRAM forever -
+      // same window as FAST_MODEL_KEEP_ALIVE, and overrides the daemon-level
+      // OLLAMA_KEEP_ALIVE default (1h as of 2026-08-15).
+      keep_alive: "2h",
     }),
   });
 

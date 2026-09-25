@@ -6,6 +6,8 @@ import { useSetPageContext } from "@/src/context/AIPageContext";
 import ClassCard, { ClassCardProps } from '@/src/components/classes/ClassCard';
 import AddEnrollmentModal from '@/src/components/classes/AddEnrollmentModal';
 import EditClassScheduleModal from '@/src/components/classes/EditClassScheduleModal';
+import PageTutorial from '@/src/components/tutorial/PageTutorial';
+import classesSteps from '@/src/library/tutorials/steps/classes';
 import { doc, getDoc, collection, getDocs, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
 import { Minus } from "lucide-react";
@@ -211,6 +213,7 @@ export default function Classes() {
 
     return (
         <div className="relative flex min-h-screen items-center justify-center bg-bg-main">
+            <PageTutorial id="classes" steps={classesSteps} />
             <AddEnrollmentModal
                 onEnrollmentAdded={refreshEnrollments}
                 deleteMode={deleteMode}
@@ -262,13 +265,13 @@ export default function Classes() {
 
             {activeEnrollments.length === 0 ? (
                 <div className="flex flex-col items-center justify-center min-h-screen py-2">
-                    <h1 className="text-4xl font-bold mb-8">Classes</h1>
+                    <h1 className="text-4xl font-bold mb-8" data-tutorial="classes-heading">Classes</h1>
                     <p className="text-lg text-text-muted">No classes found. Please add a new class.</p>
                 </div>
             ) : (
                 <div className="flex flex-col items-center justify-center min-h-screen py-2 mx-10">
-                    <h1 className="text-4xl font-bold mb-8">Classes</h1>
-                    <div className="flex flex-wrap justify-center gap-8">
+                    <h1 className="text-4xl font-bold mb-8" data-tutorial="classes-heading">Classes</h1>
+                    <div className="flex flex-wrap justify-center gap-8" data-tutorial="classes-grid">
                         {activeEnrollments.map((enrollment) => (
                             <div key={enrollment.classId} className="relative">
                                 <ClassCard

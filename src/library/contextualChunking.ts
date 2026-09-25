@@ -1,4 +1,4 @@
-import { resolveOllamaBaseUrl } from "./ollamaClient";
+import { resolveOllamaBaseUrl, secondaryContextOption } from "./ollamaClient";
 import { stripThinkLeak } from "./stripThinkLeak";
 
 // Anthropic's "Contextual Retrieval" technique: before embedding a chunk,
@@ -45,7 +45,7 @@ export async function addChunkContext(
   chunks: string[],
   signal?: AbortSignal
 ): Promise<string[]> {
-  if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN) {
+  if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN || !process.env.OLLAMA_CONTEXT_MODEL) {
     return chunks;
   }
 
@@ -62,6 +62,7 @@ export async function addChunkContext(
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+          "X-Catalyst-Feature": "contextual-chunking",
         },
         signal,
         body: JSON.stringify({
@@ -69,20 +70,20 @@ export async function addChunkContext(
           // one document is a much easier task than compaction's
           // fact-preservation-heavy multi-turn summarization, so it doesn't
           // need that tier's model. Confirmed live: llama3.2:3b produces
-          // accurate, correctly-scoped blurbs here in ~200ms vs qwen3:4b's
-          // several seconds - a real win for indexing time specifically,
+          // accurate, correctly-scoped blurbs here in ~200ms, versus several
+          // seconds for a reasoning model - a real win for indexing time specifically,
           // since this runs once per chunk during document upload.
-          model: process.env.OLLAMA_CONTEXT_MODEL || "llama3.2:3b",
+          model: process.env.OLLAMA_CONTEXT_MODEL,
           stream: false,
           // Kept for defense-in-depth even though llama3.2:3b actually
-          // respects it (unlike the qwen3:4b this replaced, which ignored
-          // it at the weights level - see queryClarifier.ts). Without this
+          // respects it (the reasoning model this replaced ignored it at
+          // the weights level - see queryClarifier.ts). Without this
           // and stripThinkLeak below, a future model swapped in here that
           // doesn't respect it could leak a <think> block straight into the
           // chunk text and into the search index, polluting retrieval for
           // that chunk indefinitely.
           think: false,
-          options: { temperature: 0.1 },
+          options: { temperature: 0.1, ...secondaryContextOption() },
           messages: [
             {
               role: "system",

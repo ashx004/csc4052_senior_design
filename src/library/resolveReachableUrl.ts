@@ -31,20 +31,35 @@ export async function probeUrl(url: string, path: string, headers?: HeadersInit)
   }
 }
 
+async function isReachable(url: string, probe: (baseUrl: string) => Promise<boolean>): Promise<boolean> {
+  const now = Date.now();
+  const cached = reachabilityCache.get(url);
+  if (cached && cached.expiresAt > now) return cached.reachable;
+
+  const reachable = await probe(url);
+  reachabilityCache.set(url, { reachable, expiresAt: now + CACHE_TTL_MS });
+  return reachable;
+}
+
+// fallbackUrl may list several candidates, comma-separated, tried in order
+// after baseUrl - e.g. "<tailscale url>,<cloudflare url>", so one shared env
+// works both for the public site (LAN reachable, first probe wins) and for a
+// teammate developing remotely (LAN probe fails, Tailscale or the public
+// tunnel takes over). The last candidate is returned without probing, same
+// as the single-fallback case always did - if everything is down, the real
+// request's own error is more useful than a probe failure.
 export async function resolveReachableUrl(
   baseUrl: string,
   fallbackUrl: string | undefined,
   probe: (baseUrl: string) => Promise<boolean>
 ): Promise<string> {
-  if (!fallbackUrl || fallbackUrl === baseUrl) return baseUrl;
+  const candidates = [baseUrl, ...(fallbackUrl ?? "").split(",")]
+    .map((url) => url?.trim())
+    .filter((url, index, all): url is string => Boolean(url) && all.indexOf(url) === index);
+  if (candidates.length <= 1) return candidates[0] ?? baseUrl;
 
-  const now = Date.now();
-  const cached = reachabilityCache.get(baseUrl);
-  if (cached && cached.expiresAt > now) {
-    return cached.reachable ? baseUrl : fallbackUrl;
+  for (const url of candidates.slice(0, -1)) {
+    if (await isReachable(url, probe)) return url;
   }
-
-  const reachable = await probe(baseUrl);
-  reachabilityCache.set(baseUrl, { reachable, expiresAt: now + CACHE_TTL_MS });
-  return reachable ? baseUrl : fallbackUrl;
+  return candidates[candidates.length - 1];
 }

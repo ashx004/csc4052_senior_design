@@ -1,4 +1,4 @@
-import { resolveOllamaBaseUrl } from "./ollamaClient";
+import { resolveOllamaBaseUrl, secondaryContextOption } from "./ollamaClient";
 import { stripThinkLeak } from "./stripThinkLeak";
 
 // Uses the fast secondary model to restate what a student's raw chat
@@ -17,11 +17,11 @@ import { stripThinkLeak } from "./stripThinkLeak";
 // evaluating whether this actually improves answers enough to justify the
 // extra secondary-model round-trip before every response).
 // Few-shot examples confirmed necessary live: without them, the original
-// model here (qwen3:4b) just echoed the raw message back (with an
+// model here just echoed the raw message back (with an
 // introduced typo) instead of clarifying it. With them, it correctly
 // clarifies genuinely vague input and correctly says CLEAR on unambiguous
 // input. Since swapped to llama3.2:3b (see OLLAMA_CLARIFIER_MODEL below)
-// for latency, mainly for speed - qwen3:4b ignored think:false at the
+// for latency, mainly for speed - the original ignored think:false at the
 // weights level, forcing a slow reasoning preamble on every call - but
 // re-confirmed live on the same test cases including a genuinely ambiguous
 // backreference ("the thing we talked about"-style) that was previously
@@ -63,17 +63,19 @@ function mightBeAmbiguous(message: string): boolean {
 }
 
 // Was 15s — raised after a real timeout was traced to the secondary box
-// evicting/reloading whichever of qwen3:4b / qwen3-embedding wasn't most
+// evicting/reloading whichever of its two small models wasn't most
 // recently used (no OLLAMA_MAX_LOADED_MODELS set, so only one stayed
 // resident). Fixed at the infra level (both models now kept loaded
-// simultaneously, OLLAMA_KEEP_ALIVE=-1) — this extra headroom is just
-// defense-in-depth for real concurrent-request queueing, not the reload
-// case anymore.
+// simultaneously, OLLAMA_KEEP_ALIVE=1h as of 2026-08-15, was -1) — this
+// extra headroom is just defense-in-depth for real concurrent-request
+// queueing, not the reload case anymore. 1h is long enough that this fix
+// still holds for any realistic back-to-back usage; it only lapses after a
+// full hour of total inactivity, at which point both models unload anyway.
 const CLARIFY_TIMEOUT_MS = 20000;
 
 export async function clarifyUserQuery(message: string): Promise<string | null> {
   if (process.env.ENABLE_QUERY_CLARIFICATION === "false") return null;
-  if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN) return null;
+  if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN || !process.env.OLLAMA_CLARIFIER_MODEL) return null;
   if (message.trim().length < MIN_MESSAGE_LENGTH) return null;
   if (!mightBeAmbiguous(message)) return null;
 
@@ -84,27 +86,26 @@ export async function clarifyUserQuery(message: string): Promise<string | null> 
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+        "X-Catalyst-Feature": "query-clarifier",
       },
       signal: AbortSignal.timeout(CLARIFY_TIMEOUT_MS),
       body: JSON.stringify({
         // Deliberately its own env var, not OLLAMA_SUMMARY_MODEL - this task
         // (rewrite a short message using its own words) tolerates a much
         // smaller/faster model than compaction's fact-preservation-heavy
-        // summarization does. Confirmed live: llama3.2:3b matches qwen3:4b's
-        // clarifications on both the few-shot-covered cases and a genuinely
-        // novel ambiguous backreference ("what did you say earlier about
-        // the thing with...") at roughly 15-30x lower latency (~150-270ms
-        // vs qwen3:4b's multi-second thinking preamble), with none of
-        // qwen3:4b's think:false-ignoring slowness since llama3.2 isn't a
-        // reasoning-hybrid model at all.
-        model: process.env.OLLAMA_CLARIFIER_MODEL || "llama3.2:3b",
+        // summarization does. Confirmed live: llama3.2:3b matches the earlier
+        // reasoning model's clarifications on both the few-shot-covered cases
+        // and a genuinely novel ambiguous backreference ("what did you say
+        // earlier about the thing with...") at roughly 15-30x lower latency
+        // (~150-270ms), since llama3.2 isn't a reasoning-hybrid model at all.
+        model: process.env.OLLAMA_CLARIFIER_MODEL,
         stream: false,
         // Kept for defense-in-depth even though llama3.2:3b actually
-        // respects it (unlike the qwen3:4b this replaced) - costs nothing,
+        // respects it (unlike the reasoning model this replaced) - costs nothing,
         // and stripThinkLeak below still guards any future model swapped in
         // here that doesn't respect it.
         think: false,
-        options: { temperature: 0.1 },
+        options: { temperature: 0.1, ...secondaryContextOption() },
         messages: [
           { role: "system", content: CLARIFIER_SYSTEM_PROMPT },
           { role: "user", content: message },

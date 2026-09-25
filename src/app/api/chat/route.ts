@@ -3,7 +3,8 @@ import { resolveInternalUrl } from "@/src/library/pdfExtract";
 import { extractDocumentText, SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
 import { embedTexts, cosineSimilarity } from "@/src/library/ollamaEmbeddings";
 import { searchChunks } from "@/src/library/vectorStore";
-import { resolveOllamaBaseUrl, resolveModelFromKey, FAST_MODEL_KEEP_ALIVE } from "@/src/library/ollamaClient";
+import { resolveOllamaBaseUrl, resolveModelFromKey, FAST_MODEL_KEEP_ALIVE, mainModelContextOption, secondaryContextOption } from "@/src/library/ollamaClient";
+import { thinkField, mayLeakThinking } from "@/src/library/thinkMode";
 import { clarifyUserQuery } from "@/src/library/queryClarifier";
 import { searchWeb } from "@/src/library/webSearch";
 import { searchYoutube } from "@/src/library/youtubeSearch";
@@ -39,10 +40,9 @@ const MAX_CHAT_INPUT_CHARS = 4000; // mirrors the client's <input maxLength> in 
 // Conversation compaction: once the "unsummarized" tail of a conversation
 // gets this long, fold everything except the last KEEP_RECENT_MESSAGES turns
 // into a running summary instead of resending it verbatim every request.
-// Raised from the original 12000/6 - that was conservative even for
-// qwen3:14b's real 40960-token context, and both current models (Fast:
-// gpt-oss:20b, Quality: qwen3:30b-a3b) have substantially larger real
-// context windows, so there's real headroom to keep more actual
+// Raised from the original 12000/6 - that was conservative for the app's
+// main model (see resolveModelFromKey), which has a large
+// real context window, so there's real headroom to keep more actual
 // conversation verbatim (better continuity, no lossy summarization) before
 // compaction needs to kick in at all.
 const COMPACTION_CHAR_THRESHOLD = 45000;
@@ -574,12 +574,11 @@ async function searchDocuments(
 
   // `candidates` is already sorted by hybrid score (dense+sparse) descending
   // from the .sort() above - this used to hand off to an LLM reranker
-  // (qwen3:4b) for a second pass, but that call was pure overhead on every
-  // single document search: the hybrid score is already a real relevance
-  // signal, not a rough pre-filter, and the LLM pass added a full secondary-
-  // box round trip (plus, confirmed separately, that specific model ignores
-  // think:false at the weights level, so it was an unavoidably slow round
-  // trip) for a reordering that empirically wasn't earning its cost. Straight
+  // for a second pass, but that call was pure overhead on every single
+  // document search: the hybrid score is already a real relevance signal,
+  // not a rough pre-filter, and the LLM pass added a full secondary-box
+  // round trip for a reordering that empirically wasn't earning its cost.
+  // Straight
   // deterministic top-K slice now - faster, and one less network hop that
   // can fail.
   const relevant = candidates.slice(0, TOP_K_CHUNKS);
@@ -1055,14 +1054,12 @@ async function deleteCalendarEventTool(
   return "Removed the event from the student's calendar.";
 }
 
-// Both chat models have shown this bug: even with think:false, they
-// sometimes still emit raw chain-of-thought as plain content, ending in a
-// stray closing </think> tag with no matching opening tag (qwen3:30b-a3b -
-// confirmed live, reproduced 4/4 tries during model research; gpt-oss:20b -
-// confirmed live 2026-08-11, same tag-delimited shape). A separate,
-// non-tag-delimited gpt-oss:20b leak has also been seen once (a document-
-// summarization reply) - that shape isn't catchable by matching a
-// delimiter and isn't handled here.
+// Some models have shown this bug: even with think:false, they sometimes
+// still emit raw chain-of-thought as plain content, ending in a stray
+// closing </think> tag with no matching opening tag (confirmed live during
+// model research, reproduced 4/4 tries). A separate, non-tag-delimited leak
+// has also been seen once (a document-summarization reply) - that shape
+// isn't catchable by matching a delimiter and isn't handled here.
 //
 // Buffers a round's output until either the tag shows up (then discards
 // everything up to and including it, releasing only the real answer from
@@ -1074,12 +1071,10 @@ async function deleteCalendarEventTool(
 // correct version that let a leak flash on screen before being wiped) is
 // that the reply bubble shows a plain "Thinking..."/spinner status with
 // nothing streaming until this resolves, instead of token-by-token
-// streaming from the first token. Only worth paying that cost for the two
-// models actually confirmed to leak (qwen3A3b, and fastResident/gpt-oss:20b
-// per this same 2026-08-11 finding) - applying it to every model
-// unconditionally (as it was before the 2026-08-13 model-selection
-// settings added museGlimmer/nemotron/qwenCoder) meant those three never
-// appeared to stream at all: any response short enough to stay under the
+// streaming from the first token. Only worth paying that cost for models
+// actually confirmed to leak - applying it to every model unconditionally
+// meant non-leaking ones never appeared to stream at all: any response
+// short enough to stay under the
 // cap, with no </think> tag to trigger early, sat fully buffered until the
 // round finished and flush() released it all at once. See
 // deltaHandlerForModel below for the model-scoped choice.
@@ -1150,11 +1145,6 @@ function wrapDeltaForThinkStripping(onDelta: (text: string) => void): {
   return { handleDelta, flush, discard };
 }
 
-// The two models with a confirmed <think>-leak (see THINK_STRIP_BUFFER_CAP's
-// comment) - every other model streams straight through via
-// passthroughDelta below instead.
-const MODELS_KNOWN_TO_LEAK_THINKING = ["qwen3A3b", "fastResident"];
-
 // No buffering, no delay - text reaches the client the instant Ollama
 // produces it. flush/discard are no-ops since there's never anything held
 // back to release or drop.
@@ -1166,8 +1156,15 @@ function passthroughDelta(onDelta: (text: string) => void): {
   return { handleDelta: onDelta, flush: () => {}, discard: () => {} };
 }
 
-function deltaHandlerForModel(modelKey: string | undefined, onDelta: (text: string) => void) {
-  return MODELS_KNOWN_TO_LEAK_THINKING.includes(modelKey ?? "")
+// Buffers for think-stripping only when chat's reply can actually carry
+// leaked reasoning: chat thinking is off (OLLAMA_THINK_CHAT) AND the model is
+// listed in OLLAMA_MODELS_ALWAYS_THINK (see thinkMode.ts - e.g. the qwen3
+// 2507 Thinking build, which reasons inline despite think:false). Every
+// other combination streams straight through: with thinking on, Ollama
+// already routes reasoning into message.thinking, which streamOllamaRound
+// never forwards.
+function deltaHandlerForModel(model: string, onDelta: (text: string) => void) {
+  return mayLeakThinking("chat", model)
     ? wrapDeltaForThinkStripping(onDelta)
     : passthroughDelta(onDelta);
 }
@@ -1213,7 +1210,9 @@ async function isModelLoaded(baseUrl: string, modelName: string): Promise<boolea
 // (compaction, clarification, embeddings' own explicit -1) — left at
 // Ollama's default rather than guessing a policy for models out of scope
 // here.
-type OllamaTarget = { baseUrl: string; model: string; keepAlive?: number | string };
+// numCtx keeps each box's resident model at one context size (see
+// mainModelContextOption / secondaryContextOption) so no call reloads it.
+type OllamaTarget = { baseUrl: string; model: string; keepAlive?: number | string; numCtx?: number };
 
 async function callOllama(
   messages: unknown[],
@@ -1221,8 +1220,11 @@ async function callOllama(
   temperature = CHAT_TEMPERATURE,
   target: OllamaTarget = {
     baseUrl: process.env.OLLAMA_PRIMARY_URL || "",
-    model: process.env.OLLAMA_MODEL || "gpt-oss:20b",
-  }
+    model: resolveModelFromKey(undefined),
+  },
+  // Read by the gatekeeper proxy in front of Ollama for its Discord
+  // transparency ping - purely observational, Ollama itself ignores it.
+  feature = "chat"
 ) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
@@ -1233,6 +1235,7 @@ async function callOllama(
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+        "X-Catalyst-Feature": feature,
       },
       body: JSON.stringify({
         model: target.model,
@@ -1240,7 +1243,7 @@ async function callOllama(
         ...(tools ? { tools } : {}),
         stream: false,
         think: false,
-        options: { temperature },
+        options: { temperature, ...(target.numCtx ? { num_ctx: target.numCtx } : {}) },
         ...(target.keepAlive !== undefined ? { keep_alive: target.keepAlive } : {}),
       }),
       signal: controller.signal,
@@ -1272,23 +1275,19 @@ async function streamOllamaRound(
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+        "X-Catalyst-Feature": "chat",
       },
       body: JSON.stringify({
         model: target.model,
         messages,
         tools,
         stream: true,
-        // Explicit, not omitted - this app previously never set this field
-        // anywhere, relying entirely on Ollama's implicit per-model default.
-        // Most models here (gpt-oss:20b, qwen3-vl) correctly suppress
-        // thinking once this is actually set; qwen3:30b-a3b still leaks
-        // sometimes even with this set (see wrapDeltaForThinkStripping,
-        // still needed as a safety net regardless); qwen3:4b ignores it
-        // entirely at the model-weights level, confirmed via direct
-        // testing - not fixable from here, see stripThinkLeak call sites
-        // for the actual mitigation used for that one.
-        think: false,
-        options: { temperature },
+        // Per-feature, from OLLAMA_THINK_CHAT (see thinkMode.ts). With it
+        // on, reasoning streams in message.thinking, which is never
+        // forwarded below; with it off, see deltaHandlerForModel for the
+        // safety net against models that reason inline anyway.
+        ...thinkField("chat"),
+        options: { temperature, ...(target.numCtx ? { num_ctx: target.numCtx } : {}) },
         ...(target.keepAlive !== undefined ? { keep_alive: target.keepAlive } : {}),
       }),
       signal: controller.signal,
@@ -1387,24 +1386,33 @@ async function compactIfNeeded(
   ];
 
   try {
-    // Which target to use is a "is secondary even configured" choice
-    // (orthogonal to reachability, kept as the existing OR-chain); which URL
-    // to actually hit for that chosen target is then resolved LAN-vs-fallback.
-    const usingSecondary = Boolean(process.env.OLLAMA_SECONDARY_URL);
-    const configuredUrl = process.env.OLLAMA_SECONDARY_URL || process.env.OLLAMA_PRIMARY_URL || "";
-    const configuredFallback = usingSecondary ? process.env.OLLAMA_SECONDARY_FALLBACK_URL : process.env.OLLAMA_PRIMARY_FALLBACK_URL;
-    const compactionBaseUrl = configuredUrl ? await resolveOllamaBaseUrl(configuredUrl, configuredFallback) : "";
+    // Secondary only — deliberately no fall-through to Primary. Primary's
+    // one main model already uses nearly its entire VRAM budget (confirmed
+    // empirically), so a compaction call landing there with a different
+    // model would evict it. Missing config means "skip compaction this
+    // turn" (caught below, fails open same as any other error here), not
+    // "quietly borrow Primary."
+    const secondaryUrl = process.env.OLLAMA_SECONDARY_URL;
+    const summaryModel = process.env.OLLAMA_SUMMARY_MODEL;
+    if (!secondaryUrl) {
+      throw new Error("OLLAMA_SECONDARY_URL is not configured; skipping compaction.");
+    }
+    if (!summaryModel) {
+      throw new Error("OLLAMA_SUMMARY_MODEL is not configured; skipping compaction.");
+    }
+    const compactionBaseUrl = await resolveOllamaBaseUrl(secondaryUrl, process.env.OLLAMA_SECONDARY_FALLBACK_URL);
 
     const response = await callOllama(summarizeMessages, undefined, 0.2, {
       baseUrl: compactionBaseUrl,
-      model: process.env.OLLAMA_SUMMARY_MODEL || process.env.OLLAMA_MODEL || "gpt-oss:20b",
-    });
+      model: summaryModel,
+      numCtx: secondaryContextOption().num_ctx,
+    }, "chat-summarize");
     if (!response.ok) throw new Error(`Summarization failed (${response.status})`);
 
     const data = await response.json();
     warnIfSlowGeneration(
       compactionBaseUrl,
-      process.env.OLLAMA_SUMMARY_MODEL || process.env.OLLAMA_MODEL || "gpt-oss:20b",
+      summaryModel,
       data?.eval_count,
       data?.eval_duration
     );
@@ -1672,20 +1680,18 @@ export async function POST(request: NextRequest) {
   }
 
   const encoder = new TextEncoder();
-  // modelKey picks which of the 5 models (see chatMode.ts's TaskModelKey/
-  // UnifiedModelKey) actually handles this chat turn - either the
-  // student's per-task "AI Chat model" choice, or the unified pick if
-  // they've turned on "Reduce cold boots" (see getEffectiveModelKey).
-  // Whichever one it is boots immediately and then stays resident
-  // indefinitely (FAST_MODEL_KEEP_ALIVE), until the student picks a
-  // different one - not just when it happens to be "fastResident". Every
-  // key other than "fastResident" itself still competes with the
-  // vision/OCR model for VRAM while it's the one loaded - see the
-  // gatekeeper proxy in front of Ollama for the eviction mechanics.
+  // modelKey is legacy plumbing (see chatMode.ts's getEffectiveModelKey) -
+  // resolveModelFromKey now always resolves it to the app's one main model
+  // (OLLAMA_MODEL_MAIN), which handles this chat turn regardless of what key
+  // was sent. It stays resident for FAST_MODEL_KEEP_ALIVE, at the same
+  // num_ctx as every other main-model call so no feature triggers a reload.
+  // OCR/vision runs on Secondary (see ocrClient.ts), so nothing else ever
+  // competes with it for Primary's VRAM.
   const primaryTarget: OllamaTarget = {
     baseUrl: await resolveOllamaBaseUrl(process.env.OLLAMA_PRIMARY_URL, process.env.OLLAMA_PRIMARY_FALLBACK_URL),
     model: resolveModelFromKey(modelKey),
     keepAlive: FAST_MODEL_KEEP_ALIVE,
+    numCtx: mainModelContextOption().num_ctx,
   };
   const stream = new ReadableStream({
     async start(controller) {
@@ -1745,7 +1751,7 @@ export async function POST(request: NextRequest) {
           send({ type: "delta", text: delta });
           recordDeltaForPersistence(delta);
         };
-        return deltaHandlerForModel(modelKey, base);
+        return deltaHandlerForModel(primaryTarget.model, base);
       };
       let finalAnswerText: string | null = null;
       // Persisted alongside the finished reply below; defaults to the raw
@@ -1764,8 +1770,8 @@ export async function POST(request: NextRequest) {
         send({ type: "status", label: "Loading your classes and profile..." });
 
         // Compaction runs in the background rather than gating this turn:
-        // qwen3:4b's own thinking preamble (~5s, see stripThinkLeak's
-        // comment) made every compaction-triggering turn sit in total
+        // a slow compaction call (a multi-second model preamble, see
+        // stripThinkLeak's comment) made every compaction-triggering turn sit in total
         // silence before the primary model even started streaming. Nothing
         // this turn actually needs the NEW summary — using last turn's
         // summary/summarizedCount to build the conversation below just
@@ -1780,17 +1786,11 @@ export async function POST(request: NextRequest) {
         // Clarification and persisting this turn's user message run
         // alongside profile-loading (not after) so their round-trips are
         // hidden behind that rather than adding their own serial latency in
-        // front of every response. Clarification itself is skipped outright
-        // for the always-resident "fastResident" key: it's designed
-        // fail-open/additive (see queryClarifier.ts), so skipping it just
-        // means the raw message goes to the primary model unclarified, same
-        // as any other message this feature declines to touch - a real (if
-        // now modest, since the llama3.2:3b swap) latency + one fewer
-        // network round trip saved for students who've explicitly opted
-        // into the fastest model.
+        // front of every response. Clarification always runs when there's
+        // content to clarify.
         const [loadedProfile, clarifiedIntent, startedPersist] = await Promise.all([
           context?.userId ? getStudentProfile(context.userId, getIdToken(request) ?? undefined) : Promise.resolve(studentProfile),
-          modelKey !== "fastResident" && typeof latestMessage?.content === "string"
+          typeof latestMessage?.content === "string"
             ? clarifyUserQuery(latestMessage.content)
             : Promise.resolve(null),
           typeof latestMessage?.content === "string"
@@ -1834,16 +1834,40 @@ export async function POST(request: NextRequest) {
           UPDATE_CALENDAR_EVENT_TOOL,
           DELETE_CALENDAR_EVENT_TOOL,
           RECALL_PAST_CHAT_TOOL,
-          // Opt-in only (see extraTools in the request body type above) -
-          // these two are the only tools that reach outside the student's
-          // own course materials, and aren't needed for most questions.
-          ...(extraTools ? [WEB_SEARCH_TOOL, YOUTUBE_SEARCH_TOOL] : []),
+          // Always available (changed 2026-08-14 — see the "extraTools"
+          // field's own comment above, kept for backward compatibility but
+          // no longer gating these). Previously opt-in only, but that had
+          // a real failure mode: a student asking to "research X" or "find
+          // a video" with the toggle off had no tool that could do either,
+          // and rather than explaining that, the model would silently
+          // return empty content twice in a row and hard-error (confirmed
+          // live). buildInstructionalLogicLayer already tells the model to
+          // "only call a tool when it materially improves the answer," so
+          // that existing guidance is what keeps this from turning into
+          // unwanted web-search sprawl on ordinary course questions -
+          // no separate gate needed to enforce restraint.
+          WEB_SEARCH_TOOL,
+          YOUTUBE_SEARCH_TOOL,
         ];
 
         let finished = false;
         let emptyRoundRetries = 0;
         let anyToolCalled = false;
         const documentsReadThisTurn: { courseId: string; resourceId: string; name: string }[] = [];
+
+        // Confirmed live 2026-08-14, two real incidents: a model calling
+        // read_document twice on the identical file (burning 2 of the 5
+        // round budget on zero new information, leaving nothing left for an
+        // actual answer), and a model calling create_flashcards 5 times in
+        // a row with the exact same (failing) arguments — the underlying
+        // generation failed the same deterministic way every time, so
+        // retrying was never going to help, it just turned a graceful
+        // one-shot failure into the whole round budget being silently
+        // burned. Tracks every (tool name, arguments) pair actually called
+        // this turn; an exact repeat gets a pointed correction instead of
+        // being executed again, so the model is told directly rather than
+        // left to rediscover the same dead end round after round.
+        const calledToolSignatures = new Map<string, string>();
 
         // The model's first token can legitimately take a while (cold model
         // load after idle — see OLLAMA_TIMEOUT_MS), so this is the last
@@ -1897,7 +1921,21 @@ export async function POST(request: NextRequest) {
               send({ type: "tool", name: fnName });
               let result: string;
 
-              if (fnName === "list_enrolled_classes") {
+              // Exact repeat of an earlier call this same turn (identical
+              // tool, identical arguments) — see calledToolSignatures'
+              // comment above. Skips redoing the actual work (no reason to
+              // re-read the same document or re-attempt the same failing
+              // generation) and instead tells the model plainly, so it
+              // stops looping instead of burning the rest of its round
+              // budget rediscovering the same result.
+              const toolSignature = `${fnName}:${JSON.stringify(args)}`;
+              const priorResult = calledToolSignatures.get(toolSignature);
+
+              if (priorResult !== undefined) {
+                result = priorResult.startsWith("Error:")
+                  ? "Error: this exact request already failed moments ago in this same turn, with the same arguments — retrying it will not produce a different result. Stop retrying it; tell the student what happened and, if a fallback was offered, suggest that instead."
+                  : "Note: you already called this exact tool with these exact arguments earlier this turn — the result is unchanged and already in this conversation above. Do not call it again with the same arguments; use what you already have.";
+              } else if (fnName === "list_enrolled_classes") {
                 result = listEnrolledClasses(context);
               } else if (fnName === "read_document") {
                 const readResult = await readDocument(request, context, args.courseId, args.documentName);
@@ -1957,6 +1995,7 @@ export async function POST(request: NextRequest) {
                 result = `Error: unknown tool "${fnName}".`;
               }
 
+              calledToolSignatures.set(toolSignature, result);
               conversation.push({ role: "tool", tool_call_id: toolCall.id, content: result });
             }
 
