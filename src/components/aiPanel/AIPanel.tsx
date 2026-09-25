@@ -9,6 +9,8 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import { useAuth } from "@/src/context/AuthContext";
+import { useSpeechToText } from "@/src/library/useSpeechToText";
+import MicButton from "@/src/components/aiAssistant/MicButton";
 import { useAIPageContext } from "@/src/context/AIPageContext";
 import { useAIPanelChat } from "./useAIPanelChat";
 
@@ -32,6 +34,7 @@ export default function AIPanel() {
   const { messages, isSending, toolStatus, errorText, sendMessage } = useAIPanelChat(user?.uid, user?.email ?? undefined);
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
+  const stt = useSpeechToText({ text: input, onText: setInput, maxLength: 4000 });
 
   useEffect(() => {
     setIsOpen(typeof window !== "undefined" && window.localStorage.getItem(STORAGE_KEY) === "true");
@@ -49,6 +52,7 @@ export default function AIPanel() {
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    stt.stop();
     const text = input;
     setInput("");
     sendMessage(text, pageContext);
@@ -132,12 +136,17 @@ export default function AIPanel() {
             <input
               type="text"
               value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask Catalyst..."
+              onChange={(e) => {
+                // Typing takes over from dictation (see useSpeechToText).
+                stt.stop();
+                setInput(e.target.value);
+              }}
+              placeholder={stt.listening ? "Listening..." : "Ask Catalyst..."}
               maxLength={4000}
               disabled={isSending}
               className="flex-1 rounded-full border border-border-light bg-bg-container px-4 py-2 text-sm focus:border-primary focus:outline-none disabled:opacity-60"
             />
+            <MicButton stt={stt} disabled={isSending} />
             <button
               type="submit"
               disabled={isSending || !input.trim()}
@@ -147,6 +156,11 @@ export default function AIPanel() {
               <Send className="h-4 w-4" />
             </button>
           </form>
+          {stt.error && (
+            <p role="status" className="px-3 pb-3 text-xs text-alert-error">
+              {stt.error}
+            </p>
+          )}
         </div>
       </aside>
     </>
