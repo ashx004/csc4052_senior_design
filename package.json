@@ -8,14 +8,15 @@
   "scripts": {
     "postinstall": "node scripts/copy-pdf-worker.mjs",
     "dev": "next dev",
-    "build": "next build",
+    "build": "cross-env NODE_OPTIONS=--max-old-space-size=6144 next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "eval:chat": "node --env-file=.env scripts/chatEval.mjs",
-    "worker:ocr": "tsx scripts/ocrWorker.ts"
+    "worker:ocr": "tsx scripts/ocrWorker.ts",
+    "worker:advising": "tsx scripts/advisingWorker.ts",
+    "eval:chat": "node --env-file=.env scripts/chatEval.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1079.0",
@@ -25,6 +26,11 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@google/genai": "^2.12.0",
     "@google/generative-ai": "^0.24.1",
+    "@tiptap/core": "^3.31.3",
+    "@tiptap/extension-placeholder": "^3.31.3",
+    "@tiptap/pm": "^3.31.3",
+    "@tiptap/react": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
     "cheerio": "^1.2.0",
     "docx-preview": "^0.3.7",
     "firebase": "^12.15.0",
@@ -51,6 +57,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@tailwindcss/typography": "^0.5.15",
     "@types/node": "^24.13.2",
     "@types/pdfkit": "^0.13.9",
@@ -58,10 +65,16 @@
     "@types/react-dom": "^19.2.3",
     "@types/react-syntax-highlighter": "^15.5.13",
     "autoprefixer": "^10.4.21",
+    "cross-env": "^10.1.0",
+    "eslint": "^10.11.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^17.12.0",
     "postcss": "^8.5.10",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.23.1",
     "typescript": "~5.8.3",
+    "typescript-eslint": "^8.70.1",
     "vitest": "^4.1.10"
   },
   "overrides": {

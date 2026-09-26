@@ -1,4 +1,4 @@
-export type CalendarView = "month" | "week" | "day";
+export type CalendarView = "month" | "week" | "day" | "agenda";
 
 export type EventTone =
   | "cream"
@@ -25,7 +25,21 @@ export type CalendarEvent = {
   htmlLink?: string;
   tone?: EventTone;
   category?: EventCategory;
-  source: "google" | "local";
+  // Class-derived events use the enrollment's actual class color instead of
+  // one of the small manual-event tone presets.
+  color?: string;
+  source: "google" | "local" | "class";
+  kind?: "event" | "study" | "assignment" | "exam" | "class";
+  classId?: string;
+  className?: string;
+  recurrence?: "none" | "daily" | "weekly" | "monthly";
+  recurrenceUntil?: string;
+  reminderMinutes?: number;
+  // The names of overlapping non-class events, calculated for the visible
+  // calendar range. This is display-only and is never persisted as an event.
+  conflictTitles?: string[];
+  classException?: boolean;
+  seriesId?: string;
 };
 
 export type CalendarDay = {
