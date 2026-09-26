@@ -1,0 +1,13 @@
+Queue Lab: Aster Queue and Data Structures
+
+A queue follows first in, first out (FIFO) ordering. Enqueue adds an item at the rear. Dequeue removes the oldest item from the front. A stack instead follows last in, first out (LIFO) ordering. Push adds an item to a stack and pop removes the most recently added item.
+
+In our fictional lab implementation, the Aster queue holds exactly 17 items. Its overflow diagnostic code is ZEPHYR-47. When the Aster queue is full, enqueue rejects the new item and preserves all existing items. When it is empty, dequeue returns the sentinel EMPTY. The lab coordinator is Dr. Rowan Vale. No email address, phone number, exam date, or grading policy is specified in these notes.
+
+A circular buffer uses a fixed-size array and wraps its indices around. In this lab, the head index points to the oldest stored item. The tail index points to the next insertion slot. The implementation also stores a count of occupied slots. An empty buffer has count zero. A full buffer has count equal to capacity. Advancing an index uses (index + 1) modulo capacity. The count removes ambiguity when head and tail have the same value.
+
+For this fixed-size implementation, enqueue and dequeue each run in O(1) time. Inspecting the front item without removing it is called peek, also O(1). Searching for an arbitrary item takes O(n) time. Storing n items needs O(n) space. A linked-list queue also supports O(1) enqueue and dequeue when it maintains both head and tail pointers. Each linked-list node stores an item and a link to the next node.
+
+A priority queue chooses removal order by priority rather than arrival time. In a binary min-heap the smallest item is at the root. Inserting into a binary heap takes O(log n) time. Removing its minimum also takes O(log n) time. Reading the minimum takes O(1) time. Building a heap from an existing array can take O(n) time.
+
+Breadth-first search uses a FIFO queue to visit vertices in increasing distance from the start in an unweighted graph. Depth-first search can use a stack. Marking a vertex visited before adding it to the queue prevents duplicate enqueues. In adjacency-list representation, breadth-first search takes O(V + E) time. A queue is also useful for processing jobs in arrival order and buffering messages between a producer and a consumer.

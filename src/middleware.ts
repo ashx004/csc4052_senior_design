@@ -21,7 +21,7 @@ const REMEMBER_COOKIE = "fb_remember";
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (PUBLIC_PATHS.has(pathname)) {
+  if (PUBLIC_PATHS.has(pathname) || pathname.startsWith("/share/")) {
     return NextResponse.next();
   }
 
@@ -64,4 +64,3 @@ export const config = {
   // alt text in place of every logo.
   matcher: ["/((?!api|_next/static|_next/image|.*\\..*).*)"],
 };
-

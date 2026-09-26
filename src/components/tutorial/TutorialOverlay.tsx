@@ -73,10 +73,13 @@ function sameRect(a: SpotlightRect | null, b: SpotlightRect | null): boolean {
 function revealTarget(el: HTMLElement, smooth: boolean) {
   window.dispatchEvent(new CustomEvent(TUTORIAL_TARGET_EVENT, { detail: { element: el } }));
   const r = el.getBoundingClientRect();
-  const outOfView = r.top < CARD_MARGIN || r.bottom > window.innerHeight - CARD_MARGIN;
+  const outOfView =
+    r.top < CARD_MARGIN || r.bottom > window.innerHeight - CARD_MARGIN || r.left < 0 || r.right > window.innerWidth;
   if (outOfView) {
     el.scrollIntoView({
       block: r.height > window.innerHeight * 0.6 ? "start" : "center",
+      // Sideways too: e.g. toolbar buttons scrolled out of a narrow phone toolbar.
+      inline: "nearest",
       behavior: smooth ? "smooth" : "auto",
     });
   }
