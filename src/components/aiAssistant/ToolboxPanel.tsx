@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type RefObject } from "react";
-import { GraduationCap, FileSearch, FileText, BookOpen, ListChecks, CalendarDays, History, Globe } from "lucide-react";
+import { GraduationCap, FileSearch, FileText, BookOpen, ListChecks, CalendarDays, History, Globe, NotebookPen, Gauge } from "lucide-react";
 
 type ToolEntry = {
   icon: typeof GraduationCap;
@@ -28,6 +28,9 @@ const ALWAYS_ON_TOOLS: ToolEntry[] = [
   { icon: ListChecks, label: "Quiz creation", description: "Turns a document into a quiz you can take" },
   { icon: FileText, label: "PDF / practice exam creation", description: "Generates a downloadable PDF, saved to your class files" },
   { icon: CalendarDays, label: "Calendar management", description: "Can view, add, reschedule, or remove your calendar events" },
+  { icon: NotebookPen, label: "Notes", description: "Reads, writes, and organizes your Notes tab and notebooks" },
+  { icon: GraduationCap, label: "Class details", description: "Looks up and corrects instructor, office, and meeting details" },
+  { icon: Gauge, label: "Progress", description: "Tracks how confident you are in each class from your quizzes and your own rating" },
   { icon: History, label: "Recall past chats", description: "Searches your other conversations when you reference something discussed before" },
 ];
 

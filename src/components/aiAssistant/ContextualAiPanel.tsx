@@ -19,11 +19,18 @@ import { useSpeechToText } from "@/src/library/useSpeechToText";
 import MicButton from "./MicButton";
 import { getPanelChatSession, subscribeToPanelChatSession } from "@/src/library/chatMemory";
 import { getEffectiveModelKey } from "@/src/library/chatMode";
+import { withTimeZone } from "@/src/library/chatTime";
+import QuickActions from "@/src/components/aiAssistant/QuickActions";
+import type { ChatClass } from "@/src/library/chatContext";
+import { useStickToBottom } from "@/src/hooks/useStickToBottom";
+import ConfirmActionCard, { type PendingActionCardData } from "./ConfirmActionCard";
+import { notifyDataChanged } from "@/src/library/dataChanged";
 
 // ─── Types ──────────────────────────────────────────────────────
 
 type ChatMessage = {
   role: "user" | "assistant";
+  pendingActions?: PendingActionCardData[];
   content: string;
 };
 
@@ -94,10 +101,10 @@ export default function ContextualAiPanel({
     getPanelChatSession(userId, panelContextKey)
       .then((session) => {
         if (!session || loadedKeyRef.current !== panelContextKey) return;
-        setMessages(session.messages.map((m) => ({ role: m.role, content: m.text })));
+        setMessages(session.messages.map((m) => ({ role: m.role, content: m.text, pendingActions: m.pendingActions })));
         if (session.generating) {
           generatingWatchRef.current = subscribeToPanelChatSession(userId, panelContextKey, (updated) => {
-            setMessages(updated.messages.map((m) => ({ role: m.role, content: m.text })));
+            setMessages(updated.messages.map((m) => ({ role: m.role, content: m.text, pendingActions: m.pendingActions })));
             if (!updated.generating) {
               generatingWatchRef.current?.();
               generatingWatchRef.current = null;
@@ -112,10 +119,8 @@ export default function ContextualAiPanel({
     return () => generatingWatchRef.current?.();
   }, []);
 
-  // Auto-scroll on new content
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, toolStatus]);
+  // Follows new content only while the student is at the bottom.
+  const scroller = useStickToBottom<HTMLDivElement>([messages, toolStatus]);
 
   // Focus input when panel opens
   useEffect(() => {
@@ -158,6 +163,7 @@ export default function ContextualAiPanel({
       const assistantMsg: ChatMessage = { role: "assistant", content: "" };
 
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
+      scroller.stick();
       setInput("");
       setIsStreaming(true);
       setToolStatus(null);
@@ -180,10 +186,11 @@ export default function ContextualAiPanel({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             messages: allMessages,
-            context: chatContext,
+            context: withTimeZone(chatContext),
             pageContext,
             panelContextKey,
             modelKey: getEffectiveModelKey("chat"),
+            pendingActionIds: messages.flatMap((m) => m.pendingActions?.map((a) => a.id) ?? []),
           }),
           signal: controller.signal,
         });
@@ -252,6 +259,14 @@ export default function ContextualAiPanel({
 
               if (event.type === "done") {
                 setToolStatus(null);
+                notifyDataChanged();
+                if (event.pendingActions?.length) {
+                  setMessages((prev) => {
+                    const updated = [...prev];
+                    updated[updated.length - 1] = { ...updated[updated.length - 1], pendingActions: event.pendingActions };
+                    return updated;
+                  });
+                }
               }
 
               if (event.type === "error") {
@@ -287,7 +302,7 @@ export default function ContextualAiPanel({
         abortRef.current = null;
       }
     },
-    [messages, isStreaming, chatContext, pageContext, panelContextKey, stt.stop]
+    [messages, isStreaming, chatContext, pageContext, panelContextKey, stt.stop, scroller.stick]
   );
 
   // ─── Handlers ───────────────────────────────────────────────
@@ -423,6 +438,8 @@ export default function ContextualAiPanel({
 
         {/* ── Scrollable body ── */}
         <div
+            ref={scroller.ref}
+            onScroll={scroller.onScroll}
             className={`mx-auto w-full flex-1 space-y-4 overflow-y-auto px-5 py-3 ${
                 isExpanded ? "max-w-4xl" : ""
             }`}
@@ -479,7 +496,7 @@ export default function ContextualAiPanel({
           {messages.map((msg, i) => (
             <div
               key={i}
-              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+              className={`flex flex-col gap-2 ${msg.role === "user" ? "items-end" : "items-start"}`}
             >
               <div
                 className={`${isExpanded ? "max-w-3xl": "max-w-[85%]"}
@@ -514,6 +531,9 @@ export default function ContextualAiPanel({
                   <span>{msg.content}</span>
                 )}
               </div>
+              {msg.pendingActions?.map((action) => (
+                <ConfirmActionCard key={action.id} action={action} compact={!isExpanded} />
+              ))}
             </div>
           ))}
 
@@ -535,6 +555,13 @@ export default function ContextualAiPanel({
       isExpanded ? "max-w-4xl" : ""
     }`}
   >
+    <QuickActions
+      classes={(Array.isArray((chatContext as { classes?: unknown }).classes) ? (chatContext as { classes: ChatClass[] }).classes : [])}
+      defaultCourseId={"courseId" in pageContext ? (pageContext.courseId as string | undefined) : undefined}
+      disabled={isStreaming}
+      compact={!isExpanded}
+      onSend={(prompt) => void sendMessage(prompt)}
+    />
     <div
       className="
         flex items-end gap-2

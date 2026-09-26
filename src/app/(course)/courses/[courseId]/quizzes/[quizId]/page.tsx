@@ -16,7 +16,9 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
-import { ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
+import { refreshCourseConfidence } from '@/src/library/courseConfidenceStore';
+import { getEffectiveModelKey } from '@/src/library/chatMode';
+import { ArrowLeft, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import QuestionCard from '@/src/components/quizzes/QuestionCard';
 import MatchingQuestionGroup from '@/src/components/quizzes/MatchingQuestionGroup';
 import QuizResults from '@/src/components/quizzes/QuizResults';
@@ -65,6 +67,10 @@ export default function QuizTakingPage() {
   const { displayName: courseDisplayName } = useCourseInfo(courseId);
 
   const [quizName, setQuizName] = useState('Quiz');
+  // Where the quiz came from, so "New questions" can build a fresh set from the same file.
+  const [quizSource, setQuizSource] = useState<{ key: string; questionTypes: unknown } | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenerateError, setRegenerateError] = useState<string | null>(null);
   const [allQuestions, setAllQuestions] = useState<QuizQuestion[]>([]);
   const [activeQuestions, setActiveQuestions] = useState<QuizQuestion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -128,6 +134,11 @@ export default function QuizTakingPage() {
         const questions: QuizQuestion[] = data.questions || [];
 
         setQuizName(data.name || 'Quiz');
+        setQuizSource(
+          typeof data.sourceDocKey === 'string' && data.sourceDocKey
+            ? { key: data.sourceDocKey, questionTypes: data.questionTypes }
+            : null
+        );
         setAllQuestions(questions);
         setActiveQuestions(questions);
       } catch (error) {
@@ -317,6 +328,8 @@ export default function QuizTakingPage() {
         completedAt: serverTimestamp(),
       });
       await fetchPastAttempts();
+      // Best-effort: the AI assistant's sense of how the student is doing.
+      refreshCourseConfidence(user.uid, courseId).catch((e) => console.error('Refreshing course confidence failed:', e));
     } catch (error) {
       console.error('Error saving quiz attempt:', error);
     } finally {
@@ -351,6 +364,66 @@ export default function QuizTakingPage() {
     router.push(`/courses/${courseId}/quizzes/${quizId}?mode=take`);
     scrollToTop();
   };
+
+  // A new quiz set from the same file that avoids this quiz's questions. It's a
+  // separate set (not an overwrite) so this quiz's attempt history stays intact.
+  const handleNewQuestions = async () => {
+    if (!user || !quizSource || regenerating) return;
+    setRegenerating(true);
+    setRegenerateError(null);
+    try {
+      const docName = quizSource.key.split('/').pop()?.replace(/^\d+[-_]/, '') || 'document';
+      const response = await fetch('/api/generate-quiz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          docUrl: `/api/download?key=${encodeURIComponent(quizSource.key)}`,
+          docName,
+          questionCount: allQuestions.length || 10,
+          questionTypes: quizSource.questionTypes,
+          modelKey: getEffectiveModelKey('quiz'),
+          avoidQuestions: allQuestions.map((q) => q.question).filter(Boolean),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to generate new questions.');
+
+      const baseName = quizName.replace(/\s*\(new questions(?: \d+)?\)$/i, '');
+      const newDoc = await addDoc(collection(db, 'users', user.uid, 'enrollment', courseId, 'quizSets'), {
+        name: `${baseName} (new questions)`,
+        sourceDocKey: quizSource.key,
+        questions: data.questions,
+        questionTypes: quizSource.questionTypes ?? null,
+        questionCount: data.questions.length,
+        pinned: true,
+        visibility: 'private',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      router.push(`/courses/${courseId}/quizzes/${newDoc.id}`);
+    } catch (error) {
+      console.error('Error generating new questions:', error);
+      setRegenerateError(error instanceof Error ? error.message : 'Failed to generate new questions.');
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
+  const newQuestionsButton = quizSource ? (
+    <button
+      onClick={handleNewQuestions}
+      disabled={regenerating}
+      title="Make a new quiz from the same file, with different questions"
+      className="inline-flex items-center gap-2 rounded-xl border border-border-light px-5 py-2.5 text-sm font-semibold text-[#1a1a2e] transition-colors hover:bg-bg-warm disabled:cursor-wait disabled:opacity-60"
+    >
+      {regenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+      {regenerating ? 'Writing new questions…' : 'New questions'}
+    </button>
+  ) : null;
+
+  const regenerateErrorNote = regenerateError ? (
+    <p className="w-full text-sm text-red-600">{regenerateError}</p>
+  ) : null;
 
   const handleViewLastResult = () => {
     if (pastAttempts.length === 0) return;
@@ -503,6 +576,8 @@ export default function QuizTakingPage() {
                   View last result
                 </button>
               )}
+              {newQuestionsButton}
+              {regenerateErrorNote}
             </div>
 
             {pastAttempts.length > 0 ? (
@@ -590,7 +665,9 @@ export default function QuizTakingPage() {
                 </button>
               </div>
             ) : (
-              <div className="mt-8 flex items-center justify-end gap-3 pb-10">
+              <div className="mt-8 flex flex-wrap items-center justify-end gap-3 pb-10">
+                {regenerateErrorNote}
+                {newQuestionsButton}
                 <button
                   onClick={handleRetestMissed}
                   disabled={missedCount === 0}

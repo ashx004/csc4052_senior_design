@@ -16,7 +16,7 @@ export async function embedTexts(texts: string[], signal?: AbortSignal): Promise
       Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
       "X-Catalyst-Feature": "embeddings",
     },
-    signal,
+    signal: signal ?? AbortSignal.timeout(20_000),
     body: JSON.stringify({
       model: process.env.OLLAMA_EMBED_MODEL,
       input: texts,
