@@ -13,6 +13,10 @@ import { useSpeechToText } from "@/src/library/useSpeechToText";
 import MicButton from "@/src/components/aiAssistant/MicButton";
 import { useAIPageContext } from "@/src/context/AIPageContext";
 import { useAIPanelChat } from "./useAIPanelChat";
+import QuickActions from "@/src/components/aiAssistant/QuickActions";
+import ConfirmActionCard from "@/src/components/aiAssistant/ConfirmActionCard";
+import { useStickToBottom } from "@/src/hooks/useStickToBottom";
+import { buildChatContext, type ChatClass } from "@/src/library/chatContext";
 
 const STORAGE_KEY = "catalyst:aiPanelOpen";
 
@@ -32,9 +36,20 @@ export default function AIPanel() {
   const { user } = useAuth();
   const pageContext = useAIPageContext();
   const { messages, isSending, toolStatus, errorText, sendMessage } = useAIPanelChat(user?.uid, user?.email ?? undefined);
+  // Follows new text and Confirm cards unless the student has scrolled up.
+  const scroller = useStickToBottom<HTMLDivElement>([messages, toolStatus, errorText]);
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
   const stt = useSpeechToText({ text: input, onText: setInput, maxLength: 4000 });
+  // Classes and files for the quick actions, loaded once the panel opens.
+  const [classes, setClasses] = useState<ChatClass[]>([]);
+  useEffect(() => {
+    if (!isOpen || !user?.uid || !user.email || classes.length) return;
+    buildChatContext(user.uid, user.email)
+      .then((c) => setClasses(c.classes))
+      .catch(() => {});
+  }, [isOpen, user?.uid, user?.email, classes.length]);
+  const courseMatch = /^\/courses\/([^/]+)/.exec(pathname ?? "");
 
   useEffect(() => {
     // On phones the panel covers the whole page, so it never reopens on its
@@ -58,6 +73,7 @@ export default function AIPanel() {
     stt.stop();
     const text = input;
     setInput("");
+    scroller.stick();
     sendMessage(text, pageContext);
   }
 
@@ -92,7 +108,7 @@ export default function AIPanel() {
             </button>
           </div>
 
-          <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+          <div ref={scroller.ref} onScroll={scroller.onScroll} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
             <div className="rounded-2xl bg-bg-container px-4 py-3 text-sm leading-relaxed text-text-main shadow-sm ring-1 ring-border-light">
               <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
                 {buildGreeting()}
@@ -100,7 +116,7 @@ export default function AIPanel() {
             </div>
 
             {messages.map((message) => (
-              <div key={message.id} className={`flex w-full ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div key={message.id} className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}>
                 {message.role === "user" ? (
                   <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-primary px-4 py-2.5 text-sm leading-relaxed text-text-inverse shadow-sm">
                     {message.text}
@@ -127,6 +143,9 @@ export default function AIPanel() {
                     )}
                   </div>
                 )}
+                {message.pendingActions?.map((action) => (
+                  <ConfirmActionCard key={action.id} action={action} compact />
+                ))}
               </div>
             ))}
 
@@ -137,6 +156,18 @@ export default function AIPanel() {
             )}
           </div>
 
+          <div className="border-t border-border-light px-3 pt-2">
+            <QuickActions
+              classes={classes}
+              defaultCourseId={courseMatch?.[1] ?? null}
+              disabled={isSending}
+              compact
+              onSend={(prompt) => {
+                scroller.stick();
+                sendMessage(prompt, pageContext);
+              }}
+            />
+          </div>
           <form onSubmit={handleSubmit} className="flex items-center gap-2 border-t border-border-light p-3">
             <input
               type="text"

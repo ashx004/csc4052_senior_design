@@ -5,7 +5,7 @@ import { ocrImage } from "./ocrClient";
 // (see CODE_TYPES in ResourcePreview.tsx), just read as raw text, no parser
 // library needed.
 const PLAIN_TEXT_TYPES = [
-  "txt", "py", "js", "jsx", "ts", "tsx", "java", "go", "sql", "c", "cpp",
+  "txt", "md", "csv", "py", "js", "jsx", "ts", "tsx", "java", "go", "sql", "c", "cpp",
   "cs", "rs", "html", "css", "php", "rb", "kt", "swift", "sh", "asm",
 ];
 

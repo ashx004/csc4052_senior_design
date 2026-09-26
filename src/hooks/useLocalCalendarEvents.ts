@@ -6,6 +6,7 @@ import { db } from "@/src/library/firebase";
 import { useAuth } from "@/src/context/AuthContext";
 import { useCalendarCache } from "@/src/context/CalendarCacheContext";
 import type { CalendarEvent, EventTone } from "@/src/components/calendar/calendarTypes";
+import { DATA_CHANGED_EVENT } from "@/src/library/dataChanged";
 
 interface LocalEventDoc {
   title: string;
@@ -103,6 +104,13 @@ export function useLocalCalendarEvents(dateRange?: { start: Date; end: Date }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.uid]);
+
+  // The AI chat added, moved or deleted something: refresh quietly.
+  useEffect(() => {
+    const refresh = () => fetchAll({ background: true });
+    window.addEventListener(DATA_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(DATA_CHANGED_EVENT, refresh);
+  }, [fetchAll]);
 
   const events = useMemo(() => {
     if (!dateRange) return [];

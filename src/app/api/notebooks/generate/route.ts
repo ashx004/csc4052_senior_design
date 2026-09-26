@@ -8,6 +8,7 @@ import { generateFlashcardsWithRetry } from "@/src/library/flashcardGeneration";
 import { generateQuizWithValidation, type QuestionTypes } from "@/src/library/quizGeneration";
 import { assembleNotebookText, NOTEBOOK_TEXT_LIMIT } from "@/src/library/notes/notebookText";
 import { MAX_NOTES_PER_NOTEBOOK } from "@/src/library/notes/types";
+import { getDocumentText } from "@/src/library/documentTextCache";
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 6;
@@ -76,7 +77,7 @@ export async function POST(request: NextRequest) {
         continue;
       }
       try {
-        const text = await extractDocumentText(resolveInternalUrl(request, url), fileType);
+        const text = await getDocumentText(request, url, fileType);
         parts.push({ title, text });
         total += text.length;
       } catch (e) {
