@@ -219,6 +219,36 @@ export default function TypedNoteEditor({
     else chain.toggleHeading({ level: action }).run();
   }
 
+  function skipLine() {
+    // A pair of hard breaks creates an intentional empty writing line while
+    // keeping the cursor in the current paragraph. It is much faster than
+    // repeatedly pressing Enter and remains part of the saved document.
+    editor?.chain().focus().insertContent([{ type: "hardBreak" }, { type: "hardBreak" }]).run();
+  }
+
+  function placeCursorOnPaper(event: React.MouseEvent<HTMLDivElement>) {
+    if (!editor || tool.mode !== "type") return;
+    // Let TipTap handle ordinary clicks inside existing text. A click on the
+    // rest of the paper creates enough empty lines to reach that position,
+    // so students can start writing anywhere below their last line.
+    if ((event.target as HTMLElement).closest(".ProseMirror")) return;
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+    const top = sheet.getBoundingClientRect().top;
+    const clickedY = (event.clientY - top) / scaleRef.current;
+    const currentBottom = measureTextBottom();
+    if (clickedY <= currentBottom + 8) {
+      editor.chain().focus("end").run();
+      return;
+    }
+    const lineHeight = 28;
+    const breaks = Math.min(
+      Math.max(1, Math.ceil((Math.min(clickedY, MAX_TEXT_BOTTOM) - currentBottom) / lineHeight)),
+      500
+    );
+    editor.chain().focus("end").insertContent(Array.from({ length: breaks }, () => ({ type: "hardBreak" }))).run();
+  }
+
   const sheetHeight = pages * PAGE_HEIGHT;
 
   return (
@@ -234,6 +264,7 @@ export default function TypedNoteEditor({
           onUndo={ink.undo}
           showContents={showContents}
           onToggleContents={() => setShowContents((s) => !s)}
+          onSkipLine={skipLine}
         />
       </div>
 
@@ -253,19 +284,24 @@ export default function TypedNoteEditor({
               ref={sheetRef}
               className="note-sheet relative origin-top-left rounded-sm bg-bg-container shadow-[0_2px_18px_rgba(0,0,0,0.08)] ring-1 ring-border-light"
               style={{ width: PAGE_WIDTH, height: sheetHeight, transform: `scale(${scale})` }}
-              onClick={(e) => {
-                // Clicking empty paper below the text puts the cursor at the end.
-                if (tool.mode === "type" && e.target === e.currentTarget) editor?.chain().focus("end").run();
-              }}
+              onClick={placeCursorOnPaper}
             >
-              <div style={{ padding: `${MARGIN_TOP}px ${MARGIN_X}px 0` }}>
+              <div
+                className="relative z-10"
+                style={{
+                  padding: `${MARGIN_TOP}px ${MARGIN_X}px 0`,
+                  // The drawing canvas remains behind the text. While a
+                  // drawing tool is active it receives the pointer instead.
+                  pointerEvents: tool.mode === "type" ? "auto" : "none",
+                }}
+              >
                 <EditorContent editor={editor} />
               </div>
               <PageDecorations pages={pages} />
               {Array.from({ length: pages }, (_, i) => (
                 // pointer-events-none: the page wrapper must never block clicks into
                 // the text; the canvas inside opts back in only for drawing tools.
-                <div key={i} data-page={i} className="pointer-events-none absolute left-0 right-0" style={{ top: i * PAGE_HEIGHT, height: PAGE_HEIGHT }}>
+                <div key={i} data-page={i} className="pointer-events-none absolute left-0 right-0 z-0" style={{ top: i * PAGE_HEIGHT, height: PAGE_HEIGHT }}>
                   <InkLayer
                     width={PAGE_WIDTH}
                     height={PAGE_HEIGHT}

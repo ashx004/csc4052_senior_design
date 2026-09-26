@@ -28,7 +28,7 @@ export default function AddNoteChoiceModal({
     <Modal title="Add notes" onClose={onClose}>
       <div className="space-y-3">
         {option("ocr", <ScanText size={20} />, "Scan or upload (OCR)", "Photograph handwritten notes or upload files. Catalyst reads the text so you can search and study from it.")}
-        {option("typed", <NotebookPen size={20} />, "Typed notes", "Start a blank page with headings, bold, italics, drawing and highlighting.")}
+        {option("typed", <NotebookPen size={20} />, "Custom note", "Start a blank page with headings, bold, italics, drawing and highlighting.")}
       </div>
     </Modal>
   );

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   DndContext,
   DragOverlay,
@@ -28,8 +29,10 @@ import {
   Plus,
   Search,
   Trash2,
+  Download,
   Inbox,
   GraduationCap,
+  Share2,
 } from "lucide-react";
 import { useAuth } from "@/src/context/AuthContext";
 import {
@@ -53,6 +56,8 @@ import GenerateFromNotebookModal from "./GenerateFromNotebookModal";
 import NotesUploadModal from "./NotesUploadModal";
 import Dropdown from "./Dropdown";
 import { NotePreview, NoteTypeIcon, noteTypeLabel } from "./noteVisuals";
+import { downloadNotebookArchive } from "@/src/library/notes/notebookArchive";
+import ShareNoteModal from "./ShareNoteModal";
 
 type Folder = "all" | "unfiled" | string;
 const VIEW_KEY = "catalyst:notesView";
@@ -138,11 +143,14 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<NoteSort>("recent");
   const [view, setView] = useState<"list" | "card">("card");
+  const [showPassedCourses, setShowPassedCourses] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectMode, setSelectMode] = useState(false);
   const [message, setMessage] = useState<{ kind: "error" | "info"; text: string } | null>(null);
-  const [modal, setModal] = useState<null | "choice" | "typed" | "upload" | "flashcards" | "quiz" | "deleteNotes" | "deleteNotebook">(null);
+  const [modal, setModal] = useState<null | "choice" | "typed" | "upload" | "flashcards" | "quiz" | "deleteNotes" | "deleteNotebook" | "newNotebook">(null);
   const [newNotebookName, setNewNotebookName] = useState<string | null>(null);
+  const [newNotebookMoveIds, setNewNotebookMoveIds] = useState<string[]>([]);
+  const [shareTarget, setShareTarget] = useState<{ type: "note" | "notebook"; id: string } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -189,10 +197,14 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
   }, [notes, classes, courseTab, syncNow]);
 
   const allNotes = useMemo(() => (notes ?? []).filter((n) => !n.hidden), [notes]);
-  const scopedNotes = useMemo(() => (scope ? allNotes.filter((n) => n.courseId === scope) : allNotes), [allNotes, scope]);
+  const isPassedCourseNote = useCallback((note: Note) => Boolean(note.courseId && classes.find((course) => course.id === note.courseId)?.passed), [classes]);
+  const scopedNotes = useMemo(() => {
+    const inScope = scope ? allNotes.filter((n) => n.courseId === scope) : allNotes;
+    return scope || showPassedCourses ? inScope : inScope.filter((note) => !isPassedCourseNote(note));
+  }, [allNotes, scope, showPassedCourses, isPassedCourseNote]);
   const scopedNotebooks = useMemo(
-    () => (scope ? notebooks.filter((b) => notebookInCourse(b, scope, allNotes)) : notebooks),
-    [notebooks, scope, allNotes]
+    () => (scope ? notebooks.filter((b) => notebookInCourse(b, scope, allNotes)) : notebooks.filter((book) => showPassedCourses || allNotes.some((note) => note.notebookId === book.id && !isPassedCourseNote(note)))),
+    [notebooks, scope, allNotes, showPassedCourses, isPassedCourseNote]
   );
   const activeNotebook = scopedNotebooks.find((b) => b.id === folder) ?? null;
   useEffect(() => {
@@ -211,7 +223,7 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
     if (ids.size > 1) return "Multi-class";
     const only = [...ids][0];
     const c = only ? classOf(only) : null;
-    return c ? c.classCode || c.className : undefined;
+    return c ? `${c.classCode || c.className}${c.passed ? " · Passed" : ""}` : undefined;
   };
 
   function setViewSaved(v: "list" | "card") {
@@ -242,13 +254,41 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
     }
   }
 
+  function openNewNotebook(moveIds: string[] = []) {
+    setNewNotebookName("");
+    setNewNotebookMoveIds(moveIds);
+    setModal("newNotebook");
+  }
+
   async function addNotebook() {
     if (!uid || newNotebookName === null) return;
     const name = newNotebookName.trim();
-    setNewNotebookName(null);
     if (!name) return;
-    const id = await createNotebook(uid, name, scope || null);
-    setFolder(id);
+    try {
+      const id = await createNotebook(uid, name, scope || null);
+      if (newNotebookMoveIds.length) {
+        await moveNotesToNotebook(uid, newNotebookMoveIds, id, allNotes);
+        setMessage({ kind: "info", text: `Moved ${newNotebookMoveIds.length} note${newNotebookMoveIds.length === 1 ? "" : "s"} to "${name}".` });
+        setSelected(new Set());
+      } else setFolder(id);
+      setNewNotebookName(null);
+      setNewNotebookMoveIds([]);
+      setModal(null);
+    } catch (error) {
+      setMessage({ kind: "error", text: error instanceof NotebookFullError ? error.message : "Couldn't create the notebook. Try again." });
+    }
+  }
+
+  async function downloadActiveNotebook() {
+    if (!activeNotebook) return;
+    setBusy(true);
+    try {
+      await downloadNotebookArchive(activeNotebook.name, allNotes.filter((note) => note.notebookId === activeNotebook.id));
+    } catch (error) {
+      setMessage({ kind: "error", text: error instanceof Error ? error.message : "Couldn't prepare the notebook download." });
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function confirmDeleteNotes() {
@@ -303,15 +343,21 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
         <header className="mb-6 md:pl-12" data-tutorial="notes-heading">
           <div className="flex items-center justify-between gap-4">
             <h1 className="text-3xl font-semibold tracking-tight text-text-main">Notes</h1>
-            <button
-              type="button"
-              onClick={() => setModal("choice")}
-              className="flex shrink-0 items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-text-inverse shadow-sm hover:bg-primary-hover"
-              data-tutorial="notes-upload"
-            >
-              <Plus size={17} /> Add notes
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setModal("choice")}
+                className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-text-inverse shadow-sm hover:bg-primary-hover"
+                data-tutorial="notes-upload"
+              >
+                <Plus size={17} /> Add notes
+              </button>
+            </div>
           </div>
+          <nav className="mt-4 flex gap-1 border-b border-border-light" aria-label="Notes sections">
+            <Link href={courseTab ? `/courses/${fixedCourseId}/notes` : "/notes"} className="border-b-2 border-primary px-3 py-2 text-sm font-medium text-primary">Notes</Link>
+            <Link href={courseTab ? `/notes/ocr?courseId=${fixedCourseId}` : "/notes/ocr"} className="border-b-2 border-transparent px-3 py-2 text-sm text-text-muted hover:text-text-main">OCR</Link>
+          </nav>
           {courseTab ? (
             <p className="mt-1.5 text-sm text-text-muted">{scopedClass ? classLabel(scopedClass) : "This class"}</p>
           ) : (
@@ -359,7 +405,7 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
               <h2 className="text-xs font-semibold uppercase tracking-wide text-text-muted">Notebooks</h2>
               <button
                 type="button"
-                onClick={() => setNewNotebookName("")}
+                onClick={() => openNewNotebook()}
                 aria-label="New notebook"
                 title="New notebook"
                 className="rounded-md p-1 text-text-muted hover:bg-bg-warm hover:text-text-main"
@@ -389,32 +435,11 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
                   badge={scope ? undefined : notebookBadge(b)}
                 />
               ))}
-              {newNotebookName !== null && (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void addNotebook();
-                  }}
-                  className="flex shrink-0 items-center gap-1 px-1 py-1"
-                >
-                  <input
-                    autoFocus
-                    value={newNotebookName}
-                    onChange={(e) => setNewNotebookName(e.target.value)}
-                    onBlur={() => void addNotebook()}
-                    onKeyDown={(e) => e.key === "Escape" && setNewNotebookName(null)}
-                    placeholder="Notebook name"
-                    aria-label="New notebook name"
-                    maxLength={60}
-                    className="w-full min-w-[140px] rounded-md border border-primary bg-bg-container px-2 py-1.5 text-sm text-text-main outline-none"
-                  />
-                </form>
-              )}
             </div>
-            {scopedNotebooks.length === 0 && newNotebookName === null && (
+            {scopedNotebooks.length === 0 && (
               <button
                 type="button"
-                onClick={() => setNewNotebookName("")}
+                onClick={() => openNewNotebook()}
                 className="mt-3 hidden w-full flex-col gap-1 rounded-xl border border-dashed border-border-hover p-3 text-left transition-colors hover:border-primary hover:bg-bg-warm md:flex"
               >
                 <span className="flex items-center gap-2 text-sm font-medium text-text-main">
@@ -468,6 +493,10 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
                 >
                   <GraduationCap size={14} /> Make quiz
                 </button>
+                <button type="button" onClick={() => void downloadActiveNotebook()} disabled={busy || countIn(activeNotebook.id) === 0} className="flex items-center gap-1.5 rounded-lg border border-border-light px-3 py-1.5 text-xs font-medium text-text-main hover:bg-bg-warm disabled:opacity-40">
+                  <Download size={14} /> Download ZIP
+                </button>
+                <button type="button" onClick={() => setShareTarget({ type: "notebook", id: activeNotebook.id })} className="flex items-center gap-1.5 rounded-lg border border-border-light px-3 py-1.5 text-xs font-medium text-text-main hover:bg-bg-warm"><Share2 size={14} /> Share</button>
                 <button type="button" onClick={() => setRenaming(activeNotebook.id)} aria-label="Rename notebook" title="Rename" className="rounded-lg p-1.5 text-text-muted hover:bg-bg-warm hover:text-text-main">
                   <Pencil size={15} />
                 </button>
@@ -489,6 +518,7 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
                   className="w-full rounded-lg border border-border-light bg-bg-container py-2 pl-9 pr-3 text-sm text-text-main focus:border-primary focus:outline-none"
                 />
               </div>
+              {!courseTab && <label className="flex shrink-0 items-center gap-2 rounded-lg border border-border-light bg-bg-container px-3 py-2 text-xs font-medium text-text-main"><input type="checkbox" checked={showPassedCourses} onChange={(event) => setShowPassedCourses(event.target.checked)} /> Show passed courses</label>}
               <Dropdown value={sort} onChange={setSort} options={SORT_OPTIONS} ariaLabel="Sort notes" icon={<ArrowUpDown size={14} />} align="right" className="w-40" />
               <div className="flex rounded-lg border border-border-light bg-bg-container p-0.5" role="group" aria-label="View">
                 <button type="button" onClick={() => setViewSaved("card")} aria-pressed={view === "card"} aria-label="Card view" className={`rounded-md p-1.5 ${view === "card" ? "bg-bg-warm text-text-main" : "text-text-muted"}`}>
@@ -523,26 +553,29 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
                   disabled={selected.size === 0}
                   onChange={(e) => {
                     const v = e.target.value;
-                    if (v) void move([...selected], v === "__none" ? null : v);
+                    if (v === "__new") openNewNotebook([...selected]);
+                    else if (v) void move([...selected], v);
                   }}
                   aria-label="Move selected notes to a notebook"
                   className="rounded-md bg-white/10 px-2 py-1 text-sm text-white disabled:opacity-40 [&>option]:text-black"
                 >
                   <option value="">Move to...</option>
+                  <option value="__new">+ New notebook</option>
                   {notebooks.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}
                     </option>
                   ))}
-                  <option value="__none">Out of notebook</option>
                 </select>
                 <button
                   type="button"
                   disabled={selected.size === 0}
                   onClick={() => setModal("deleteNotes")}
-                  className="flex items-center gap-1 rounded-md px-2 py-1 text-white hover:bg-white/10 disabled:opacity-40"
+                  aria-label="Remove selected notes"
+                  title="Remove selected notes"
+                  className="rounded-md p-2 text-white hover:bg-white/10 disabled:opacity-40"
                 >
-                  <Trash2 size={14} /> Remove
+                  <Trash2 size={14} />
                 </button>
               </div>
             )}
@@ -602,7 +635,7 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
                               </span>
                             </div>
                             <div className="flex items-center gap-2 text-xs text-text-muted">
-                              {c && <span className="shrink-0 rounded bg-bg-main px-1.5 py-0.5">{c.classCode || c.className}</span>}
+                              {c && <span className="shrink-0 rounded bg-bg-main px-1.5 py-0.5">{c.classCode || c.className}{c.passed ? " · Passed" : ""}</span>}
                               {book ? (
                                 <span className="flex min-w-0 items-center gap-1 truncate">
                                   <BookCopy size={12} className="shrink-0" /> <span className="truncate">{book.name}</span>
@@ -653,7 +686,7 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
                                 {n.kind === "typed" ? (n.plainText || "Empty note").replace(/\s+/g, " ") : noteTypeLabel(n)}
                               </span>
                             </span>
-                            <span className="hidden w-32 truncate text-xs text-text-muted sm:block">{c ? c.classCode || c.className : "General"}</span>
+                            <span className="hidden w-32 truncate text-xs text-text-muted sm:block">{c ? `${c.classCode || c.className}${c.passed ? " · Passed" : ""}` : "General"}</span>
                             <span className="hidden w-32 truncate text-xs text-text-muted md:block">{notebooks.find((b) => b.id === n.notebookId)?.name ?? ""}</span>
                             <span className="w-20 shrink-0 text-right text-xs tabular-nums text-text-muted">{relative(n.updatedAt)}</span>
                           </li>
@@ -677,6 +710,16 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
       </DragOverlay>
 
       {modal === "choice" && <AddNoteChoiceModal onClose={() => setModal(null)} onChoose={(c) => setModal(c === "ocr" ? "upload" : "typed")} />}
+      {modal === "newNotebook" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setModal(null)}>
+          <form onSubmit={(event) => { event.preventDefault(); void addNotebook(); }} className="w-full max-w-sm rounded-2xl bg-bg-container p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <h3 className="text-base font-semibold text-text-main">New notebook</h3>
+            <p className="mt-1 text-sm text-text-muted">{newNotebookMoveIds.length ? `The ${newNotebookMoveIds.length} selected note${newNotebookMoveIds.length === 1 ? "" : "s"} will be added to it.` : "Group notes by topic or exam."}</p>
+            <input autoFocus value={newNotebookName ?? ""} onChange={(event) => setNewNotebookName(event.target.value)} placeholder="Notebook name" aria-label="New notebook name" maxLength={60} className="mt-4 w-full rounded-lg border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main outline-none focus:border-primary" />
+            <div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setModal(null)} className="rounded-lg px-3 py-2 text-sm text-text-main hover:bg-bg-warm">Cancel</button><button type="submit" disabled={!newNotebookName?.trim()} className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-text-inverse disabled:opacity-40">Create notebook</button></div>
+          </form>
+        </div>
+      )}
       {modal === "typed" && (
         <CreateNoteModal
           uid={uid}
@@ -738,6 +781,7 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
           </div>
         </div>
       )}
+      {shareTarget && <ShareNoteModal type={shareTarget.type} id={shareTarget.id} onClose={() => setShareTarget(null)} />}
     </DndContext>
   );
 }

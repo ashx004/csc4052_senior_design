@@ -27,7 +27,7 @@ function useThemeVersion(): number {
   return version;
 }
 
-function drawStroke(ctx: CanvasRenderingContext2D, stroke: InkStroke, inkColor: string, dark: boolean) {
+export function drawInkStroke(ctx: CanvasRenderingContext2D, stroke: InkStroke, inkColor: string, dark: boolean) {
   const pts = stroke.points;
   if (pts.length < 2) return;
   ctx.save();
@@ -111,8 +111,8 @@ export default function InkLayer({
     // Highlights underneath, pencil on top - otherwise a highlight drawn
     // after writing would tint the writing.
     const all = extra ? [...strokesRef.current, extra] : strokesRef.current;
-    all.filter((s) => s.tool === "highlighter").forEach((s) => drawStroke(ctx, s, inkColor, dark));
-    all.filter((s) => s.tool !== "highlighter").forEach((s) => drawStroke(ctx, s, inkColor, dark));
+    all.filter((s) => s.tool === "highlighter").forEach((s) => drawInkStroke(ctx, s, inkColor, dark));
+    all.filter((s) => s.tool !== "highlighter").forEach((s) => drawInkStroke(ctx, s, inkColor, dark));
   }
 
   useEffect(() => {

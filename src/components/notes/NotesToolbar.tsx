@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Bold, Eraser, Highlighter, Italic, ListTree, MousePointer2, Pencil, Sticker, TextCursorInput, Type, Undo2 } from "lucide-react";
+import { Bold, Eraser, Highlighter, Italic, ListTree, MousePointer2, Pencil, Sticker, TextCursorInput, Type, Undo2, WrapText } from "lucide-react";
 import { HIGHLIGHTER_COLORS, PENCIL_WIDTHS } from "@/src/library/notes/ink";
 import { STICKERS, type ToolMode, type ToolState } from "./tools";
 
@@ -54,6 +54,7 @@ export default function NotesToolbar({
   onUndo,
   showContents,
   onToggleContents,
+  onSkipLine,
 }: {
   variant: "typed" | "document";
   tool: ToolState;
@@ -64,6 +65,8 @@ export default function NotesToolbar({
   onUndo: () => void;
   showContents?: boolean;
   onToggleContents?: () => void;
+  /** Inserts a visible blank line without requiring repeated Enter presses. */
+  onSkipLine?: () => void;
 }) {
   const [popover, setPopover] = useState<"pencil" | "sticker" | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
@@ -109,6 +112,11 @@ export default function NotesToolbar({
               <span className="text-xs">H{level}</span>
             </ToolButton>
           ))}
+          {onSkipLine && (
+            <ToolButton label="Add blank line" disabled={tool.mode !== "type"} onClick={onSkipLine}>
+              <WrapText size={17} />
+            </ToolButton>
+          )}
         </>
       )}
 

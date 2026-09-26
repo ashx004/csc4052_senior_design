@@ -16,7 +16,7 @@ const IMAGE = ["png", "jpg", "jpeg", "webp", "gif", "heic"];
 
 // Tints stay quiet next to the site's earthy palette; each has a dark-mode pair.
 const STYLE: Record<Family, { Icon: LucideIcon; tone: string; label: string }> = {
-  typed: { Icon: NotebookText, tone: "bg-bg-warm text-primary", label: "Typed note" },
+  typed: { Icon: NotebookText, tone: "bg-bg-warm text-primary", label: "Custom note" },
   scan: { Icon: ScanText, tone: "bg-teal-50 text-teal-700 dark:bg-teal-400/10 dark:text-teal-300", label: "Scan" },
   pdf: { Icon: FileText, tone: "bg-rose-50 text-rose-700 dark:bg-rose-400/10 dark:text-rose-300", label: "PDF" },
   image: { Icon: FileImage, tone: "bg-violet-50 text-violet-700 dark:bg-violet-400/10 dark:text-violet-300", label: "Image" },
@@ -61,7 +61,8 @@ export function NoteTypeIcon({ note, size = "md" }: { note: Note; size?: "sm" | 
 // Rendered lazily (only once a card scrolls into view), at most two PDFs at
 // a time, and kept for the session so going back to the library is instant.
 
-const thumbCache = new Map<string, Promise<string | null>>();
+type Thumbnail = { kind: "image"; content: string } | { kind: "text"; content: string } | null;
+const thumbCache = new Map<string, Promise<Thumbnail>>();
 let active = 0;
 const waiting: (() => void)[] = [];
 
@@ -95,18 +96,51 @@ async function renderPdfThumb(url: string): Promise<string | null> {
   }
 }
 
-function thumbnailFor(uid: string, note: Note): Promise<string | null> {
+async function textThumbnail(note: Note): Promise<Thumbnail> {
+  if (!note.url) return null;
   const family = familyOf(note);
-  if (family !== "pdf" && family !== "image" && family !== "scan") return Promise.resolve(null);
+  try {
+    if (family === "doc") {
+      if ((note.fileType ?? "").toLowerCase() !== "docx") return null;
+      const mammoth = (await import("mammoth")).default;
+      const response = await fetch(note.url);
+      if (!response.ok) return null;
+      const result = await mammoth.extractRawText({ arrayBuffer: await response.arrayBuffer() });
+      return { kind: "text", content: result.value };
+    }
+    if (family === "sheet") {
+      const ext = (note.fileType ?? "").toLowerCase();
+      const response = await fetch(note.url);
+      if (!response.ok) return null;
+      if (ext === "csv" || ext === "tsv") return { kind: "text", content: await response.text() };
+      const XLSX = await import("xlsx");
+      const workbook = XLSX.read(await response.arrayBuffer(), { type: "array" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      return { kind: "text", content: XLSX.utils.sheet_to_csv(sheet) };
+    }
+    if (family === "code" || family === "text") {
+      const response = await fetch(note.url);
+      return response.ok ? { kind: "text", content: await response.text() } : null;
+    }
+  } catch {
+    // The card still gets its file-type thumbnail below if extraction fails.
+  }
+  return null;
+}
+
+function thumbnailFor(uid: string, note: Note): Promise<Thumbnail> {
+  const family = familyOf(note);
   const key = `${note.id}|${note.url ?? ""}`;
   let job = thumbCache.get(key);
   if (!job) {
     job =
       family === "image" && note.url
-        ? Promise.resolve(note.url)
+        ? Promise.resolve({ kind: "image" as const, content: note.url })
         : family === "pdf" && note.url
-          ? limited(() => renderPdfThumb(note.url!))
-          : loadDocumentSource(uid, note).then((s) => (s.kind === "images" ? s.urls[0] ?? null : null));
+          ? limited(() => renderPdfThumb(note.url!)).then((content) => content ? { kind: "image" as const, content } : null)
+          : family === "scan"
+            ? loadDocumentSource(uid, note).then((s) => (s.kind === "images" && s.urls[0] ? { kind: "image" as const, content: s.urls[0] } : null))
+            : textThumbnail(note);
     job = job.catch(() => null);
     thumbCache.set(key, job);
   }
@@ -128,7 +162,7 @@ function TypePlaceholder({ note }: { note: Note }) {
  *  for PDFs, images and scans, and a type badge for everything else. */
 export function NotePreview({ uid, note }: { uid: string; note: Note }) {
   const ref = useRef<HTMLDivElement | null>(null);
-  const [src, setSrc] = useState<string | null>(null);
+  const [thumbnail, setThumbnail] = useState<Thumbnail>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -140,7 +174,7 @@ export function NotePreview({ uid, note }: { uid: string; note: Note }) {
       (entries) => {
         if (!entries.some((e) => e.isIntersecting)) return;
         observer.disconnect();
-        thumbnailFor(uid, note).then((url) => !cancelled && setSrc(url));
+        thumbnailFor(uid, note).then((result) => !cancelled && setThumbnail(result));
       },
       { rootMargin: "200px" }
     );
@@ -166,9 +200,11 @@ export function NotePreview({ uid, note }: { uid: string; note: Note }) {
 
   return (
     <div ref={ref} className="relative h-full">
-      {src && !failed ? (
+      {thumbnail?.kind === "image" && !failed ? (
         // Plain <img>: sources are data: URLs and download links, not optimisable assets.
-        <img src={src} alt="" draggable={false} onError={() => setFailed(true)} className="h-full w-full object-cover object-top dark:brightness-90" />
+        <img src={thumbnail.content} alt="" draggable={false} onError={() => setFailed(true)} className="h-full w-full object-cover object-top dark:brightness-90" />
+      ) : thumbnail?.kind === "text" ? (
+        <pre className="h-full overflow-hidden whitespace-pre-wrap break-words bg-[#faf9f7] p-3 font-mono text-[10px] leading-4 text-[#3b322b]">{thumbnail.content.slice(0, 700)}</pre>
       ) : (
         <TypePlaceholder note={note} />
       )}

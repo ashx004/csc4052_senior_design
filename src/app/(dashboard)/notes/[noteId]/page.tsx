@@ -9,6 +9,7 @@ import type { ClassOption, Note, Notebook } from "@/src/library/notes/types";
 import NoteWorkspace from "@/src/components/notes/NoteWorkspace";
 import TypedNoteEditor from "@/src/components/notes/TypedNoteEditor";
 import DocumentAnnotator from "@/src/components/notes/DocumentAnnotator";
+import FileNoteViewer from "@/src/components/notes/FileNoteViewer";
 import CreateNoteModal from "@/src/components/notes/CreateNoteModal";
 import PageTutorial from "@/src/components/tutorial/PageTutorial";
 import noteEditorSteps from "@/src/library/tutorials/steps/note-editor";
@@ -102,8 +103,10 @@ export default function NotePage() {
       >
         {note.kind === "typed" ? (
           <TypedNoteEditor key={note.id} uid={uid} note={note} onSaveStateChange={setSaveState} />
-        ) : (
+        ) : note.fileType === "pdf" || note.scan || ["png", "jpg", "jpeg", "webp"].includes((note.fileType ?? "").toLowerCase()) ? (
           <DocumentAnnotator key={note.id} uid={uid} note={note} onSaveStateChange={setSaveState} />
+        ) : (
+          <FileNoteViewer key={note.id} uid={uid} note={note} onSaveStateChange={setSaveState} />
         )}
       </NoteWorkspace>
       {creating && (

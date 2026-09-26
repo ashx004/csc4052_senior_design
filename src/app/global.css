@@ -272,3 +272,15 @@ a:hover {
   height: 0;
   pointer-events: none;
 }
+
+/* Read-only Office previews in the Notes workspace. */
+.office-file-view .docx-render p { margin: 0 0 8px; }
+.office-file-view .docx-render table,
+.office-file-view .sheet-render table { border-collapse: collapse; }
+.office-file-view .docx-render td,
+.office-file-view .docx-render th,
+.office-file-view .sheet-render td { border: 1px solid #ddd; padding: 4px 8px; }
+.office-file-view .docx-render ul,
+.office-file-view .docx-render ol { list-style: revert; margin: revert; padding-left: 1.5rem; }
+.office-file-view .sheet-render td { white-space: nowrap; font-size: 0.8rem; }
+.office-file-view .sheet-render tr:first-child td { background: #e8d2af; font-weight: 600; }

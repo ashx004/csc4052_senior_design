@@ -47,6 +47,7 @@ function toNote(id: string, d: DocumentData): Note {
     resourceId: d.resourceId,
     fileType: d.fileType,
     url: d.url,
+    annotatedUrl: d.annotatedUrl,
     source: d.source,
     hidden: d.hidden === true,
     scan: d.scan === true,
@@ -91,7 +92,7 @@ export async function getNote(uid: string, noteId: string): Promise<Note | null>
 export async function listClasses(uid: string): Promise<ClassOption[]> {
   const snap = await getDocs(collection(db, "users", uid, "enrollment"));
   return snap.docs
-    .map((d) => ({ id: d.id, className: d.data().className ?? "", classCode: d.data().classCode ?? "" }))
+    .map((d) => ({ id: d.id, className: d.data().className ?? "", classCode: d.data().classCode ?? "", passed: d.data().status === "completed" }))
     .sort((a, b) => a.classCode.localeCompare(b.classCode));
 }
 
@@ -118,6 +119,10 @@ export async function saveTypedNote(
   noteId: string,
   fields: Partial<Pick<Note, "title" | "content" | "plainText" | "pageCount" | "courseId">>
 ): Promise<void> {
+  await updateDoc(doc(db, "users", uid, "notes", noteId), { ...fields, updatedAt: serverTimestamp() });
+}
+
+export async function saveDocumentNote(uid: string, noteId: string, fields: Partial<Pick<Note, "annotatedUrl">>): Promise<void> {
   await updateDoc(doc(db, "users", uid, "notes", noteId), { ...fields, updatedAt: serverTimestamp() });
 }
 

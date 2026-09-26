@@ -40,6 +40,8 @@ export interface Note {
   resourceId?: string;
   fileType?: string;
   url?: string;
+  /** Derived PDF with the saved annotation layer flattened into it. */
+  annotatedUrl?: string | null;
   /** Document notes: "tag" = auto-added because the file is tagged Notes;
    *  "manual" = added from a class with "Add to Notes". */
   source?: "tag" | "manual";
@@ -100,4 +102,7 @@ export interface ClassOption {
   id: string;
   className: string;
   classCode: string;
+  /** Enrollment status is kept with the class so Notes can clearly separate
+   * material from completed courses without duplicating the status on notes. */
+  passed?: boolean;
 }

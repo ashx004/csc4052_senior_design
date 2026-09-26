@@ -9,8 +9,11 @@ import {
 } from "@/src/library/calendarHelpers";
 import type { CalendarEvent } from "@/src/components/calendar/calendarTypes";
 
-const START_HOUR = 6;
-const END_HOUR = 22;
+// Class schedules can run outside the traditional daytime window. Month view
+// showed them because it has no hour cutoff; daily view must use the same
+// complete calendar day.
+const START_HOUR = 0;
+const END_HOUR = 24;
 
 const DAY_NAMES = [
   "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
@@ -23,9 +26,10 @@ const MONTH_NAMES = [
 type DayViewProps = {
   events: CalendarEvent[];
   selectedDate: Date;
+  onEventClick?: (event: CalendarEvent) => void;
 };
 
-export default function DayView({ events, selectedDate }: DayViewProps) {
+export default function DayView({ events, selectedDate, onEventClick }: DayViewProps) {
   const timeSlots = useMemo(() => buildTimeSlots(START_HOUR, END_HOUR), []);
   const timedEvents = useMemo(
     () => getTimedEventsForDay(events, selectedDate),
@@ -66,7 +70,7 @@ export default function DayView({ events, selectedDate }: DayViewProps) {
         <div className="space-y-2 p-4">
           {allDayEvents.length > 0 ? (
             allDayEvents.map((ev, i) => (
-              <EventPill key={`${ev.id}-${i}`} event={ev} />
+              <EventPill key={`${ev.id}-${i}`} event={ev} onClick={onEventClick} />
             ))
           ) : (
             <p className="text-xs text-text-muted italic">No all-day events</p>
@@ -99,8 +103,11 @@ export default function DayView({ events, selectedDate }: DayViewProps) {
                       key={ev.id}
                       title={`${new Date(ev.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}–${new Date(ev.endTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} ${ev.title}`}
                       tone={ev.tone ?? "cream"}
+                      color={ev.color}
                       height={`h-[${heightPx}px]`}
                       style={{ top: `${topPx}px` }}
+                      onClick={() => onEventClick?.(ev)}
+                      hasConflict={Boolean(ev.conflictTitles?.length)}
                     />
                   );
                 })}

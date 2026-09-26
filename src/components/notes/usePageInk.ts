@@ -84,5 +84,16 @@ export function usePageInk(uid: string | undefined, noteId: string) {
     scheduleSave(last.page);
   }, [scheduleSave]);
 
-  return { pages, loaded, saving, updatePage, undo, canUndo };
+  const clear = useCallback(async () => {
+    if (!uid) return;
+    Object.values(timers.current).forEach(clearTimeout);
+    timers.current = {};
+    await Promise.all(Object.keys(pagesRef.current).map((key) => savePage(uid, noteId, Number(key), EMPTY_PAGE)));
+    pagesRef.current = {};
+    setPages({});
+    history.current = [];
+    setCanUndo(false);
+  }, [uid, noteId]);
+
+  return { pages, loaded, saving, updatePage, undo, canUndo, clear };
 }

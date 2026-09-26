@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, Loader2, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
+import { Check, Loader2, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Plus, Share2 } from "lucide-react";
+import ShareNoteModal from "./ShareNoteModal";
 import type { ClassOption, Note } from "@/src/library/notes/types";
 import { NoteTypeIcon } from "./noteVisuals";
 
@@ -45,6 +46,7 @@ export default function NoteWorkspace({
   const frameRef = useRef<HTMLDivElement | null>(null);
   const [railOpen, setRailOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const course = classes.find((c) => c.id === note.courseId);
 
   useEffect(() => {
@@ -105,6 +107,7 @@ export default function NoteWorkspace({
             </>
           )}
         </span>
+        <button type="button" onClick={() => setSharing(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-text-main hover:bg-bg-warm" aria-label="Share note" title="Share note"><Share2 size={17} /></button>
         <button
           type="button"
           onClick={toggleFullscreen}
@@ -168,6 +171,7 @@ export default function NoteWorkspace({
         )}
         <div className="min-w-0 flex-1">{children}</div>
       </div>
+      {sharing && <ShareNoteModal type="note" id={note.id} onClose={() => setSharing(false)} />}
     </div>
   );
 }

@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, X } from "lucide-react";
-import { loadDocumentSource } from "@/src/library/notes/notesStore";
+import { Download, Loader2, RotateCcw, Save, X } from "lucide-react";
+import { downloadScanArchive } from "@/src/library/notes/notebookArchive";
+import { loadDocumentSource, saveDocumentNote } from "@/src/library/notes/notesStore";
 import { PENCIL_WIDTHS } from "@/src/library/notes/ink";
 import {
   EMPTY_PAGE,
@@ -13,7 +14,7 @@ import {
   type StickerAnnotation,
   type TextAnnotation,
 } from "@/src/library/notes/types";
-import InkLayer from "./InkLayer";
+import InkLayer, { drawInkStroke } from "./InkLayer";
 import NotesToolbar from "./NotesToolbar";
 import { usePageInk } from "./usePageInk";
 import { usePaperScale } from "./usePaperScale";
@@ -79,11 +80,17 @@ export default function DocumentAnnotator({
   const [progress, setProgress] = useState<string>("Loading document...");
   const [error, setError] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
+  const [showSourceImages, setShowSourceImages] = useState(!note.scan);
+  const [transcript, setTranscript] = useState<string | null>(null);
+  const transcriptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [downloadingScan, setDownloadingScan] = useState(false);
   const [editingText, setEditingText] = useState<string | null>(null);
   const drag = useRef<{ page: number; kind: "text" | "sticker"; id: string; dx: number; dy: number } | null>(null);
   // Where the item being dragged is right now; committed (and saved, as one
   // undo step) when the pointer is released.
   const [dragPos, setDragPos] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [reload, setReload] = useState(0);
   const ink = usePageInk(uid, note.id);
   // The note object changes on every save (updatedAt); loading the document
   // must only happen when it's a different note, not after each stroke.
@@ -95,10 +102,27 @@ export default function DocumentAnnotator({
   }, [ink.saving, onSaveStateChange]);
 
   useEffect(() => {
+    if (!note.scan || !note.url) return;
+    let cancelled = false;
+    fetch(note.url)
+      .then((response) => response.ok ? response.text() : Promise.reject(new Error("Transcript unavailable")))
+      .then((value) => !cancelled && setTranscript(value))
+      .catch(() => !cancelled && setTranscript("The transcript is still being prepared. You can view the source images in the meantime."));
+    return () => { cancelled = true; };
+  }, [note.scan, note.url]);
+
+  useEffect(() => () => {
+    if (transcriptTimer.current) clearTimeout(transcriptTimer.current);
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const source = await loadDocumentSource(uid, noteRef.current);
+        const current = noteRef.current;
+        const source = current.annotatedUrl && current.fileType === "pdf"
+          ? { kind: "pdf" as const, url: current.annotatedUrl }
+          : await loadDocumentSource(uid, current);
         if (source.kind === "unsupported") throw new Error(source.reason);
         if (source.kind === "images") {
           const urls = source.urls.slice(0, MAX_PAGES_PER_NOTE);
@@ -121,7 +145,7 @@ export default function DocumentAnnotator({
     return () => {
       cancelled = true;
     };
-  }, [uid, note.id]);
+  }, [uid, note.id, note.annotatedUrl, reload]);
 
   const page = (i: number): PageAnnotations => ink.pages[i] ?? EMPTY_PAGE;
 
@@ -190,6 +214,99 @@ export default function DocumentAnnotator({
   const at = <T extends { id: string; x: number; y: number }>(item: T): T =>
     dragPos && dragPos.id === item.id ? { ...item, x: dragPos.x, y: dragPos.y } : item;
 
+  async function composePage(pg: RenderedPage, annotations: PageAnnotations): Promise<Blob> {
+    const image = new Image();
+    image.src = pg.src;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = PAGE_WIDTH * 2;
+    canvas.height = pg.height * 2;
+    const ctx = canvas.getContext("2d")!;
+    ctx.scale(2, 2);
+    ctx.drawImage(image, 0, 0, PAGE_WIDTH, pg.height);
+    annotations.strokes.filter((s) => s.tool === "highlighter").forEach((s) => drawInkStroke(ctx, s, "#1f2328", false));
+    annotations.strokes.filter((s) => s.tool !== "highlighter").forEach((s) => drawInkStroke(ctx, s, "#1f2328", false));
+    ctx.fillStyle = "#1f2328";
+    ctx.font = "15px system-ui";
+    annotations.texts.forEach((text) => text.text.split("\n").forEach((line, index) => ctx.fillText(line, text.x, text.y + 18 + index * 24)));
+    annotations.stickers.forEach((sticker) => ctx.fillText(sticker.emoji, sticker.x - 14, sticker.y + 14));
+    return new Promise((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Couldn't render a PDF page.")), "image/jpeg", 0.92));
+  }
+
+  async function saveAnnotatedPdf() {
+    if (!rendered) return;
+    setExporting(true);
+    onSaveStateChange("saving");
+    try {
+      const form = new FormData();
+      form.append("noteId", note.id);
+      for (let index = 0; index < rendered.length; index++) form.append("page", await composePage(rendered[index], page(index)), `page-${index + 1}.jpg`);
+      const response = await fetch("/api/notes/annotated-pdf", { method: "POST", body: form });
+      const data = await response.json();
+      if (!response.ok || typeof data.url !== "string") throw new Error(data.error || "Couldn't save the annotated PDF.");
+      await ink.clear();
+      await saveDocumentNote(uid, note.id, { annotatedUrl: data.url });
+      setReload((value) => value + 1);
+      onSaveStateChange("saved");
+    } catch (error) {
+      console.error(error);
+      onSaveStateChange("error");
+    } finally { setExporting(false); }
+  }
+
+  async function resetPdf() {
+    setExporting(true);
+    try {
+      await ink.clear();
+      await saveDocumentNote(uid, note.id, { annotatedUrl: null });
+      setReload((value) => value + 1);
+    } finally { setExporting(false); }
+  }
+
+  async function saveTranscript(value: string) {
+    if (!note.courseId || !note.resourceId) return;
+    try {
+      const response = await fetch("/api/ocr-documents", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: uid, courseId: note.courseId, resourceId: note.resourceId, action: "editTranscript", transcript: value }),
+      });
+      if (!response.ok) throw new Error("Couldn't save the transcript.");
+      onSaveStateChange("saved");
+      void fetch("/api/embed-document", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: uid, courseId: note.courseId, resourceId: note.resourceId }),
+      });
+    } catch (error) {
+      console.error(error);
+      onSaveStateChange("error");
+    }
+  }
+
+  function editTranscript(value: string) {
+    setTranscript(value);
+    if (transcriptTimer.current) clearTimeout(transcriptTimer.current);
+    onSaveStateChange("saving");
+    transcriptTimer.current = setTimeout(() => {
+      transcriptTimer.current = null;
+      void saveTranscript(value);
+    }, 750);
+  }
+
+  async function downloadScan() {
+    if (transcript === null || !rendered) return;
+    setDownloadingScan(true);
+    try {
+      await downloadScanArchive(note.title, transcript, rendered);
+    } catch (error) {
+      console.error(error);
+      onSaveStateChange("error");
+    } finally {
+      setDownloadingScan(false);
+    }
+  }
+
   if (error) {
     return (
       <div className="mx-auto mt-16 max-w-md rounded-xl border border-border-light bg-bg-container p-6 text-center">
@@ -203,8 +320,29 @@ export default function DocumentAnnotator({
       <div className="sticky top-[53px] z-10 flex justify-center px-3 py-2">
         <NotesToolbar variant="document" tool={tool} onToolChange={setTool} canUndo={ink.canUndo} onUndo={ink.undo} />
       </div>
+      {note.scan && (
+        <div className="flex justify-center gap-2 px-3 pb-2">
+          <button type="button" onClick={() => setShowSourceImages((show) => !show)} className="rounded-lg border border-border-light bg-bg-container px-3 py-1.5 text-xs font-medium text-text-main hover:bg-bg-warm">
+            {showSourceImages ? "View transcript" : "View source images"}
+          </button>
+          <button type="button" disabled={downloadingScan || transcript === null || !rendered} onClick={() => void downloadScan()} className="flex items-center gap-1.5 rounded-lg border border-border-light bg-bg-container px-3 py-1.5 text-xs font-medium text-text-main disabled:opacity-40">
+            <Download size={14} /> {downloadingScan ? "Preparing..." : "Download transcript & images"}
+          </button>
+        </div>
+      )}
+      {note.fileType === "pdf" && (
+        <div className="flex justify-center gap-2 px-3 pb-2">
+          <button type="button" disabled={exporting || !rendered} onClick={() => void saveAnnotatedPdf()} className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-text-inverse disabled:opacity-40"><Save size={14} /> {exporting ? "Saving..." : "Save annotated PDF"}</button>
+          <a href={note.annotatedUrl || note.url} download className="flex items-center gap-1.5 rounded-lg border border-border-light bg-bg-container px-3 py-1.5 text-xs font-medium text-text-main"><Download size={14} /> Download</a>
+          {note.annotatedUrl && <button type="button" disabled={exporting} onClick={() => void resetPdf()} className="flex items-center gap-1.5 rounded-lg border border-border-light bg-bg-container px-3 py-1.5 text-xs font-medium text-text-main disabled:opacity-40"><RotateCcw size={14} /> Reset</button>}
+        </div>
+      )}
       <div ref={scrollRef} className="px-4 pb-24 pt-2">
-        {!rendered ? (
+        {note.scan && !showSourceImages ? (
+          <div className="mx-auto max-w-4xl rounded-lg border border-border-light bg-bg-container p-5 shadow-sm">
+            {transcript === null ? <div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 size={16} className="animate-spin" /> Loading transcript...</div> : <textarea value={transcript} onChange={(event) => editTranscript(event.target.value)} spellCheck className="min-h-[65vh] w-full resize-y border-0 bg-transparent font-mono text-sm leading-6 text-text-main outline-none" aria-label="OCR transcript" />}
+          </div>
+        ) : !rendered ? (
           <div className="mt-16 flex flex-col items-center gap-3 text-sm text-text-muted">
             <Loader2 className="animate-spin" /> {progress}
           </div>
@@ -240,7 +378,10 @@ export default function DocumentAnnotator({
                       className="group absolute"
                       style={{ left: t.x, top: t.y, pointerEvents: tool.mode === "type" ? "auto" : "none" }}
                       onPointerDown={(e) => {
-                        if ((e.target as HTMLElement).tagName !== "TEXTAREA") startDrag(e, i, "text", t.id, t.x, t.y);
+                        // In cursor mode a text annotation is an object to
+                        // move. Editing is deliberate (double-click), so a
+                        // normal click never reopens the text box.
+                        if (editingText !== t.id) startDrag(e, i, "text", t.id, t.x, t.y);
                       }}
                       onPointerMove={moveDrag}
                       onPointerUp={endDrag}
@@ -248,6 +389,11 @@ export default function DocumentAnnotator({
                       <textarea
                         value={t.text}
                         autoFocus={editingText === t.id}
+                        readOnly={editingText !== t.id}
+                        onPointerDown={(e) => {
+                          if (editingText !== t.id) e.preventDefault();
+                        }}
+                        onDoubleClick={() => setEditingText(t.id)}
                         onFocus={() => setEditingText(t.id)}
                         onBlur={() => {
                           setEditingText(null);
@@ -263,7 +409,11 @@ export default function DocumentAnnotator({
                       <button
                         type="button"
                         aria-label="Delete text"
-                        onClick={() => removeItem(i, "text", t.id)}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeItem(i, "text", t.id);
+                        }}
                         className="absolute -right-2 -top-2 hidden h-5 w-5 items-center justify-center rounded-full bg-[#1f2328] text-white group-hover:flex"
                       >
                         <X size={11} />
