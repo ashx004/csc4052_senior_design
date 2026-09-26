@@ -84,6 +84,23 @@ export default function Signup() {
           ? lastError
           : new Error("Your account was created, but we couldn't finish setting it up. Please try signing up again.");
       }
+
+      // This request carries the fresh Firebase ID token directly instead of
+      // waiting for AuthContext to finish writing its cookie. Account creation
+      // must still succeed if the email provider is temporarily unavailable;
+      // Settings offers a resend control for that case.
+      try {
+        const idToken = await user.getIdToken();
+        const verificationResponse = await fetch("/api/auth/email-verification", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${idToken}` },
+        });
+        if (!verificationResponse.ok) {
+          console.error("Couldn't send account verification email.");
+        }
+      } catch {
+        console.error("Couldn't send account verification email.");
+      }
     } catch (error) {
       alert(error instanceof Error ? error.message : "Account failed to be created.");
       console.log(error);

@@ -17,7 +17,15 @@ function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPasswordReset, setShowPasswordReset] = useState(false);
+  const [isResetSubmitting, setIsResetSubmitting] = useState(false);
+  const [resetMessage, setResetMessage] = useState("");
   const greeting: string = "C a t a l y s t .";
+  const actionMessage = searchParams.get("emailVerified") === "1"
+    ? "Your email has been verified. You can now sign in."
+    : searchParams.get("passwordReset") === "1"
+      ? "Your password has been reset. Sign in with your new password."
+      : "";
 
   // Firebase Auth persists a signed-in session on this device indefinitely
   // by default — the middleware-facing fb_token cookie is what actually
@@ -85,6 +93,31 @@ function LoginForm() {
     }
   }
 
+  async function handlePasswordReset() {
+    const cleanedEmail = email.trim().toLowerCase();
+    if (!cleanedEmail) {
+      setResetMessage("Enter your email address first.");
+      return;
+    }
+
+    setIsResetSubmitting(true);
+    setResetMessage("");
+    try {
+      const response = await fetch("/api/auth/password-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: cleanedEmail }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error || "Unable to request a password reset.");
+      setResetMessage(data?.message || "If an account exists for that email address, a reset link has been sent.");
+    } catch (error) {
+      setResetMessage(error instanceof Error ? error.message : "Unable to request a password reset.");
+    } finally {
+      setIsResetSubmitting(false);
+    }
+  }
+
   // Either still checking the persisted session, or already found one and
   // about to redirect — showing the form for a flash in either case would
   // defeat the point of the silent bounce-through above.
@@ -113,6 +146,11 @@ function LoginForm() {
         </p>
 
         <div className="flex flex-col gap-4 w-full mt-8">
+          {actionMessage && (
+            <p role="status" className="rounded bg-alert-success-bg px-3 py-2 text-sm text-alert-success">
+              {actionMessage}
+            </p>
+          )}
           <input
             type="email"
             placeholder="email"
@@ -136,6 +174,32 @@ function LoginForm() {
                       hover:bg-primary-hover disabled:opacity-50" >
             Log In
           </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setShowPasswordReset((visible) => !visible);
+              setResetMessage("");
+            }}
+            className="self-start text-sm font-medium text-primary hover:text-primary-hover"
+          >
+            Forgot password?
+          </button>
+
+          {showPasswordReset && (
+            <div className="rounded border border-border-light bg-bg-main p-3 text-sm text-text-main">
+              <p className="mb-2 text-text-muted">We&apos;ll send a reset link if an account exists for this email.</p>
+              <button
+                type="button"
+                onClick={handlePasswordReset}
+                disabled={isResetSubmitting}
+                className="rounded bg-primary px-3 py-1.5 font-medium text-text-inverse hover:bg-primary-hover disabled:opacity-50"
+              >
+                {isResetSubmitting ? "Sending..." : "Send reset link"}
+              </button>
+              {resetMessage && <p role="status" className="mt-2 text-text-muted">{resetMessage}</p>}
+            </div>
+          )}
 
           <div className="flex items-center gap-2 text-xs text-text-muted">
             <div className="h-px flex-1 bg-border-light" />
