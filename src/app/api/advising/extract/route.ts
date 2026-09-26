@@ -1,26 +1,81 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyRequestAuth } from "@/src/library/verifyAuth";
+import { verifyRequestAuth, isInternalRequest } from "@/src/library/verifyAuth";
 import { extractPdfTextFromUrl, resolveInternalUrl, } from "@/src/library/pdfExtract";
+import { EXTRACTION_JOBS, enqueueAdvisingJob, readAdvisingJob } from "@/src/library/advisingJobs";
 import { extractTranscriptWithOllama, extractCurriculumWithOllama, } from "@/src/library/advisingOllama";
 import { FieldValue, } from "firebase-admin/firestore";
 import { adminDb, } from "@/src/library/firebaseAdmin";
 import { transcriptExtractionSchema, curriculumExtractionSchema, } from "@/src/library/advisingSchemas";
 import { cleanTranscriptTextForOllama } from "@/src/library/advisingTranscriptCleanup";
 import { findTermCreditMismatches } from "@/src/library/advisingTranscriptChecks";
+import { checkRateLimit } from "@/src/library/rateLimit";
+
+const EXTRACT_RATE_LIMIT_WINDOW_MS = 60_000;
+const EXTRACT_RATE_LIMIT_MAX = 5; // one real upload plus a couple of retries, generously
+
+// A transcript + curriculum extraction makes up to 4 sequential AI calls
+// (transcript, then program info, main requirements, and concentrations).
+// That routinely runs well past the ~100s timeout the Cloudflare tunnel in
+// front of this deployment enforces on any single request - see
+// advisingOllama.ts. So this route now works like /api/embed-document: the
+// browser only ever gets a fast "queued" response and polls for the result;
+// the actual work happens server-to-server via /api/advising-jobs/worker,
+// where a slow/timed-out attempt just gets retried instead of surfacing a
+// raw Cloudflare error page to the student.
 
 export async function POST(request: NextRequest) {
+  if (isInternalRequest(request)) {
+    return processExtraction(request);
+  }
+  return enqueueExtraction(request);
+}
+
+// Browser-facing: kicks off (or reports) a background extraction job.
+async function enqueueExtraction(request: NextRequest) {
+  const auth = await verifyRequestAuth(request);
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const rateLimit = checkRateLimit(auth.uid, EXTRACT_RATE_LIMIT_WINDOW_MS, EXTRACT_RATE_LIMIT_MAX);
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ error: "Too many requests. Please wait a moment." }, { status: 429 });
+  }
+
+  await enqueueAdvisingJob(request, EXTRACTION_JOBS, auth.uid, {
+    needsManualTransferReview: false,
+    unreadableTransferInfo: null,
+  });
+
+  return NextResponse.json({ queued: true, status: "queued" }, { status: 202 });
+}
+
+// Browser-facing: polled by the frontend until the job completes or fails,
+// and read on page load to resume a job the student left running.
+export async function GET(request: NextRequest) {
+  const auth = await verifyRequestAuth(request);
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { status, data } = await readAdvisingJob(request, EXTRACTION_JOBS, auth.uid);
+  return NextResponse.json({
+    status,
+    lastError: data?.lastError ?? null,
+    needsManualTransferReview: data?.needsManualTransferReview ?? false,
+    unreadableTransferInfo: data?.unreadableTransferInfo ?? null,
+  });
+}
+
+// Internal-only: does the actual PDF + AI extraction work. Called
+// server-to-server by /api/advising-jobs/worker, never directly by a
+// browser, so it's free to take as long as it needs.
+async function processExtraction(request: NextRequest) {
   try {
-
-    const auth = await verifyRequestAuth(request);
-
-    if (!auth) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
+    const { userId } = await request.json();
+    if (!userId) {
+      return NextResponse.json({ error: "userId is required" }, { status: 400 });
     }
-
-    const userId = auth.uid;
 
     const transcriptPath = `users/${userId}/advising/transcript.pdf`;
     const curriculumPath = `users/${userId}/advising/curriculum.pdf`;
@@ -36,8 +91,8 @@ export async function POST(request: NextRequest) {
     // Advising-specific cleanup (PII redaction, summary-noise stripping)
     const transcriptText = cleanTranscriptTextForOllama(rawTranscriptText);
 
-    
-    // ask ollama to extract the data 
+
+    // ask ollama to extract the data
     const transcriptResponse = await extractTranscriptWithOllama(transcriptText);
     const curriculumResponse = await extractCurriculumWithOllama(curriculumText);
 
@@ -57,16 +112,18 @@ export async function POST(request: NextRequest) {
       if (!course.grade) continue;
       const cleaned = course.grade.trim().replace(/\s+R$/i, "");
       course.grade = cleaned === "" || cleaned.toUpperCase() === "R" ? null : cleaned;
+
+      // An "IP" grade always means the course is being taken now. The model
+      // occasionally labels it something else, and then the course counts as
+      // not taken yet and the schedule starts in the current quarter.
+      if (course.grade?.toUpperCase() === "IP") course.status = "in-progress";
     }
 
     transcriptData.warnings.push(...creditMismatches);
-    
+
     // Never save an empty read over good data.
     if (transcriptData.courses.length === 0) {
-      return NextResponse.json(
-        { error: "No courses could be read from your transcript. Please check that you uploaded the right file." },
-        { status: 422 }
-      );
+      throw new Error("No courses could be read from your transcript. Please check that you uploaded the right file.");
     }
 
     const curriculumData = curriculumExtractionSchema.parse(rawCurriculumData);
@@ -93,7 +150,7 @@ export async function POST(request: NextRequest) {
 
     const unreadableTransfer = findUnreadableTransferWarning(transcriptData.warnings);
 
-    
+
     console.log(`Extracted ${transcriptData.courses.length} courses, ${curriculumData.requirements.length} requirements, ${creditMismatches.length} credit warnings`);
 
 
@@ -104,7 +161,7 @@ export async function POST(request: NextRequest) {
     const curriculumRef =
       adminDb.collection("users").doc(userId).collection("curriculum").doc("data");
 
-    
+
     // save the validated data. marge false means the old document is completely replaced
     await Promise.all([
       transcriptRef.set({
@@ -122,9 +179,7 @@ export async function POST(request: NextRequest) {
 
 
     return NextResponse.json({
-      message: "Documents were extracted and saved successfully.",
-      transcript: transcriptData,
-      curriculum: curriculumData,
+      success: true,
       needsManualTransferReview: unreadableTransfer !== null,
       unreadableTransferInfo: unreadableTransfer,
   });
