@@ -31,6 +31,7 @@ import {
     setStoredVoiceURI,
     speak,
 } from "@/src/library/tts";
+import { getSidebarAutoCollapse, setSidebarAutoCollapse } from "@/src/library/sidebarPreference";
 
 export default function Settings() {
     const { user } = useAuth();
@@ -54,6 +55,7 @@ export default function Settings() {
     // const [studyRemIsOn, setstudyRemOn] = useState<boolean>(false);
     const [themeMode, setThemeModeState] = useState<ThemeMode>("light");
     const [coffee, setCoffeeState] = useState<boolean>(false);
+    const [sidebarAutoCollapse, setSidebarAutoCollapseState] = useState<boolean>(false);
     // const [focusIsOn, setFocusOn] = useState<boolean>(false);
 
     const [ttsSupported, setTtsSupported] = useState(false);
@@ -89,6 +91,7 @@ export default function Settings() {
         applyTheme(storedMode, storedCoffee);
         setThemeModeState(storedMode);
         setCoffeeState(storedCoffee);
+        setSidebarAutoCollapseState(getSidebarAutoCollapse());
     }, []);
 
     // Voices load asynchronously — empty on the first call in most browsers
@@ -133,6 +136,12 @@ export default function Settings() {
         const next = event.target.checked;
         setCoffeeState(next);
         setCoffee(next);
+    }
+
+    function handleSidebarAutoCollapseToggle(event: ChangeEvent<HTMLInputElement>) {
+        const next = event.target.checked;
+        setSidebarAutoCollapseState(next);
+        setSidebarAutoCollapse(next);
     }
 
     async function reauthenticateUser(password: string): Promise<void> {
@@ -608,6 +617,20 @@ export default function Settings() {
 
             <div className="flex w-3/4 self-center px-2 py-1 text-xs text-text-muted">
                 Toggle dark mode, and check Coffee for a warm variant of either theme
+            </div>
+
+            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2 bg-bg-main text-text-main hover:bg-bg-warm">
+                <div>
+                    <span className="text-sm">Auto-collapse navigation</span>
+                    <p className="text-xs text-text-muted">Close the navigation after you open a page.</p>
+                </div>
+                <input
+                    type="checkbox"
+                    checked={sidebarAutoCollapse}
+                    onChange={handleSidebarAutoCollapseToggle}
+                    aria-label="Auto-collapse navigation after opening a page"
+                    className="h-4 w-4 cursor-pointer rounded border-border-light accent-primary"
+                />
             </div>
 
             <header className="mt-5 relative flex w-3/4 self-center

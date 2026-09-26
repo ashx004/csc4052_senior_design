@@ -9,8 +9,11 @@ import {
 } from "@/src/library/calendarHelpers";
 import type { CalendarEvent } from "@/src/components/calendar/calendarTypes";
 
-const START_HOUR = 6;
-const END_HOUR = 22;
+// Class schedules can run outside the traditional daytime window. Month view
+// showed them because it has no hour cutoff; daily view must use the same
+// complete calendar day.
+const START_HOUR = 0;
+const END_HOUR = 24;
 
 const DAY_NAMES = [
   "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
