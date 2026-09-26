@@ -14,7 +14,7 @@ Requires Node.js >= 22.19.0 (see `engines` in `package.json`) and npm >= 11.
 This installs the exact versions recorded in `package-lock.json`. Use `npm install` only when
 intentionally adding or upgrading a dependency.
 
-4.) Create a `.env.local` file (copy `env.example`) and set `NEXT_PUBLIC_FIREBASE_API_KEY` (and any other required env vars like `MINIO_*`). Keep this file out of version control.
+4.) Create a `.env.local` file (copy `env.example`) and set `NEXT_PUBLIC_FIREBASE_API_KEY` (and any other required env vars like `MINIO_*`). Keep this file out of version control.
 
 5.) Run `npm run dev` at the root of the project directory
 
@@ -24,3 +24,8 @@ For durable OCR and document-indexing jobs, run `npm run worker:ocr` as a
 separate managed process. Set `OCR_WORKER_URL` to the deployed
 `/api/document-jobs/worker` endpoint and provide the same `INTERNAL_API_SECRET`
 used by the web application.
+
+For durable advising extraction jobs (transcript + curriculum parsing), run
+`npm run worker:advising` as a separate managed process. Set
+`ADVISING_WORKER_URL` to the deployed `/api/advising-jobs/worker` endpoint and
+provide the same `INTERNAL_API_SECRET` used by the web application.
