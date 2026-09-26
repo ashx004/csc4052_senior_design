@@ -5,12 +5,12 @@ import {
     EmailAuthProvider,
     reauthenticateWithCredential,
     updatePassword,
-    verifyBeforeUpdateEmail,
 } from "firebase/auth";
 import { signOut } from "firebase/auth";
 import { FirebaseError } from "firebase/app";
+import { doc, updateDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
-import { auth } from "../../../library/firebase";
+import { auth, db } from "../../../library/firebase";
 import {
     applyTheme,
     getStoredCoffee,
@@ -72,6 +72,7 @@ export default function Settings() {
     const [accountMessage, setAccountMessage] = useState<string>("");
     const [accountError, setAccountError] = useState<string>("");
     const [isUpdatingAccount, setIsUpdatingAccount] = useState<boolean>(false);
+    const [isSendingVerification, setIsSendingVerification] = useState<boolean>(false);
 
     const router = useRouter();
     const [aiModels, setAiModels] = useState<{ main: string | null; ocr: string | null } | null>(null);
@@ -82,6 +83,29 @@ export default function Settings() {
             .then((data) => setAiModels(data))
             .catch(() => setAiModels(null));
     }, []);
+
+    useEffect(() => {
+        if (!user || new URLSearchParams(window.location.search).get("emailChanged") !== "1") return;
+        const changedUser = user;
+
+        async function refreshChangedEmail() {
+            try {
+                await changedUser.reload();
+                await changedUser.getIdToken(true);
+                if (changedUser.email) {
+                    await updateDoc(doc(db, "users", changedUser.uid), { email: changedUser.email });
+                }
+                setAccountMessage("Your email address has been updated.");
+            } catch (error) {
+                console.error("Couldn't refresh the changed email address:", error);
+                setAccountError("Your email changed, but we couldn't refresh your profile. Reload this page and try again.");
+            } finally {
+                router.replace("/settings");
+            }
+        }
+
+        void refreshChangedEmail();
+    }, [router, user]);
 
     useEffect(() => {
         const storedMode = getStoredThemeMode();
@@ -238,7 +262,19 @@ export default function Settings() {
             if (!user) {
                 throw new Error("You must be signed in."); }
 
-            await verifyBeforeUpdateEmail(user, cleanedEmail);
+            const idToken = await user.getIdToken(true);
+            const response = await fetch("/api/auth/email-change", {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${idToken}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ newEmail: cleanedEmail }),
+            });
+            const data = await response.json().catch(() => null);
+            if (!response.ok) {
+                throw new Error(data?.error || "Unable to send the email-change confirmation.");
+            }
 
             setAccountMessage(
                 `A verification link was sent to ${cleanedEmail}. Open the link to finish changing your email.` );
@@ -250,6 +286,33 @@ export default function Settings() {
             handleAccountError(error);
         } finally {
             setIsUpdatingAccount(false);
+        }
+    }
+
+    async function handleResendVerification(): Promise<void> {
+        if (!user) return;
+
+        setAccountError("");
+        setAccountMessage("");
+        setIsSendingVerification(true);
+        try {
+            const idToken = await user.getIdToken(true);
+            const response = await fetch("/api/auth/email-verification", {
+                method: "POST",
+                headers: { Authorization: `Bearer ${idToken}` },
+            });
+            const data = await response.json().catch(() => null);
+            if (!response.ok) throw new Error(data?.error || "Unable to send verification email.");
+
+            setAccountMessage(
+                data?.reason === "already-verified"
+                    ? "Your email address is already verified."
+                    : "A verification link has been sent to your email address."
+            );
+        } catch (error: unknown) {
+            handleAccountError(error);
+        } finally {
+            setIsSendingVerification(false);
         }
     }
 
@@ -710,6 +773,23 @@ export default function Settings() {
 
 
 
+
+            {user?.email && !user.emailVerified && (
+                <div className="mt-5 flex w-3/4 self-center items-center justify-between gap-4 rounded border border-border-light bg-bg-main px-4 py-3 text-text-main">
+                    <div>
+                        <p className="text-sm font-medium">Verify your email</p>
+                        <p className="mt-1 text-xs text-text-muted">Confirm {user.email} to secure your account and receive account emails.</p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={handleResendVerification}
+                        disabled={isSendingVerification}
+                        className="shrink-0 rounded border border-border-light bg-bg-container px-3 py-1.5 text-xs font-medium text-text-main hover:bg-bg-warm disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        {isSendingVerification ? "Sending..." : "Resend email"}
+                    </button>
+                </div>
+            )}
 
             {/* Change Password */}
             <header
