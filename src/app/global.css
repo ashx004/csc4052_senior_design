@@ -239,3 +239,48 @@ a:hover {
   animation: blocks-clear-fade 0.6s ease-out forwards;
   pointer-events: none;
 }
+
+/* ── Notes editor (src/components/notes/TypedNoteEditor.tsx) ──────────────
+   Typed text lives on a fixed-size sheet; colors come from the theme tokens
+   so writing stays readable in light, dark and Coffee themes. */
+.note-sheet .ProseMirror {
+  outline: none;
+  min-height: 100%;
+  color: var(--color-text-main);
+  font-size: 16px;
+  line-height: 28px;
+  word-wrap: break-word;
+}
+.note-sheet .ProseMirror p { margin: 0 0 12px; }
+.note-sheet .ProseMirror h1 { font-size: 30px; line-height: 40px; font-weight: 700; margin: 20px 0 10px; }
+.note-sheet .ProseMirror h2 { font-size: 23px; line-height: 32px; font-weight: 650; margin: 18px 0 8px; }
+.note-sheet .ProseMirror h3 { font-size: 19px; line-height: 28px; font-weight: 600; margin: 14px 0 6px; }
+.note-sheet .ProseMirror > :first-child { margin-top: 0; }
+.note-sheet .ProseMirror ul { list-style: disc; padding-left: 24px; margin: 0 0 12px; }
+.note-sheet .ProseMirror ol { list-style: decimal; padding-left: 24px; margin: 0 0 12px; }
+.note-sheet .ProseMirror li p { margin: 0 0 4px; }
+.note-sheet .ProseMirror blockquote { border-left: 3px solid var(--color-border-hover); padding-left: 14px; color: var(--color-text-muted); margin: 0 0 12px; }
+.note-sheet .ProseMirror code { background: var(--color-bg-warm); border-radius: 4px; padding: 1px 5px; font-size: 14px; }
+.note-sheet .ProseMirror pre { background: var(--color-bg-warm); border-radius: 8px; padding: 12px 14px; margin: 0 0 12px; overflow-x: auto; }
+.note-sheet .ProseMirror pre code { background: none; padding: 0; }
+.note-sheet .ProseMirror hr { border: none; border-top: 1px solid var(--color-border-light); margin: 18px 0; }
+.note-sheet .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--color-text-muted);
+  opacity: 0.7;
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Read-only Office previews in the Notes workspace. */
+.office-file-view .docx-render p { margin: 0 0 8px; }
+.office-file-view .docx-render table,
+.office-file-view .sheet-render table { border-collapse: collapse; }
+.office-file-view .docx-render td,
+.office-file-view .docx-render th,
+.office-file-view .sheet-render td { border: 1px solid #ddd; padding: 4px 8px; }
+.office-file-view .docx-render ul,
+.office-file-view .docx-render ol { list-style: revert; margin: revert; padding-left: 1.5rem; }
+.office-file-view .sheet-render td { white-space: nowrap; font-size: 0.8rem; }
+.office-file-view .sheet-render tr:first-child td { background: #e8d2af; font-weight: 600; }
