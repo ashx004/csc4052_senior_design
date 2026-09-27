@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { doc, updateDoc } from "firebase/firestore";
 import {
   CalendarDays,
   ChevronLeft,
@@ -29,6 +28,9 @@ import type { CalendarEvent, CalendarView } from "@/src/components/calendar/cale
 import { useSetPageContext } from "@/src/context/AIPageContext";
 import { useAuth } from "@/src/context/AuthContext";
 import { db } from "@/src/library/firebase";
+import { DEFAULT_EMAIL_REMINDER_OFFSETS_MINUTES } from "@/src/library/email/reminderPreferences";
+import { isEmailReminderEligible, resolveEventDueAt } from "@/src/library/email/reminderModel";
+import { saveLocalEventWithReminderJobs } from "@/src/library/email/reminderJobs";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -175,12 +177,37 @@ export default function CalendarPage() {
       const startDate = `${movedStart.getFullYear()}-${String(movedStart.getMonth() + 1).padStart(2, "0")}-${String(movedStart.getDate()).padStart(2, "0")}`;
       movedEnd.setDate(movedEnd.getDate() + durationDays);
       const endDate = `${movedEnd.getFullYear()}-${String(movedEnd.getMonth() + 1).padStart(2, "0")}-${String(movedEnd.getDate()).padStart(2, "0")}`;
-      await updateDoc(doc(db, "users", user.uid, "events", event.id), { startTime: startDate, endTime: endDate });
+      const dueAt = resolveEventDueAt({ ...event, startTime: startDate, dueAt: undefined });
+      const emailReminderOffsets = event.emailReminderOffsets?.length
+        ? event.emailReminderOffsets
+        : isEmailReminderEligible(event)
+          ? [...DEFAULT_EMAIL_REMINDER_OFFSETS_MINUTES]
+          : [];
+      await saveLocalEventWithReminderJobs({
+        db,
+        uid: user.uid,
+        eventId: event.id,
+        eventData: { startTime: startDate, endTime: endDate, dueAt, emailReminderOffsets },
+        reminderEvent: { ...event, startTime: startDate, dueAt: dueAt || undefined, emailReminderOffsets },
+      });
       return;
     }
     movedStart.setHours(start.getHours(), start.getMinutes(), 0, 0);
     movedEnd.setTime(movedStart.getTime() + (end.getTime() - start.getTime()));
-    await updateDoc(doc(db, "users", user.uid, "events", event.id), { startTime: movedStart.toISOString(), endTime: movedEnd.toISOString() });
+    const startTime = movedStart.toISOString();
+    const dueAt = resolveEventDueAt({ ...event, startTime, dueAt: undefined });
+    const emailReminderOffsets = event.emailReminderOffsets?.length
+      ? event.emailReminderOffsets
+      : isEmailReminderEligible(event)
+        ? [...DEFAULT_EMAIL_REMINDER_OFFSETS_MINUTES]
+        : [];
+    await saveLocalEventWithReminderJobs({
+      db,
+      uid: user.uid,
+      eventId: event.id,
+      eventData: { startTime, endTime: movedEnd.toISOString(), dueAt, emailReminderOffsets },
+      reminderEvent: { ...event, startTime, dueAt: dueAt || undefined, emailReminderOffsets },
+    });
   }
 
   // ── Header text ──────────────────────────────────────────────────────────
