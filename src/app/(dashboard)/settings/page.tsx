@@ -31,6 +31,18 @@ import {
     setStoredVoiceURI,
     speak,
 } from "@/src/library/tts";
+import {
+    getEmailReminderPreferences,
+    saveEmailReminderPreferences,
+} from "@/src/library/email/reminderPreferences";
+
+const EMAIL_REMINDER_OFFSET_OPTIONS = [
+    { minutes: 10_080, label: "1 week before" },
+    { minutes: 4_320, label: "3 days before" },
+    { minutes: 1_440, label: "1 day before" },
+    { minutes: 60, label: "1 hour before" },
+    { minutes: 15, label: "15 minutes before" },
+];
 
 export default function Settings() {
     const { user } = useAuth();
@@ -54,6 +66,13 @@ export default function Settings() {
     // const [studyRemIsOn, setstudyRemOn] = useState<boolean>(false);
     const [themeMode, setThemeModeState] = useState<ThemeMode>("light");
     const [coffee, setCoffeeState] = useState<boolean>(false);
+    const [emailRemindersEnabled, setEmailRemindersEnabled] = useState(false);
+    const [emailReminderOffsets, setEmailReminderOffsets] = useState<number[]>([1_440]);
+    const [emailReminderTimeZone, setEmailReminderTimeZone] = useState("UTC");
+    const [emailReminderLoading, setEmailReminderLoading] = useState(true);
+    const [emailReminderSaving, setEmailReminderSaving] = useState(false);
+    const [emailReminderMessage, setEmailReminderMessage] = useState("");
+    const [emailReminderError, setEmailReminderError] = useState("");
     // const [focusIsOn, setFocusOn] = useState<boolean>(false);
 
     const [ttsSupported, setTtsSupported] = useState(false);
@@ -83,6 +102,34 @@ export default function Settings() {
             .then((data) => setAiModels(data))
             .catch(() => setAiModels(null));
     }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+        if (!user) {
+            setEmailReminderLoading(false);
+            return;
+        }
+
+        const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+        setEmailReminderLoading(true);
+        getEmailReminderPreferences(db, user.uid, timeZone)
+            .then((preferences) => {
+                if (cancelled) return;
+                setEmailRemindersEnabled(preferences.enabled);
+                setEmailReminderOffsets(preferences.offsetsMinutes);
+                setEmailReminderTimeZone(preferences.timeZone);
+                setEmailReminderError("");
+            })
+            .catch((error) => {
+                console.error("Couldn't load email reminder preferences:", error);
+                if (!cancelled) setEmailReminderError("Couldn't load reminder settings. Please refresh and try again.");
+            })
+            .finally(() => {
+                if (!cancelled) setEmailReminderLoading(false);
+            });
+
+        return () => { cancelled = true; };
+    }, [user?.uid]);
 
     useEffect(() => {
         if (!user || new URLSearchParams(window.location.search).get("emailChanged") !== "1") return;
@@ -157,6 +204,43 @@ export default function Settings() {
         const next = event.target.checked;
         setCoffeeState(next);
         setCoffee(next);
+    }
+
+    function toggleEmailReminderOffset(minutes: number) {
+        setEmailReminderMessage("");
+        setEmailReminderError("");
+        setEmailReminderOffsets((current) => current.includes(minutes)
+            ? current.filter((offset) => offset !== minutes)
+            : [...current, minutes].sort((left, right) => right - left));
+    }
+
+    async function handleSaveEmailReminderPreferences() {
+        if (!user) return;
+        setEmailReminderMessage("");
+        setEmailReminderError("");
+        if (emailRemindersEnabled && emailReminderOffsets.length === 0) {
+            setEmailReminderError("Choose at least one reminder time, or turn email reminders off.");
+            return;
+        }
+
+        try {
+            setEmailReminderSaving(true);
+            const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || emailReminderTimeZone || "UTC";
+            await saveEmailReminderPreferences(db, user.uid, {
+                enabled: emailRemindersEnabled,
+                offsetsMinutes: emailReminderOffsets,
+                timeZone,
+            });
+            setEmailReminderTimeZone(timeZone);
+            setEmailReminderMessage(emailRemindersEnabled
+                ? "Email reminder settings saved."
+                : "Email reminders are off.");
+        } catch (error) {
+            console.error("Couldn't save email reminder preferences:", error);
+            setEmailReminderError("Couldn't save reminder settings. Please try again.");
+        } finally {
+            setEmailReminderSaving(false);
+        }
     }
 
     async function reauthenticateUser(password: string): Promise<void> {
@@ -519,6 +603,73 @@ export default function Settings() {
                 Get reminder for study sections
             </div>
             */ }
+
+
+            {/* Email reminders */}
+            <header className="mt-5 flex w-3/4 shrink-0 self-center border-b border-border-light px-6" />
+            <section className="mt-2 flex w-3/4 self-center flex-col gap-4 rounded-lg bg-bg-main px-3 py-4">
+                <div className="flex items-start justify-between gap-4">
+                    <div>
+                        <h2 className="text-sm font-medium text-text-main">Email reminders</h2>
+                        <p className="mt-1 text-xs text-text-muted">
+                            Receive reminders for assignments and exams on your calendar.
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        role="switch"
+                        aria-checked={emailRemindersEnabled}
+                        aria-label="Toggle email reminders"
+                        disabled={emailReminderLoading || !user}
+                        onClick={() => {
+                            setEmailRemindersEnabled((enabled) => !enabled);
+                            setEmailReminderMessage("");
+                            setEmailReminderError("");
+                        }}
+                        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                            emailRemindersEnabled ? "bg-primary" : "bg-border-light"
+                        }`}
+                    >
+                        <span className={`absolute left-[2px] top-[2px] h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                            emailRemindersEnabled ? "translate-x-5" : "translate-x-0"
+                        }`} />
+                    </button>
+                </div>
+
+                <fieldset disabled={emailReminderLoading || !user || emailReminderSaving}>
+                    <legend className="text-xs font-medium text-text-muted">Remind me</legend>
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2">
+                        {EMAIL_REMINDER_OFFSET_OPTIONS.map((option) => (
+                            <label key={option.minutes} className="flex cursor-pointer items-center gap-2 text-sm text-text-main">
+                                <input
+                                    type="checkbox"
+                                    checked={emailReminderOffsets.includes(option.minutes)}
+                                    onChange={() => toggleEmailReminderOffset(option.minutes)}
+                                    className="h-4 w-4 rounded border-border-light accent-primary"
+                                />
+                                {option.label}
+                            </label>
+                        ))}
+                    </div>
+                </fieldset>
+
+                <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs text-text-muted">
+                        {emailReminderLoading ? "Loading reminder settings..." : `Timezone: ${emailReminderTimeZone}`}
+                    </p>
+                    <button
+                        type="button"
+                        onClick={handleSaveEmailReminderPreferences}
+                        disabled={emailReminderLoading || emailReminderSaving || !user}
+                        className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-text-inverse transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        {emailReminderSaving ? "Saving..." : "Save reminders"}
+                    </button>
+                </div>
+
+                {emailReminderError && <p role="alert" className="text-xs text-alert-error">{emailReminderError}</p>}
+                {emailReminderMessage && <p role="status" className="text-xs text-alert-success">{emailReminderMessage}</p>}
+            </section>
 
 
 
