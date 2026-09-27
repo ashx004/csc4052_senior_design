@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import AdvisingPermissionModal from "@/src/components/advising/AdvisingPermissionModal";
 import AdvisingUploadModal from "@/src/components/advising/AdvisingUploadModal";
 import ExistingDocumentsModal from "@/src/components/advising/ExistingDocumentsModal";
@@ -34,6 +34,26 @@ type GeneratedSchedule = {
   warnings: string[];
 };
 
+// Status of an advising background job, as reported by GET
+// /api/advising/extract and GET /api/advising/generate. "stale" means the job
+// stopped responding, so it's treated as not running.
+type JobStatus = "none" | "queued" | "processing" | "complete" | "failed" | "stale";
+
+type JobStatusResponse = {
+  status: JobStatus;
+  lastError: string | null;
+  // extraction jobs
+  needsManualTransferReview?: boolean;
+  unreadableTransferInfo?: { rowCount: number; totalCreditHours: number } | null;
+  // schedule jobs: the saved schedule, once complete
+  schedule?: GeneratedSchedule | null;
+};
+
+const isRunning = (status: JobStatus) => status === "queued" || status === "processing";
+
+const JOB_POLL_INTERVAL_MS = 4000;
+const MAX_JOB_POLL_MS = 20 * 60 * 1000;
+
 
 export default function AdvisingPage() {
   const [showPermissionModal, setShowPermissionModal] = useState<boolean>(false);
@@ -50,6 +70,46 @@ export default function AdvisingPage() {
   const [transferReviewInfo, setTransferReviewInfo] = useState<{rowCount: number; totalCreditHours: number;} | null>(null);
   const [showManualCourseForm, setShowManualCourseForm] = useState<boolean>(false);
   const [scheduleNeedsRegeneration, setScheduleNeedsRegeneration] = useState<boolean>(false);
+  const [isExtracting, setIsExtracting] = useState<boolean>(false);
+
+  // Upload/generate jobs run on the server, so leaving this page doesn't stop
+  // them - a popup (NotificationToast) reports the result wherever the
+  // student is. This only stops this page's status polling once it's gone.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  async function fetchJobStatus(url: string) {
+    const token = await user!.getIdToken();
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error ?? "Could not check on your advising request.");
+    }
+    return data as JobStatusResponse;
+  }
+
+  // Polls a job until it finishes. Returns the final status data, or null if
+  // the student left the page first (the job keeps running on the server).
+  async function waitForJob(url: string, fallbackError: string) {
+    const deadline = Date.now() + MAX_JOB_POLL_MS;
+
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, JOB_POLL_INTERVAL_MS));
+      if (!mountedRef.current) return null;
+
+      const data = await fetchJobStatus(url);
+      if (data.status === "complete") return data;
+      if (data.status === "failed") throw new Error(data.lastError ?? fallbackError);
+      if (!isRunning(data.status)) {
+        throw new Error("Your request stopped responding. Please try again.");
+      }
+    }
+
+    throw new Error("This is taking longer than expected. You'll get a notification when it's done.");
+  }
 
   useEffect(() => {
   if (loading || !user) {
@@ -60,6 +120,31 @@ export default function AdvisingPage() {
         try {
         setIsCheckingDocuments(true);
         setErrorMessage("");
+
+        // Pick up where the student left off - but only if an upload or a
+        // schedule is actually still being worked on. Otherwise (nothing
+        // running, or it already finished or failed) the page opens normally.
+        const [extractionJob, scheduleJob] = await Promise.all([
+          fetchJobStatus("/api/advising/extract"),
+          fetchJobStatus("/api/advising/generate"),
+        ]);
+
+        if (isRunning(extractionJob.status)) {
+          setIsCheckingDocuments(false);
+          resumeExtraction();
+          return;
+        }
+
+        if (scheduleJob.status === "complete" && scheduleJob.schedule) {
+          setGeneratedSchedule(scheduleJob.schedule);
+        }
+
+        if (isRunning(scheduleJob.status)) {
+          setDocumentsReady(true);
+          setIsCheckingDocuments(false);
+          resumeScheduleGeneration();
+          return;
+        }
 
         const response = await fetch(
             `/api/advising/upload?userId=${encodeURIComponent(
@@ -139,8 +224,8 @@ export default function AdvisingPage() {
 
   if (loading || isCheckingDocuments) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#f7f5f1] dark:bg-[#171717]">
-        <p className="text-gray-600 dark:text-gray-300">
+      <div className="flex min-h-screen items-center justify-center bg-bg-main">
+        <p className="text-text-muted">
           Loading...
         </p>
       </div>
@@ -150,25 +235,24 @@ export default function AdvisingPage() {
   if (documentsReady) {
   return (
     <main
-      className="min-h-screen bg-[#f7f5f1] text-[#1f2933] dark:bg-[#171717] dark:text-gray-100 px-6 py-12" >
+      className="min-h-screen bg-bg-main px-6 py-12 text-text-main" >
       <PageTutorial id="advising_new" steps={advisingNewSteps} />
       <div className="mx-auto w-full max-w-4xl py-8">
 
         {/* Welcome Section */}
         <section
-          className="rounded-2xl border border-[#d8d3ca] bg-white p-8 shadow-sm
-          dark:border-gray-700 dark:bg-[#202020]"
+          className="rounded-2xl border border-border-light bg-bg-container p-8 shadow-sm"
           data-tutorial="advising-new-welcome" >
           <h1 className="text-3xl font-semibold">
             Welcome to Advising
           </h1>
 
-          <p className="mt-4 text-sm leading-6 text-gray-600 dark:text-gray-300">
+          <p className="mt-4 text-sm leading-6 text-text-muted">
             Catalyst's advising feature helps you understand your academic progress and plan
             the courses you may need to take next.
           </p>
 
-          <p className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-300">
+          <p className="mt-3 text-sm leading-6 text-text-muted">
             Using your transcript and curriculum sheet, Catalyst can review the courses you
             have already taken and the courses that remain in your degree requirements to
             create a suggested schedule for your remaining time at the university.
@@ -179,16 +263,28 @@ export default function AdvisingPage() {
             onClick={generateSchedule}
             disabled={isGeneratingSchedule}
             data-tutorial="advising-new-generate"
-            className="mt-8 rounded-lg bg-[#b08957] px-6 py-3 text-sm font-medium
-            text-white transition hover:bg-[#9c7849] disabled:cursor-not-allowed
+            className="mt-8 rounded-lg bg-primary px-6 py-3 text-sm font-medium
+            text-text-inverse transition hover:bg-primary-hover disabled:cursor-not-allowed
             disabled:opacity-60" >
 
             {isGeneratingSchedule ? "Generating Schedule..." : "Generate Schedule"}
 
           </button>
 
+               {isGeneratingSchedule && (
+                  <p className="mt-3 text-sm text-text-muted">
+                    This can take a minute. Feel free to leave this page — you'll get a notification when your schedule is ready.
+                  </p>
+                )}
+
+               {errorMessage && !isGeneratingSchedule && (
+                  <div className="mt-4 rounded-lg border border-alert-error bg-alert-error-bg px-4 py-3 text-sm text-alert-error">
+                    {errorMessage}
+                  </div>
+                )}
+
                {scheduleNeedsRegeneration && (
-                  <p className="mt-3 text-sm text-amber-700">
+                  <p className="mt-3 text-sm text-primary">
                     Your courses were updated. Click <strong>Generate Schedule</strong> again to see the changes reflected.
                   </p>
                 )}
@@ -222,7 +318,7 @@ export default function AdvisingPage() {
             <button
               type="button"
               onClick={() => setShowManualCourseForm(true)}
-              className="text-sm font-medium text-[#b08957] hover:underline"
+              className="text-sm font-medium text-primary hover:text-primary-hover hover:underline"
             >
               + Add a completed course
             </button>
@@ -239,7 +335,7 @@ export default function AdvisingPage() {
                 Generate Schedule
               </h2>
 
-              <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+              <p className="mt-2 text-sm text-text-muted">
                 Your suggested schedule will appear below after generation.
               </p>
             </div>
@@ -277,11 +373,9 @@ export default function AdvisingPage() {
                       className="
                         rounded-xl
                         border
-                        border-[#d8d3ca]
-                        bg-white
+                        border-border-light
+                        bg-bg-container
                         p-5
-                        dark:border-gray-700
-                        dark:bg-[#202020]
                       "
                     >
 
@@ -311,10 +405,9 @@ export default function AdvisingPage() {
                                 gap-4
                                 rounded-lg
                                 border
-                                border-[#ece8e1]
+                                border-border-light
                                 px-4
                                 py-3
-                                dark:border-gray-700
                               "
                             >
 
@@ -336,8 +429,7 @@ export default function AdvisingPage() {
                                     className="
                                       mt-1
                                       text-xs
-                                      text-gray-500
-                                      dark:text-gray-400
+                                      text-text-muted
                                     "
                                   >
                                     {course.courseTitle}
@@ -354,8 +446,7 @@ export default function AdvisingPage() {
                                   className="
                                     whitespace-nowrap
                                     text-xs
-                                    text-gray-500
-                                    dark:text-gray-400
+                                    text-text-muted
                                   "
                                 >
                                   {course.creditHours} credits
@@ -381,11 +472,9 @@ export default function AdvisingPage() {
                     className="
                       rounded-lg
                       border
-                      border-yellow-300
-                      bg-yellow-50
+                      border-border-hover
+                      bg-bg-warm
                       p-4
-                      dark:border-yellow-700
-                      dark:bg-yellow-950/20
                     "
                   >
 
@@ -437,7 +526,7 @@ export default function AdvisingPage() {
   try {
 
     setErrorMessage("");
-
+    setIsExtracting(true);
 
     const token = await user.getIdToken();
 
@@ -465,32 +554,58 @@ export default function AdvisingPage() {
       );
     }
 
-    console.log("Transcript:", data.transcript);
-    console.log("Curriculum:", data.curriculum);
-
-    if (data.needsManualTransferReview && data.unreadableTransferInfo) {
-      setTransferReviewInfo({
-        rowCount: data.unreadableTransferInfo.rowCount,
-        totalCreditHours: data.unreadableTransferInfo.totalCreditHours,
-      });
-    } else {
-      setTransferReviewInfo(null);
-    }
-
-    return true;
-
+    // Extraction runs as a background job (it can involve several sequential
+    // AI calls, easily taking a few minutes) instead of one long blocking
+    // request, so poll for the result rather than waiting on this response.
+    return await finishExtraction();
 
   } catch (error) {
 
-    setErrorMessage(
-      error instanceof Error
-        ? error.message
-        : "The documents could not be read."
-    );
+    if (mountedRef.current) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "The documents could not be read."
+      );
+      setIsExtracting(false);
+    }
 
     return false;
   }
 }
+
+  // Waits for the running extraction job and applies its result. Shared by a
+  // fresh upload and by returning to the page while one is still running.
+  async function finishExtraction(): Promise<boolean> {
+    try {
+      const statusData = await waitForJob("/api/advising/extract", "The documents could not be read.");
+      if (!statusData) return false; // left the page - the popup takes it from here
+
+      if (statusData.needsManualTransferReview && statusData.unreadableTransferInfo) {
+        setTransferReviewInfo({
+          rowCount: statusData.unreadableTransferInfo.rowCount,
+          totalCreditHours: statusData.unreadableTransferInfo.totalCreditHours,
+        });
+      } else {
+        setTransferReviewInfo(null);
+      }
+
+      return true;
+    } finally {
+      if (mountedRef.current) setIsExtracting(false);
+    }
+  }
+
+  async function resumeExtraction() {
+    setIsExtracting(true);
+    try {
+      if (await finishExtraction()) setDocumentsReady(true);
+    } catch (error) {
+      if (mountedRef.current) {
+        setErrorMessage(error instanceof Error ? error.message : "The documents could not be read.");
+      }
+    }
+  }
 
   async function generateSchedule() {
 
@@ -531,60 +646,98 @@ export default function AdvisingPage() {
         );
       }
 
-      setGeneratedSchedule(data.schedule);
-      setScheduleNeedsRegeneration(false);
-
-      console.log("Generated Schedule:", data.schedule);
-
+      // Generation runs as a background job, like extraction - wait for it.
+      await finishScheduleGeneration();
 
     } catch (error) {
 
-      setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "The schedule could not be generated."
-      );
+      if (mountedRef.current) {
+        setErrorMessage(
+          error instanceof Error
+            ? error.message
+            : "The schedule could not be generated."
+        );
+        setIsGeneratingSchedule(false);
+      }
+    }
+  }
 
+  // Waits for the running schedule job and shows the saved schedule. Shared
+  // by clicking Generate and by returning to the page while one is running.
+  async function finishScheduleGeneration() {
+    try {
+      const statusData = await waitForJob("/api/advising/generate", "The schedule could not be generated.");
+      if (!statusData) return; // left the page - the popup takes it from here
+
+      setGeneratedSchedule(statusData.schedule ?? null);
+      setScheduleNeedsRegeneration(false);
     } finally {
+      if (mountedRef.current) setIsGeneratingSchedule(false);
+    }
+  }
 
-      setIsGeneratingSchedule(false);
+  async function resumeScheduleGeneration() {
+    setIsGeneratingSchedule(true);
+    try {
+      await finishScheduleGeneration();
+    } catch (error) {
+      if (mountedRef.current) {
+        setErrorMessage(error instanceof Error ? error.message : "The schedule could not be generated.");
+      }
     }
   }
 
   return (
     <div
-      className="min-h-screen bg-[#f7f5f1] text-[#1f2933] dark:bg-[#171717] dark:text-gray-100" >
+      className="min-h-screen bg-bg-main text-text-main" >
 
       <header
         className="relative flex h-[73px] items-center justify-center border-b 
-        border-[#d8d3ca] bg-[#fbfaf8] px-6 dark:border-gray-700 dark:bg-[#202020]" >
+        border-border-light bg-bg-container px-6" >
 
         <h1 className="text-lg font-semibold"> Advising. </h1>
 
       </header>
 
       <main className="mx-auto w-3/4 py-8">
+        <button
+          type="button"
+          onClick={() => {
+            setErrorMessage("");
+            setShowPermissionModal(true);
+          }}
+          className="rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-text-inverse transition hover:bg-primary-hover"
+        >
+          Add progress files
+        </button>
       
         {errorMessage && (
           <div
             className="
               w-full max-w-full overflow-hidden break-words whitespace-pre-wrap
-              rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700
-              dark:border-red-800 dark:bg-red-950/30 dark:text-red-300" >
+              rounded-lg border border-alert-error bg-alert-error-bg px-4 py-3 text-sm text-alert-error" >
             {errorMessage}
           </div>
         )}
 
         {uploadSuccess && (
-            <div className="rounded-lg border border-green-300 bg-green-50 px-4 py-3 
-            text-sm text-green-700">
+            <div className="mt-4 rounded-lg border border-alert-success bg-alert-success-bg px-4 py-3
+            text-sm text-alert-success">
                 Your transcript and curriculum sheet were uploaded successfully!
             </div>
             )}
 
+        {isExtracting && (
+            <div className="mt-4 rounded-lg border border-border-light bg-bg-container px-4 py-3
+            text-sm text-text-muted">
+                Reading your transcript and curriculum sheet — this can take a few minutes.
+                Feel free to leave this page; you'll get a notification when it's done.
+            </div>
+            )}
+
         {usingExistingDocuments && (
-            <div className="rounded-lg border border-green-300 bg-green-50 px-4 py-3 
-            text-sm text-green-700">
+            <div className="mt-4 rounded-lg border border-alert-success bg-alert-success-bg px-4 py-3
+            text-sm text-alert-success">
                 Your previously uploaded transcript and curriculum sheet
                 will be used.
             </div>
@@ -601,7 +754,6 @@ export default function AdvisingPage() {
         isOpen={showPermissionModal}
         onAccept={handleAcceptUpload}
         onDecline={handleDeclineUpload}
-        onClose={() => setShowPermissionModal(false)}
       />
 
      <ExistingDocumentsModal
@@ -615,6 +767,7 @@ export default function AdvisingPage() {
         }}
         onReplace={() => {
             setShowExistingModal(false);
+            setGeneratedSchedule(null); // was built from the documents being replaced
             setShowUploadModal(true);
             setUploadSuccess(false);
             setUsingExistingDocuments(false);
@@ -631,6 +784,7 @@ export default function AdvisingPage() {
             onUploaded={async () => {
               setShowUploadModal(false);
               setUploadSuccess(true);
+              setGeneratedSchedule(null);
               setUsingExistingDocuments(false);
               setErrorMessage("");
               const success = await extractDocuments();

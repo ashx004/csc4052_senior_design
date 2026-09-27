@@ -137,6 +137,15 @@ export type NotificationType =
   | "no_visit_recovery"
   | "deadline_warning";
 
+// Written server-side by src/library/advisingJobs.ts when an advising
+// background job finishes. Kept out of NotificationType so study-plan rules
+// (preferences, throttling) never apply to them.
+export type AdvisingNotificationType =
+  | "advising_documents_ready"
+  | "advising_documents_failed"
+  | "advising_schedule_ready"
+  | "advising_schedule_failed";
+
 export type NotificationStatus =
   | "created"
   | "delivered"
@@ -145,7 +154,7 @@ export type NotificationStatus =
   | "dismissed";
 
 export interface StudyNotification {
-  type: NotificationType;
+  type: NotificationType | AdvisingNotificationType;
   status: NotificationStatus;
   title: string;
   body: string;
