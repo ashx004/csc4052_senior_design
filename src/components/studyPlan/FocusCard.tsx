@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { useRouter } from "next/navigation";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Check, Minimize2, Move, Pause, Play } from "lucide-react";
+import { AnimatePresence, motion, useMotionValue, useReducedMotion } from "framer-motion";
+import { Check, Minimize2, Pause, Play } from "lucide-react";
 import { useStudyPlanContext } from "@/src/context/StudyPlanContext";
+import { cornerFrame, cornerZoneAt, resolveDropCorner } from "@/src/library/studyPlan/focusCardDrag";
 import { formatElapsedTime } from "@/src/library/studyPlan/sessionTimer";
 import {
-  CORNER_POSITIONS,
   EXPANDED_STATE_HINTS,
   EXPANDED_STATE_MESSAGES,
   STATE_BADGES,
@@ -29,25 +29,6 @@ function formatClock(seconds: number): string {
   const mins = Math.floor(safe / 60);
   const secs = safe % 60;
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
-}
-
-function getNearestCorner(x: number, y: number): CardCorner {
-  const midX = window.innerWidth / 2;
-  const midY = window.innerHeight / 2;
-  if (x < midX) return y < midY ? "top-left" : "bottom-left";
-  return y < midY ? "top-right" : "bottom-right";
-}
-
-function cornerStyle(corner: CardCorner): CSSProperties {
-  const pos = CORNER_POSITIONS[corner];
-  return {
-    top: pos.top ? `max(${pos.top}, env(safe-area-inset-top))` : undefined,
-    bottom: pos.bottom
-      ? `max(${pos.bottom}, env(safe-area-inset-bottom))`
-      : undefined,
-    left: pos.left ? `max(${pos.left}, env(safe-area-inset-left))` : undefined,
-    right: pos.right ? `max(${pos.right}, env(safe-area-inset-right))` : undefined,
-  };
 }
 
 function shiftCorner(corner: CardCorner, key: string): CardCorner {
@@ -75,8 +56,12 @@ export default function FocusCard() {
   } = useStudyPlanContext();
 
   const constraintsRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const cardResizeObserverRef = useRef<ResizeObserver | null>(null);
+  const dragX = useMotionValue(0);
+  const dragY = useMotionValue(0);
   const snapshotRef = useRef<FocusCardState | null>(null);
-  const suppressClickRef = useRef(false);
+  const suppressClickUntilRef = useRef(0);
   const lastActivityRef = useRef(Date.now());
   const hiddenAtRef = useRef<number | null>(null);
   const prevChickenRef = useRef<string | null>(null);
@@ -87,9 +72,13 @@ export default function FocusCard() {
     secondsLeft: number;
   } | null>(null);
   const [terminal, setTerminal] = useState<"dead" | "complete" | null>(null);
+  const [cardSize, setCardSize] = useState({ width: 240, height: 180 });
+  const [dragging, setDragging] = useState(false);
+  const [activeZone, setActiveZone] = useState<CardCorner | null>(null);
 
   if (focusCard) snapshotRef.current = focusCard;
   const card = focusCard ?? snapshotRef.current;
+  const visible = Boolean(focusCard?.visible || terminal || breakState?.active);
 
   useEffect(() => {
     if (!focusCard?.visible || focusCard.mode === "paused" || terminal || breakState?.active) {
@@ -178,17 +167,91 @@ export default function FocusCard() {
     }
   }, [focusCard?.sessionId, focusCard?.visible, terminal]);
 
+  useEffect(() => {
+    if (visible) return;
+    dragX.set(0);
+    dragY.set(0);
+    setDragging(false);
+    setActiveZone(null);
+  }, [visible, dragX, dragY]);
+
+  const setCardNode = useCallback((node: HTMLDivElement | null) => {
+    cardResizeObserverRef.current?.disconnect();
+    cardResizeObserverRef.current = null;
+    cardRef.current = node;
+
+    if (!node) return;
+
+    const measure = () => {
+      setCardSize({ width: node.offsetWidth, height: node.offsetHeight });
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    cardResizeObserverRef.current = observer;
+  }, []);
+
+  const handleDragStart = () => {
+    setDragging(true);
+  };
+
+  const handleDrag = (
+    _: unknown,
+    info: { point: { x: number; y: number } }
+  ) => {
+    const viewportPoint = {
+      x: info.point.x - window.scrollX,
+      y: info.point.y - window.scrollY,
+    };
+    setActiveZone(
+      cornerZoneAt(viewportPoint.x, viewportPoint.y, {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      })
+    );
+  };
+
   const handleDragEnd = useCallback(
     (_: unknown, info: { point: { x: number; y: number }; offset: { x: number; y: number } }) => {
+      if (!card) {
+        dragX.set(0);
+        dragY.set(0);
+        setDragging(false);
+        setActiveZone(null);
+        return;
+      }
       const moved = Math.abs(info.offset.x) > 6 || Math.abs(info.offset.y) > 6;
-      if (!moved) return;
-      suppressClickRef.current = true;
-      setCorner(getNearestCorner(info.point.x, info.point.y));
+      const viewportPoint = {
+        x: info.point.x - window.scrollX,
+        y: info.point.y - window.scrollY,
+      };
+      const next = moved
+        ? resolveDropCorner(
+            viewportPoint,
+            { width: window.innerWidth, height: window.innerHeight },
+            card.corner
+          )
+        : card.corner;
+      if (moved) suppressClickUntilRef.current = Date.now() + 300;
+      const el = cardRef.current;
+      if (el) {
+        const frame = cornerFrame(next, {
+          width: el.offsetWidth,
+          height: el.offsetHeight,
+        });
+        el.style.top = frame.top;
+        el.style.left = frame.left;
+      }
+      dragX.set(0);
+      dragY.set(0);
+      setDragging(false);
+      setActiveZone(null);
+      if (next !== card.corner) setCorner(next);
     },
-    [setCorner]
+    [card, dragX, dragY, setCorner]
   );
 
-  const visible = Boolean(focusCard?.visible || terminal || breakState?.active);
   if (!visible || !card) return null;
 
   const chickenState: ChickenState = breakState?.active
@@ -231,9 +294,8 @@ export default function FocusCard() {
   const hint = EXPANDED_STATE_HINTS[chickenState];
   const title =
     card.taskTitle || (card.taskId ? "" : "Focus session");
-  const spring = reduceMotion
-    ? { duration: 0 }
-    : { type: "spring" as const, stiffness: 300, damping: 30 };
+  const pop = { type: "spring" as const, stiffness: 300, damping: 30 };
+  const transition = reduceMotion ? { duration: 0 } : { opacity: pop, scale: pop };
 
   const handleDone = async () => {
     if (focusCard?.visible) {
@@ -297,33 +359,60 @@ export default function FocusCard() {
     <>
       <div ref={constraintsRef} className="pointer-events-none fixed inset-0 z-30" />
 
+      {dragging && (
+        <>
+          <div
+            className="pointer-events-none fixed inset-0 z-[55] bg-[#1A1A30]/20 backdrop-blur-sm"
+            aria-hidden
+          />
+          {CORNERS.map((corner) => (
+            <div
+              key={corner}
+              aria-hidden
+              className={`pointer-events-none fixed z-[56] border-0 ${
+                card.isMinimized ? "rounded-2xl" : "rounded-[20px]"
+              }`}
+              style={{
+                ...cornerFrame(corner, cardSize),
+                width: cardSize.width,
+                height: cardSize.height,
+                backgroundColor: "#4B5563",
+                opacity: activeZone === corner ? 0.55 : 0.28,
+              }}
+            />
+          ))}
+        </>
+      )}
+
       <AnimatePresence mode="wait">
         {card.isMinimized ? (
           <motion.div
             key="minimized"
+            ref={setCardNode}
             drag
             dragConstraints={constraintsRef}
-            dragElastic={0.1}
-            dragSnapToOrigin
+            dragElastic={0}
+            dragMomentum={false}
+            onDragStart={handleDragStart}
+            onDrag={handleDrag}
             onDragEnd={handleDragEnd}
             initial={reduceMotion ? false : { opacity: 0, scale: 0.96 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={reduceMotion ? undefined : { opacity: 0, scale: 0.96 }}
-            transition={spring}
+            transition={transition}
             role="region"
             aria-label={`${statusMessage} ${chickenState === "dead" || chickenState === "complete" ? displayTime : formatElapsedTime(displaySeconds)}`}
             tabIndex={0}
             onKeyDown={onCardKeyDown}
             className="fixed z-[60] flex w-[min(340px,calc(100vw-24px))] cursor-grab select-none items-center gap-3 rounded-2xl bg-white px-3 py-2 shadow-[0_8px_30px_rgba(26,26,48,0.14)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy active:cursor-grabbing"
             style={{
-              ...cornerStyle(card.corner),
+              x: dragX,
+              y: dragY,
+              ...cornerFrame(card.corner, cardSize),
               touchAction: "none",
             }}
             onClick={(event) => {
-              if (suppressClickRef.current) {
-                suppressClickRef.current = false;
-                return;
-              }
+              if (Date.now() < suppressClickUntilRef.current) return;
               if ((event.target as HTMLElement).closest("button")) return;
               setMinimized(false);
             }}
@@ -363,22 +452,27 @@ export default function FocusCard() {
         ) : (
           <motion.div
             key="expanded"
+            ref={setCardNode}
             drag
             dragConstraints={constraintsRef}
-            dragElastic={0.1}
-            dragSnapToOrigin
+            dragElastic={0}
+            dragMomentum={false}
+            onDragStart={handleDragStart}
+            onDrag={handleDrag}
             onDragEnd={handleDragEnd}
             initial={reduceMotion ? false : { opacity: 0, scale: 0.96 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={reduceMotion ? undefined : { opacity: 0, scale: 0.96 }}
-            transition={spring}
+            transition={transition}
             role="region"
             aria-label={`${statusMessage}. ${displayTime}`}
             tabIndex={0}
             onKeyDown={onCardKeyDown}
             className="fixed z-[60] w-[min(240px,calc(100vw-24px))] cursor-grab select-none rounded-[20px] bg-white p-4 shadow-[0_8px_30px_rgba(26,26,48,0.14)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy active:cursor-grabbing"
             style={{
-              ...cornerStyle(card.corner),
+              x: dragX,
+              y: dragY,
+              ...cornerFrame(card.corner, cardSize),
               touchAction: "none",
             }}
           >
@@ -505,15 +599,6 @@ export default function FocusCard() {
             )}
 
             <div className="mt-2 flex items-center justify-center gap-3">
-              <button
-                type="button"
-                onPointerDown={stopDrag}
-                onClick={() => setCorner(CORNERS[(CORNERS.indexOf(card.corner) + 1) % CORNERS.length])}
-                className="inline-flex min-h-11 cursor-pointer items-center gap-1 text-[11px] text-gray-secondary hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
-              >
-                <Move size={12} aria-hidden />
-                Move
-              </button>
               <button
                 type="button"
                 onPointerDown={stopDrag}
