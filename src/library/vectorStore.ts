@@ -53,6 +53,9 @@ export type ChunkPoint = {
     resourceId: string;
     chunkIndex: number;
     text: string;
+    // Original evidence, separate from the generated retrieval context in text.
+    // Optional for previously indexed documents; no forced reindex required.
+    rawText?: string;
     // Undefined for non-PDF sources (docx/xlsx/plain text) and for chunks
     // extracted before this field existed — always optional at read time.
     page?: number;

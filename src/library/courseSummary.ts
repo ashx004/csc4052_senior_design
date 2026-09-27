@@ -6,6 +6,7 @@ import { extractDocumentText, SUPPORTED_DOCUMENT_TYPES } from "./documentExtract
 import { resolveOllamaBaseUrl, resolveModelFromKey, mainModelContextOption } from "./ollamaClient";
 import { thinkField } from "./thinkMode";
 import { stripThinkLeak } from "./stripThinkLeak";
+import { getDocumentText } from "./documentTextCache";
 
 // Bounds on how much document text feeds one summary call — this only needs
 // enough material to characterize what the course covers, not the full
@@ -116,8 +117,7 @@ export async function generateCourseSummary(
       const url = typeof resource.url === "string" ? resource.url : "";
       const fileType = resource.fileType as string;
       try {
-        const fullUrl = resolveInternalUrl(request, url);
-        let text = await extractDocumentText(fullUrl, fileType);
+        let text = await getDocumentText(request, url, fileType);
         if (!text) continue;
         if (text.length > MAX_CHARS_PER_DOC) text = text.slice(0, MAX_CHARS_PER_DOC);
         docExcerpts.push(`--- "${name}" ---\n${text}`);

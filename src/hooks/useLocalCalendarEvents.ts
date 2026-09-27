@@ -7,6 +7,7 @@ import { useAuth } from "@/src/context/AuthContext";
 import { useCalendarCache } from "@/src/context/CalendarCacheContext";
 import { dateKey } from "@/src/library/calendarHelpers";
 import type { CalendarEvent, EventTone } from "@/src/components/calendar/calendarTypes";
+import { DATA_CHANGED_EVENT } from "@/src/library/dataChanged";
 
 interface LocalEventDoc {
   title: string;
@@ -141,6 +142,13 @@ export function useLocalCalendarEvents(dateRange?: { start: Date; end: Date }) {
       }
     );
   }, [user?.uid, cache, refreshVersion]);
+
+  // The AI chat added, moved or deleted something: refresh quietly.
+  useEffect(() => {
+    const refresh = () => setRefreshVersion((version) => version + 1);
+    window.addEventListener(DATA_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(DATA_CHANGED_EVENT, refresh);
+  }, []);
 
   const events = useMemo(() => {
     if (!dateRange) return [];

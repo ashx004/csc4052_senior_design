@@ -6,11 +6,13 @@ import { readChatStream, TOOL_STATUS_LABELS } from "@/src/library/chatStream";
 import { useChatStatus } from "@/src/library/useChatStatus";
 import { getEffectiveModelKey } from "@/src/library/chatMode";
 import type { PageTextPageContext } from "@/src/library/Contextual_AI/contextualAi";
+import { withTimeZone } from "@/src/library/chatTime";
 
 export type PanelMessage = {
   id: number;
   role: "user" | "assistant";
   text: string;
+  pendingActions?: { id: string; title: string; details: string[] }[];
 };
 
 export function useAIPanelChat(userId: string | undefined, email: string | undefined) {
@@ -58,12 +60,14 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: nextMessages.map((m) => ({ role: m.role, content: m.text })),
-          context,
+          context: withTimeZone(context),
           pageContext: requestPageContext,
           summary: summaryRef.current,
           summarizedCount: summarizedCountRef.current,
           currentSessionId: null, // panel conversations are ephemeral, never persisted as a chatMemory session
+          ephemeral: true,
           modelKey: getEffectiveModelKey("chat"),
+          pendingActionIds: nextMessages.flatMap((m) => m.pendingActions?.map((a) => a.id) ?? []),
         }),
       });
 
@@ -88,6 +92,7 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
         } else if (event.type === "done") {
           if (typeof event.summary === "string") summaryRef.current = event.summary;
           if (typeof event.summarizedCount === "number") summarizedCountRef.current = event.summarizedCount;
+          if (event.pendingActions?.length) updateAssistant({ pendingActions: event.pendingActions });
         } else if (event.type === "error") {
           streamError = event.error;
         }

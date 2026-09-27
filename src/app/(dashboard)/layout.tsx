@@ -3,7 +3,6 @@ import AIPanel from "@/src/components/aiPanel/AIPanel";
 import { AIPageContextProvider } from "@/src/context/AIPageContext";
 import { AdvisingCacheProvider } from "@/src/context/AdvisingCacheContext";
 import { CalendarCacheProvider } from "@/src/context/CalendarCacheContext";
-import NotificationToast from "@/src/components/studyPlan/NotificationToast";
 
 export default function DashboardLayout({
   children,
@@ -12,7 +11,6 @@ export default function DashboardLayout({
     <AIPageContextProvider>
       <AdvisingCacheProvider>
         <CalendarCacheProvider>
-          <NotificationToast />
           <div className="flex h-screen">
             <GeneralSidebar />
             {/* pt-16 on phones: clears the fixed menu button (Sidebar.tsx), which

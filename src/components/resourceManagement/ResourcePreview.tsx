@@ -30,7 +30,11 @@ import { // import symbols
     ScanText,
     RotateCcw,
     Pencil,
+    NotebookPen,
 } from "lucide-react";
+import Link from "next/link";
+import AddNotesFlow from "@/src/components/notes/AddNotesFlow";
+import { addResourceToNotes, documentNoteId, isResourceInNotes } from "@/src/library/notes/notesStore";
 // PrismLight + explicit per-language registration instead of the default
 // `react-syntax-highlighter` import, which bundles all ~300 Prism language
 // grammars (~400KB) even though this app only ever highlights ~20 of them —
@@ -457,6 +461,9 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
     const [showAddModal, setShowAddModal] = useState(false);
+    const [showNotesFlow, setShowNotesFlow] = useState(false);
+    // Whether the file being previewed is in the Notes tab ("Add to Notes").
+    const [notesState, setNotesState] = useState<"unknown" | "out" | "adding" | "in">("unknown");
     const [selectedFiles, setSelectedFiles] = useState<File[]>([]);    
     const [isDragging, setIsDragging] = useState(false);
     const [newCategory, setNewCategory] = useState<Category>("classDoc");
@@ -514,6 +521,21 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
             return next;
         });
     }
+
+    useEffect(() => {
+        if (!previewResource) {
+            setNotesState("unknown");
+            return;
+        }
+        let cancelled = false;
+        setNotesState("unknown");
+        isResourceInNotes(userId, courseId, previewResource.id)
+            .then((inNotes) => !cancelled && setNotesState(inNotes ? "in" : "out"))
+            .catch(() => !cancelled && setNotesState("out"));
+        return () => {
+            cancelled = true;
+        };
+    }, [previewResource, userId, courseId]);
 
     async function loadResources() {
         setIsLoadingResources(true);
@@ -1121,6 +1143,13 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                         onClick={() => setShowAddModal(true)}
                     />
                     <CircleIconButton
+                        icon={<Plus size={15} />}
+                        ariaLabel="Add notes (scan or type)"
+                        size="sm"
+                        variant="accent"
+                        onClick={() => setShowNotesFlow(true)}
+                    />
+                    <CircleIconButton
                         icon={<CheckSquare size={15} />}
                         ariaLabel="Select files"
                         size="sm"
@@ -1472,6 +1501,38 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                         )}
                                     </>
                                 )}
+                                {notesState === "in" ? (
+                                    <Link
+                                        href={`/notes/${documentNoteId(courseId, previewResource.id)}?from=${courseId}`}
+                                        className="flex items-center gap-1 rounded-md border border-border-light px-2 py-1 text-xs font-medium text-primary hover:bg-bg-main"
+                                    >
+                                        <NotebookPen size={13} /> Open in Notes
+                                    </Link>
+                                ) : notesState !== "unknown" && (
+                                    <button
+                                        onClick={async () => {
+                                            setNotesState("adding");
+                                            try {
+                                                await addResourceToNotes(userId, courseId, {
+                                                    id: previewResource.id,
+                                                    name: previewResource.name,
+                                                    fileType: previewResource.fileType,
+                                                    url: previewResource.url,
+                                                    resourceKind: previewResource.resourceKind,
+                                                });
+                                                setNotesState("in");
+                                            } catch (error) {
+                                                console.error("Add to Notes failed:", error);
+                                                setNotesState("out");
+                                            }
+                                        }}
+                                        disabled={notesState === "adding"}
+                                        className="flex items-center gap-1 rounded-md border border-border-light px-2 py-1 text-xs font-medium text-text-main hover:bg-bg-main disabled:opacity-50"
+                                        title="Add this file to the Notes tab to annotate it and use it in notebooks"
+                                    >
+                                        <NotebookPen size={13} /> {notesState === "adding" ? "Adding..." : "Add to Notes"}
+                                    </button>
+                                )}
                                 <CircleIconButton icon={<X size={16} />} ariaLabel="Close preview" size="sm" onClick={() => setPreviewResource(null)} />
                             </div>
                         </div>
@@ -1713,6 +1774,15 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                         </div>
                     </div>
                 </div>
+            )}
+
+            {showNotesFlow && (
+                <AddNotesFlow
+                    uid={userId}
+                    courseId={courseId}
+                    onClose={() => setShowNotesFlow(false)}
+                    onUploaded={() => void loadResources()}
+                />
             )}
 
             {/* Upload document modal */}

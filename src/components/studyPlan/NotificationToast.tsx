@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { useAuth } from "@/src/context/AuthContext";
 import { useStudyPlanContext } from "@/src/context/StudyPlanContext";
@@ -13,8 +14,11 @@ const SESSION_NOTIFICATION_TYPES = new Set([
   "session_expired",
 ]);
 
+const isAdvising = (type: string) => type.startsWith("advising_");
+
 export default function NotificationToast() {
   const { user } = useAuth();
+  const router = useRouter();
   const { focusCard } = useStudyPlanContext();
   const { notifications, dismissNotification } = useStudyNotifications(
     user?.uid ?? null
@@ -32,6 +36,7 @@ export default function NotificationToast() {
   useEffect(() => {
     if (newest && newest.id !== visibleId) {
       setVisibleId(newest.id);
+      if (isAdvising(newest.type)) return;
       const timer = setTimeout(() => {
         setVisibleId(null);
         setDismissed((prev) => new Set(prev).add(newest.id));
@@ -51,6 +56,11 @@ export default function NotificationToast() {
     dismissNotification(active.id);
   };
 
+  const handleAction = () => {
+    handleDismiss();
+    if (active.actionUrl) router.push(active.actionUrl);
+  };
+
   return (
     <div
       role="status"
@@ -60,6 +70,14 @@ export default function NotificationToast() {
       <div className="flex-1">
         <p className="font-semibold">{active.title}</p>
         <p className="mt-0.5 text-white/70">{active.body}</p>
+        {isAdvising(active.type) && active.actionUrl && (
+          <button
+            onClick={handleAction}
+            className="mt-2 rounded-md bg-white/15 px-3 py-1 text-xs font-medium hover:bg-white/25"
+          >
+            {active.actionLabel ?? "View"}
+          </button>
+        )}
       </div>
       <button
         onClick={handleDismiss}

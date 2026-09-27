@@ -3,6 +3,7 @@ import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { deleteChunksForResource } from "@/src/library/vectorStore";
 import { getMinioClient } from "@/src/library/minioClient";
+import { forgetDocumentText } from "@/src/library/documentTextCache";
 
 export async function DELETE(req: NextRequest) {
     const key = req.nextUrl.searchParams.get("key");
@@ -33,6 +34,9 @@ export async function DELETE(req: NextRequest) {
                 console.error("Qdrant chunk cleanup failed (non-fatal):", err)
             );
         }
+
+        // Its cached text goes too (documentTextCache.ts).
+        await forgetDocumentText(req, key).catch(() => {});
 
         return NextResponse.json({ success: true }, { status: 200 });
     } catch (err: any) {
