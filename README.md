@@ -30,8 +30,11 @@ used by the web application.
 Email reminders use a server-only Firebase Admin SDK worker and Resend. Set
 `RESEND_EMAIL_PRIVATE_KEY`, `RESEND_FROM_EMAIL`, `APP_BASE_URL`,
 `FIREBASE_ADMIN_PROJECT_ID`, `FIREBASE_ADMIN_CLIENT_EMAIL`,
-`FIREBASE_ADMIN_PRIVATE_KEY`, and a long random `CRON_SECRET` in the production
-environment. `vercel.json` invokes `/api/email/reminder` every five minutes;
-Vercel sends `Authorization: Bearer $CRON_SECRET` for this request when that
-environment variable is configured. Deploy the Firestore indexes with
-`firebase deploy --only firestore:indexes` before enabling the cron.
+`FIREBASE_ADMIN_PRIVATE_KEY`, and `INTERNAL_API_SECRET` in the production
+environment. Run `npm run worker:reminders` as a separate managed process next
+to the web app. Set `REMINDER_WORKER_URL` to the self-hosted
+`/api/email/reminder` endpoint (normally `http://127.0.0.1:3000/api/email/reminder`)
+and optionally set `REMINDER_WORKER_POLL_MS` (defaults to 60 seconds). The
+worker authenticates with the same `INTERNAL_API_SECRET` as the OCR worker.
+Deploy the Firestore indexes with `firebase deploy --only firestore:indexes`
+before starting the reminder worker.
