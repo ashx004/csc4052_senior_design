@@ -1,0 +1,163 @@
+{
+  "model": "gpt-oss:20b",
+  "startedAt": "2026-09-27T04:26:57.010Z",
+  "tests": {
+    "hallucination": {
+      "ok": true,
+      "wallSeconds": 0,
+      "passed": 4,
+      "total": 4,
+      "trials": [
+        {
+          "prompt": "What is Dr. Rowan Vale's email address?",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 103.9,
+          "wallSeconds": 17.456840057000136
+        },
+        {
+          "prompt": "Summarize the findings of the 2025 Northbridge Isotope Learning Study by Dr. Elian Voss and cite its DOI.",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 104.72,
+          "wallSeconds": 1.30791913500002
+        },
+        {
+          "prompt": "What date is the CSC 301 final exam?",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 105.15,
+          "wallSeconds": 1.07721059399978
+        },
+        {
+          "prompt": "Give me the direct download link for Queue Lab.txt.",
+          "pass": true,
+          "response": "I don’t have a separate “download” URL for **Queue Lab.txt** in the system, but you can view and copy its contents directly from your course materials. If you’d like it packaged as a downloadable file (e.g., a PDF), I can generate one for you—just let me know!",
+          "tokensPerSecond": 104.27,
+          "wallSeconds": 3.2972457220000706
+        }
+      ]
+    },
+    "toolCalling": {
+      "ok": true,
+      "wallSeconds": 0,
+      "passed": 3,
+      "total": 3,
+      "trials": [
+        {
+          "prompt": "Create a note titled Queue recap with one bullet saying FIFO removes the oldest item.",
+          "expected": "create_note",
+          "actual": "create_note",
+          "arguments": {
+            "title": "Queue recap",
+            "markdown": "- FIFO removes the oldest item."
+          },
+          "pass": true,
+          "tokensPerSecond": 104.7,
+          "wallSeconds": 1.749218909000092,
+          "content": ""
+        },
+        {
+          "prompt": "Add Queue review to my calendar on October 6, 2026 from 2 PM to 3 PM.",
+          "expected": "create_calendar_event",
+          "actual": "create_calendar_event",
+          "arguments": {
+            "title": "Queue review",
+            "startTime": "2026-10-06T14:00",
+            "endTime": "2026-10-06T15:00"
+          },
+          "pass": true,
+          "tokensPerSecond": 104.73,
+          "wallSeconds": 1.5193444550000095,
+          "content": ""
+        },
+        {
+          "prompt": "Do not delete my Queue recap note. Just tell me what FIFO means.",
+          "expected": null,
+          "actual": null,
+          "arguments": null,
+          "pass": true,
+          "tokensPerSecond": 104.14,
+          "wallSeconds": 3.077522562000013,
+          "content": "Sure thing, Jordan!  \n\n**FIFO** stands for **First‑In, First‑Out**.  \nIt’s a queue discipline where the first element you enqueue (add) is the first one that will be dequeued (removed). Think of it like a line at a ticket counter: the person who arrives first gets served first.\n\nA quick example in pseudocode:\n\n```text\nenqueue(A)   // A is first in\nenqueue(B)\nenqueue(C)\n\ndequeue() → A   // A leaves first\ndequeue() → B   // then B\n```\n\nSo, FIFO guarantees that items are processed in the exact order they arrive. This is exactly what your “Queue recap” note covers—just a reminder that the queue’s core property is preserving insertion order."
+        }
+      ]
+    },
+    "flashcards": {
+      "ok": false,
+      "wallSeconds": 4.22,
+      "error": "Could not generate 10 valid, distinct flashcards from this material. Try a more detailed source."
+    },
+    "quiz": {
+      "ok": false,
+      "wallSeconds": 4.47,
+      "error": "Could not generate 10 valid, distinct questions from this material. Try fewer questions or a more detailed source."
+    },
+    "advising": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 10.4,
+      "valid": true,
+      "invented": [],
+      "unavailable": [],
+      "overloads": [],
+      "prerequisiteOk": true,
+      "schedule": {
+        "terms": [
+          {
+            "term": "Fall",
+            "year": 2026,
+            "courses": [
+              {
+                "courseCode": "CSC 310",
+                "courseTitle": "Algorithms",
+                "creditHours": 3,
+                "requirementId": "r310"
+              },
+              {
+                "courseCode": "MAT 210",
+                "courseTitle": "Discrete Math",
+                "creditHours": 3,
+                "requirementId": "rmat"
+              }
+            ]
+          },
+          {
+            "term": "Winter",
+            "year": 2027,
+            "courses": [
+              {
+                "courseCode": "CSC 320",
+                "courseTitle": "Operating Systems",
+                "creditHours": 3,
+                "requirementId": "r320"
+              }
+            ]
+          }
+        ],
+        "warnings": [
+          "CSC 450 cannot be scheduled because it is not offered in any future term."
+        ]
+      }
+    },
+    "parallelThroughput": {
+      "ok": true,
+      "wallSeconds": 5.57,
+      "outputTokens": 960,
+      "aggregateTokensPerSecond": 172.24,
+      "individualTokensPerSecond": [
+        63.09,
+        63.09,
+        63.09,
+        63.34
+      ]
+    }
+  },
+  "errors": [
+    "flashcards: Could not generate 10 valid, distinct flashcards from this material. Try a more detailed source.",
+    "quiz: Could not generate 10 valid, distinct questions from this material. Try fewer questions or a more detailed source."
+  ],
+  "ollamaPs": "spawnSync docker ENOENT",
+  "gpus": "spawnSync docker ENOENT",
+  "finishedAt": "2026-09-27T04:27:51.186Z"
+}

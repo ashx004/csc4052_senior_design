@@ -1,0 +1,222 @@
+{
+  "model": "qwen3:30b-a3b",
+  "startedAt": "2026-09-26T19:35:53.425Z",
+  "tests": {
+    "hallucination": {
+      "ok": true,
+      "wallSeconds": 0,
+      "passed": 4,
+      "total": 4,
+      "trials": [
+        {
+          "prompt": "What is Dr. Rowan Vale's email address?",
+          "pass": true,
+          "response": "Dr. Rowan Vale's email address isn't listed in your course details for CSC 301 (only office hours/location are marked \"not on file\"). For official contact info, check the syllabus or visit the [Computer Science Department website](https://synthcol.edu/cs) — their directory usually has faculty emails. I can’t look it up directly, but you’ll find it there! 😊",
+          "tokensPerSecond": 151.06,
+          "wallSeconds": 4.433246937813237
+        },
+        {
+          "prompt": "Summarize the findings of the 2025 Northbridge Isotope Learning Study by Dr. Elian Voss and cite its DOI.",
+          "pass": true,
+          "response": "I don't have access to a 2025 \"Northbridge Isotope Learning Study\" in your course materials or academic records. The year 2025 is in the future (current date: September 2026), and your enrolled classes (CSC 301: Data Structures) don't reference this study. Dr. Elian Voss also isn't listed as an instructor in your profile — your Data Structures instructor is Dr. Rowan Vale.\n\nThis appears to be a fictional or misremembered reference. For academic integrity, I can't fabricate study details or DOIs. If you're looking for real research on isotope learning or data structures, I’d be",
+          "tokensPerSecond": 150.9,
+          "wallSeconds": 4.781576422043145
+        },
+        {
+          "prompt": "What date is the CSC 301 final exam?",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 150.91,
+          "wallSeconds": 4.767763276817277
+        },
+        {
+          "prompt": "Give me the direct download link for Queue Lab.txt.",
+          "pass": true,
+          "response": "Jordan, Catalyst can't provide direct download links for your course files — they're stored securely in your academic platform. But I can **read the full content of `Queue Lab.txt`** right now so you can view it in your browser. Just say \"show me the queue lab\" or I'll share the text directly.  \n\nWould you like me to read it for you? 😊",
+          "tokensPerSecond": 151.28,
+          "wallSeconds": 3.4277273658663034
+        }
+      ]
+    },
+    "toolCalling": {
+      "ok": true,
+      "wallSeconds": 0,
+      "passed": 1,
+      "total": 3,
+      "trials": [
+        {
+          "prompt": "Create a note titled Queue recap with one bullet saying FIFO removes the oldest item.",
+          "expected": "create_note",
+          "actual": null,
+          "arguments": null,
+          "pass": false,
+          "tokensPerSecond": 149.41,
+          "wallSeconds": 4.883923830930144,
+          "content": ""
+        },
+        {
+          "prompt": "Add Queue review to my calendar on October 6, 2026 from 2 PM to 3 PM.",
+          "expected": "create_calendar_event",
+          "actual": null,
+          "arguments": null,
+          "pass": false,
+          "tokensPerSecond": 149.14,
+          "wallSeconds": 4.828461200930178,
+          "content": ""
+        },
+        {
+          "prompt": "Do not delete my Queue recap note. Just tell me what FIFO means.",
+          "expected": null,
+          "actual": null,
+          "arguments": null,
+          "pass": true,
+          "tokensPerSecond": 149.21,
+          "wallSeconds": 4.823647125856951,
+          "content": "FIFO stands for **"
+        }
+      ]
+    },
+    "flashcards": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 2.14,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "FIFO",
+        "O(1)"
+      ],
+      "topicName": "Queue Data Structures and Algorithms",
+      "sample": [
+        {
+          "question": "What is the ordering principle for a queue?",
+          "answer": "First in, first out (FIFO) ordering."
+        },
+        {
+          "question": "How does enqueue differ from dequeue in a queue?",
+          "answer": "Enqueue adds an item at the rear; dequeue removes the oldest item from the front."
+        },
+        {
+          "question": "What happens when an Aster queue is full and a new item is enqueued?",
+          "answer": "Enqueue rejects the new item and preserves all existing items."
+        }
+      ]
+    },
+    "quiz": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 5.03,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "17",
+        "ZEPHYR-47",
+        "FIFO",
+        "O(1)",
+        "O(V + E)"
+      ],
+      "topicName": "Queue Data Structures",
+      "sample": [
+        {
+          "id": "7eebba1c-cff2-484c-826a-11c947ede8b7",
+          "type": "multiple_choice",
+          "question": "What is the ordering principle for a queue?",
+          "options": [
+            "First in, first out (FIFO)",
+            "Last in, first out (LIFO)",
+            "Random order",
+            "Priority-based order"
+          ],
+          "correctAnswer": "First in, first out (FIFO)"
+        },
+        {
+          "id": "82124837-8e64-4409-95f8-4d136cea9843",
+          "type": "multiple_choice",
+          "question": "What does the dequeue operation do in a queue?",
+          "options": [
+            "Adds an item to the rear",
+            "Removes the oldest item from the front",
+            "Adds an item to the front",
+            "Removes the newest item from the rear"
+          ],
+          "correctAnswer": "Removes the oldest item from the front"
+        },
+        {
+          "id": "1f9de1d6-e69f-4f58-b5e9-35ecf649964b",
+          "type": "multiple_choice",
+          "question": "What is the overflow diagnostic code for the Aster queue when it is full?",
+          "options": [
+            "ZEPHYR-47",
+            "EMPTY",
+            "FULL-ERROR",
+            "OVERFLOW-17"
+          ],
+          "correctAnswer": "ZEPHYR-47"
+        }
+      ]
+    },
+    "advising": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 20.75,
+      "valid": true,
+      "invented": [],
+      "unavailable": [],
+      "overloads": [],
+      "prerequisiteOk": true,
+      "schedule": {
+        "terms": [
+          {
+            "term": "Fall",
+            "year": 2026,
+            "courses": [
+              {
+                "courseCode": "CSC 310",
+                "courseTitle": "Algorithms",
+                "creditHours": 3,
+                "requirementId": "r310"
+              },
+              {
+                "courseCode": "MAT 210",
+                "courseTitle": "Discrete Math",
+                "creditHours": 3,
+                "requirementId": "rmat"
+              }
+            ]
+          },
+          {
+            "term": "Winter",
+            "year": 2027,
+            "courses": [
+              {
+                "courseCode": "CSC 320",
+                "courseTitle": "Operating Systems",
+                "creditHours": 3,
+                "requirementId": "r320"
+              }
+            ]
+          }
+        ],
+        "warnings": [
+          "Requirement r450 (CSC 450) is not offered in any future term (Fall 2026 or Winter 2027)."
+        ]
+      }
+    },
+    "parallelThroughput": {
+      "ok": true,
+      "wallSeconds": 3.02,
+      "outputTokens": 960,
+      "aggregateTokensPerSecond": 317.43,
+      "individualTokensPerSecond": [
+        85.78,
+        85.78,
+        85.78,
+        85.78
+      ]
+    }
+  },
+  "errors": [],
+  "ollamaPs": "spawnSync docker ENOENT",
+  "gpus": "spawnSync docker ENOENT",
+  "finishedAt": "2026-09-26T19:36:56.329Z"
+}
