@@ -12,6 +12,7 @@ interface ScheduleViewProps {
   onReschedule: (taskId: string) => void;
   onComplete: (taskId: string) => void;
   onPause: () => void;
+  highlightedTaskId?: string | null;
 }
 
 interface ScheduleBlock {
@@ -65,6 +66,7 @@ export default function ScheduleView({
   tasks,
   calendarEvents,
   onStart,
+  highlightedTaskId = null,
 }: ScheduleViewProps) {
   const dayColumns = useMemo(() => getDayColumns(), []);
 
@@ -208,10 +210,17 @@ export default function ScheduleView({
                 const endM = endTotalMin % 60;
                 const timeLabel = `${formatTime(block.startHour, block.startMinute)}–${formatTime(endH, endM)}`;
 
+                const highlighted = block.taskId != null && block.taskId === highlightedTaskId;
+                const canOpen =
+                  block.status === "recommended" || block.status === "in_progress";
+
                 return (
                   <div
                     key={block.id}
-                    className={`absolute left-0 right-1 overflow-hidden rounded-[10px] ${block.colorClass} px-3 py-2 text-navy`}
+                    id={block.taskId ? `study-task-${block.taskId}` : undefined}
+                    className={`absolute left-0 right-1 overflow-hidden rounded-[10px] ${block.colorClass} px-3 py-2 text-navy ${
+                      highlighted ? "ring-2 ring-navy" : ""
+                    }`}
                     style={{ top: topPx, height: heightPx }}
                   >
                     <strong className="block truncate text-xs">
@@ -220,6 +229,15 @@ export default function ScheduleView({
                     <span className="text-[10px] text-navy/70">
                       {timeLabel}
                     </span>
+                    {highlighted && canOpen && block.taskId && (
+                      <button
+                        type="button"
+                        onClick={() => onStart(block.taskId!)}
+                        className="mt-1 rounded-full bg-navy px-2 py-0.5 text-[10px] font-semibold text-white"
+                      >
+                        {block.status === "in_progress" ? "Continue" : "Start"}
+                      </button>
+                    )}
                   </div>
                 );
               })}

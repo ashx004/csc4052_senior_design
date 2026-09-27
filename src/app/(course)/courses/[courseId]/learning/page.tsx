@@ -3,13 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
-import { getEffectiveModelKey } from '@/src/library/chatMode';
 import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
 import { buildPageTextSuggestions, type PageTextPageContext } from '@/src/library/Contextual_AI/contextualAi';
 import { getCourseResources } from '@/src/components/resourceManagement/fileUploadService';
 import {
-  addDoc,
   collection,
   deleteDoc,
   doc,
@@ -17,7 +15,6 @@ import {
   onSnapshot,
   orderBy,
   query,
-  serverTimestamp,
   Timestamp,
   updateDoc,
 } from 'firebase/firestore';
@@ -30,6 +27,7 @@ import SortDropdown, { SortOption } from '@/src/components/learning/SortDropdown
 import LectureChoiceModal from '@/src/components/learning/LectureChoiceModal';
 import ConfirmDeleteModal from '@/src/components/learning/ConfirmDeleteModal';
 import QuizSetupModal from '@/src/components/quizzes/QuizSetupModal';
+import { useGenerateQuizFromResource } from '@/src/hooks/useGenerateQuizFromResource';
 import { publishStudySet } from '@/src/library/discover/publishStudySet';
 import { unpublishStudySet } from '@/src/library/discover/unpublishStudySet';
 import type { StudySetVisibility } from '@/src/library/discover/types';
@@ -85,9 +83,7 @@ export default function CourseLearningPage() {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const [quizDocument, setQuizDocument] = useState<Resource | null>(null);
-  const [quizGenerating, setQuizGenerating] = useState(false);
-  const [quizError, setQuizError] = useState<string | null>(null);
+  const quizFromResource = useGenerateQuizFromResource(courseId);
 
   const [togglingVisibilityId, setTogglingVisibilityId] = useState<string | null>(null);
 
@@ -218,93 +214,13 @@ export default function CourseLearningPage() {
 
   const handleSelectQuiz = () => {
     if (!selectedResource) return;
-    setQuizDocument(selectedResource);
+    quizFromResource.begin({
+      sourceDocKey: extractStorageKey(selectedResource.url),
+      resourceId: selectedResource.id,
+      name: selectedResource.name,
+      url: selectedResource.url,
+    });
     setSelectedResource(null);
-    setQuizError(null);
-  };
-
-  const handleStartQuiz = async (config: {
-    questionCount: number;
-    questionTypes: { multipleChoice: boolean; trueFalse: boolean; matching: boolean };
-    visibility: StudySetVisibility;
-  }) => {
-    if (!user || !quizDocument) return;
-    setQuizGenerating(true);
-    setQuizError(null);
-
-    try {
-      const response = await fetch('/api/generate-quiz', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          docUrl: quizDocument.url,
-          docName: quizDocument.name,
-          questionCount: config.questionCount,
-          questionTypes: config.questionTypes,
-          modelKey: getEffectiveModelKey('quiz'),
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to generate quiz.');
-      }
-
-      const sourceDocKey = extractStorageKey(quizDocument.url);
-      const setsRef = collection(db, 'users', user.uid, 'enrollment', courseId, 'quizSets');
-      const setPayload = {
-        name: data.topicName,
-        sourceDocKey,
-        questions: data.questions,
-        questionTypes: config.questionTypes,
-        questionCount: data.questions.length,
-        pinned: true,
-        visibility: config.visibility,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      };
-      const newDoc = await addDoc(setsRef, setPayload);
-
-      // Publishing is best-effort: a failure here shouldn't block the
-      // student from reaching their newly created (private-by-default-until-
-      // this-succeeds) quiz. It's logged, not surfaced as a blocking error.
-      if (config.visibility === 'public' && courseCode) {
-        try {
-          const publicSetId = await publishStudySet({
-            type: 'quiz',
-            setData: { name: data.topicName, questions: data.questions },
-            courseCode,
-            ownerUid: user.uid,
-            originalPath: `users/${user.uid}/enrollment/${courseId}/quizSets/${newDoc.id}`,
-          });
-          await updateDocPublicRef(newDoc, publicSetId);
-        } catch (publishError) {
-          console.error('Error publishing quiz set to Discover:', publishError);
-        }
-      }
-
-      setQuizDocument(null);
-      router.push(`/courses/${courseId}/quizzes/${newDoc.id}?mode=take`);
-    } catch (err) {
-      console.error('Error generating quiz:', err);
-      setQuizError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
-    } finally {
-      setQuizGenerating(false);
-    }
-  };
-
-  // Stamps the newly created public set's ID back onto the owner's private
-  // doc, so a later unpublish/re-publish knows which public doc to touch.
-  const updateDocPublicRef = async (
-    newDoc: { id: string },
-    publicSetId: string
-  ) => {
-    if (!user) return;
-    await updateDoc(
-      doc(db, 'users', user.uid, 'enrollment', courseId, 'quizSets', newDoc.id),
-      { publicSetId }
-    );
   };
 
   // Toggles a quiz or flashcard set between Public and Private after
@@ -540,15 +456,12 @@ export default function CourseLearningPage() {
       />
 
       <QuizSetupModal
-        open={!!quizDocument}
-        documentName={quizDocument?.name ?? ''}
-        onClose={() => {
-          setQuizDocument(null);
-          setQuizError(null);
-        }}
-        onStart={handleStartQuiz}
-        loading={quizGenerating}
-        error={quizError}
+        open={quizFromResource.open}
+        documentName={quizFromResource.documentName}
+        onClose={quizFromResource.close}
+        onStart={quizFromResource.start}
+        loading={quizFromResource.loading}
+        error={quizFromResource.error}
       />
 
       <ConfirmDeleteModal
