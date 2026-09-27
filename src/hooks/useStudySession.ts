@@ -22,7 +22,26 @@ import { getActivityUrl } from "@/src/library/studyPlan/sessionTimer";
 import type {
   StudySession,
   ActivityType,
+  TimerMode,
 } from "@/src/library/studyPlan/types";
+
+const LAST_SEEN_KEY = "focus-session-last-seen";
+
+function touchLastSeen() {
+  try {
+    localStorage.setItem(LAST_SEEN_KEY, Date.now().toString());
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+function clearLastSeen() {
+  try {
+    localStorage.removeItem(LAST_SEEN_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 export function useStudySession(uid: string | null) {
   const [session, setSession] = useState<
@@ -52,7 +71,32 @@ export function useStudySession(uid: string | null) {
           setSession(null);
         } else {
           const d = snap.docs[0];
-          setSession({ id: d.id, ...(d.data() as StudySession) });
+          const s = { id: d.id, ...(d.data() as StudySession) };
+
+          // A closed tab stops the timer. If we return more than a minute
+          // later, the chicken dies instead of silently continuing.
+          if (s.status === "active") {
+            try {
+              const lastSeen = localStorage.getItem(LAST_SEEN_KEY);
+              if (lastSeen) {
+                const elapsed = Date.now() - parseInt(lastSeen, 10);
+                if (Number.isFinite(elapsed) && elapsed > 60_000) {
+                  updateDoc(doc(db, studySessionPath(uid!, d.id)), {
+                    status: "abandoned",
+                    activeMinutes: s.activeMinutes,
+                  });
+                  clearLastSeen();
+                  setSession(null);
+                  setLoading(false);
+                  return;
+                }
+              }
+            } catch {
+              /* storage unavailable */
+            }
+          }
+
+          setSession(s);
         }
         setLoading(false);
       },
@@ -79,6 +123,7 @@ export function useStudySession(uid: string | null) {
       timerRef.current = setInterval(() => {
         const sinceStart = Math.floor((Date.now() - startMs) / 1000);
         setElapsedSeconds(baseMinutes * 60 + sinceStart);
+        touchLastSeen();
       }, 1000);
     } else {
       setElapsedSeconds((session?.activeMinutes ?? 0) * 60);
@@ -95,9 +140,12 @@ export function useStudySession(uid: string | null) {
       taskId: string,
       courseId: string,
       activityType: ActivityType,
-      targetId: string | null
+      targetId: string | null,
+      timerMode: TimerMode = "countup",
+      targetSeconds: number | null = null
     ) => {
       if (!uid) return null;
+      touchLastSeen();
       const url = getActivityUrl(activityType, courseId, targetId);
       const now = Timestamp.now();
       const ref = await addDoc(
@@ -114,11 +162,63 @@ export function useStudySession(uid: string | null) {
           activeMinutes: 0,
           periods: [{ startedAt: now, endedAt: null }],
           activityUrl: url,
+          timerMode,
+          targetSeconds,
         }
       );
       return ref.id;
     },
     [uid]
+  );
+
+  const startGeneralSession = useCallback(
+    async (
+      timerMode: TimerMode = "countup",
+      targetSeconds: number | null = null
+    ) => {
+      if (!uid) return null;
+      touchLastSeen();
+      const now = Timestamp.now();
+      const ref = await addDoc(
+        collection(db, studySessionsCollection(uid)),
+        {
+          taskId: null,
+          courseId: "",
+          activityType: "reading" as ActivityType,
+          targetId: null,
+          status: "active",
+          startedAt: serverTimestamp(),
+          pausedAt: null,
+          completedAt: null,
+          activeMinutes: 0,
+          periods: [{ startedAt: now, endedAt: null }],
+          activityUrl: "/learning",
+          timerMode,
+          targetSeconds,
+        }
+      );
+      return ref.id;
+    },
+    [uid]
+  );
+
+  const attachTaskToSession = useCallback(
+    async (
+      taskId: string,
+      details?: {
+        courseId: string;
+        activityType: ActivityType;
+        targetId: string | null;
+        activityUrl: string;
+      }
+    ) => {
+      if (!uid || !session) return;
+      await updateDoc(doc(db, studySessionPath(uid, session.id)), {
+        taskId,
+        ...(details ?? {}),
+      });
+    },
+    [uid, session]
   );
 
   const pauseSession = useCallback(async () => {
@@ -152,6 +252,7 @@ export function useStudySession(uid: string | null) {
 
   const resumeSession = useCallback(async () => {
     if (!uid || !session) return;
+    touchLastSeen();
     const now = Timestamp.now();
     await updateDoc(doc(db, studySessionPath(uid, session.id)), {
       status: "active",
@@ -181,6 +282,7 @@ export function useStudySession(uid: string | null) {
       return sum;
     }, 0);
 
+    clearLastSeen();
     await updateDoc(doc(db, studySessionPath(uid, session.id)), {
       status: "completed",
       completedAt: serverTimestamp(),
@@ -210,6 +312,7 @@ export function useStudySession(uid: string | null) {
       return sum;
     }, 0);
 
+    clearLastSeen();
     await updateDoc(doc(db, studySessionPath(uid, session.id)), {
       status: "abandoned",
       periods: updatedPeriods,
@@ -222,6 +325,8 @@ export function useStudySession(uid: string | null) {
     loading,
     elapsedSeconds,
     startSession,
+    startGeneralSession,
+    attachTaskToSession,
     pauseSession,
     resumeSession,
     completeSession,

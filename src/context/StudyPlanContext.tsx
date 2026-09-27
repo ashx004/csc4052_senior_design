@@ -5,17 +5,19 @@ import { useAuth } from "@/src/context/AuthContext";
 import { useStudyPlan } from "@/src/hooks/useStudyPlan";
 import { useStudyTasks } from "@/src/hooks/useStudyTasks";
 import { useStudySession } from "@/src/hooks/useStudySession";
-import { useFocusBar } from "@/src/hooks/useFocusBar";
+import { useFocusCard } from "@/src/hooks/useFocusCard";
 import { getPlanAggregateUpdates } from "@/src/library/studyPlan/planState";
 import type {
   DailyPlan,
   StudyTask,
   StudySession,
-  FocusBarState,
+  FocusCardState,
+  CardCorner,
   SetupConfig,
   TaskStatus,
   GeneratedTask,
   ActivityType,
+  TimerMode,
 } from "@/src/library/studyPlan/types";
 
 interface StudyPlanContextValue {
@@ -27,7 +29,9 @@ interface StudyPlanContextValue {
   session: (StudySession & { id: string }) | null;
   sessionLoading: boolean;
   elapsedSeconds: number;
-  focusBar: FocusBarState | null;
+  focusCard: FocusCardState | null;
+  setMinimized: (v: boolean) => void;
+  setCorner: (c: CardCorner) => void;
 
   createPlan: (config: SetupConfig, taskIds: string[]) => Promise<void>;
   updatePlanState: (updates: Partial<DailyPlan>) => Promise<void>;
@@ -44,8 +48,23 @@ interface StudyPlanContextValue {
     taskId: string,
     courseId: string,
     activityType: ActivityType,
-    targetId: string | null
+    targetId: string | null,
+    timerMode?: TimerMode,
+    targetSeconds?: number | null
   ) => Promise<string | null>;
+  startGeneralSession: (
+    timerMode?: TimerMode,
+    targetSeconds?: number | null
+  ) => Promise<string | null>;
+  attachTaskToSession: (
+    taskId: string,
+    details?: {
+      courseId: string;
+      activityType: ActivityType;
+      targetId: string | null;
+      activityUrl: string;
+    }
+  ) => Promise<void>;
   pauseSession: () => Promise<void>;
   resumeSession: () => Promise<void>;
   completeSession: () => Promise<void>;
@@ -78,17 +97,19 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
     loading: sessionLoading,
     elapsedSeconds,
     startSession,
+    startGeneralSession,
+    attachTaskToSession,
     pauseSession,
     resumeSession,
     completeSession,
     abandonSession,
   } = useStudySession(uid);
 
-  const activeTask = session
+  const activeTask = session?.taskId
     ? tasks.find((t) => t.id === session.taskId)
     : null;
 
-  const focusBar = useFocusBar(
+  const { focusCard, setMinimized, setCorner } = useFocusCard(
     session,
     activeTask?.title ?? "",
     activeTask?.courseCode ?? "",
@@ -127,12 +148,16 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
       session,
       sessionLoading,
       elapsedSeconds,
-      focusBar,
+      focusCard,
+      setMinimized,
+      setCorner,
       createPlan,
       updatePlanState,
       createTasksFromGenerated,
       updateTaskStatus: updateTaskStatusAndPlan,
       startSession,
+      startGeneralSession,
+      attachTaskToSession,
       pauseSession,
       resumeSession,
       completeSession,
@@ -147,12 +172,16 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
       session,
       sessionLoading,
       elapsedSeconds,
-      focusBar,
+      focusCard,
+      setMinimized,
+      setCorner,
       createPlan,
       updatePlanState,
       createTasksFromGenerated,
       updateTaskStatusAndPlan,
       startSession,
+      startGeneralSession,
+      attachTaskToSession,
       pauseSession,
       resumeSession,
       completeSession,

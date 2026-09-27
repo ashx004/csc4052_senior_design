@@ -14,7 +14,7 @@ export default function CarryoverPrompt({
   onStartFresh,
 }: CarryoverPromptProps) {
   return (
-    <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/50 p-4 dark:border-amber-800 dark:bg-amber-950/20">
+    <div className="mb-4 rounded-xl bg-white p-4 shadow-[0_8px_30px_rgba(26,26,48,0.06)]">
       <p className="text-sm font-medium text-text-main">
         You have {taskCount} task{taskCount === 1 ? "" : "s"} from yesterday.
       </p>

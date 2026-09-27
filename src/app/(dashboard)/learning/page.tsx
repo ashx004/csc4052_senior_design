@@ -38,6 +38,7 @@ import ClassGrid from "@/src/components/studyPlan/ClassGrid";
 import TodayPlanSidebar from "@/src/components/studyPlan/TodayPlanSidebar";
 import PlanSection from "@/src/components/studyPlan/PlanSection";
 import FocusModeCard from "@/src/components/studyPlan/FocusModeCard";
+import WeeklyChickenChart from "@/src/components/studyPlan/WeeklyChickenChart";
 import PlanCompletedState from "@/src/components/studyPlan/PlanCompletedState";
 import CarryoverPrompt from "@/src/components/studyPlan/CarryoverPrompt";
 import ClearPlanModal from "@/src/components/studyPlan/ClearPlanModal";
@@ -76,6 +77,8 @@ export default function LearningPage() {
     updateTaskStatus,
     session,
     startSession,
+    startGeneralSession,
+    attachTaskToSession,
     pauseSession,
     completeSession,
     abandonSession,
@@ -308,7 +311,21 @@ export default function LearningPage() {
       const task = tasks.find((t) => t.id === taskId);
       if (!task) return;
 
-      if (session) {
+      const url = getActivityUrl(task.activityType, task.courseId, task.targetId);
+
+      if (session && session.taskId == null) {
+        await updateTaskStatus(taskId, "in_progress");
+        await attachTaskToSession(taskId, {
+          courseId: task.courseId,
+          activityType: task.activityType,
+          targetId: task.targetId,
+          activityUrl: url,
+        });
+        router.push(url);
+        return;
+      }
+
+      if (session?.taskId) {
         await pauseSession();
         const prevTask = tasks.find((t) => t.id === session.taskId);
         if (prevTask && prevTask.status === "in_progress") {
@@ -321,13 +338,14 @@ export default function LearningPage() {
         taskId,
         task.courseId,
         task.activityType,
-        task.targetId
+        task.targetId,
+        "countup",
+        task.estimatedMinutes * 60
       );
 
-      const url = getActivityUrl(task.activityType, task.courseId, task.targetId);
       router.push(url);
     },
-    [user, tasks, session, pauseSession, updateTaskStatus, startSession, router]
+    [user, tasks, session, pauseSession, updateTaskStatus, startSession, attachTaskToSession, router]
   );
 
   const handleSkipTask = useCallback(
@@ -553,6 +571,12 @@ export default function LearningPage() {
     if (nextTask) handleStartTask(nextTask.id);
   }, [nextTask, handleStartTask]);
 
+  const handleStartGeneralSession = useCallback(() => {
+    if (session) return;
+    const minutes = nextTask?.estimatedMinutes ?? 25;
+    startGeneralSession("countup", minutes * 60);
+  }, [session, nextTask, startGeneralSession]);
+
   if (authLoading || classesLoading || planLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-beige-canvas">
@@ -685,7 +709,8 @@ export default function LearningPage() {
                   <FocusModeCard
                     recommendedMinutes={nextTask?.estimatedMinutes ?? 25}
                     onStartSession={handleStartNextTask}
-                    disabled={!nextTask}
+                    onStartGeneralSession={handleStartGeneralSession}
+                    disabled={!!session}
                   />
                 }
               >
@@ -701,6 +726,8 @@ export default function LearningPage() {
             onSuggestTasks={() => setShowSuggestTasks(true)}
           />
         )}
+
+        <WeeklyChickenChart />
 
         <SetupModal
           open={showSetup}
