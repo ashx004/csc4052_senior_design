@@ -19,6 +19,10 @@ import {
   studySessionPath,
 } from "@/src/library/studyPlan/firestorePaths";
 import { getActivityUrl } from "@/src/library/studyPlan/sessionTimer";
+import {
+  computeActiveMinutes,
+  computeElapsedSeconds,
+} from "@/src/library/studyPlan/focusTimer";
 import type {
   StudySession,
   ActivityType,
@@ -110,23 +114,14 @@ export function useStudySession(uid: string | null) {
     if (timerRef.current) clearInterval(timerRef.current);
 
     if (session?.status === "active") {
-      const baseMinutes = session.activeMinutes;
-      const periodStart =
-        session.periods.length > 0
-          ? session.periods[session.periods.length - 1].startedAt
-          : session.startedAt;
-      const startMs =
-        typeof periodStart?.toMillis === "function"
-          ? periodStart.toMillis()
-          : Date.now();
-
       timerRef.current = setInterval(() => {
-        const sinceStart = Math.floor((Date.now() - startMs) / 1000);
-        setElapsedSeconds(baseMinutes * 60 + sinceStart);
+        setElapsedSeconds(computeElapsedSeconds(session, Date.now()));
         touchLastSeen();
       }, 1000);
     } else {
-      setElapsedSeconds((session?.activeMinutes ?? 0) * 60);
+      setElapsedSeconds(
+        session ? computeElapsedSeconds(session, Date.now()) : 0
+      );
     }
 
     return () => {
@@ -171,37 +166,6 @@ export function useStudySession(uid: string | null) {
     [uid]
   );
 
-  const startGeneralSession = useCallback(
-    async (
-      timerMode: TimerMode = "countup",
-      targetSeconds: number | null = null
-    ) => {
-      if (!uid) return null;
-      touchLastSeen();
-      const now = Timestamp.now();
-      const ref = await addDoc(
-        collection(db, studySessionsCollection(uid)),
-        {
-          taskId: null,
-          courseId: "",
-          activityType: "reading" as ActivityType,
-          targetId: null,
-          status: "active",
-          startedAt: serverTimestamp(),
-          pausedAt: null,
-          completedAt: null,
-          activeMinutes: 0,
-          periods: [{ startedAt: now, endedAt: null }],
-          activityUrl: "/learning",
-          timerMode,
-          targetSeconds,
-        }
-      );
-      return ref.id;
-    },
-    [uid]
-  );
-
   const attachTaskToSession = useCallback(
     async (
       taskId: string,
@@ -229,24 +193,11 @@ export function useStudySession(uid: string | null) {
         ? { ...p, endedAt: now }
         : p
     );
-    const totalMs = updatedPeriods.reduce((sum, p) => {
-      if (p.endedAt && p.startedAt) {
-        const start =
-          typeof p.startedAt.toMillis === "function"
-            ? p.startedAt.toMillis()
-            : 0;
-        const end =
-          typeof p.endedAt.toMillis === "function" ? p.endedAt.toMillis() : 0;
-        return sum + (end - start);
-      }
-      return sum;
-    }, 0);
-
     await updateDoc(doc(db, studySessionPath(uid, session.id)), {
       status: "paused",
       pausedAt: serverTimestamp(),
       periods: updatedPeriods,
-      activeMinutes: Math.floor(totalMs / 60000),
+      activeMinutes: computeActiveMinutes(updatedPeriods, Date.now()),
     });
   }, [uid, session]);
 
@@ -269,25 +220,12 @@ export function useStudySession(uid: string | null) {
         ? { ...p, endedAt: now }
         : p
     );
-    const totalMs = updatedPeriods.reduce((sum, p) => {
-      if (p.endedAt && p.startedAt) {
-        const start =
-          typeof p.startedAt.toMillis === "function"
-            ? p.startedAt.toMillis()
-            : 0;
-        const end =
-          typeof p.endedAt.toMillis === "function" ? p.endedAt.toMillis() : 0;
-        return sum + (end - start);
-      }
-      return sum;
-    }, 0);
-
     clearLastSeen();
     await updateDoc(doc(db, studySessionPath(uid, session.id)), {
       status: "completed",
       completedAt: serverTimestamp(),
       periods: updatedPeriods,
-      activeMinutes: Math.floor(totalMs / 60000),
+      activeMinutes: computeActiveMinutes(updatedPeriods, Date.now()),
     });
   }, [uid, session]);
 
@@ -299,24 +237,11 @@ export function useStudySession(uid: string | null) {
         ? { ...p, endedAt: now }
         : p
     );
-    const totalMs = updatedPeriods.reduce((sum, p) => {
-      if (p.endedAt && p.startedAt) {
-        const start =
-          typeof p.startedAt.toMillis === "function"
-            ? p.startedAt.toMillis()
-            : 0;
-        const end =
-          typeof p.endedAt.toMillis === "function" ? p.endedAt.toMillis() : 0;
-        return sum + (end - start);
-      }
-      return sum;
-    }, 0);
-
     clearLastSeen();
     await updateDoc(doc(db, studySessionPath(uid, session.id)), {
       status: "abandoned",
       periods: updatedPeriods,
-      activeMinutes: Math.floor(totalMs / 60000),
+      activeMinutes: computeActiveMinutes(updatedPeriods, Date.now()),
     });
   }, [uid, session]);
 
@@ -325,7 +250,6 @@ export function useStudySession(uid: string | null) {
     loading,
     elapsedSeconds,
     startSession,
-    startGeneralSession,
     attachTaskToSession,
     pauseSession,
     resumeSession,

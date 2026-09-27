@@ -2,7 +2,13 @@
 
 import { useAuth } from "@/src/context/AuthContext";
 import { useWeeklyStudyData } from "@/src/hooks/useWeeklyStudyData";
+import {
+  computeRuler,
+  formatDuration,
+} from "@/src/library/studyPlan/weeklyRuler";
 import ChickenBar, { CHICKEN_BAR_MAX_BODY } from "./ChickenBar";
+
+const RULER_BASELINE_OFFSET = 39;
 
 function formatDay(date: string): string {
   const parsed = new Date(`${date}T00:00:00`);
@@ -50,22 +56,17 @@ export default function WeeklyChickenChart() {
 
   if (dailyMinutes.length === 0) return null;
 
-  const maxMinutes = Math.max(...dailyMinutes.map((d) => d.minutes), 1);
-  const today = new Date();
-  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-
-  const avgLineBottom =
-    dailyAverage > 0 && maxMinutes > 0
-      ? Math.round((dailyAverage / maxMinutes) * CHICKEN_BAR_MAX_BODY)
-      : 0;
+  const { niceMax, ticks } = computeRuler(
+    dailyMinutes.map((day) => day.minutes)
+  );
 
   const summary = dailyMinutes
-    .map((day) => `${formatDay(day.date)}: ${day.minutes} minutes`)
+    .map((day) => `${formatDay(day.date)}: ${formatDuration(day.minutes)}`)
     .join(", ");
 
   return (
     <section
-      aria-label={`Recent focus. Daily average ${dailyAverage} minutes. ${summary}`}
+      aria-label={`Recent focus. Daily average ${formatDuration(dailyAverage)}. ${summary}`}
       className="rounded-[20px] border border-gray-light bg-white p-5 shadow-[0_8px_30px_rgba(26,26,48,0.06)]"
     >
       <div className="flex items-baseline justify-between gap-4">
@@ -73,37 +74,48 @@ export default function WeeklyChickenChart() {
         <div className="text-right">
           <span className="text-xs text-gray-secondary">Daily Average</span>
           <p className="text-[22px] font-extrabold tabular-nums leading-none text-navy">
-            {dailyAverage}
+            {formatDuration(dailyAverage)}
           </p>
         </div>
       </div>
 
       <div className="relative mt-4">
-        <div className="flex items-end overflow-visible" style={{ gap: 8 }}>
+        <div className="pointer-events-none absolute bottom-0 left-8 right-0 top-0 z-0" aria-hidden>
+          {ticks.map((tick) => {
+            const bottom =
+              RULER_BASELINE_OFFSET +
+              Math.round((tick.minutes / niceMax) * CHICKEN_BAR_MAX_BODY);
+            return (
+              <div
+                key={tick.minutes}
+                className="absolute left-0 right-0 border-t border-gray-light/70"
+                style={{ bottom }}
+              >
+                <span className="absolute right-full top-0 mr-2 -translate-y-1/2 text-[10px] font-medium tabular-nums text-gray-secondary">
+                  {tick.label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="relative z-[1] ml-8 flex items-end overflow-visible" style={{ gap: 8 }}>
           {dailyMinutes.map((d) => (
             <ChickenBar
               key={d.date}
               date={d.date}
               minutes={d.minutes}
-              maxMinutes={maxMinutes}
-              dailyAverage={dailyAverage}
-              isToday={d.date === todayKey}
+              hasStudy={d.hasStudy}
+              isToday={d.isToday}
+              isFuture={d.isFuture}
+              niceMax={niceMax}
+              weekday={new Date(`${d.date}T00:00:00`).toLocaleDateString(
+                undefined,
+                { weekday: "short" }
+              )}
             />
           ))}
         </div>
-
-        {avgLineBottom > 0 && (
-          <div
-            className="pointer-events-none absolute left-0 right-0"
-            style={{ bottom: avgLineBottom + 22 }}
-            aria-hidden
-          >
-            <div className="border-t-2 border-dashed border-[#E74C3C]" />
-            <span className="absolute -top-2 right-0 bg-white px-1 text-[10px] font-semibold text-[#C0392B]">
-              avg
-            </span>
-          </div>
-        )}
       </div>
 
       <details className="mt-4 text-sm text-gray-secondary">
@@ -115,7 +127,7 @@ export default function WeeklyChickenChart() {
           <thead>
             <tr className="text-xs text-gray-secondary">
               <th scope="col" className="py-1 font-medium">Day</th>
-              <th scope="col" className="py-1 text-right font-medium">Minutes</th>
+              <th scope="col" className="py-1 text-right font-medium">Time</th>
             </tr>
           </thead>
           <tbody>
@@ -123,9 +135,11 @@ export default function WeeklyChickenChart() {
               <tr key={day.date} className="border-t border-gray-light">
                 <th scope="row" className="py-1.5 font-normal text-navy">
                   {formatDay(day.date)}
-                  {day.date === todayKey ? " (today)" : ""}
+                  {day.isToday ? " (today)" : ""}
                 </th>
-                <td className="py-1.5 text-right tabular-nums text-navy">{day.minutes}</td>
+                <td className="py-1.5 text-right tabular-nums text-navy">
+                  {formatDuration(day.minutes)}
+                </td>
               </tr>
             ))}
           </tbody>

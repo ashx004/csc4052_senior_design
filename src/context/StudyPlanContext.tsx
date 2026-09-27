@@ -52,10 +52,6 @@ interface StudyPlanContextValue {
     timerMode?: TimerMode,
     targetSeconds?: number | null
   ) => Promise<string | null>;
-  startGeneralSession: (
-    timerMode?: TimerMode,
-    targetSeconds?: number | null
-  ) => Promise<string | null>;
   attachTaskToSession: (
     taskId: string,
     details?: {
@@ -97,7 +93,6 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
     loading: sessionLoading,
     elapsedSeconds,
     startSession,
-    startGeneralSession,
     attachTaskToSession,
     pauseSession,
     resumeSession,
@@ -156,7 +151,6 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
       createTasksFromGenerated,
       updateTaskStatus: updateTaskStatusAndPlan,
       startSession,
-      startGeneralSession,
       attachTaskToSession,
       pauseSession,
       resumeSession,
@@ -180,7 +174,6 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
       createTasksFromGenerated,
       updateTaskStatusAndPlan,
       startSession,
-      startGeneralSession,
       attachTaskToSession,
       pauseSession,
       resumeSession,

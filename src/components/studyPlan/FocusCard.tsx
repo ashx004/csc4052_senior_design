@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useMotionValue, useReducedMotion } from "framer-motion";
 import { Check, Minimize2, Pause, Play } from "lucide-react";
 import { useStudyPlanContext } from "@/src/context/StudyPlanContext";
+import { useFocusMachine } from "@/src/hooks/useFocusMachine";
 import { cornerFrame, cornerZoneAt, resolveDropCorner } from "@/src/library/studyPlan/focusCardDrag";
 import { formatElapsedTime } from "@/src/library/studyPlan/sessionTimer";
 import {
@@ -15,7 +16,7 @@ import {
   WIDGET_STATE_CONFIG,
 } from "@/src/library/studyPlan/chickenConfig";
 import ChickenAvatar from "./ChickenAvatar";
-import type { CardCorner, ChickenState, FocusCardState } from "@/src/library/studyPlan/types";
+import type { CardCorner } from "@/src/library/studyPlan/types";
 
 const CORNERS: CardCorner[] = [
   "top-left",
@@ -45,43 +46,34 @@ export default function FocusCard() {
   const router = useRouter();
   const reduceMotion = useReducedMotion();
   const {
-    focusCard,
     pauseSession,
     resumeSession,
-    completeSession,
-    abandonSession,
-    updateTaskStatus,
     setMinimized,
     setCorner,
   } = useStudyPlanContext();
+  const {
+    visible,
+    overlay,
+    chickenState,
+    displaySeconds,
+    card,
+    actions,
+  } = useFocusMachine();
 
   const constraintsRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const cardResizeObserverRef = useRef<ResizeObserver | null>(null);
   const dragX = useMotionValue(0);
   const dragY = useMotionValue(0);
-  const snapshotRef = useRef<FocusCardState | null>(null);
   const suppressClickUntilRef = useRef(0);
   const lastActivityRef = useRef(Date.now());
-  const hiddenAtRef = useRef<number | null>(null);
-  const prevChickenRef = useRef<string | null>(null);
-  const diedDuringSessionRef = useRef<string | null>(null);
 
-  const [breakState, setBreakState] = useState<{
-    active: boolean;
-    secondsLeft: number;
-  } | null>(null);
-  const [terminal, setTerminal] = useState<"dead" | "complete" | null>(null);
   const [cardSize, setCardSize] = useState({ width: 240, height: 180 });
   const [dragging, setDragging] = useState(false);
   const [activeZone, setActiveZone] = useState<CardCorner | null>(null);
 
-  if (focusCard) snapshotRef.current = focusCard;
-  const card = focusCard ?? snapshotRef.current;
-  const visible = Boolean(focusCard?.visible || terminal || breakState?.active);
-
   useEffect(() => {
-    if (!focusCard?.visible || focusCard.mode === "paused" || terminal || breakState?.active) {
+    if (!visible || card?.mode === "paused" || overlay !== "none") {
       return;
     }
 
@@ -107,65 +99,7 @@ export default function FocusCard() {
       window.removeEventListener("scroll", resetActivity, true);
       clearInterval(idleCheck);
     };
-  }, [focusCard?.visible, focusCard?.mode, pauseSession, terminal, breakState?.active]);
-
-  useEffect(() => {
-    if (!focusCard?.visible || focusCard.mode === "paused") return;
-
-    const handleVisibility = () => {
-      if (document.hidden) {
-        hiddenAtRef.current = Date.now();
-      } else if (hiddenAtRef.current) {
-        const elapsed = Date.now() - hiddenAtRef.current;
-        hiddenAtRef.current = null;
-        if (elapsed > 60_000) {
-          const taskId = focusCard.taskId;
-          diedDuringSessionRef.current = focusCard.sessionId;
-          abandonSession();
-          if (taskId) updateTaskStatus(taskId, "recommended");
-          setTerminal("dead");
-        }
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, [focusCard?.visible, focusCard?.mode, focusCard?.taskId, focusCard?.sessionId, abandonSession, updateTaskStatus]);
-
-  useEffect(() => {
-    const current = focusCard?.chickenState ?? null;
-    if (prevChickenRef.current !== "complete" && current === "complete" && !breakState?.active) {
-      const celebrationTimer = window.setTimeout(() => {
-        setBreakState({ active: true, secondsLeft: 300 });
-        setTerminal(null);
-      }, 2000);
-      prevChickenRef.current = current;
-      return () => window.clearTimeout(celebrationTimer);
-    }
-    prevChickenRef.current = current;
-  }, [focusCard?.chickenState, breakState?.active]);
-
-  useEffect(() => {
-    if (!breakState?.active) return;
-    const timer = window.setInterval(() => {
-      setBreakState((prev) => {
-        if (!prev || prev.secondsLeft <= 1) return null;
-        return { ...prev, secondsLeft: prev.secondsLeft - 1 };
-      });
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [breakState?.active]);
-
-  useEffect(() => {
-    if (
-      terminal === "dead" &&
-      focusCard?.visible &&
-      diedDuringSessionRef.current &&
-      focusCard.sessionId !== diedDuringSessionRef.current
-    ) {
-      setTerminal(null);
-    }
-  }, [focusCard?.sessionId, focusCard?.visible, terminal]);
+  }, [visible, card?.mode, overlay, pauseSession]);
 
   useEffect(() => {
     if (visible) return;
@@ -254,24 +188,13 @@ export default function FocusCard() {
 
   if (!visible || !card) return null;
 
-  const chickenState: ChickenState = breakState?.active
-    ? "break"
-    : terminal === "dead"
-      ? "dead"
-      : terminal === "complete"
-        ? "complete"
-        : card.chickenState;
-
-  const displaySeconds = breakState?.active
-    ? breakState.secondsLeft
-    : card.timerMode === "countdown" && card.targetSeconds
-      ? Math.max(0, card.targetSeconds - card.elapsedSeconds)
-      : card.elapsedSeconds;
   const displayTime =
     chickenState === "dead"
       ? "Gave up"
       : chickenState === "complete"
-        ? "Done"
+        ? overlay === "break"
+          ? formatClock(displaySeconds)
+          : "Done"
         : formatClock(displaySeconds);
 
   const widgetConfig = WIDGET_STATE_CONFIG[chickenState] ?? WIDGET_STATE_CONFIG.growing;
@@ -297,48 +220,25 @@ export default function FocusCard() {
   const pop = { type: "spring" as const, stiffness: 300, damping: 30 };
   const transition = reduceMotion ? { duration: 0 } : { opacity: pop, scale: pop };
 
-  const handleDone = async () => {
-    if (focusCard?.visible) {
-      await completeSession();
-      if (card.taskId) await updateTaskStatus(card.taskId, "completed");
-    }
-    setTerminal("complete");
-    window.setTimeout(() => {
-      setTerminal(null);
-      setBreakState({ active: true, secondsLeft: 300 });
-    }, 2000);
-  };
-
-  const handleQuit = async () => {
-    if (focusCard?.visible) {
-      await abandonSession();
-      if (card.taskId) await updateTaskStatus(card.taskId, "recommended");
-    }
-    diedDuringSessionRef.current = card.sessionId;
-    setBreakState(null);
-    setTerminal("dead");
-  };
-
-  const handleRestart = () => {
-    setTerminal(null);
-    setBreakState(null);
-    router.push("/learning");
-  };
-
-  const handleSkipBreak = () => setBreakState(null);
+  const widgetActionLabel =
+    overlay === "done_choice" || overlay === "back_prompt"
+      ? "Expand"
+      : overlay === "break"
+        ? "Skip"
+        : chickenState === "dead"
+          ? "Restart"
+          : card.mode === "paused"
+            ? "Resume"
+            : "Pause";
 
   const handleWidgetAction = () => {
-    if (chickenState === "paused") resumeSession();
-    else if (chickenState === "complete") {
-      if (focusCard?.visible) setMinimized(false);
-      else {
-        setTerminal(null);
-        setBreakState({ active: true, secondsLeft: 300 });
-      }
-    }
-    else if (chickenState === "dead") handleRestart();
-    else if (chickenState === "break") handleSkipBreak();
-    else handleQuit();
+    if (overlay === "done_choice" || overlay === "back_prompt") setMinimized(false);
+    else if (overlay === "break") actions.skipBreak();
+    else if (chickenState === "dead") {
+      actions.restart();
+      router.push("/learning");
+    } else if (card.mode === "paused") resumeSession();
+    else pauseSession();
   };
 
   const onCardKeyDown = (event: KeyboardEvent<HTMLElement>) => {
@@ -362,7 +262,7 @@ export default function FocusCard() {
       {dragging && (
         <>
           <div
-            className="pointer-events-none fixed inset-0 z-[55] bg-[#1A1A30]/20 backdrop-blur-sm"
+            className="pointer-events-none fixed inset-0 z-[55] backdrop-blur-sm"
             aria-hidden
           />
           {CORNERS.map((corner) => (
@@ -376,8 +276,8 @@ export default function FocusCard() {
                 ...cornerFrame(corner, cardSize),
                 width: cardSize.width,
                 height: cardSize.height,
-                backgroundColor: "#4B5563",
-                opacity: activeZone === corner ? 0.55 : 0.28,
+                backgroundColor: stateColors.accent,
+                opacity: activeZone === corner ? 0.5 : 0.22,
               }}
             />
           ))}
@@ -446,7 +346,7 @@ export default function FocusCard() {
               className="min-h-11 shrink-0 cursor-pointer rounded-[10px] px-3.5 text-[13px] font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy active:scale-[0.98] motion-reduce:active:scale-100"
               style={widgetButtonStyle}
             >
-              {widgetConfig.buttonText}
+              {widgetActionLabel}
             </button>
           </motion.div>
         ) : (
@@ -515,21 +415,59 @@ export default function FocusCard() {
             )}
 
             <div className="mt-3 flex flex-col gap-2">
-              {chickenState === "break" ? (
+              {overlay === "done_choice" ? (
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onPointerDown={stopDrag}
+                    onClick={actions.chooseBreak}
+                    className={`${buttonClass} border border-gray-light bg-white text-navy focus-visible:outline-navy`}
+                  >
+                    Take a 5-min break
+                  </button>
+                  <button
+                    type="button"
+                    onPointerDown={stopDrag}
+                    onClick={() => {
+                      actions.chooseFinish();
+                      router.push("/learning");
+                    }}
+                    className={`${buttonClass} bg-navy text-white focus-visible:outline-navy`}
+                  >
+                    <Check size={14} aria-hidden />
+                    Finish
+                  </button>
+                </div>
+              ) : overlay === "break" ? (
                 <button
                   type="button"
                   onPointerDown={stopDrag}
-                  onClick={handleSkipBreak}
+                  onClick={actions.skipBreak}
                   className={`${buttonClass} border border-gray-light bg-white text-navy focus-visible:outline-navy`}
                 >
                   Skip break
+                </button>
+              ) : overlay === "back_prompt" ? (
+                <button
+                  type="button"
+                  onPointerDown={stopDrag}
+                  onClick={() => {
+                    actions.backToLearning();
+                    router.push("/learning");
+                  }}
+                  className={`${buttonClass} bg-navy text-white focus-visible:outline-navy`}
+                >
+                  Back to learning
                 </button>
               ) : chickenState === "dead" ? (
                 <>
                   <button
                     type="button"
                     onPointerDown={stopDrag}
-                    onClick={handleRestart}
+                    onClick={() => {
+                      actions.restart();
+                      router.push("/learning");
+                    }}
                     className={`${buttonClass} bg-navy text-white focus-visible:outline-navy`}
                   >
                     Restart
@@ -543,7 +481,7 @@ export default function FocusCard() {
                     Back to plan
                   </button>
                 </>
-              ) : chickenState === "paused" || card.mode === "paused" ? (
+              ) : card.mode === "paused" ? (
                 <button
                   type="button"
                   onPointerDown={stopDrag}
@@ -552,16 +490,6 @@ export default function FocusCard() {
                 >
                   <Play size={14} aria-hidden />
                   Resume
-                </button>
-              ) : chickenState === "complete" ? (
-                <button
-                  type="button"
-                  onPointerDown={stopDrag}
-                  onClick={handleDone}
-                  className={`${buttonClass} bg-navy text-white focus-visible:outline-navy`}
-                >
-                  <Check size={14} aria-hidden />
-                  Done
                 </button>
               ) : (
                 <div className="flex gap-2">
@@ -577,7 +505,7 @@ export default function FocusCard() {
                   <button
                     type="button"
                     onPointerDown={stopDrag}
-                    onClick={handleDone}
+                    onClick={actions.done}
                     className={`${buttonClass} flex-1 bg-navy text-white focus-visible:outline-navy`}
                   >
                     <Check size={14} aria-hidden />
