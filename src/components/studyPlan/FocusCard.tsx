@@ -66,40 +66,13 @@ export default function FocusCard() {
   const dragX = useMotionValue(0);
   const dragY = useMotionValue(0);
   const suppressClickUntilRef = useRef(0);
-  const lastActivityRef = useRef(Date.now());
 
   const [cardSize, setCardSize] = useState({ width: 240, height: 180 });
   const [dragging, setDragging] = useState(false);
   const [activeZone, setActiveZone] = useState<CardCorner | null>(null);
 
-  useEffect(() => {
-    if (!visible || card?.mode === "paused" || overlay !== "none") {
-      return;
-    }
-
-    const resetActivity = () => {
-      lastActivityRef.current = Date.now();
-    };
-
-    window.addEventListener("mousemove", resetActivity);
-    window.addEventListener("keydown", resetActivity);
-    window.addEventListener("click", resetActivity);
-    window.addEventListener("scroll", resetActivity, true);
-
-    const idleCheck = setInterval(() => {
-      if (Date.now() - lastActivityRef.current > 5 * 60 * 1000) {
-        pauseSession();
-      }
-    }, 30_000);
-
-    return () => {
-      window.removeEventListener("mousemove", resetActivity);
-      window.removeEventListener("keydown", resetActivity);
-      window.removeEventListener("click", resetActivity);
-      window.removeEventListener("scroll", resetActivity, true);
-      clearInterval(idleCheck);
-    };
-  }, [visible, card?.mode, overlay, pauseSession]);
+  // Presence is decided by tab visibility (see useFocusMachine's auto-pause),
+  // not mouse movement: a still mouse while reading a PDF still means "here".
 
   useEffect(() => {
     if (visible) return;
@@ -496,7 +469,7 @@ export default function FocusCard() {
                   <button
                     type="button"
                     onPointerDown={stopDrag}
-                    onClick={pauseSession}
+                    onClick={() => pauseSession()}
                     className={`${buttonClass} flex-1 border border-gray-light bg-white text-navy focus-visible:outline-navy`}
                   >
                     <Pause size={14} aria-hidden />

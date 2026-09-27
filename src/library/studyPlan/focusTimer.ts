@@ -10,9 +10,11 @@ export function resolveMillis(ts: MillisLike): number | null {
   return null;
 }
 
-/** Total active minutes across periods. Open period runs until nowMs.
- *  Unresolved starts contribute 0 (never epoch), and no period exceeds nowMs. */
-export function computeActiveMinutes(periods: Period[], nowMs: number): number {
+/** Total active seconds across periods. Open period runs until nowMs.
+ *  Unresolved starts contribute 0 (never epoch), and no period exceeds nowMs.
+ *  Second precision is what lets pause/resume keep the exact tick instead of
+ *  snapping back to the last whole minute. */
+export function computeActiveSeconds(periods: Period[], nowMs: number): number {
   let totalMs = 0;
   for (const p of periods ?? []) {
     const start = resolveMillis(p.startedAt);
@@ -21,19 +23,28 @@ export function computeActiveMinutes(periods: Period[], nowMs: number): number {
     const end = Math.min(rawEnd, nowMs);
     if (end > start) totalMs += end - start;
   }
-  return Math.floor(totalMs / 60000);
+  return Math.floor(totalMs / 1000);
+}
+
+/** Total active minutes across periods (derived from seconds). Used for stats. */
+export function computeActiveMinutes(periods: Period[], nowMs: number): number {
+  return Math.floor(computeActiveSeconds(periods, nowMs) / 60);
 }
 
 export function computeElapsedSeconds(
   input: {
     activeMinutes: number;
+    /** Second-precise accumulated time from closed periods. Preferred base;
+     *  legacy sessions without it fall back to activeMinutes*60. */
+    activeSeconds?: number;
     status: string;
     periods: Period[];
     startedAt: MillisLike;
   },
   nowMs: number
 ): number {
-  const base = (input.activeMinutes ?? 0) * 60;
+  const base =
+    input.activeSeconds ?? (input.activeMinutes ?? 0) * 60;
   if (input.status !== "active") return base;
 
   const periods = input.periods ?? [];

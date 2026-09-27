@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   resolveMillis,
   computeActiveMinutes,
+  computeActiveSeconds,
   computeElapsedSeconds,
 } from "./focusTimer";
 
@@ -46,7 +47,79 @@ describe("computeActiveMinutes", () => {
   });
 });
 
+describe("computeActiveSeconds", () => {
+  it("keeps second precision (no flooring to whole minutes)", () => {
+    const periods = [{ startedAt: ts(1_000_000), endedAt: ts(1_065_000) }]; // 65s
+    expect(computeActiveSeconds(periods, 1_065_000)).toBe(65);
+  });
+
+  it("sums multiple periods with second precision", () => {
+    const periods = [
+      { startedAt: ts(0), endedAt: ts(65_000) }, // 65s
+      { startedAt: ts(100_000), endedAt: ts(130_000) }, // 30s
+    ];
+    expect(computeActiveSeconds(periods, 200_000)).toBe(95);
+  });
+
+  it("treats an open period as running until now", () => {
+    const periods = [{ startedAt: ts(1_000_000), endedAt: null }];
+    expect(computeActiveSeconds(periods, 1_042_000)).toBe(42);
+  });
+});
+
+describe("pause/resume keeps the exact second (regression)", () => {
+  it("resumes from where it paused, not the floored minute", () => {
+    // Study 1:05 (65s), then pause.
+    const startedAt = ts(1_000_000);
+    const pausedPeriods = [{ startedAt, endedAt: ts(1_065_000) }];
+    const activeSeconds = computeActiveSeconds(pausedPeriods, 1_065_000);
+    expect(activeSeconds).toBe(65); // NOT floored to 60
+
+    // While paused the card shows 1:05, not 1:00.
+    expect(
+      computeElapsedSeconds(
+        { activeMinutes: 1, activeSeconds, status: "paused", periods: pausedPeriods, startedAt },
+        9_999_999
+      )
+    ).toBe(65);
+
+    // Resume opens a fresh period much later; base stays 65 and counts up.
+    const resumedPeriods = [
+      ...pausedPeriods,
+      { startedAt: ts(5_000_000), endedAt: null },
+    ];
+    expect(
+      computeElapsedSeconds(
+        { activeMinutes: 1, activeSeconds, status: "active", periods: resumedPeriods, startedAt },
+        5_003_000
+      )
+    ).toBe(68); // 1:05 + 3s = 1:08
+  });
+});
+
 describe("computeElapsedSeconds", () => {
+  it("uses activeSeconds as the base when present (second precision)", () => {
+    const input = {
+      activeMinutes: 1,
+      activeSeconds: 65,
+      status: "active",
+      periods: [{ startedAt: ts(1_000_000), endedAt: null }],
+      startedAt: ts(1_000_000),
+    };
+    // base 65 + 10s since open start = 75
+    expect(computeElapsedSeconds(input, 1_010_000)).toBe(75);
+  });
+
+  it("falls back to activeMinutes*60 for legacy sessions without activeSeconds", () => {
+    const input = {
+      activeMinutes: 12,
+      status: "paused",
+      periods: [{ startedAt: ts(0), endedAt: ts(720_000) }],
+      startedAt: ts(0),
+    };
+    expect(computeElapsedSeconds(input, 9_999_999)).toBe(720);
+  });
+
   it("adds seconds since the last open period start", () => {
     const input = {
       activeMinutes: 5,

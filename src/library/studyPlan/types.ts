@@ -147,6 +147,9 @@ export interface StudySession {
   pausedAt: Timestamp | null;
   completedAt: Timestamp | null;
   activeMinutes: number;
+  /** Second-precise accumulated active time. Lets pause/resume keep the exact
+   *  tick; activeMinutes stays for stats/aggregation. Optional for legacy docs. */
+  activeSeconds?: number;
   periods: SessionPeriod[];
   activityUrl: string;
   timerMode: TimerMode;
