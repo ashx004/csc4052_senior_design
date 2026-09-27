@@ -55,7 +55,9 @@ async function chat(q: string, options: Record<string, unknown> = {}) {
   assert.equal(res.status, 200, await (res.status === 200 ? Promise.resolve("") : res.text()));
   const reader = res.body!.getReader(); const decoder = new TextDecoder();
   let buffer = "", text = "", firstTokenSeconds: number | null = null, session: string | undefined;
-  const tools: string[] = [], errors: string[] = []; let finished = false;
+  const tools: string[] = [], errors: string[] = [];
+  let pendingActions: { id: string; title: string; details: string[] }[] = [];
+  let finished = false;
   for (;;) {
     const { done, value } = await reader.read(); if (done) break;
     buffer += decoder.decode(value, { stream: true }); const lines = buffer.split("\n"); buffer = lines.pop() ?? "";
@@ -65,14 +67,24 @@ async function chat(q: string, options: Record<string, unknown> = {}) {
       if (event.type === "tool") tools.push(event.name);
       if (event.type === "error") errors.push(event.error);
       if (event.type === "session") session = event.id;
-      if (event.type === "done") finished = true;
+      if (event.type === "done") {
+        finished = true;
+        if (Array.isArray(event.pendingActions)) pendingActions = event.pendingActions;
+      }
     }
   }
   assert.deepEqual(errors, [], JSON.stringify({ text, tools, errors }));
   assert.ok(finished && text.trim(), "Missing completed answer");
   assert.doesNotMatch(text, /<\/?think>|\b(?:read_document|create_note|set_self_confidence)\s*\(/i);
   assert.ok(!text.includes(uid) && !text.includes(resourceId), "Leaked internal identifier");
-  return { text, tools, firstTokenSeconds, session };
+  return { text, tools, firstTokenSeconds, session, pendingActions };
+}
+async function confirmPendingAction(action: { id: string }) {
+  const res = await post("/api/chat/confirm", { id: action.id, decision: "confirm" });
+  const data = await res.json();
+  assert.equal(res.status, 200, JSON.stringify(data));
+  assert.equal(data.status, "done", JSON.stringify(data));
+  return data;
 }
 async function check(name: string, fn: () => Promise<unknown>) {
   const start = Date.now();
@@ -121,7 +133,7 @@ async function main() {
     await check("cross-user context is rejected", async () => assert.equal((await post("/api/chat", { messages: [{ role: "user", content: "Hello" }], context: { ...context, userId: "other" } })).status, 403));
     await check("ordinary concept explanation", async () => { const r = await chat("Explain FIFO and LIFO in two sentences."); assert.match(r.text, /first.*in.*first.*out/i); return r; });
     await check("missing instructor email is not invented", async () => { const r = await chat("What is Dr. Rowan Vale's email address for CSC 301?"); assert.doesNotMatch(r.text, /[\w.+-]+@[\w.-]+\.[a-z]{2,}/i); return r; });
-    await check("missing document is not summarized", async () => { const r = await chat('Summarize "Absent Lecture.pdf" for CSC 301.'); assert.doesNotMatch(r.text, /this (?:document|lecture|pdf) (?:covers|explains|discusses)/i); assert.match(r.text, /not|isn't|doesn't|couldn't|can't/i); return r; });
+    await check("missing document is not summarized", async () => { const r = await chat('Summarize "Absent Lecture.pdf" for CSC 301.'); assert.doesNotMatch(r.text, /this (?:document|lecture|pdf) (?:covers|explains|discusses)/i); assert.match(r.text, /not|isn't|doesn't|couldn't|can't|don't/i); return r; });
     await check("named document grounding", async () => { const r = await chat('Read "Queue Lab.txt" in CSC 301. What is the Aster queue capacity and its overflow diagnostic code?'); assert.match(r.text, /17/); assert.match(r.text, /ZEPHYR-47/); return r; });
     await check("search reaches file 31 and cites original evidence", async () => { const r = await chat("Which of my files cover the Aster queue? Give its capacity and overflow code from the source."); assert.match(r.text, /Queue Lab/); assert.match(r.text, /17/); assert.match(r.text, /ZEPHYR-47/); assert.doesNotMatch(r.text, /999/); return r; });
     await check("browser-supplied document URL is ignored", async () => {
@@ -133,7 +145,13 @@ async function main() {
     await check("instructional deletion question preserves note", async () => { const r = await chat('Explain how to delete my "Queue recap" note, but keep it for now.'); assert.equal((await notes()).filter((n) => n.data().title === "Queue recap").length, 1); return r; });
     await check("append note persists content", async () => { const r = await chat('Append this bullet to "Queue recap": the Aster queue holds 17 items.'); assert.ok((await notes()).some((n) => /17/.test(n.data().plainText))); return r; });
     await check("calendar creation has exact local time", async () => { const r = await chat('Add "Queue review" to my calendar on October 6, 2026 from 2 PM to 3 PM.'); const e = (await events()).find((e) => e.data().title === "Queue review"); assert.ok(e); assert.equal(e.data().startTime, "2026-10-06T19:00:00.000Z"); assert.equal(e.data().endTime, "2026-10-06T20:00:00.000Z"); return r; });
-    await check("course edit persists", async () => { const r = await chat("Update Dr. Rowan Vale's office location for CSC 301 to TEST 240."); assert.equal((await root.collection("enrollment").doc(courseId).get()).data()?.facultyOfficeNumber, "TEST 240"); return r; });
+    await check("course edit persists after confirmation", async () => {
+      const r = await chat("Update Dr. Rowan Vale's office location for CSC 301 to TEST 240.");
+      assert.equal(r.pendingActions.length, 1, JSON.stringify(r));
+      await confirmPendingAction(r.pendingActions[0]);
+      assert.equal((await root.collection("enrollment").doc(courseId).get()).data()?.facultyOfficeNumber, "TEST 240");
+      return r;
+    });
     await check("self-confidence persists", async () => { const r = await chat("I feel shaky in CSC 301, a 2 out of 5."); assert.equal((await root.collection("courseConfidence").doc(courseId).get()).data()?.level, 2); return r; });
     await check("contextual flashcard tutoring", async () => { const r = await chat("Explain the answer to this card in two sentences.", { pageContext: { kind: "flashcard", courseId, documentName: "Queue Lab.txt", cardIndex: 0, totalCards: 10, question: "What does FIFO mean?", answer: "First in, first out." }, panelContextKey: "flashcard:fixture" }); assert.match(r.text, /first|oldest/i); return r; });
     await check("contextual quiz review", async () => { const r = await chat("Why was my answer wrong?", { pageContext: { kind: "quiz_result", courseId, quizName: "Queue Lab", score: 0, total: 1, questions: [{ question: "Which removes the oldest item first?", selectedAnswer: "Stack", correctAnswer: "Queue", isCorrect: false }] }, panelContextKey: "quiz:fixture" }); assert.match(r.text, /queue/i); assert.match(r.text, /stack/i); return r; });
@@ -158,7 +176,13 @@ async function main() {
       const d = await json("/api/generate-quiz", { docUrl: `/api/download?key=${encodeURIComponent(pdfKey)}`, docName: "fixture.pdf", questionCount: 3, questionTypes: { multipleChoice: true } });
       assert.equal(d.questions.length, 3); return d;
     });
-    await check("explicit deletion works", async () => { const r = await chat('Delete my "Queue recap" note.'); assert.equal((await notes()).filter((n) => n.data().title === "Queue recap").length, 0); return r; });
+    await check("explicit deletion works after confirmation", async () => {
+      const r = await chat('Delete my "Queue recap" note.');
+      assert.equal(r.pendingActions.length, 1, JSON.stringify(r));
+      await confirmPendingAction(r.pendingActions[0]);
+      assert.equal((await notes()).filter((n) => n.data().title === "Queue recap").length, 0);
+      return r;
+    });
   } finally {
     let cleanupError: string | undefined;
     try { await cleanup(); console.log("Disposable fixtures cleaned up."); } catch (e) { cleanupError = String(e); console.error(cleanupError); }
