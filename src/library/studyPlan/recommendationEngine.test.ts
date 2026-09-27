@@ -4,8 +4,49 @@ import {
   generateTasks,
   chooseActivityType,
   ESTIMATED_MINUTES,
+  needsDocumentSelection,
+  documentTargetForResource,
+  findResourceForSourceDocKey,
 } from "./recommendationEngine";
-import type { EligibleTopic, SetupConfig } from "./types";
+import type { EligibleTopic, GeneratedTask, SetupConfig } from "./types";
+
+function config(activityPreference: SetupConfig["activityPreference"]): SetupConfig {
+  return {
+    availableMinutes: 60,
+    goal: "general",
+    courseId: null,
+    activityPreference,
+  };
+}
+
+function documentCandidate(resourceId: string): EligibleTopic {
+  return {
+    ...baseTopic,
+    topicLabel: "Lecture notes",
+    targetId: null,
+    activityType: "reading",
+    activityTarget: {
+      kind: "document",
+      resourceId,
+      sourceDocKey: "users/u/resources/doc.pdf",
+    },
+  };
+}
+
+function generatedReadingWithoutTarget(): GeneratedTask {
+  return {
+    title: "Read: Course exploration",
+    courseId: "csc430",
+    courseName: "Database Systems",
+    courseCode: "CSC430",
+    topicLabel: "Course exploration",
+    activityType: "reading",
+    targetId: null,
+    estimatedMinutes: 20,
+    reason: "Explore the course",
+    priorityScore: 10,
+  };
+}
 
 const baseTopic: EligibleTopic = {
   courseId: "csc430",
@@ -81,9 +122,9 @@ describe("scoreTopic", () => {
     expect(scored.factors.lowQuizMastery).toBe(0);
   });
 
-  it("treats null quiz mastery as 0 (unknown)", () => {
+  it("does not give unknown quiz mastery the weak-document score", () => {
     const scored = scoreTopic({ ...baseTopic, quizMastery: null }, null, false);
-    expect(scored.factors.lowQuizMastery).toBe(25);
+    expect(scored.factors.lowQuizMastery).toBe(0);
   });
 
   it("applies skip penalty of -5 per skip, max -15", () => {
@@ -119,6 +160,21 @@ describe("chooseActivityType", () => {
     expect(
       chooseActivityType(
         { ...baseTopic, quizMastery: 0.7, flashcardEngagement: 0.3 },
+        "auto"
+      )
+    ).toBe("flashcards");
+  });
+
+  it("keeps a flashcard set as flashcards when only document mastery is known", () => {
+    expect(
+      chooseActivityType(
+        {
+          ...baseTopic,
+          activityType: "flashcards",
+          targetId: "set-1",
+          quizMastery: 0.42,
+          flashcardEngagement: null,
+        },
         "auto"
       )
     ).toBe("flashcards");
@@ -269,5 +325,339 @@ describe("generateTasks", () => {
     ];
     const tasks = generateTasks(config, noDataTopics, new Map());
     expect(tasks.length).toBeGreaterThan(0);
+  });
+
+  it("does not select an all-unknown topic as weak", () => {
+    const tasks = generateTasks(
+      { ...config, goal: "weak_topics" },
+      [
+        {
+          ...baseTopic,
+          topicLabel: "Known weak",
+          targetId: "q1",
+          quizMastery: 0.2,
+          flashcardEngagement: null,
+        },
+        {
+          ...baseTopic,
+          topicLabel: "Unknown",
+          targetId: "q2",
+          quizMastery: null,
+          flashcardEngagement: null,
+        },
+      ],
+      new Map()
+    );
+    expect(tasks.map((task) => task.topicLabel)).toEqual(["Known weak"]);
+  });
+});
+
+describe("document mastery priority", () => {
+  const quiet = { quizMastery: null as number | null, flashcardEngagement: null as number | null };
+
+  it("gives high weak-document priority for mastery 0–59", () => {
+    const floor = scoreTopic({ ...baseTopic, ...quiet, quizMastery: 0 }, null, false);
+    const ceiling = scoreTopic({ ...baseTopic, ...quiet, quizMastery: 0.59 }, null, false);
+    const review = scoreTopic({ ...baseTopic, ...quiet, quizMastery: 0.6 }, null, false);
+    expect(floor.factors.lowQuizMastery).toBe(25);
+    expect(ceiling.factors.lowQuizMastery).toBe(15);
+    expect(floor.factors.lowQuizMastery).toBeGreaterThan(review.factors.lowQuizMastery);
+    expect(ceiling.factors.lowQuizMastery).toBeGreaterThan(review.factors.lowQuizMastery);
+  });
+
+  it("gives a smaller review priority for mastery 60–79", () => {
+    const start = scoreTopic({ ...baseTopic, ...quiet, quizMastery: 0.6 }, null, false);
+    const end = scoreTopic({ ...baseTopic, ...quiet, quizMastery: 0.79 }, null, false);
+    expect(start.factors.lowQuizMastery).toBe(5);
+    expect(end.factors.lowQuizMastery).toBe(5);
+  });
+
+  it("gives no weak-topic priority for mastery 80–100", () => {
+    expect(
+      scoreTopic({ ...baseTopic, ...quiet, quizMastery: 0.8 }, null, false).factors.lowQuizMastery
+    ).toBe(0);
+    expect(
+      scoreTopic({ ...baseTopic, ...quiet, quizMastery: 1 }, null, false).factors.lowQuizMastery
+    ).toBe(0);
+  });
+
+  it("treats unknown mastery as exploration instead of score 0", () => {
+    const scored = scoreTopic({ ...baseTopic, ...quiet }, null, false);
+    expect(scored.factors.lowQuizMastery).toBe(0);
+    expect(scored.factors.lowFlashcardEngagement).toBe(0);
+    expect(scored.totalScore).toBe(scored.factors.baseScore);
+  });
+
+  it("uses last studied time for staleness without treating it as mastery", () => {
+    const studiedAt = { toMillis: () => Date.now() - 15 * 24 * 60 * 60 * 1000 };
+    const scored = scoreTopic(
+      { ...baseTopic, ...quiet, lastStudiedAt: studiedAt as EligibleTopic["lastStudiedAt"] },
+      null,
+      false
+    );
+    expect(scored.factors.lowQuizMastery).toBe(0);
+    expect(scored.factors.lowFlashcardEngagement).toBe(0);
+    expect(scored.factors.staleReview).toBe(15);
+  });
+
+  it("raises a repeat-miss topic above the same topic and caps the bonus", () => {
+    const plain = scoreTopic(
+      { ...baseTopic, quizMastery: 0.9, flashcardEngagement: 0.9 },
+      null,
+      false
+    );
+    const once = scoreTopic(
+      { ...baseTopic, quizMastery: 0.9, flashcardEngagement: 0.9, repeatMissCount: 1 },
+      null,
+      false
+    );
+    const atCap = scoreTopic(
+      { ...baseTopic, quizMastery: 0.9, flashcardEngagement: 0.9, repeatMissCount: 3 },
+      null,
+      false
+    );
+    const aboveCap = scoreTopic(
+      { ...baseTopic, quizMastery: 0.9, flashcardEngagement: 0.9, repeatMissCount: 50 },
+      null,
+      false
+    );
+    expect(once.totalScore).toBeGreaterThan(plain.totalScore);
+    expect(atCap.totalScore).toBeGreaterThan(once.totalScore);
+    expect(aboveCap.totalScore).toBe(atCap.totalScore);
+    expect(aboveCap.totalScore - plain.totalScore).toBe(15);
+  });
+});
+
+describe("reading document targets", () => {
+  it("keeps a specific document target on a reading recommendation", () => {
+    const tasks = generateTasks(config("reading"), [documentCandidate("resource-1")], new Map());
+    expect(tasks[0].activityTarget).toEqual({
+      kind: "document",
+      resourceId: "resource-1",
+      sourceDocKey: "users/u/resources/doc.pdf",
+    });
+  });
+
+  it("keeps a document target when reading is assigned inside a mixed plan", () => {
+    const tasks = generateTasks(
+      config("auto"),
+      [
+        documentCandidate("resource-1"),
+        { ...baseTopic, topicLabel: "Joins quiz", activityType: "quiz", targetId: "q1" },
+        { ...baseTopic, topicLabel: "Joins cards", activityType: "flashcards", targetId: "f1" },
+      ],
+      new Map()
+    );
+    const reading = tasks.find((task) => task.activityType === "reading");
+    expect(reading?.activityTarget).toEqual({
+      kind: "document",
+      resourceId: "resource-1",
+      sourceDocKey: "users/u/resources/doc.pdf",
+    });
+    expect(reading?.targetId).toBe("resource-1");
+  });
+
+  it("points a matched quiz at its document when the task becomes reading", () => {
+    const tasks = generateTasks(
+      { ...config("auto"), availableMinutes: 30 },
+      [
+        {
+          ...baseTopic,
+          quizMastery: null,
+          flashcardEngagement: null,
+          activityType: "quiz",
+          targetId: "quiz-1",
+          activityTarget: {
+            kind: "document",
+            resourceId: "resource-1",
+            sourceDocKey: "users/u/resources/doc.pdf",
+          },
+        },
+      ],
+      new Map()
+    );
+    expect(tasks[0].activityType).toBe("reading");
+    expect(tasks[0].targetId).toBe("resource-1");
+    expect(tasks[0].activityTarget).toEqual({
+      kind: "document",
+      resourceId: "resource-1",
+      sourceDocKey: "users/u/resources/doc.pdf",
+    });
+  });
+
+  it("keeps the quiz id when a matched quiz stays a quiz", () => {
+    const tasks = generateTasks(
+      { ...config("quiz"), availableMinutes: 30 },
+      [
+        {
+          ...baseTopic,
+          activityType: "quiz",
+          targetId: "quiz-1",
+          activityTarget: {
+            kind: "document",
+            resourceId: "resource-1",
+            sourceDocKey: "users/u/resources/doc.pdf",
+          },
+        },
+      ],
+      new Map()
+    );
+    expect(tasks[0].activityType).toBe("quiz");
+    expect(tasks[0].targetId).toBe("quiz-1");
+    expect(tasks[0].activityTarget).toEqual({
+      kind: "quiz",
+      quizId: "quiz-1",
+      sourceDocKey: "users/u/resources/doc.pdf",
+      mode: "full",
+    });
+  });
+
+  it("keeps the set id when a matched flashcard set stays flashcards", () => {
+    const tasks = generateTasks(
+      { ...config("flashcards"), availableMinutes: 30 },
+      [
+        {
+          ...baseTopic,
+          activityType: "flashcards",
+          targetId: "set-1",
+          activityTarget: {
+            kind: "document",
+            resourceId: "resource-1",
+            sourceDocKey: "users/u/resources/doc.pdf",
+          },
+        },
+      ],
+      new Map()
+    );
+    expect(tasks[0].activityType).toBe("flashcards");
+    expect(tasks[0].targetId).toBe("set-1");
+    expect(tasks[0].activityTarget).toEqual({
+      kind: "flashcard_set",
+      setId: "set-1",
+      sourceDocKey: "users/u/resources/doc.pdf",
+    });
+  });
+
+  it("does not attach a flashcard target when a matched quiz is generated as flashcards", () => {
+    const tasks = generateTasks(
+      { ...config("flashcards"), availableMinutes: 30 },
+      [
+        {
+          ...baseTopic,
+          activityType: "quiz",
+          targetId: "quiz-1",
+          activityTarget: {
+            kind: "document",
+            resourceId: "resource-1",
+            sourceDocKey: "users/u/resources/doc.pdf",
+          },
+        },
+      ],
+      new Map()
+    );
+    expect(tasks[0].activityType).toBe("flashcards");
+    expect(tasks[0].targetId).toBe("quiz-1");
+    expect(tasks[0].activityTarget).toBeUndefined();
+  });
+});
+
+describe("needsDocumentSelection", () => {
+  it("flags a targetless reading result for document selection instead of persisting it", () => {
+    expect(needsDocumentSelection(generatedReadingWithoutTarget())).toBe(true);
+  });
+
+  it("does not flag a reading task that already names a document", () => {
+    expect(
+      needsDocumentSelection({
+        ...generatedReadingWithoutTarget(),
+        activityTarget: {
+          kind: "document",
+          resourceId: "resource-1",
+          sourceDocKey: "users/u/resources/doc.pdf",
+        },
+      })
+    ).toBe(false);
+  });
+
+  it("flags a reading task whose target is not a document", () => {
+    expect(
+      needsDocumentSelection({
+        ...generatedReadingWithoutTarget(),
+        activityTarget: {
+          kind: "quiz",
+          quizId: "quiz-1",
+          sourceDocKey: null,
+          mode: "full",
+        },
+      })
+    ).toBe(true);
+  });
+
+  it("does not flag a quiz task", () => {
+    expect(
+      needsDocumentSelection({
+        ...generatedReadingWithoutTarget(),
+        activityType: "quiz",
+      })
+    ).toBe(false);
+  });
+});
+
+describe("document target matching", () => {
+  it("uses a stored sourceDocKey, then storageKey, then url", () => {
+    expect(
+      documentTargetForResource({
+        id: "resource-1",
+        sourceDocKey: " users/u/resources/doc.pdf ",
+        storageKey: "users/u/resources/stored.pdf",
+        url: "/api/download?key=other",
+      })
+    ).toEqual({
+      kind: "document",
+      resourceId: "resource-1",
+      sourceDocKey: "users/u/resources/doc.pdf",
+    });
+
+    expect(
+      documentTargetForResource({
+        id: "resource-1",
+        sourceDocKey: " ",
+        storageKey: "users/u/resources/stored.pdf",
+        url: "/api/download?key=other",
+      }).sourceDocKey
+    ).toBe("users/u/resources/stored.pdf");
+
+    expect(
+      documentTargetForResource({
+        id: "resource-1",
+        url: "/api/download?key=users%2Fu%2Fdoc.pdf",
+      }).sourceDocKey
+    ).toBe("/api/download?key=users%2Fu%2Fdoc.pdf");
+  });
+
+  it("matches a source key to a resource id, stored key, or url after trimming and decoding", () => {
+    const resources = [
+      {
+        id: "resource-1",
+        url: "/api/download?key=users%2Fu%2Fresources%2Fdoc.pdf",
+      },
+      {
+        id: "resource-2",
+        sourceDocKey: "users/u/resources/notes.pdf",
+        url: "/api/download?key=unused",
+      },
+    ];
+
+    expect(findResourceForSourceDocKey(" resource-1 ", resources)?.id).toBe("resource-1");
+    expect(
+      findResourceForSourceDocKey("users/u/resources/doc.pdf", resources)?.id
+    ).toBe("resource-1");
+    expect(
+      findResourceForSourceDocKey(
+        encodeURIComponent("users/u/resources/notes.pdf"),
+        resources
+      )?.id
+    ).toBe("resource-2");
+    expect(findResourceForSourceDocKey("   ", resources)).toBeUndefined();
   });
 });

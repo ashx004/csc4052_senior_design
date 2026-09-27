@@ -20,6 +20,7 @@ interface ListViewProps {
   onPause: () => void;
   onComplete: (taskId: string) => void;
   onAddTask: () => void;
+  highlightedTaskId?: string | null;
 }
 
 const statusOrder: Record<StudyTask["status"], number> = {
@@ -66,6 +67,7 @@ export default function ListView({
   onPause,
   onComplete,
   onAddTask,
+  highlightedTaskId = null,
 }: ListViewProps) {
   const sorted = [...tasks].sort(
     (a, b) => (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5)
@@ -91,10 +93,15 @@ export default function ListView({
             const isClosed = isDone || task.status === "skipped";
             const isActive = task.status === "in_progress";
 
+            const highlighted = task.id === highlightedTaskId;
+
             return (
               <li
                 key={task.id}
-                className="group flex flex-wrap items-center gap-x-3 gap-y-2 py-4"
+                id={`study-task-${task.id}`}
+                className={`group flex flex-wrap items-center gap-x-3 gap-y-2 py-4 ${
+                  highlighted ? "rounded-xl px-2 ring-2 ring-navy" : ""
+                }`}
               >
                 {isClosed ? (
                   <span
@@ -144,24 +151,45 @@ export default function ListView({
                 )}
 
                 {!isClosed && (
-                  <div className="flex flex-shrink-0 items-center gap-1 opacity-100 transition-opacity lg:opacity-0 lg:focus-within:opacity-100 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
+                  <div
+                    className={`flex flex-shrink-0 items-center gap-1 opacity-100 transition-opacity ${
+                      highlighted
+                        ? ""
+                        : "lg:opacity-0 lg:focus-within:opacity-100 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100"
+                    }`}
+                  >
                     {isActive ? (
-                      <button
-                        type="button"
-                        onClick={onPause}
-                        aria-label={`Pause ${task.title}`}
-                        className="rounded-full p-1.5 text-gray-secondary transition-colors hover:bg-beige-light hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
-                      >
-                        <Pause size={14} aria-hidden="true" />
-                      </button>
+                      <>
+                        {highlighted && (
+                          <button
+                            type="button"
+                            onClick={() => onStart(task.id)}
+                            className="rounded-full bg-navy px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+                          >
+                            Continue
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={onPause}
+                          aria-label={`Pause ${task.title}`}
+                          className="rounded-full p-1.5 text-gray-secondary transition-colors hover:bg-beige-light hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+                        >
+                          <Pause size={14} aria-hidden="true" />
+                        </button>
+                      </>
                     ) : (
                       <button
                         type="button"
                         onClick={() => onStart(task.id)}
                         aria-label={`Start ${task.title}`}
-                        className="rounded-full p-1.5 text-gray-secondary transition-colors hover:bg-beige-light hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+                        className={
+                          highlighted
+                            ? "rounded-full bg-navy px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+                            : "rounded-full p-1.5 text-gray-secondary transition-colors hover:bg-beige-light hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+                        }
                       >
-                        <Play size={14} aria-hidden="true" />
+                        {highlighted ? "Start" : <Play size={14} aria-hidden="true" />}
                       </button>
                     )}
 

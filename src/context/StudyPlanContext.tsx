@@ -18,6 +18,7 @@ import type {
   GeneratedTask,
   ActivityType,
   TimerMode,
+  MissedQuestionsSuggestion,
 } from "@/src/library/studyPlan/types";
 
 interface StudyPlanContextValue {
@@ -39,6 +40,11 @@ interface StudyPlanContextValue {
     generated: GeneratedTask[],
     planDate: string
   ) => Promise<string[]>;
+  createTaskFromSuggestion: (
+    suggestion: MissedQuestionsSuggestion & { id: string },
+    planDate: string,
+    course: { name: string; code: string }
+  ) => Promise<string | null>;
   updateTaskStatus: (
     taskId: string,
     newStatus: TaskStatus,
@@ -89,6 +95,7 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
     tasks,
     loading: tasksLoading,
     createTasksFromGenerated,
+    createTaskFromSuggestion,
     updateTaskStatus,
   } = useStudyTasks(uid, today);
 
@@ -154,6 +161,7 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
       createPlan,
       updatePlanState,
       createTasksFromGenerated,
+      createTaskFromSuggestion,
       updateTaskStatus: updateTaskStatusAndPlan,
       startSession,
       startGeneralSession,
@@ -178,6 +186,7 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
       createPlan,
       updatePlanState,
       createTasksFromGenerated,
+      createTaskFromSuggestion,
       updateTaskStatusAndPlan,
       startSession,
       startGeneralSession,
