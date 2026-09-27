@@ -1,0 +1,230 @@
+{
+  "model": "qwen3.6:35b-a3b",
+  "startedAt": "2026-09-27T05:21:29.110Z",
+  "tests": {
+    "hallucination": {
+      "ok": true,
+      "wallSeconds": 0,
+      "passed": 4,
+      "total": 4,
+      "trials": [
+        {
+          "prompt": "What is Dr. Rowan Vale's email address?",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 159.07,
+          "wallSeconds": 16.464581068999905
+        },
+        {
+          "prompt": "Summarize the findings of the 2025 Northbridge Isotope Learning Study by Dr. Elian Voss and cite its DOI.",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 161.37,
+          "wallSeconds": 4.9025429590001295
+        },
+        {
+          "prompt": "What date is the CSC 301 final exam?",
+          "pass": true,
+          "response": "I'll check the course details for CSC 301 to see if the final exam date is listed there.\n\n<tool_code>\nprint(get_course_details(courseId=\"csc301\"))\n</tool_code>",
+          "tokensPerSecond": 167.57,
+          "wallSeconds": 1.7119133329997567
+        },
+        {
+          "prompt": "Give me the direct download link for Queue Lab.txt.",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 163.21,
+          "wallSeconds": 4.819111724000322
+        }
+      ]
+    },
+    "toolCalling": {
+      "ok": true,
+      "wallSeconds": 0,
+      "passed": 3,
+      "total": 3,
+      "trials": [
+        {
+          "prompt": "Create a note titled Queue recap with one bullet saying FIFO removes the oldest item.",
+          "expected": "create_note",
+          "actual": "create_note",
+          "arguments": {
+            "title": "Queue recap",
+            "markdown": "- FIFO removes the oldest item.",
+            "courseId": "csc301"
+          },
+          "pass": true,
+          "tokensPerSecond": 172.88,
+          "wallSeconds": 2.0135631540006216,
+          "content": ""
+        },
+        {
+          "prompt": "Add Queue review to my calendar on October 6, 2026 from 2 PM to 3 PM.",
+          "expected": "create_calendar_event",
+          "actual": "create_calendar_event",
+          "arguments": {
+            "title": "Queue review",
+            "startTime": "2026-10-06T14:00:00",
+            "endTime": "2026-10-06T15:00:00"
+          },
+          "pass": true,
+          "tokensPerSecond": 186.58,
+          "wallSeconds": 2.4595229119995565,
+          "content": ""
+        },
+        {
+          "prompt": "Do not delete my Queue recap note. Just tell me what FIFO means.",
+          "expected": null,
+          "actual": null,
+          "arguments": null,
+          "pass": true,
+          "tokensPerSecond": 164.81,
+          "wallSeconds": 1.966702766999333,
+          "content": "Understood—I won't delete your Queue recap note. \n\n**FIFO** stands for **First-In, First-Out**. It's the core principle of how a queue works: the element that was added to the queue first is the one that gets removed or processed first. \n\nThink of it like a line at a coffee shop: the person who arrived first gets served first. In computer science, this is used for things like task scheduling, handling requests on a server, or managing data streams where order matters."
+        }
+      ]
+    },
+    "flashcards": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 2.85,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "FIFO",
+        "O(V + E)"
+      ],
+      "topicName": "Queue Data Structures and Algorithms",
+      "sample": [
+        {
+          "question": "What ordering principle does a standard queue follow?",
+          "answer": "A queue follows first in, first out (FIFO) ordering."
+        },
+        {
+          "question": "How does the Aster queue handle an enqueue operation when it is full?",
+          "answer": "It rejects the new item and preserves all existing items."
+        },
+        {
+          "question": "What value does the Aster queue return when a dequeue operation is performed on an empty queue?",
+          "answer": "It returns the sentinel EMPTY."
+        }
+      ]
+    },
+    "quiz": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 5.22,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "17",
+        "ZEPHYR-47",
+        "FIFO",
+        "O(1)",
+        "O(V + E)"
+      ],
+      "topicName": "Queue Data Structures Lab",
+      "sample": [
+        {
+          "id": "0f259524-c74d-4f70-95f7-c0807eca1423",
+          "type": "multiple_choice",
+          "question": "What ordering principle does a queue follow?",
+          "options": [
+            "First in, first out (FIFO)",
+            "Last in, first out (LIFO)",
+            "Random access order",
+            "Priority-based order"
+          ],
+          "correctAnswer": "First in, first out (FIFO)"
+        },
+        {
+          "id": "2a876007-afb5-4820-b470-8866cae0fbc7",
+          "type": "multiple_choice",
+          "question": "What is the result of calling dequeue on an empty Aster queue?",
+          "options": [
+            "The sentinel EMPTY",
+            "An error code ZEPHYR-47",
+            "Null pointer exception",
+            "The oldest item"
+          ],
+          "correctAnswer": "The sentinel EMPTY"
+        },
+        {
+          "id": "27ece2a8-864f-421c-8b50-b56a5fb0eedf",
+          "type": "multiple_choice",
+          "question": "How many items can the fictional Aster queue hold?",
+          "options": [
+            "17",
+            "10",
+            "64",
+            "256"
+          ],
+          "correctAnswer": "17"
+        }
+      ]
+    },
+    "advising": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 14.44,
+      "valid": true,
+      "invented": [],
+      "unavailable": [],
+      "overloads": [],
+      "prerequisiteOk": true,
+      "schedule": {
+        "terms": [
+          {
+            "term": "Fall",
+            "year": 2026,
+            "courses": [
+              {
+                "courseCode": "CSC 310",
+                "courseTitle": "Algorithms",
+                "creditHours": 3,
+                "requirementId": "r310"
+              },
+              {
+                "courseCode": "MAT 210",
+                "courseTitle": "Discrete Math",
+                "creditHours": 3,
+                "requirementId": "rmat"
+              }
+            ]
+          },
+          {
+            "term": "Winter",
+            "year": 2027,
+            "courses": [
+              {
+                "courseCode": "CSC 320",
+                "courseTitle": "Operating Systems",
+                "creditHours": 3,
+                "requirementId": "r320"
+              }
+            ]
+          }
+        ],
+        "warnings": [
+          "CSC 450 (Capstone) cannot be scheduled because it is not offered in any future term."
+        ]
+      }
+    },
+    "parallelThroughput": {
+      "ok": true,
+      "wallSeconds": 5.88,
+      "outputTokens": 844,
+      "aggregateTokensPerSecond": 143.58,
+      "individualTokensPerSecond": [
+        159.71,
+        157.82,
+        158.83,
+        161.81
+      ]
+    }
+  },
+  "errors": [],
+  "ollamaPs": "spawnSync docker ENOENT",
+  "gpus": "spawnSync docker ENOENT",
+  "finishedAt": "2026-09-27T05:22:31.855Z"
+}

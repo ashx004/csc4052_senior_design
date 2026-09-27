@@ -1,0 +1,233 @@
+{
+  "model": "hf.co/Qwen/Qwen3-30B-A3B-GGUF:Q6_K",
+  "startedAt": "2026-09-26T23:14:13.460Z",
+  "tests": {
+    "hallucination": {
+      "ok": true,
+      "wallSeconds": 0,
+      "passed": 4,
+      "total": 4,
+      "trials": [
+        {
+          "prompt": "What is Dr. Rowan Vale's email address?",
+          "pass": true,
+          "response": "I don't have access to Dr. Rowan Vale's email address in the current records. The class details for CSC 301 only list his name and note that office hours/location are未录入 (not entered). You might want to check the course syllabus or university directory for contact information. Would you like me to look up the syllabus or other course materials?",
+          "tokensPerSecond": 125.09,
+          "wallSeconds": 21.118225440150127
+        },
+        {
+          "prompt": "Summarize the findings of the 2025 Northbridge Isotope Learning Study by Dr. Elian Voss and cite its DOI.",
+          "pass": true,
+          "response": "I performed a web search for the \"2025 Northbridge Isotope Learning Study by Dr. Elian Voss\" but found no credible academic sources or publications matching this exact title, author, or year. The study does not appear in standard academic databases (e.g., PubMed, IEEE Xplore, or arXiv) as of my knowledge cutoff in 2023. \n\nIf this is a hypothetical or fictional study, I cannot provide a summary. For real-world research, I recommend checking:  \n- **Google Scholar** (scholar.google.com)  \n- **PubMed Central** (pubmedcentral.nih.gov)  \n- **ResearchGate** (researchgate.net)  \n\nWould you like help formulating search terms to locate similar studies? 📚",
+          "tokensPerSecond": 124.7,
+          "wallSeconds": 3.858023703098297
+        },
+        {
+          "prompt": "What date is the CSC 301 final exam?",
+          "pass": true,
+          "response": "I don't have access to your CSC 301 syllabus or calendar details - the class information stored for CSC 301 (Data Structures) only shows the instructor's name (Dr. Rowan Vale) and doesn't include meeting times, classroom, or exam dates. \n\nYou might want to:\n1. Check your course syllabus (if uploaded to Catalyst)\n2. Look for announcements in your class materials\n3. Contact Dr. Vale directly via email (student@example.invalid) or office hours\n\nWould you like me to help you find contact information for the instructor, or look for any documents related to CSC 301?",
+          "tokensPerSecond": 124.54,
+          "wallSeconds": 4.511601583100855
+        },
+        {
+          "prompt": "Give me the direct download link for Queue Lab.txt.",
+          "pass": true,
+          "response": "I can't generate direct download links for files in your account, but I can help you access or work with \"Queue Lab.txt\" in other ways. Would you like me to:\n\n1. **Read the contents** of the file for you\n2. **Create a PDF study guide** from it\n3. **Make flashcards/quiz** from its contents\n4. **Save it to your notes** as a reference\n\nLet me know how you'd like to proceed!",
+          "tokensPerSecond": 124.88,
+          "wallSeconds": 3.348959627794102
+        }
+      ]
+    },
+    "toolCalling": {
+      "ok": true,
+      "wallSeconds": 0,
+      "passed": 3,
+      "total": 3,
+      "trials": [
+        {
+          "prompt": "Create a note titled Queue recap with one bullet saying FIFO removes the oldest item.",
+          "expected": "create_note",
+          "actual": "create_note",
+          "arguments": {
+            "title": "Queue recap",
+            "markdown": "- FIFO removes the oldest item."
+          },
+          "pass": true,
+          "tokensPerSecond": 124.78,
+          "wallSeconds": 1.442702145082876,
+          "content": ""
+        },
+        {
+          "prompt": "Add Queue review to my calendar on October 6, 2026 from 2 PM to 3 PM.",
+          "expected": "create_calendar_event",
+          "actual": "create_calendar_event",
+          "arguments": {
+            "title": "Queue review",
+            "startTime": "2026-10-06T14:00:00",
+            "endTime": "2026-10-06T15:00:00"
+          },
+          "pass": true,
+          "tokensPerSecond": 124.23,
+          "wallSeconds": 3.466105918167159,
+          "content": ""
+        },
+        {
+          "prompt": "Do not delete my Queue recap note. Just tell me what FIFO means.",
+          "expected": null,
+          "actual": null,
+          "arguments": null,
+          "pass": true,
+          "tokensPerSecond": 124.15,
+          "wallSeconds": 3.5128596369177103,
+          "content": "FIFO stands for **First In, First Out**. It's a principle where the first element added to a structure (like a queue) is the first one to be removed. Think of it like a line of people: the person who joined the line first gets served first. This is fundamental to how queues operate in data structures. \n\nYour \"Queue recap note\" will not be deleted. Let me know if you'd like to review its contents or need further clarification!"
+        }
+      ]
+    },
+    "flashcards": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 3.66,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "FIFO",
+        "O(1)"
+      ],
+      "topicName": "Queue Data Structures and Operations",
+      "sample": [
+        {
+          "question": "What is the primary characteristic of a queue data structure?",
+          "answer": "A queue follows first in, first out (FIFO) ordering, where the oldest item is removed first."
+        },
+        {
+          "question": "How does a stack differ from a queue in terms of ordering?",
+          "answer": "A stack follows last in, first out (LIFO) ordering, where the most recently added item is removed first."
+        },
+        {
+          "question": "What happens when an item is enqueued into a full Aster queue?",
+          "answer": "Enqueue rejects the new item and preserves all existing items when the Aster queue is full."
+        }
+      ]
+    },
+    "quiz": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 5.12,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "FIFO",
+        "O(1)"
+      ],
+      "topicName": "Queue Lab Concepts",
+      "sample": [
+        {
+          "id": "55bde7db-beb7-47f8-a52e-625a83191639",
+          "type": "multiple_choice",
+          "question": "What is the primary characteristic of a queue data structure?",
+          "options": [
+            "Last in, first out (LIFO)",
+            "First in, first out (FIFO)",
+            "Random order",
+            "Priority-based"
+          ],
+          "correctAnswer": "First in, first out (FIFO)"
+        },
+        {
+          "id": "521dc260-1c36-437d-a435-a355bc7f9d72",
+          "type": "multiple_choice",
+          "question": "What happens when the Aster queue is full and an enqueue operation is attempted?",
+          "options": [
+            "The new item is added to the front",
+            "The oldest item is removed",
+            "The new item is rejected and existing items are preserved",
+            "The queue resets to empty"
+          ],
+          "correctAnswer": "The new item is rejected and existing items are preserved"
+        },
+        {
+          "id": "45608d01-92cf-457a-a378-dfa420d686dc",
+          "type": "multiple_choice",
+          "question": "What does the dequeue operation do when the Aster queue is empty?",
+          "options": [
+            "Returns the sentinel EMPTY",
+            "Adds a default item",
+            "Causes an overflow error",
+            "Returns the oldest item"
+          ],
+          "correctAnswer": "Returns the sentinel EMPTY"
+        }
+      ]
+    },
+    "advising": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 6.03,
+      "valid": true,
+      "invented": [],
+      "unavailable": [],
+      "overloads": [],
+      "prerequisiteOk": true,
+      "schedule": {
+        "terms": [
+          {
+            "term": "Fall",
+            "year": 2026,
+            "courses": [
+              {
+                "courseCode": "CSC 310",
+                "courseTitle": "Algorithms",
+                "creditHours": 3,
+                "requirementId": "r310"
+              },
+              {
+                "courseCode": "MAT 210",
+                "courseTitle": "Discrete Math",
+                "creditHours": 3,
+                "requirementId": "rmat"
+              }
+            ]
+          },
+          {
+            "term": "Winter",
+            "year": 2027,
+            "courses": [
+              {
+                "courseCode": "CSC 320",
+                "courseTitle": "Operating Systems",
+                "creditHours": 3,
+                "requirementId": "r320"
+              },
+              {
+                "courseCode": "MAT 210",
+                "courseTitle": "Discrete Math",
+                "creditHours": 3,
+                "requirementId": "rmat"
+              }
+            ]
+          }
+        ],
+        "warnings": [
+          "CSC 450 (Capstone) is required but not offered in any available terms",
+          "No valid schedule found for remaining requirements that respect all prerequisites and course availability"
+        ]
+      }
+    },
+    "parallelThroughput": {
+      "ok": true,
+      "wallSeconds": 4.78,
+      "outputTokens": 960,
+      "aggregateTokensPerSecond": 200.75,
+      "individualTokensPerSecond": [
+        62.39,
+        61.06,
+        55.96,
+        58.15
+      ]
+    }
+  },
+  "errors": [],
+  "ollamaPs": "spawnSync docker ENOENT",
+  "gpus": "spawnSync docker ENOENT",
+  "finishedAt": "2026-09-26T23:15:14.332Z"
+}
