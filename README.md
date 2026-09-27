@@ -24,3 +24,14 @@ For durable OCR and document-indexing jobs, run `npm run worker:ocr` as a
 separate managed process. Set `OCR_WORKER_URL` to the deployed
 `/api/document-jobs/worker` endpoint and provide the same `INTERNAL_API_SECRET`
 used by the web application.
+
+## Email reminder deployment
+
+Email reminders use a server-only Firebase Admin SDK worker and Resend. Set
+`RESEND_EMAIL_PRIVATE_KEY`, `RESEND_FROM_EMAIL`, `APP_BASE_URL`,
+`FIREBASE_ADMIN_PROJECT_ID`, `FIREBASE_ADMIN_CLIENT_EMAIL`,
+`FIREBASE_ADMIN_PRIVATE_KEY`, and a long random `CRON_SECRET` in the production
+environment. `vercel.json` invokes `/api/email/reminder` every five minutes;
+Vercel sends `Authorization: Bearer $CRON_SECRET` for this request when that
+environment variable is configured. Deploy the Firestore indexes with
+`firebase deploy --only firestore:indexes` before enabling the cron.
