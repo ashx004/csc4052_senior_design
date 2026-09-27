@@ -22,6 +22,7 @@ import { createTimeoutSignal } from "@/src/library/withTimeout";
 import { isInternalRequest, verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import { generateCourseSummary } from "@/src/library/courseSummary";
+import { saveDocumentText } from "@/src/library/documentTextCache";
 
 const EMBED_RATE_LIMIT_WINDOW_MS = 60_000;
 const EMBED_RATE_LIMIT_MAX = 10; // per user per window — uploads aren't normally rapid-fire
@@ -468,6 +469,9 @@ export async function POST(request: NextRequest) {
         });
       } else {
         text = await extractDocumentText(fullUrl, resourceFileType);
+        // Saved for the chat, quizzes and flashcards (documentTextCache.ts),
+        // so the first time the student uses this file it's already read.
+        await saveDocumentText(request, resourceUrl, text, resourceFileType);
       }
 
       if (isImage) {

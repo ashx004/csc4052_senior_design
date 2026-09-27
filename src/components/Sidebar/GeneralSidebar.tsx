@@ -9,11 +9,11 @@ const links = [
   { label: "Home", href: "/dashboard", icon: Home },
   { label: "Classes", href: "/classes", icon: Briefcase },
   { label: "Learning", href: "/learning", icon: BookOpen },
-  { label: "Calendar", href: "/calendar", icon: Calendar },
   { label: "AI Assistant", href: "/ai-assistant", icon: MessageSquare },
+  { label: "Notes", href: "/notes", icon: Notebook },
+  { label: "Calendar", href: "/calendar", icon: Calendar },
   { label: "Advising", href: "/advising_new", icon: Users },
   { label: "Profile", href: "/profile", icon: User },
-  { label: "Notes", href: "/notes", icon: Notebook },
 ];
 
 export default function GeneralSidebar() {
@@ -31,8 +31,8 @@ export default function GeneralSidebar() {
                 href={href}
                 className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm transition-colors ${
                   isActive
-                    ? "bg-white/15 font-semibold text-white"
-                    : "text-white/65 hover:bg-white/10 hover:text-white"
+                    ? "bg-white/15 font-semibold text-white hover:text-[#f5eadf]"
+                    : "text-white/65 hover:bg-white/10 hover:text-[#f5eadf]"
                 }`}
               >
                 <Icon size={20} strokeWidth={1.5} />

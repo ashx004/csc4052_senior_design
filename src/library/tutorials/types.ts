@@ -12,6 +12,7 @@ export type TutorialId =
   | "advising-setup"
   | "profile"
   | "notes"
+  | "note-editor"
   | "course"
   | "course-learning"
   | "course-flashcards"
@@ -31,6 +32,7 @@ export const ALL_TUTORIAL_IDS: TutorialId[] = [
   "advising-setup",
   "profile",
   "notes",
+  "note-editor",
   "course",
   "course-learning",
   "course-flashcards",

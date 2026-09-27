@@ -13,6 +13,7 @@ import { buildPageTextSuggestions, type PageTextPageContext } from '@/src/librar
 import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
 import PageTutorial from '@/src/components/tutorial/PageTutorial';
 import courseSteps from '@/src/library/tutorials/steps/course';
+import { DATA_CHANGED_EVENT } from '@/src/library/dataChanged';
 
 // Lazy-loaded: pulls in docx-preview, pdfjs-dist, xlsx, and syntax
 // highlighting — heavy, and not needed until this section actually renders.
@@ -126,6 +127,9 @@ export default function CourseOverview({
         }
         
         fetchCourseData();
+        // The AI panel changed this class's details (a confirmed edit): show them.
+        window.addEventListener(DATA_CHANGED_EVENT, fetchCourseData);
+        return () => window.removeEventListener(DATA_CHANGED_EVENT, fetchCourseData);
     }, [courseId, user, authLoading]);
 
     function openEdit(section: "details" | "instructor") {
