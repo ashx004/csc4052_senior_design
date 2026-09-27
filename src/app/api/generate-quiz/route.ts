@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import {
-  fetchInternal,
-  resolveInternalUrl,
-} from '@/src/library/pdfExtract';
 import { resolveOllamaBaseUrl } from '@/src/library/ollamaClient';
 import { verifyRequestAuth } from '@/src/library/verifyAuth';
 import { checkRateLimit } from '@/src/library/rateLimit';
 import { generateQuizWithValidation, type QuestionTypes } from '@/src/library/quizGeneration';
+import { getDocumentText } from '@/src/library/documentTextCache';
 
 // Same GPU/LLM-cost-bearing rationale as api/chat and api/embed-document's
 // own rate limits (see rateLimit.ts) — this route makes an identical kind
@@ -53,7 +50,12 @@ export async function POST(request: NextRequest) {
       questionCount,
       questionTypes,
       modelKey,
+      avoidQuestions,
     } = await request.json();
+    // "New questions" on a quiz sends the old ones so they aren't repeated.
+    const avoid = Array.isArray(avoidQuestions)
+      ? avoidQuestions.filter((q: unknown): q is string => typeof q === 'string' && q.trim().length > 0).slice(0, 60).map((q: string) => q.slice(0, 500))
+      : [];
 
     if (typeof docUrl !== 'string' || !docUrl) {
       return NextResponse.json(
@@ -106,57 +108,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    /*
-     * Download through Catalyst's authenticated internal-fetch
-     * helper. A bare fetch() would return 401.
-     */
-    const fullUrl = resolveInternalUrl(request, docUrl);
-    const fileResponse = await fetchInternal(fullUrl);
-
-    if (!fileResponse.ok) {
-      console.error(
-        `Failed to download quiz document: ${fileResponse.status} ${fileResponse.statusText}`
-      );
-
-      return NextResponse.json(
-        {
-          error: `Failed to download document (${fileResponse.status})`,
-        },
-        { status: 500 }
-      );
-    }
-
-    const fileBuffer = Buffer.from(
-      await fileResponse.arrayBuffer()
-    );
-
+    // The document's text - extracted once and cached (documentTextCache.ts),
+    // with the same extractor as the chat, so Word, Excel, code and scanned
+    // files work here too (this route used to accept only PDF and text).
+    const fileName = typeof docName === 'string' ? docName : '';
+    const extension = fileName.split('.').pop()?.toLowerCase() || 'pdf';
     let extractedText = '';
-    const fileName =
-      typeof docName === 'string' ? docName : '';
-    const extension = fileName
-      .split('.')
-      .pop()
-      ?.toLowerCase();
-
-    if (extension === 'pdf') {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const pdfParse = require(
-        'pdf-parse/lib/pdf-parse.js'
-      );
-
-      const pdfData = await pdfParse(fileBuffer);
-      extractedText = pdfData.text;
-    } else if (
-      ['txt', 'md', 'csv'].includes(extension || '')
-    ) {
-      extractedText = fileBuffer.toString('utf-8');
-    } else {
-      return NextResponse.json(
-        {
-          error: `File type .${extension} is not supported yet. Please use PDF or text files.`,
-        },
-        { status: 400 }
-      );
+    try {
+      extractedText = await getDocumentText(request, docUrl, extension);
+    } catch (error) {
+      console.error('Failed to read quiz document:', error);
+      return NextResponse.json({ error: `Couldn't read this document (.${extension}).` }, { status: 400 });
     }
 
     const maxChars = 50_000;
@@ -185,7 +147,7 @@ export async function POST(request: NextRequest) {
 
     let result;
     try {
-      result = await generateQuizWithValidation(extractedText, questionCount, types, baseUrl, modelKey);
+      result = await generateQuizWithValidation(extractedText, questionCount, types, baseUrl, modelKey, avoid);
     } catch (error) {
       console.error('Quiz generation failed:', error);
       return NextResponse.json(

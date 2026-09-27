@@ -13,8 +13,10 @@ import {
 } from "@/src/library/calendarHelpers";
 import type { CalendarEvent } from "@/src/components/calendar/calendarTypes";
 
-const START_HOUR = 6;
-const END_HOUR = 22;
+// Keep weekly view consistent with monthly view and include every scheduled
+// class meeting, including early morning and evening sections.
+const START_HOUR = 0;
+const END_HOUR = 24;
 const HOUR_HEIGHT = 64; // px — matches h-16 in the grid rows
 
 type WeekViewProps = {

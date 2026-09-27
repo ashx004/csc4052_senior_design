@@ -36,6 +36,7 @@ import {
     saveEmailReminderPreferences,
 } from "@/src/library/email/reminderPreferences";
 import { syncUpcomingReminderJobsForUser } from "@/src/library/email/reminderJobs";
+import { getSidebarAutoCollapse, setSidebarAutoCollapse } from "@/src/library/sidebarPreference";
 
 const EMAIL_REMINDER_OFFSET_OPTIONS = [
     { minutes: 10_080, label: "1 week before" },
@@ -74,6 +75,7 @@ export default function Settings() {
     const [emailReminderSaving, setEmailReminderSaving] = useState(false);
     const [emailReminderMessage, setEmailReminderMessage] = useState("");
     const [emailReminderError, setEmailReminderError] = useState("");
+    const [sidebarAutoCollapse, setSidebarAutoCollapseState] = useState<boolean>(false);
     // const [focusIsOn, setFocusOn] = useState<boolean>(false);
 
     const [ttsSupported, setTtsSupported] = useState(false);
@@ -161,6 +163,7 @@ export default function Settings() {
         applyTheme(storedMode, storedCoffee);
         setThemeModeState(storedMode);
         setCoffeeState(storedCoffee);
+        setSidebarAutoCollapseState(getSidebarAutoCollapse());
     }, []);
 
     // Voices load asynchronously — empty on the first call in most browsers
@@ -247,6 +250,12 @@ export default function Settings() {
         } finally {
             setEmailReminderSaving(false);
         }
+    }
+
+    function handleSidebarAutoCollapseToggle(event: ChangeEvent<HTMLInputElement>) {
+        const next = event.target.checked;
+        setSidebarAutoCollapseState(next);
+        setSidebarAutoCollapse(next);
     }
 
     async function reauthenticateUser(password: string): Promise<void> {
@@ -828,6 +837,20 @@ export default function Settings() {
 
             <div className="flex w-3/4 self-center px-2 py-1 text-xs text-text-muted">
                 Toggle dark mode, and check Coffee for a warm variant of either theme
+            </div>
+
+            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2 bg-bg-main text-text-main hover:bg-bg-warm">
+                <div>
+                    <span className="text-sm">Auto-collapse navigation</span>
+                    <p className="text-xs text-text-muted">Close the navigation after you open a page.</p>
+                </div>
+                <input
+                    type="checkbox"
+                    checked={sidebarAutoCollapse}
+                    onChange={handleSidebarAutoCollapseToggle}
+                    aria-label="Auto-collapse navigation after opening a page"
+                    className="h-4 w-4 cursor-pointer rounded border-border-light accent-primary"
+                />
             </div>
 
             <header className="mt-5 relative flex w-3/4 self-center

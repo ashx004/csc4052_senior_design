@@ -140,29 +140,56 @@ export function nextAcademicTerm(
 }
 
 
+// The quarter a date falls in, using the quarter dates printed on Louisiana
+// Tech transcripts (Fall 09/01-11/22, Winter 11/23-03/07, Spring
+// 03/08-05/25, Summer 05/26-08/31). Winter spans New Year, so a late-November
+// or December date belongs to the NEXT year's Winter.
+export function academicTermForDate(date: Date): AcademicTerm {
+  const year = date.getFullYear();
+  const monthDay = (date.getMonth() + 1) * 100 + date.getDate(); // e.g. 1123
+
+  if (monthDay >= 1123) return { term: "Winter", year: year + 1 };
+  if (monthDay >= 901) return { term: "Fall", year };
+  if (monthDay >= 526) return { term: "Summer", year };
+  if (monthDay >= 308) return { term: "Spring", year };
+  return { term: "Winter", year };
+}
+
+// The latest quarter any course on the transcript belongs to - used when no
+// course is marked in-progress (e.g. a student between quarters).
+function findLatestTranscriptTerm(courses: TranscriptCourse[]): AcademicTerm | null {
+  const terms = courses
+    .map((course) => parseTranscriptTerm(course.term))
+    .filter((term): term is AcademicTerm => term !== null);
+
+  if (terms.length === 0) return null;
+
+  return terms.reduce((latest, current) =>
+    termSortValue(current) > termSortValue(latest) ? current : latest
+  );
+}
+
+// The schedule starts at the quarter after the student's current courses:
+// the in-progress quarter on the transcript, or failing that its latest
+// quarter. It never starts in or before today's quarter, since those classes
+// are already underway or over - only future quarters are planned.
 export function buildFutureTerms(
   transcriptCourses: TranscriptCourse[],
-  count = 8
+  count = 8,
+  today: Date = new Date()
 ): AcademicTerm[] {
 
   const latest =
-    findLatestPlannedTranscriptTerm(
-      transcriptCourses
-    );
+    findLatestPlannedTranscriptTerm(transcriptCourses) ??
+    findLatestTranscriptTerm(transcriptCourses);
 
-  let current: AcademicTerm;
+  const afterToday = nextAcademicTerm(academicTermForDate(today));
+  const afterTranscript = latest ? nextAcademicTerm(latest) : afterToday;
 
-  if (latest) {
-    current = nextAcademicTerm(latest);
-  } else {
-
-    const now = new Date();
-
-    current = {
-      term: "Fall",
-      year: now.getFullYear(),
-    };
-  }
+  let current =
+    termSortValue(afterTranscript) > termSortValue(afterToday)
+      ? afterTranscript
+      : afterToday;
 
   const terms: AcademicTerm[] = [];
 

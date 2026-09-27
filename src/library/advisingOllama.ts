@@ -1,6 +1,32 @@
+import { z } from "zod";
 import { Agent, fetch as undiciFetch } from "undici";
 import { resolveOllamaBaseUrl, resolveModelFromKey, mainModelContextOption } from "@/src/library/ollamaClient";
 import { thinkField } from "@/src/library/thinkMode";
+import {
+  transcriptExtractionSchema,
+  curriculumExtractionSchema,
+  curriculumRequirementSchema,
+  concentrationSchema,
+  generatedAdvisingScheduleSchema,
+} from "@/src/library/advisingSchemas";
+
+// Reply shapes for the curriculum calls, which each return one slice of
+// curriculumExtractionSchema (they're merged in extractCurriculumWithOllama).
+const programInfoReplySchema = curriculumExtractionSchema.pick({
+  programName: true,
+  degreeName: true,
+  catalogYear: true,
+  totalDegreeCredits: true,
+  warnings: true,
+});
+const requirementsReplySchema = z.object({
+  requirements: z.array(curriculumRequirementSchema),
+  warnings: z.array(z.string()),
+});
+const concentrationsReplySchema = z.object({
+  concentrations: z.array(concentrationSchema),
+  warnings: z.array(z.string()),
+});
 
 // tapout at 5 mins
 const OLLAMA_TIMEOUT_MS = Number(process.env.ADVISING_OLLAMA_TIMEOUT_MS) || 300000;
@@ -11,18 +37,30 @@ const ADVISING_MODEL =
   process.env.OLLAMA_MODEL_ADVISING || resolveModelFromKey();
 
 // Context window. Ollama silently TRUNCATES input that does not fit, so it must
-// cover prompt + transcript/curriculum text + the model's 15-20k-token JSON reply.
-// Defaults to the shared OLLAMA_MAIN_NUM_CTX (see mainModelContextOption):
-// advising runs on the same resident model as chat, and a different num_ctx
-// here would make Primary reload that model every time a student switched
-// between advising and any other AI feature. ADVISING_NUM_CTX still wins if
-// set, but should equal OLLAMA_MAIN_NUM_CTX for exactly that reason.
-const ADVISING_NUM_CTX = Number(process.env.ADVISING_NUM_CTX) || mainModelContextOption().num_ctx;
+// cover prompt + transcript/curriculum text + the model's JSON reply (and any
+// thinking tokens). Always sent - leaving it out falls back to Ollama's much
+// smaller default window. Defaults to the shared OLLAMA_MAIN_NUM_CTX (see
+// mainModelContextOption): advising runs on the same resident model as chat,
+// and a different num_ctx here would make Primary reload that model every
+// time a student switched between advising and any other AI feature.
+// ADVISING_NUM_CTX still wins if set, but should equal OLLAMA_MAIN_NUM_CTX.
+const ADVISING_NUM_CTX =
+  Number(process.env.ADVISING_NUM_CTX) || mainModelContextOption().num_ctx || 32768;
+
+// Rough token estimate (~3.5 chars per token for English + JSON). Only used to
+// budget the reply, so it errs on the high side.
+function estimateTokens(messages: { content: string }[]): number {
+  const chars = messages.reduce((sum, message) => sum + message.content.length, 0);
+  return Math.ceil(chars / 3.5);
+}
+
+// Room left in the window after the input. num_predict above this can never
+// be used - the reply would just hit the end of the window mid-JSON.
+const MIN_REPLY_TOKENS = 2048;
 
 // ADVISING_THINK_MODE ("on" | "off" | "levels" | "low"/"medium"/"high" |
 // "omit", default "omit") - see thinkMode.ts. "levels" sends each advising
 // step's own low/medium/high below (gpt-oss style models).
-
 
 // undici's default headersTimeout (5 min) can be too short over the
 // Cloudflare-tunneled Ollama path, where the first response byte can take
@@ -35,6 +73,8 @@ const ADVISING_NUM_CTX = Number(process.env.ADVISING_NUM_CTX) || mainModelContex
 // middleware's download of Google's signing keys, so every login bounced
 // back to /login in production builds (found 2026-09-24).
 const ollamaAgent = new Agent({ headersTimeout: 600_000 }); // 10 minutes
+
+
 
 
   // Returns just the JSON object from a model reply: handles ```json fences,
@@ -81,7 +121,12 @@ const ollamaAgent = new Agent({ headersTimeout: 600_000 }); // 10 minutes
 
 type OllamaCallOptions = {
   think?: "low" | "medium" | "high";
+  // Upper bound on the reply. The real limit is whatever room the input
+  // leaves in ADVISING_NUM_CTX - see below.
   numPredict?: number;
+  // Zod schema the reply must match. Sent to Ollama as `format`, which
+  // constrains generation to that JSON shape (same as quiz/flashcards).
+  schema?: z.ZodType;
   // Identifies which of this file's several callers (transcript extraction,
   // curriculum extraction, schedule generation, ...) actually made this
   // request - read by the gatekeeper proxy in front of Ollama and shown in
@@ -90,13 +135,54 @@ type OllamaCallOptions = {
   feature?: string;
 };
 
+// Failures that say nothing about the request itself - the Cloudflare tunnel
+// timing out or erroring (502/503/504/524), or the connection dropping
+// mid-stream. Worth another attempt; everything else (too-large input, auth,
+// a truncated reply) would just fail the same way again.
+class TransientOllamaError extends Error {}
+
+// The input alone leaves too little of ADVISING_NUM_CTX for a reply. The
+// curriculum steps catch this and fall back to page chunks.
+class ContextTooLargeError extends Error {}
+
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAYS_MS = [5_000, 15_000];
+
 async function callAdvisingOllama(
   messages: { role: string; content: string }[],
   options: OllamaCallOptions = {}
 ): Promise<string> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await callAdvisingOllamaOnce(messages, options);
+    } catch (error) {
+      if (!(error instanceof TransientOllamaError) || attempt >= MAX_ATTEMPTS) {
+        throw error;
+      }
+      const delay = RETRY_DELAYS_MS[attempt - 1];
+      console.warn(`Ollama attempt ${attempt}/${MAX_ATTEMPTS} failed (${error.message}); retrying in ${delay / 1000}s`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+async function callAdvisingOllamaOnce(
+  messages: { role: string; content: string }[],
+  options: OllamaCallOptions
+): Promise<string> {
   const think = options.think ?? "low";
-  const numPredict = options.numPredict ?? 48000;
   const feature = options.feature ?? "advising-unspecified";
+
+  const inputTokens = estimateTokens(messages);
+  const roomForReply = ADVISING_NUM_CTX - inputTokens;
+  if (roomForReply < MIN_REPLY_TOKENS) {
+    throw new ContextTooLargeError(
+      `This document is too large for the AI's context window (~${inputTokens} tokens of input, ${ADVISING_NUM_CTX} available). Try raising ADVISING_NUM_CTX or uploading a shorter document.`
+    );
+  }
+  const numPredict = Math.min(options.numPredict ?? roomForReply, roomForReply);
+  const format = options.schema ? z.toJSONSchema(options.schema) : undefined;
+
   if (!process.env.OLLAMA_PRIMARY_URL) {
     throw new Error("OLLAMA_PRIMARY_URL is not configured."); }
 
@@ -113,6 +199,13 @@ async function callAdvisingOllama(
     controller.abort();
   }, OLLAMA_TIMEOUT_MS);
 
+  // A network-level failure (DNS, reset, tunnel hiccup) is transient; our own
+  // timeout firing is not - another attempt would just wait just as long.
+  const toTransient = (error: unknown): unknown =>
+    controller.signal.aborted || error instanceof TransientOllamaError || !(error instanceof TypeError)
+      ? error
+      : new TransientOllamaError(`connection failed: ${error.message}`);
+
   try {
     const response = await undiciFetch(`${baseUrl}/api/chat`, {
       dispatcher: ollamaAgent,
@@ -127,23 +220,24 @@ async function callAdvisingOllama(
         messages,
         stream: true,
         ...thinkField("advising", think),
+        ...(format ? { format } : {}),
         options: {
           temperature: 0,
           num_predict: numPredict,
-          ...(ADVISING_NUM_CTX ? { num_ctx: ADVISING_NUM_CTX } : {}),
+          num_ctx: ADVISING_NUM_CTX,
         },
       }),
       signal: controller.signal,
-    });
+    }).catch((error) => { throw toTransient(error); });
 
     if (!response.ok || !response.body) {
       const errorText = await response.text();
 
-      // 502/504/524 come from the proxy in front of Ollama (e.g. Cloudflare's
+      // 502/503/504/524 come from the proxy in front of Ollama (e.g. Cloudflare's
       // 100-second limit while the model is still loading), and their body is a
       // full HTML error page that would otherwise be shown to the student.
-      if ([502, 504, 524].includes(response.status)) {
-        throw new Error(
+      if ([502, 503, 504, 524].includes(response.status)) {
+        throw new TransientOllamaError(
           "The AI server took too long to start responding (the connection timed out). The model may still be loading. Please wait a minute and try again."
         );
       }
@@ -161,29 +255,44 @@ async function callAdvisingOllama(
     let buffer = "";
     let finalPayload: any = null;
 
+    const handleLine = (line: string) => {
+      if (!line.trim()) return;
+
+      const parsed = JSON.parse(line); // each line is a JSON object when streaming
+
+      // Ollama reports failures that happen after streaming starts (e.g. the
+      // model crashing or running out of memory) as an {"error"} line.
+      if (parsed.error) {
+        throw new Error(`Ollama error: ${parsed.error}`);
+      }
+
+      if (parsed.message?.content) {
+        fullContent += parsed.message.content;
+      }
+
+      if (parsed.done) {
+        finalPayload = parsed;
+      }
+    };
+
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await reader.read().catch((error) => { throw toTransient(error); });
 
       if (done) { break; }
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? ""; // keep any partial line for next chunk
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
-
-        const parsed = JSON.parse(line); // each line is a JSON object when streaming
-
-        if (parsed.message?.content) {
-          fullContent += parsed.message.content;
-        }
-
-        if (parsed.done) {
-          finalPayload = parsed;
-        }
-      }
+      lines.forEach(handleLine);
     }  // end of while loop
+
+    handleLine(buffer + decoder.decode()); // final line may arrive without a trailing newline
+
+    // The stream ended without Ollama's closing {"done": true} line, so the
+    // connection dropped partway through the reply.
+    if (!finalPayload) {
+      throw new TransientOllamaError("the connection closed before the reply finished");
+    }
 
        const tokensPerSecond = finalPayload?.eval_duration
          ? (finalPayload.eval_count / (finalPayload.eval_duration / 1e9)).toFixed(1)
@@ -595,7 +704,7 @@ row(s) you missed.
     },
   ];
 
-  return callAdvisingOllama(messages, { think: "medium", feature: "advising-extract-transcript" });
+  return callAdvisingOllama(messages, { think: "medium", schema: transcriptExtractionSchema, feature: "advising-extract-transcript" });
 }
 
 
@@ -881,6 +990,70 @@ function normalizeRequirement(
 }
 
 
+type NormalizedRequirement = ReturnType<typeof normalizeRequirement>;
+
+/*
+  Curriculum tables often write an alternative on its own line under the
+  course it replaces:
+
+    CSC 450  Computer Networks        3
+      or 475 Artificial Intelligence
+
+  The model tends to turn that "or 475" line into a SEPARATE required course
+  (confirmed on the CS curriculum's Cloud Computing concentration), so a
+  student who took CSC 450 still showed CSC 475 as remaining. Its sourceText
+  keeps the leading "or", so merge any such row into the row above it as one
+  choose-from-list requirement.
+*/
+function mergeOrContinuationRequirements(
+  requirements: NormalizedRequirement[]
+): NormalizedRequirement[] {
+
+  const merged: NormalizedRequirement[] = [];
+
+  const asOptions = (requirement: NormalizedRequirement, fallbackCredits: number | null) =>
+    requirement.courseOptions.length > 0
+      ? requirement.courseOptions
+      : requirement.courseCode
+        ? [{
+            courseCode: requirement.courseCode,
+            courseTitle: requirement.courseTitle,
+            creditHours: requirement.creditsRequired ?? fallbackCredits,
+            minimumGrade: requirement.minimumGrade,
+            prerequisites: requirement.prerequisites,
+            corequisites: requirement.corequisites,
+          }]
+        : [];
+
+  for (const requirement of requirements) {
+    const previous = merged[merged.length - 1];
+    const isOrRow = /^\s*or\b/i.test(requirement.sourceText);
+
+    if (!previous || !isOrRow || asOptions(requirement, null).length === 0) {
+      merged.push(requirement);
+      continue;
+    }
+
+    const credits = previous.creditsRequired;
+    merged[merged.length - 1] = {
+      ...previous,
+      requirementType: "choose-from-list",
+      requirementName: `${previous.requirementName} or ${requirement.requirementName}`,
+      courseCode: null,
+      courseTitle: null,
+      numberRequired: previous.numberRequired ?? 1,
+      courseOptions: [...asOptions(previous, credits), ...asOptions(requirement, credits)],
+      optionsExplicitlyListed: true,
+      prerequisites: [],
+      corequisites: [],
+      sourceText: `${previous.sourceText}\n${requirement.sourceText}`,
+    };
+  }
+
+  return merged;
+}
+
+
 function normalizeConcentration(
   concentration: RawConcentration
 ) {
@@ -902,15 +1075,17 @@ function normalizeConcentration(
 
     requirements:
       Array.isArray(concentration.requirements)
-        ? concentration.requirements
-            .filter(
-              (
-                requirement
-              ): requirement is RawRequirement =>
-                typeof requirement === "object" &&
-                requirement !== null
-            )
-            .map(normalizeRequirement)
+        ? mergeOrContinuationRequirements(
+            concentration.requirements
+              .filter(
+                (
+                  requirement
+                ): requirement is RawRequirement =>
+                  typeof requirement === "object" &&
+                  requirement !== null
+              )
+              .map(normalizeRequirement)
+          )
         : [],
 
     sourceText:
@@ -926,7 +1101,7 @@ function normalizeConcentration(
   Extract only concentrations.
 */
 
-async function extractConcentrationsWithOllama(
+async function extractConcentrationsFromTextWithOllama(
   curriculumText: string
 ): Promise<string> {
 
@@ -1014,6 +1189,12 @@ async function extractConcentrationsWithOllama(
       - If courses are connected by "or", create ONE
         choose-from-list requirement.
       - Do not treat alternatives as separately required courses.
+      - A line that STARTS with "or" is an alternative to the course on
+        the line directly above it, not a new requirement. For example:
+          CSC 450 Computer Networks 3
+          or 475 Artificial Intelligence
+        is ONE choose-from-list requirement with courseOptions
+        CSC 450 and CSC 475 (numberRequired 1).
       - Do not invent courses.
       - Do not invent prerequisites.
       - Do not invent corequisites.
@@ -1078,7 +1259,7 @@ async function extractConcentrationsWithOllama(
 
     { role: "user", content: curriculumText },
   ],
-    { think: "medium", numPredict: 48000, feature: "advising-extract-concentrations" },
+    { think: "medium", schema: concentrationsReplySchema, feature: "advising-extract-concentrations" },
 );
 }
 
@@ -1088,7 +1269,7 @@ async function extractConcentrationsWithOllama(
   Extract only general program information.
 */
 
-async function extractProgramInfoWithOllama(
+async function extractProgramInfoFromTextWithOllama(
   curriculumText: string
 ): Promise<string> {
 
@@ -1116,15 +1297,159 @@ async function extractProgramInfoWithOllama(
         },
 
         { role: "user", content: curriculumText, },
-      ], { feature: "advising-extract-program-info" });
+      ], { schema: programInfoReplySchema, feature: "advising-extract-program-info" });
     }
 
 
 
+    // Cloudflare's 524 fires on time-to-first-byte, not total request
+    // duration - a large curriculum document makes the model "think" for a
+    // long time before it emits anything, and THAT silent stretch is what
+    // trips the tunnel's ~100s cap (confirmed live 2026-09-22 on a large
+    // HIIM curriculum). Splitting into smaller page-grouped pieces keeps
+    // each individual call's up-front thinking time lower. Chunks overlap
+    // by one page so a requirement row split across a page boundary isn't
+    // silently lost to one chunk or the other.
+    const CURRICULUM_CHUNK_TARGET_CHARS = 6000;
+    const CURRICULUM_CHUNK_OVERLAP_PAGES = 1;
+
+    function splitCurriculumIntoChunks(curriculumText: string): string[] {
+      const pages = curriculumText.split(/(?=--- PAGE \d+ ---)/g).filter((page) => page.trim());
+      if (pages.length <= 1) return [curriculumText];
+
+      const chunks: string[] = [];
+      let current: string[] = [];
+      let currentLength = 0;
+
+      for (let i = 0; i < pages.length; i++) {
+        current.push(pages[i]);
+        currentLength += pages[i].length;
+
+        const isLast = i === pages.length - 1;
+        if (currentLength >= CURRICULUM_CHUNK_TARGET_CHARS || isLast) {
+          chunks.push(current.join("\n\n"));
+          current = !isLast ? current.slice(-CURRICULUM_CHUNK_OVERLAP_PAGES) : [];
+          currentLength = current.reduce((sum, page) => sum + page.length, 0);
+        }
+      }
+
+      return chunks;
+    }
+
+    // The one-page overlap between chunks means a requirement sitting on
+    // that shared page gets extracted twice. Two independent calls won't
+    // agree on a requirementId, but they will (should) quote the exact same
+    // sourceText from the curriculum - use that as the dedupe key.
+    function dedupeRequirementsBySourceText(requirements: RawRequirement[]): RawRequirement[] {
+      const seen = new Set<string>();
+      const deduped: RawRequirement[] = [];
+      for (const requirement of requirements) {
+        const key =
+          typeof requirement.sourceText === "string" && requirement.sourceText.trim()
+            ? requirement.sourceText.trim()
+            : JSON.stringify(requirement);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        deduped.push(requirement);
+      }
+      return deduped;
+    }
+
     /*
-      Extract only the main degree requirements.
+      Program info (name, degree, catalog year, total credits) is normally
+      read from the whole curriculum in one call. If the document is too big
+      for the context window, the first chunk (the title page, where that
+      information sits) is the best single substitute.
+    */
+    async function extractProgramInfoWithOllama(
+      curriculumText: string
+    ): Promise<string> {
+      try {
+        return await extractProgramInfoFromTextWithOllama(curriculumText);
+      } catch (error) {
+        if (!(error instanceof ContextTooLargeError)) throw error;
+        console.log("PROGRAM INFO EXTRACTION: document too large, using first chunk");
+        return extractProgramInfoFromTextWithOllama(splitCurriculumIntoChunks(curriculumText)[0]);
+      }
+    }
+
+    /*
+      Concentrations are normally extracted from the whole curriculum in one
+      call, because a concentration's courses can span several pages. If the
+      document is too big for the context window, extract per chunk instead
+      and merge concentrations that share a name across chunks.
+    */
+    async function extractConcentrationsWithOllama(
+      curriculumText: string
+    ): Promise<string> {
+      try {
+        return await extractConcentrationsFromTextWithOllama(curriculumText);
+      } catch (error) {
+        if (!(error instanceof ContextTooLargeError)) throw error;
+      }
+
+      const chunks = splitCurriculumIntoChunks(curriculumText);
+      const byName = new Map<string, RawConcentration & { requirements: RawRequirement[] }>();
+      const allWarnings: string[] = [];
+
+      for (let i = 0; i < chunks.length; i++) {
+        console.log(`CONCENTRATION EXTRACTION (document too large): chunk ${i + 1}/${chunks.length}`);
+
+        const parsed = JSON.parse(await extractConcentrationsFromTextWithOllama(chunks[i]));
+        if (Array.isArray(parsed.warnings)) allWarnings.push(...parsed.warnings);
+
+        for (const concentration of Array.isArray(parsed.concentrations) ? parsed.concentrations : []) {
+          const key = String(concentration.concentrationName ?? "").trim().toLowerCase();
+          const existing = byName.get(key);
+          if (!existing) {
+            byName.set(key, { ...concentration, requirements: [...(concentration.requirements ?? [])] });
+            continue;
+          }
+          existing.requirements.push(...(concentration.requirements ?? []));
+          existing.description ||= concentration.description;
+          existing.totalCredits ??= concentration.totalCredits;
+        }
+      }
+
+      return JSON.stringify({
+        concentrations: [...byName.values()].map((concentration) => ({
+          ...concentration,
+          requirements: dedupeRequirementsBySourceText(concentration.requirements),
+        })),
+        warnings: allWarnings,
+      });
+    }
+
+    /*
+      Extract only the main degree requirements. Runs one Ollama call per
+      curriculum chunk (see splitCurriculumIntoChunks above) instead of one
+      call over the whole document, then merges the results.
     */
     async function extractMainCurriculumWithOllama(
+      curriculumText: string
+    ): Promise<string> {
+
+      const chunks = splitCurriculumIntoChunks(curriculumText);
+      const allRequirements: RawRequirement[] = [];
+      const allWarnings: string[] = [];
+
+      for (let i = 0; i < chunks.length; i++) {
+        console.log(`MAIN REQUIREMENTS EXTRACTION: chunk ${i + 1}/${chunks.length}`);
+
+        const response = await extractMainCurriculumChunkWithOllama(chunks[i]);
+        const parsed = JSON.parse(response);
+
+        if (Array.isArray(parsed.requirements)) allRequirements.push(...parsed.requirements);
+        if (Array.isArray(parsed.warnings)) allWarnings.push(...parsed.warnings);
+      }
+
+      return JSON.stringify({
+        requirements: dedupeRequirementsBySourceText(allRequirements),
+        warnings: allWarnings,
+      });
+    }
+
+    async function extractMainCurriculumChunkWithOllama(
       curriculumText: string
     ): Promise<string> {
 
@@ -1133,7 +1458,11 @@ async function extractProgramInfoWithOllama(
 
     Return ONLY valid JSON.
 
-    Extract ALL general degree requirements from the ENTIRE curriculum text.
+    Extract every general degree requirement described in the curriculum
+    text below. This may be only part of a larger curriculum document (it
+    could start or end mid-section) - extract only what is explicitly shown
+    in this excerpt. Do not comment on, guess at, or flag content that might
+    appear before or after this excerpt.
     Do NOT extract concentration-specific requirements.
 
 
@@ -1219,6 +1548,9 @@ async function extractProgramInfoWithOllama(
     - Scan the ENTIRE curriculum and extract every general requirement.
     - A single required course = "specific-course".
     - Explicit alternatives such as A or B = ONE "choose-from-list".
+    - A line that STARTS with "or" (e.g. "or 475 Artificial Intelligence")
+      is an alternative to the course on the line directly above it - put
+      both in ONE "choose-from-list", never a separate requirement.
     - An elective without exact choices = "open-elective".
     - Credit-hour-only requirements = "credit-requirement".
     - GPA, standing, permission, and similar rules = "other".
@@ -1300,8 +1632,70 @@ async function extractProgramInfoWithOllama(
           
       `,
     },
-        { role: "user", content: curriculumText, }, ],
-        { think: "medium", numPredict: 48000, feature: "advising-extract-curriculum" });
+        { role: "user", content: curriculumText, }, ], 
+        { think: "medium", schema: requirementsReplySchema, feature: "advising-extract-curriculum" });
+}
+
+
+/*
+  Curriculum tables flatten badly: side-by-side columns run together, and
+  the model drops rows. Confirmed on the CS curriculum: CSC 430 ("430 CSC 220
+  3 R 6") was never extracted, and FYE 100 only appears in the checklist's
+  PREREQUISITE column next to COMM 101, so it never became a requirement even
+  though the program requires it (1 credit, freshman year).
+
+  The same curriculum's term-by-term plan lists every course cleanly as
+  "CODE Title credits" ("FYE 100 Freshman Year Experience 1"). Any course
+  written that way that isn't already a requirement, choice option or
+  concentration course is added as a required course. The title must contain
+  lowercase letters, which filters out all-caps table noise ("GPA 262",
+  "HOURS 120") and prerequisite lists ("MATH 112 or 240").
+*/
+const PLAN_COURSE_LINE =
+  /\b([A-Z]{2,5}) (\d{3,4})\s+([A-Z][A-Za-z.&,'\/-]*(?: [A-Za-z.&,'\/-]+)*?)\s+(\d)(?=\s|$)/g;
+
+function recoverPlanCoursesMissingFromRequirements(
+  curriculumText: string,
+  requirements: NormalizedRequirement[],
+  concentrations: ReturnType<typeof normalizeConcentration>[]
+): NormalizedRequirement[] {
+
+  const key = (code: string) => code.replace(/\s+/g, "").toUpperCase();
+  const covered = new Set<string>();
+
+  for (const requirement of [...requirements, ...concentrations.flatMap((c) => c.requirements)]) {
+    for (const code of [
+      requirement.courseCode,
+      ...requirement.courseOptions.map((option) => option.courseCode),
+      ...(requirement.eligibilityRules?.allowedCourseCodes ?? []),
+    ]) {
+      if (code) covered.add(key(code));
+    }
+  }
+
+  const recovered = new Map<string, NormalizedRequirement>();
+
+  for (const [line, subject, number, title, credits] of curriculumText.matchAll(PLAN_COURSE_LINE)) {
+    const courseCode = `${subject} ${number}`;
+    if (!/[a-z]/.test(title) || covered.has(key(courseCode)) || recovered.has(key(courseCode))) continue;
+
+    recovered.set(key(courseCode), normalizeRequirement({
+      requirementId: `plan-${key(courseCode).toLowerCase()}`,
+      requirementName: `${courseCode} ${title}`,
+      description: "Listed in the curriculum's term-by-term plan.",
+      requirementType: "specific-course",
+      numberRequired: 1,
+      creditsRequired: Number(credits),
+      courseCode,
+      courseTitle: title,
+      sourceText: line.trim(),
+    }));
+  }
+
+  if (recovered.size > 0) {
+    console.log(`PLAN COURSES ADDED AS REQUIREMENTS: ${[...recovered.values()].map((r) => r.courseCode).join(", ")}`);
+  }
+  return [...recovered.values()];
 }
 
 
@@ -1345,14 +1739,16 @@ export async function extractCurriculumWithOllama(
 
   const requirements =
     Array.isArray(mainData.requirements)
-      ? mainData.requirements
-          .filter(
-            (
-              requirement: unknown
-            ): requirement is RawRequirement =>
-              typeof requirement === "object" && requirement !== null
-          )
-          .map(normalizeRequirement)
+      ? mergeOrContinuationRequirements(
+          mainData.requirements
+            .filter(
+              (
+                requirement: unknown
+              ): requirement is RawRequirement =>
+                typeof requirement === "object" && requirement !== null
+            )
+            .map(normalizeRequirement)
+        )
       : [];
 
 
@@ -1367,6 +1763,11 @@ export async function extractCurriculumWithOllama(
           )
           .map(normalizeConcentration)
       : [];
+
+
+  requirements.push(
+    ...recoverPlanCoursesMissingFromRequirements(curriculumText, requirements, concentrations)
+  );
 
 
   const combined = {
@@ -1608,5 +2009,5 @@ and explain why in warnings.
       content: JSON.stringify(input) },
   ];
 
-  return callAdvisingOllama(messages, { think: "medium", numPredict: 48000, feature: "advising-generate-schedule" });
+  return callAdvisingOllama(messages, { think: "medium", schema: generatedAdvisingScheduleSchema, feature: "advising-generate-schedule" });
 }

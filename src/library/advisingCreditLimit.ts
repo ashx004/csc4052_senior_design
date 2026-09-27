@@ -17,6 +17,60 @@ const creditsOf = (course: ScheduleCourse) => course.creditHours ?? DEFAULT_CRED
 const totalOf = (term: ScheduleTerm) => term.courses.reduce((sum: number, c: ScheduleCourse) => sum + creditsOf(c), 0);
 const labelOf = (term: { term: string; year: number }) => `${term.term} ${term.year}`;
 
+// The prompt asks for the earliest reasonable terms, but the model doesn't
+// always do it (it put FYE 100, offered every quarter, in Spring with Winter
+// empty). Pull every course into the earliest term where it is offered and
+// still fits under the usual limit. Moving earlier never breaks a
+// prerequisite, because only courses whose prerequisites are already on the
+// transcript are ever scheduled - no scheduled course depends on another.
+export function moveCoursesToEarliestTerms(
+  schedule: GeneratedAdvisingSchedule,
+  futureTerms: AcademicTerm[],
+  availability: CourseAvailability[]
+): ScheduleTerm[] {
+
+  const terms: ScheduleTerm[] = futureTerms.map((futureTerm) => ({
+    term: futureTerm.term,
+    year: futureTerm.year,
+    courses: [],
+  }));
+
+  const isOffered = (code: string, term: ScheduleTerm) =>
+    availability.some(
+      (a) =>
+        a.offered &&
+        a.term === term.term &&
+        a.year === term.year &&
+        normalize(a.courseCode) === normalize(code)
+    );
+
+  const scheduled = futureTerms.flatMap((futureTerm) =>
+    schedule.terms.find(
+      (t: ScheduleTerm) => t.term === futureTerm.term && t.year === futureTerm.year
+    )?.courses ?? []
+  );
+
+  for (const course of scheduled) {
+    const originalIndex = terms.findIndex((term) =>
+      schedule.terms.some(
+        (t: ScheduleTerm) =>
+          t.term === term.term && t.year === term.year && t.courses.includes(course)
+      )
+    );
+
+    const earliest = terms.findIndex(
+      (term, index) =>
+        index <= originalIndex &&
+        isOffered(course.courseCode, term) &&
+        totalOf(term) + creditsOf(course) <= PREFERRED_MAX_CREDITS
+    );
+
+    terms[earliest === -1 ? originalIndex : earliest].courses.push(course);
+  }
+
+  return terms.filter((t: ScheduleTerm) => t.courses.length > 0);
+}
+
 // The model cannot be trusted to add up credit hours, so this runs in code
 // after validation. Any term over 12 hours has a course moved to a LATER term
 // where it is offered (moving later never breaks a prerequisite, because only
