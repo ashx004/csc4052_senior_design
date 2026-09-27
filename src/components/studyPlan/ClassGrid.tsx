@@ -25,6 +25,22 @@ const accents = [
   "bg-beige-canvas",
 ];
 
+const masteryStyles = {
+  notStarted: { label: "Start here", dot: "bg-[#F29B7E]", text: "text-[#A84D35]" },
+  needsPractice: { label: "Needs practice", dot: "bg-[#F29B7E]", text: "text-[#A84D35]" },
+  building: { label: "Building momentum", dot: "bg-[#F5C96B]", text: "text-[#8B6914]" },
+  onTrack: { label: "On track", dot: "bg-[#62A67B]", text: "text-[#39704E]" },
+  mastered: { label: "Mastered", dot: "bg-[#7774D6]", text: "text-[#4E4B9E]" },
+} as const;
+
+function getMasteryStyle(progress?: number) {
+  if (!progress) return masteryStyles.notStarted;
+  if (progress < 50) return masteryStyles.needsPractice;
+  if (progress < 70) return masteryStyles.building;
+  if (progress < 90) return masteryStyles.onTrack;
+  return masteryStyles.mastered;
+}
+
 type Layout = "cards" | "list";
 
 export default function ClassGrid({ classes, onClassClick }: ClassGridProps) {
@@ -33,7 +49,10 @@ export default function ClassGrid({ classes, onClassClick }: ClassGridProps) {
   return (
     <section className="rounded-2xl bg-white p-6">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-base font-semibold text-navy">My classes</h3>
+        <div>
+          <h3 className="text-base font-semibold text-navy">Course mastery</h3>
+          <p className="mt-1 text-xs text-gray-secondary">Build confidence one concept at a time.</p>
+        </div>
 
         <div className="flex items-center gap-1 rounded-full bg-gray-input p-1">
           {(["cards", "list"] as Layout[]).map((option) => (
@@ -81,12 +100,12 @@ export default function ClassGrid({ classes, onClassClick }: ClassGridProps) {
               key={cls.id}
               type="button"
               onClick={() => onClassClick(cls.id)}
-              className={`group flex min-h-[148px] cursor-pointer flex-col rounded-xl p-5 text-left transition-shadow hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${
+              className={`group flex min-h-[176px] cursor-pointer flex-col rounded-2xl p-5 text-left transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${
                 accents[index % accents.length]
               }`}
             >
               <div className="flex items-start justify-between gap-2">
-                <h4 className="text-sm font-bold text-navy">
+                <h4 className="max-w-[85%] text-[15px] font-bold leading-snug text-navy">
                   {cls.className || "Untitled class"}
                 </h4>
                 <ArrowUpRight
@@ -98,7 +117,14 @@ export default function ClassGrid({ classes, onClassClick }: ClassGridProps) {
               <p className="mt-1 text-xs text-gray-secondary">
                 {[cls.classCode, cls.term].filter(Boolean).join(" · ")}
               </p>
-              <div className="mt-8 h-1.5 w-full overflow-hidden rounded-full bg-white/60">
+              <div className="mt-5 flex items-center gap-2">
+                <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold ${getMasteryStyle(cls.progress).text}`}>
+                  <span className={`h-2 w-2 rounded-full ${getMasteryStyle(cls.progress).dot}`} aria-hidden="true" />
+                  {getMasteryStyle(cls.progress).label}
+                </span>
+                {cls.progress !== undefined && <span className="text-[11px] text-gray-secondary">{cls.progress}%</span>}
+              </div>
+              <div className="mt-auto h-1.5 w-full overflow-hidden rounded-full bg-white/60">
                 <div
                   className="h-full rounded-full bg-navy"
                   style={{

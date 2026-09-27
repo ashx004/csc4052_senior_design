@@ -1,0 +1,12 @@
+<svg width="240" height="170" viewBox="0 0 240 170" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Quiz checklist</title>
+  <desc id="desc">A checklist with colorful answer marks and a small star.</desc>
+  <rect x="48" y="24" width="132" height="120" rx="16" fill="#FFFDF9" stroke="#252540" stroke-width="3"/>
+  <path d="M74 56L80 62L91 49" stroke="#62A67B" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M104 54H151" stroke="#252540" stroke-width="6" stroke-linecap="round"/>
+  <path d="M74 86L80 92L91 79" stroke="#F29B7E" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M104 84H151" stroke="#252540" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="82" cy="117" r="9" fill="#F5C96B"/>
+  <path d="M82 112V122M77 117H87" stroke="#252540" stroke-width="3" stroke-linecap="round"/>
+  <path d="M185 39L190 49L201 51L193 59L195 70L185 65L175 70L177 59L169 51L180 49L185 39Z" fill="#B9B8F5" stroke="#252540" stroke-width="3" stroke-linejoin="round"/>
+</svg>
