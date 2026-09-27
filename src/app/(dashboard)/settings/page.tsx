@@ -35,6 +35,7 @@ import {
     getEmailReminderPreferences,
     saveEmailReminderPreferences,
 } from "@/src/library/email/reminderPreferences";
+import { syncUpcomingReminderJobsForUser } from "@/src/library/email/reminderJobs";
 
 const EMAIL_REMINDER_OFFSET_OPTIONS = [
     { minutes: 10_080, label: "1 week before" },
@@ -230,6 +231,11 @@ export default function Settings() {
                 enabled: emailRemindersEnabled,
                 offsetsMinutes: emailReminderOffsets,
                 timeZone,
+            });
+            await syncUpcomingReminderJobsForUser({
+                db,
+                uid: user.uid,
+                offsetsMinutes: emailReminderOffsets,
             });
             setEmailReminderTimeZone(timeZone);
             setEmailReminderMessage(emailRemindersEnabled
