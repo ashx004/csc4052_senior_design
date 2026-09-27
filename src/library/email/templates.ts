@@ -9,6 +9,12 @@ type AuthTemplateInput = {
   recipientName?: string | null;
 };
 
+type LoginTwoFactorTemplateInput = {
+  code: string;
+  recipientName?: string | null;
+  expiresInMinutes: number;
+};
+
 type DueReminderTemplateInput = {
   assignmentTitle: string;
   dueAtLabel: string;
@@ -144,6 +150,22 @@ export function passwordResetTemplate(input: AuthTemplateInput): EmailTemplate {
       ctaLabel: "Reset password",
       ctaUrl: input.actionUrl,
       note: "If you did not request a password reset, you can safely ignore this email. Your password will not change.",
+    }),
+  };
+}
+
+export function loginTwoFactorTemplate(input: LoginTwoFactorTemplateInput): EmailTemplate {
+  const code = escapeHtml(input.code);
+  const expiry = `${input.expiresInMinutes} ${input.expiresInMinutes === 1 ? "minute" : "minutes"}`;
+  return {
+    subject: "Your Catalyst sign-in code",
+    text: `${input.recipientName?.trim() ? `Hi ${input.recipientName.trim()},\n\n` : ""}Your Catalyst sign-in code is ${input.code}. It expires in ${expiry}.\n\nIf you did not try to sign in, you can safely ignore this email.`,
+    html: emailShell({
+      preheader: "Use this code to complete your Catalyst sign-in.",
+      eyebrow: "Sign-in verification",
+      title: "Confirm it’s you",
+      body: `<p style="margin: 0 0 16px;">${greeting(input.recipientName)}</p><p style="margin: 0 0 18px;">Enter this code to finish signing in to Catalyst:</p><p style="margin: 0; border-radius: 8px; background: ${COLORS.warm}; color: ${COLORS.navy}; font-family: monospace; font-size: 28px; font-weight: 700; letter-spacing: 6px; padding: 14px 16px; text-align: center;">${code}</p><p style="margin: 18px 0 0;">This code expires in ${escapeHtml(expiry)}.</p>`,
+      note: "If you did not try to sign in, you can safely ignore this email.",
     }),
   };
 }
