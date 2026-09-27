@@ -30,7 +30,7 @@ import type {
   EligibleTopic,
   ActivityType,
 } from "@/src/library/studyPlan/types";
-import { Loader2 } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import WorkspaceHeader from "@/src/components/studyPlan/WorkspaceHeader";
 import HeroBanner from "@/src/components/studyPlan/HeroBanner";
 import StatCards from "@/src/components/studyPlan/StatCards";
@@ -55,6 +55,13 @@ import ScheduleView from "@/src/components/studyPlan/Views/ScheduleView";
 const CLASSES_ANCHOR = "learning-classes";
 const PLAN_ANCHOR = "learning-study-plan";
 
+const ACTIVITY_LABELS: Record<ActivityType, string> = {
+  quiz: "Quiz",
+  flashcards: "Flashcards",
+  reading: "Reading",
+  ai_explanation: "AI explanation",
+};
+
 interface EnrolledClass {
   id: string;
   classCode: string;
@@ -77,7 +84,6 @@ export default function LearningPage() {
     updateTaskStatus,
     session,
     startSession,
-    startGeneralSession,
     attachTaskToSession,
     pauseSession,
     completeSession,
@@ -106,6 +112,7 @@ export default function LearningPage() {
   const [showClearModal, setShowClearModal] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
   const [showSuggestTasks, setShowSuggestTasks] = useState(false);
+  const [showTaskPicker, setShowTaskPicker] = useState(false);
   const [skipConfirm, setSkipConfirm] = useState<{ taskId: string; title: string } | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<string | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -525,6 +532,14 @@ export default function LearningPage() {
     [activeTasks]
   );
 
+  const pickableTasks = useMemo(
+    () =>
+      activeTasks.filter(
+        (task) => task.status === "recommended" || task.status === "in_progress"
+      ),
+    [activeTasks]
+  );
+
   const remainingMinutes = useMemo(
     () =>
       activeTasks
@@ -571,11 +586,14 @@ export default function LearningPage() {
     if (nextTask) handleStartTask(nextTask.id);
   }, [nextTask, handleStartTask]);
 
-  const handleStartGeneralSession = useCallback(() => {
-    if (session) return;
-    const minutes = nextTask?.estimatedMinutes ?? 25;
-    startGeneralSession("countup", minutes * 60);
-  }, [session, nextTask, startGeneralSession]);
+  useEffect(() => {
+    if (!showTaskPicker) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowTaskPicker(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showTaskPicker]);
 
   if (authLoading || classesLoading || planLoading) {
     return (
@@ -708,8 +726,9 @@ export default function LearningPage() {
                 sidebar={
                   <FocusModeCard
                     recommendedMinutes={nextTask?.estimatedMinutes ?? 25}
-                    onStartSession={handleStartNextTask}
-                    onStartGeneralSession={handleStartGeneralSession}
+                    onStartNextTask={handleStartNextTask}
+                    onPickTask={() => setShowTaskPicker(true)}
+                    hasNextTask={!!nextTask}
                     disabled={!!session}
                   />
                 }
@@ -762,6 +781,73 @@ export default function LearningPage() {
           onReschedule={handleReschedule}
           onCancel={() => setRescheduleTarget(null)}
         />
+        {showTaskPicker && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/35 p-4">
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="task-picker-title"
+              className="relative w-full max-w-[500px] rounded-[20px] bg-beige-light p-6 shadow-[0_18px_50px_rgba(26,26,48,.08)]"
+            >
+              <button
+                type="button"
+                onClick={() => setShowTaskPicker(false)}
+                className="absolute right-4 top-4 inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-lg text-gray-secondary hover:bg-gray-input hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+                aria-label="Close task picker"
+              >
+                <X size={20} aria-hidden="true" />
+              </button>
+
+              <h3
+                id="task-picker-title"
+                className="pr-12 text-xl font-bold tracking-[-0.04em] text-navy"
+              >
+                Choose a task
+              </h3>
+              <p className="mt-2 text-sm leading-relaxed text-gray-secondary">
+                Start a focus session on a recommended or in-progress task.
+              </p>
+
+              {pickableTasks.length === 0 ? (
+                <p className="mt-4 text-sm leading-relaxed text-gray-secondary">
+                  No recommended or in-progress tasks are ready to start.
+                </p>
+              ) : (
+                <ul className="mt-4 max-h-80 space-y-2 overflow-y-auto">
+                  {pickableTasks.map((task) => (
+                    <li key={task.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowTaskPicker(false);
+                          void handleStartTask(task.id);
+                        }}
+                        className="flex min-h-11 w-full cursor-pointer flex-col items-start justify-center gap-0.5 rounded-[10px] bg-gray-input px-3 py-2 text-left transition-colors hover:bg-beige-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+                      >
+                        <span className="text-sm font-semibold text-navy">
+                          {task.title}
+                        </span>
+                        <span className="text-xs text-gray-secondary">
+                          {task.courseCode} · {ACTIVITY_LABELS[task.activityType]}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="mt-6 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowTaskPicker(false)}
+                  className="min-h-11 cursor-pointer rounded-[10px] border border-brown-label px-4 py-2.5 text-sm font-semibold text-navy transition-colors hover:bg-beige-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

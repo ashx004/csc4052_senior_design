@@ -6,8 +6,12 @@ describe("getChickenStateFromProgress", () => {
     expect(getChickenStateFromProgress(0, "active")).toBe("egg");
   });
 
-  it("returns hatching at 10% progress", () => {
-    expect(getChickenStateFromProgress(0.1, "active")).toBe("hatching");
+  it("returns egg at 10% progress", () => {
+    expect(getChickenStateFromProgress(0.1, "active")).toBe("egg");
+  });
+
+  it("returns hatching at 25% progress", () => {
+    expect(getChickenStateFromProgress(0.25, "active")).toBe("hatching");
   });
 
   it("returns growing at 50% progress", () => {

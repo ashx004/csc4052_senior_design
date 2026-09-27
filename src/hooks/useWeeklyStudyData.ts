@@ -5,22 +5,24 @@ import {
   collection,
   query,
   where,
-  getDocs,
+  onSnapshot,
   Timestamp,
 } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
 import { studySessionsCollection } from "@/src/library/studyPlan/firestorePaths";
+import {
+  mondayOf,
+  weekDateKeys,
+  localDateKey,
+} from "@/src/library/studyPlan/weeklyRuler";
 
 interface DailyStudy {
   date: string;
   minutes: number;
-}
-
-function localDateKey(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  isToday: boolean;
+  isPast: boolean;
+  isFuture: boolean;
+  hasStudy: boolean;
 }
 
 export function useWeeklyStudyData(uid: string | null) {
@@ -38,70 +40,62 @@ export function useWeeklyStudyData(uid: string | null) {
       setError(null);
       return;
     }
+    setLoading(true);
+    setError(null);
 
-    let cancelled = false;
+    const now = new Date();
+    const monday = mondayOf(now);
+    const keys = weekDateKeys(monday);
+    const todayKey = localDateKey(now);
 
-    async function fetchData() {
-      setLoading(true);
-      setError(null);
-      try {
-        const now = new Date();
-        const sevenDaysAgo = new Date(now);
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-        sevenDaysAgo.setHours(0, 0, 0, 0);
+    const q = query(
+      collection(db, studySessionsCollection(uid)),
+      where("startedAt", ">=", Timestamp.fromDate(monday))
+    );
 
-        // Range on startedAt only. Filtering status in memory avoids a
-        // composite index that this project does not declare.
-        const q = query(
-          collection(db, studySessionsCollection(uid!)),
-          where("startedAt", ">=", Timestamp.fromDate(sevenDaysAgo))
-        );
-
-        const snap = await getDocs(q);
-        if (cancelled) return;
-
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
         const byDate = new Map<string, number>();
-        for (let i = 0; i < 7; i++) {
-          const d = new Date(sevenDaysAgo);
-          d.setDate(d.getDate() + i);
-          byDate.set(localDateKey(d), 0);
-        }
-
+        for (const k of keys) byDate.set(k, 0);
         for (const docSnap of snap.docs) {
           const data = docSnap.data();
           if (data.status !== "completed" && data.status !== "abandoned") continue;
           if (data.startedAt?.toDate) {
-            const dateKey = localDateKey(data.startedAt.toDate());
-            if (byDate.has(dateKey)) {
-              byDate.set(
-                dateKey,
-                (byDate.get(dateKey) ?? 0) + (data.activeMinutes ?? 0)
-              );
+            const key = localDateKey(data.startedAt.toDate());
+            if (byDate.has(key)) {
+              byDate.set(key, (byDate.get(key) ?? 0) + (data.activeMinutes ?? 0));
             }
           }
         }
-
         setDailyMinutes(
-          Array.from(byDate, ([date, minutes]) => ({ date, minutes }))
+          keys.map((date) => {
+            const minutes = byDate.get(date) ?? 0;
+            return {
+              date,
+              minutes,
+              isToday: date === todayKey,
+              isPast: date < todayKey,
+              isFuture: date > todayKey,
+              hasStudy: minutes > 0,
+            };
+          })
         );
-      } catch {
-        if (!cancelled) {
-          setError("Couldn't load this week's focus history.");
-          setDailyMinutes([]);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
+      },
+      () => {
+        setError("Couldn't load this week's focus history.");
+        setDailyMinutes([]);
+        setLoading(false);
       }
-    }
+    );
 
-    fetchData();
-    return () => {
-      cancelled = true;
-    };
+    return unsub;
   }, [uid, reloadKey]);
 
-  const totalMinutes = dailyMinutes.reduce((sum, d) => sum + d.minutes, 0);
-  const daysWithStudy = dailyMinutes.filter((d) => d.minutes > 0).length;
+  const countedDays = dailyMinutes.filter((d) => !d.isFuture);
+  const totalMinutes = countedDays.reduce((sum, d) => sum + d.minutes, 0);
+  const daysWithStudy = countedDays.filter((d) => d.minutes > 0).length;
   const dailyAverage =
     daysWithStudy > 0 ? Math.round(totalMinutes / daysWithStudy) : 0;
 

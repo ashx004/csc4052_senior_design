@@ -89,10 +89,10 @@ export default function AIPanel() {
         </button>
       )}
 
-      {/* In the layout on md+; on phones it's a full-width panel over the
+      {/* Sticky in the window on md+; on phones it's a full-width panel over the
           page (a 384px column would leave a ~390px phone nothing). */}
       <aside
-        className={`fixed inset-y-0 right-0 z-40 h-screen shrink-0 overflow-hidden border-l border-border-light bg-bg-container transition-[width] duration-300 ease-in-out md:relative md:z-20 ${
+        className={`fixed inset-y-0 right-0 z-40 h-screen shrink-0 overflow-hidden border-l border-border-light bg-bg-container transition-[width] duration-300 ease-in-out md:sticky md:top-0 md:z-20 md:h-screen md:self-start ${
           isOpen ? "w-full md:w-96" : "w-0"
         }`}
       >

@@ -15,9 +15,9 @@ export const CHICKEN_CELEBRATION_SPRITE =
   "/chicken_png_assets/sheet2/09_happy_wings.png";
 
 export const PROGRESS_THRESHOLDS = {
-  hatching: 0,
-  growing: 0.2,
-  almost: 0.8,
+  hatching: 0.25,
+  growing: 0.5,
+  almost: 0.75,
   complete: 1.0,
 } as const;
 
@@ -31,7 +31,7 @@ export function getChickenStateFromProgress(
   if (progress >= PROGRESS_THRESHOLDS.complete) return "complete";
   if (progress >= PROGRESS_THRESHOLDS.almost) return "almost";
   if (progress >= PROGRESS_THRESHOLDS.growing) return "growing";
-  if (progress > 0) return "hatching";
+  if (progress >= PROGRESS_THRESHOLDS.hatching) return "hatching";
   return "egg";
 }
 
@@ -50,7 +50,7 @@ export const WIDGET_STATE_CONFIG: Record<
     label: "Resting...",
     labelColor: "rgba(255,255,255,0.78)",
     timerColor: "white",
-    buttonText: "Quit",
+    buttonText: "Pause",
     buttonBg: "white",
     borderAccent: "none",
   },
@@ -58,7 +58,7 @@ export const WIDGET_STATE_CONFIG: Record<
     label: "Hatching...",
     labelColor: "rgba(255,255,255,0.78)",
     timerColor: "white",
-    buttonText: "Quit",
+    buttonText: "Pause",
     buttonBg: "white",
     borderAccent: "none",
   },
@@ -66,7 +66,7 @@ export const WIDGET_STATE_CONFIG: Record<
     label: "Growing...",
     labelColor: "rgba(255,255,255,0.78)",
     timerColor: "white",
-    buttonText: "Quit",
+    buttonText: "Pause",
     buttonBg: "white",
     borderAccent: "none",
   },
@@ -74,7 +74,7 @@ export const WIDGET_STATE_CONFIG: Record<
     label: "Almost!",
     labelColor: "#C7D0FF",
     timerColor: "white",
-    buttonText: "Quit",
+    buttonText: "Pause",
     buttonBg: "white",
     borderAccent: "1px solid #93A0FF",
   },
@@ -90,7 +90,7 @@ export const WIDGET_STATE_CONFIG: Record<
     label: "Fully grown!",
     labelColor: "#86EFAC",
     timerColor: "#86EFAC",
-    buttonText: "Close",
+    buttonText: "Expand",
     buttonBg: "#86EFAC",
     borderAccent: "1px solid #2D6A2E",
   },
@@ -124,14 +124,14 @@ export const EXPANDED_STATE_MESSAGES: Record<ChickenState, string> = {
 };
 
 export const EXPANDED_STATE_HINTS: Record<ChickenState, string> = {
-  egg: "Before the session starts",
-  hatching: "First 20% of the session",
-  growing: "20%–80% of the session",
-  almost: "80%–99% of the session",
+  egg: "First quarter of the session",
+  hatching: "25%–50% of the session",
+  growing: "50%–75% of the session",
+  almost: "Last quarter — almost done",
   complete: "Celebration",
   dead: "Give up, or head back to your plan",
   paused: "Safe to navigate away",
-  break: "Auto 5-minute break",
+  break: "5-minute break",
 };
 
 export const STATE_BADGES: Record<ChickenState, string> = {
