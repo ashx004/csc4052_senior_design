@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "worker:ocr": "tsx scripts/ocrWorker.ts",
+    "worker:reminders": "tsx scripts/reminderWorker.ts",
     "worker:advising": "tsx scripts/advisingWorker.ts",
     "eval:chat": "node --env-file=.env scripts/chatEval.mjs"
   },
@@ -52,6 +53,7 @@
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.0",
     "remark-math": "^6.0.0",
+    "resend": "^6.30.0",
     "undici": "8.10.2",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^4.4.3"

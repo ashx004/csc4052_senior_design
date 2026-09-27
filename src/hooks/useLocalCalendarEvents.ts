@@ -24,6 +24,8 @@ interface LocalEventDoc {
   recurrence?: CalendarEvent["recurrence"];
   recurrenceUntil?: string;
   reminderMinutes?: number;
+  dueAt?: string;
+  emailReminderOffsets?: number[];
 }
 
 function cacheKeyFor(uid: string): string {
@@ -128,6 +130,8 @@ export function useLocalCalendarEvents(dateRange?: { start: Date; end: Date }) {
             recurrence: data.recurrence,
             recurrenceUntil: data.recurrenceUntil,
             reminderMinutes: data.reminderMinutes,
+            dueAt: data.dueAt,
+            emailReminderOffsets: data.emailReminderOffsets,
             source: "local",
           };
         });
