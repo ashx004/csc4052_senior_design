@@ -1,0 +1,62 @@
+{
+  "generatedAt": "2026-09-26T19:43:23.320Z",
+  "context": 16384,
+  "parallel": 4,
+  "results": [
+    {
+      "model": "qwen3:30b-a3b",
+      "hallucination": "4/4",
+      "tools": "1/3",
+      "flashcardsSeconds": 2.14,
+      "quizSeconds": 5.03,
+      "advisingValid": true,
+      "advisingSeconds": 20.75,
+      "parallelTokensPerSecond": 317.43,
+      "errors": 0
+    },
+    {
+      "model": "glm-4.7-flash:Q4_K_M",
+      "hallucination": "4/4",
+      "tools": "2/3",
+      "flashcardsSeconds": 3.95,
+      "quizSeconds": 6.93,
+      "advisingValid": true,
+      "advisingSeconds": 19.14,
+      "parallelTokensPerSecond": 160.36,
+      "errors": 0
+    },
+    {
+      "model": "gemma4:26b",
+      "hallucination": "4/4",
+      "tools": "3/3",
+      "flashcardsSeconds": 5.14,
+      "quizSeconds": 9.71,
+      "advisingValid": true,
+      "advisingSeconds": 22.43,
+      "parallelTokensPerSecond": 66.84,
+      "errors": 0
+    },
+    {
+      "model": "qwen3.5:35b-a3b",
+      "hallucination": "4/4",
+      "tools": "3/3",
+      "flashcardsSeconds": 4.63,
+      "quizSeconds": 6.73,
+      "advisingValid": true,
+      "advisingSeconds": 38.64,
+      "parallelTokensPerSecond": 129.64,
+      "errors": 0
+    },
+    {
+      "model": "nemotron-cascade-2:30b",
+      "hallucination": "4/4",
+      "tools": "3/3",
+      "flashcardsSeconds": 3.68,
+      "quizSeconds": 5.24,
+      "advisingValid": true,
+      "advisingSeconds": 17.39,
+      "parallelTokensPerSecond": 137.5,
+      "errors": 0
+    }
+  ]
+}

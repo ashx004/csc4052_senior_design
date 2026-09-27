@@ -1,6 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+// The selected course is URL-driven and this authenticated Firebase view has
+// no useful static representation. Avoid prerendering it at build time.
+export const dynamic = "force-dynamic";
+
+import { Suspense, useEffect, useRef, useState } from "react";
 import {
   Notebook,
   Upload,
@@ -446,7 +450,7 @@ function DocumentPreviewModal({
   );
 }
 
-export default function Notes() {
+function NotesContent() {
   const requestedCourseId = useSearchParams().get("courseId");
   const { user, loading: authLoading } = useAuth();
 
@@ -1128,5 +1132,13 @@ export default function Notes() {
         </div>
       )}
     </section>
+  );
+}
+
+export default function Notes() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-bg-main" />}>
+      <NotesContent />
+    </Suspense>
   );
 }
