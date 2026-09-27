@@ -224,8 +224,8 @@ export default function AdvisingPage() {
 
   if (loading || isCheckingDocuments) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#f7f5f1] dark:bg-[#171717]">
-        <p className="text-gray-600 dark:text-gray-300">
+      <div className="flex min-h-screen items-center justify-center bg-bg-main">
+        <p className="text-text-muted">
           Loading...
         </p>
       </div>
@@ -235,25 +235,24 @@ export default function AdvisingPage() {
   if (documentsReady) {
   return (
     <main
-      className="min-h-screen bg-[#f7f5f1] text-[#1f2933] dark:bg-[#171717] dark:text-gray-100 px-6 py-12" >
+      className="min-h-screen bg-bg-main px-6 py-12 text-text-main" >
       <PageTutorial id="advising_new" steps={advisingNewSteps} />
       <div className="mx-auto w-full max-w-4xl py-8">
 
         {/* Welcome Section */}
         <section
-          className="rounded-2xl border border-[#d8d3ca] bg-white p-8 shadow-sm
-          dark:border-gray-700 dark:bg-[#202020]"
+          className="rounded-2xl border border-border-light bg-bg-container p-8 shadow-sm"
           data-tutorial="advising-new-welcome" >
           <h1 className="text-3xl font-semibold">
             Welcome to Advising
           </h1>
 
-          <p className="mt-4 text-sm leading-6 text-gray-600 dark:text-gray-300">
+          <p className="mt-4 text-sm leading-6 text-text-muted">
             Catalyst's advising feature helps you understand your academic progress and plan
             the courses you may need to take next.
           </p>
 
-          <p className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-300">
+          <p className="mt-3 text-sm leading-6 text-text-muted">
             Using your transcript and curriculum sheet, Catalyst can review the courses you
             have already taken and the courses that remain in your degree requirements to
             create a suggested schedule for your remaining time at the university.
@@ -264,8 +263,8 @@ export default function AdvisingPage() {
             onClick={generateSchedule}
             disabled={isGeneratingSchedule}
             data-tutorial="advising-new-generate"
-            className="mt-8 rounded-lg bg-[#b08957] px-6 py-3 text-sm font-medium
-            text-white transition hover:bg-[#9c7849] disabled:cursor-not-allowed
+            className="mt-8 rounded-lg bg-primary px-6 py-3 text-sm font-medium
+            text-text-inverse transition hover:bg-primary-hover disabled:cursor-not-allowed
             disabled:opacity-60" >
 
             {isGeneratingSchedule ? "Generating Schedule..." : "Generate Schedule"}
@@ -273,20 +272,19 @@ export default function AdvisingPage() {
           </button>
 
                {isGeneratingSchedule && (
-                  <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">
+                  <p className="mt-3 text-sm text-text-muted">
                     This can take a minute. Feel free to leave this page — you'll get a notification when your schedule is ready.
                   </p>
                 )}
 
                {errorMessage && !isGeneratingSchedule && (
-                  <div className="mt-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700
-                  dark:border-red-800 dark:bg-red-950/30 dark:text-red-300">
+                  <div className="mt-4 rounded-lg border border-alert-error bg-alert-error-bg px-4 py-3 text-sm text-alert-error">
                     {errorMessage}
                   </div>
                 )}
 
                {scheduleNeedsRegeneration && (
-                  <p className="mt-3 text-sm text-amber-700">
+                  <p className="mt-3 text-sm text-primary">
                     Your courses were updated. Click <strong>Generate Schedule</strong> again to see the changes reflected.
                   </p>
                 )}
@@ -320,7 +318,7 @@ export default function AdvisingPage() {
             <button
               type="button"
               onClick={() => setShowManualCourseForm(true)}
-              className="text-sm font-medium text-[#b08957] hover:underline"
+              className="text-sm font-medium text-primary hover:text-primary-hover hover:underline"
             >
               + Add a completed course
             </button>
@@ -337,7 +335,7 @@ export default function AdvisingPage() {
                 Generate Schedule
               </h2>
 
-              <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+              <p className="mt-2 text-sm text-text-muted">
                 Your suggested schedule will appear below after generation.
               </p>
             </div>
@@ -375,11 +373,9 @@ export default function AdvisingPage() {
                       className="
                         rounded-xl
                         border
-                        border-[#d8d3ca]
-                        bg-white
+                        border-border-light
+                        bg-bg-container
                         p-5
-                        dark:border-gray-700
-                        dark:bg-[#202020]
                       "
                     >
 
@@ -409,10 +405,9 @@ export default function AdvisingPage() {
                                 gap-4
                                 rounded-lg
                                 border
-                                border-[#ece8e1]
+                                border-border-light
                                 px-4
                                 py-3
-                                dark:border-gray-700
                               "
                             >
 
@@ -434,8 +429,7 @@ export default function AdvisingPage() {
                                     className="
                                       mt-1
                                       text-xs
-                                      text-gray-500
-                                      dark:text-gray-400
+                                      text-text-muted
                                     "
                                   >
                                     {course.courseTitle}
@@ -452,8 +446,7 @@ export default function AdvisingPage() {
                                   className="
                                     whitespace-nowrap
                                     text-xs
-                                    text-gray-500
-                                    dark:text-gray-400
+                                    text-text-muted
                                   "
                                 >
                                   {course.creditHours} credits
@@ -479,11 +472,9 @@ export default function AdvisingPage() {
                     className="
                       rounded-lg
                       border
-                      border-yellow-300
-                      bg-yellow-50
+                      border-border-hover
+                      bg-bg-warm
                       p-4
-                      dark:border-yellow-700
-                      dark:bg-yellow-950/20
                     "
                   >
 
@@ -698,46 +689,55 @@ export default function AdvisingPage() {
 
   return (
     <div
-      className="min-h-screen bg-[#f7f5f1] text-[#1f2933] dark:bg-[#171717] dark:text-gray-100" >
+      className="min-h-screen bg-bg-main text-text-main" >
 
       <header
         className="relative flex h-[73px] items-center justify-center border-b 
-        border-[#d8d3ca] bg-[#fbfaf8] px-6 dark:border-gray-700 dark:bg-[#202020]" >
+        border-border-light bg-bg-container px-6" >
 
         <h1 className="text-lg font-semibold"> Advising. </h1>
 
       </header>
 
       <main className="mx-auto w-3/4 py-8">
+        <button
+          type="button"
+          onClick={() => {
+            setErrorMessage("");
+            setShowPermissionModal(true);
+          }}
+          className="rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-text-inverse transition hover:bg-primary-hover"
+        >
+          Add progress files
+        </button>
       
         {errorMessage && (
           <div
             className="
               w-full max-w-full overflow-hidden break-words whitespace-pre-wrap
-              rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700
-              dark:border-red-800 dark:bg-red-950/30 dark:text-red-300" >
+              rounded-lg border border-alert-error bg-alert-error-bg px-4 py-3 text-sm text-alert-error" >
             {errorMessage}
           </div>
         )}
 
         {uploadSuccess && (
-            <div className="rounded-lg border border-green-300 bg-green-50 px-4 py-3
-            text-sm text-green-700">
+            <div className="mt-4 rounded-lg border border-alert-success bg-alert-success-bg px-4 py-3
+            text-sm text-alert-success">
                 Your transcript and curriculum sheet were uploaded successfully!
             </div>
             )}
 
         {isExtracting && (
-            <div className="mt-4 rounded-lg border border-[#d8d3ca] bg-white px-4 py-3
-            text-sm text-gray-600 dark:border-gray-700 dark:bg-[#202020] dark:text-gray-300">
+            <div className="mt-4 rounded-lg border border-border-light bg-bg-container px-4 py-3
+            text-sm text-text-muted">
                 Reading your transcript and curriculum sheet — this can take a few minutes.
                 Feel free to leave this page; you'll get a notification when it's done.
             </div>
             )}
 
         {usingExistingDocuments && (
-            <div className="rounded-lg border border-green-300 bg-green-50 px-4 py-3 
-            text-sm text-green-700">
+            <div className="mt-4 rounded-lg border border-alert-success bg-alert-success-bg px-4 py-3
+            text-sm text-alert-success">
                 Your previously uploaded transcript and curriculum sheet
                 will be used.
             </div>
@@ -754,7 +754,6 @@ export default function AdvisingPage() {
         isOpen={showPermissionModal}
         onAccept={handleAcceptUpload}
         onDecline={handleDeclineUpload}
-        onClose={() => setShowPermissionModal(false)}
       />
 
      <ExistingDocumentsModal

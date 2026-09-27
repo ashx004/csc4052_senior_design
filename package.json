@@ -15,7 +15,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "worker:ocr": "tsx scripts/ocrWorker.ts",
-    "worker:advising": "tsx scripts/advisingWorker.ts"
+    "worker:advising": "tsx scripts/advisingWorker.ts",
+    "eval:chat": "node --env-file=.env scripts/chatEval.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1079.0",
@@ -25,6 +26,11 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@google/genai": "^2.12.0",
     "@google/generative-ai": "^0.24.1",
+    "@tiptap/core": "^3.31.3",
+    "@tiptap/extension-placeholder": "^3.31.3",
+    "@tiptap/pm": "^3.31.3",
+    "@tiptap/react": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
     "cheerio": "^1.2.0",
     "docx-preview": "^0.3.7",
     "firebase": "^12.15.0",

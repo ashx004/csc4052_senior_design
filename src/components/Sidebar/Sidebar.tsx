@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { Menu, Settings, ChevronLeft } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { TUTORIAL_OVERLAY_ATTR, TUTORIAL_TARGET_EVENT } from "@/src/components/tutorial/TutorialOverlay";
+import { getSidebarAutoCollapse, SIDEBAR_AUTO_COLLAPSE_EVENT } from "@/src/library/sidebarPreference";
 
 // Below Tailwind's `md` breakpoint the panel slides in over the page instead
 // of sitting in the layout - a 288px column left a phone with ~100px for the
@@ -20,15 +21,28 @@ interface SidebarProps {
 
 export default function Sidebar({ children }: SidebarProps) {
   const [isOpen, setIsOpen] = useState(true);
+  const [autoCollapse, setAutoCollapse] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const sidebarRef = useRef<HTMLElement>(null);
 
-  // Start closed on phones (it would cover the whole page), and close after
-  // navigating there, since the panel sits on top of the page it opened.
+  // Start closed on phones. Desktop users can opt into the same behavior
+  // from Settings, while retaining the normal manual menu toggle.
   useEffect(() => {
-    if (isPhoneWidth()) setIsOpen(false);
+    const enabled = getSidebarAutoCollapse();
+    setAutoCollapse(enabled);
+    if (isPhoneWidth() || enabled) setIsOpen(false);
   }, [pathname]);
+
+  // Settings can change while this component stays mounted. The preference
+  // controls every automatic close; the dedicated button always works.
+  useEffect(() => {
+    const onPreferenceChange = (event: Event) => {
+      setAutoCollapse((event as CustomEvent<boolean>).detail);
+    };
+    window.addEventListener(SIDEBAR_AUTO_COLLAPSE_EVENT, onPreferenceChange);
+    return () => window.removeEventListener(SIDEBAR_AUTO_COLLAPSE_EVENT, onPreferenceChange);
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -37,14 +51,14 @@ export default function Sidebar({ children }: SidebarProps) {
       // Clicks on the guided tour's own controls aren't "outside" clicks -
       // closing here reflowed the page under the tour's spotlight.
       if ((e.target as Element | null)?.closest?.(`[${TUTORIAL_OVERLAY_ATTR}]`)) return;
-      if (sidebarRef.current && !sidebarRef.current.contains(e.target as Node)) {
+      if ((autoCollapse || isPhoneWidth()) && sidebarRef.current && !sidebarRef.current.contains(e.target as Node)) {
         setIsOpen(false);
       }
     }
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isOpen]);
+  }, [isOpen, autoCollapse]);
 
   // A tour step pointing at something in here (e.g. the nav links) needs the
   // panel open, even if the student collapsed it earlier. On phones the open
