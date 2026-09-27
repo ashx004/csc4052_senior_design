@@ -2,10 +2,16 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc } from "firebase/firestore";
+import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
 import { useAuth } from "@/src/context/AuthContext";
 import type { CalendarEvent, EventTone } from "@/src/components/calendar/calendarTypes";
+import {
+  defaultEmailReminderPreferences,
+  getEmailReminderPreferences,
+} from "@/src/library/email/reminderPreferences";
+import { isEmailReminderEligible, resolveEventDueAt } from "@/src/library/email/reminderModel";
+import { deleteLocalEventAndCancelReminderJobs, saveLocalEventWithReminderJobs } from "@/src/library/email/reminderJobs";
 
 const TONE_OPTIONS: EventTone[] = ["cream", "sage", "rose", "lavender", "brown", "blue"];
 const TONE_SWATCH_CLASSES: Record<EventTone, string> = {
@@ -141,18 +147,51 @@ export default function AddEventModal({ isOpen, onClose, onEventAdded, event, ev
     }
 
     setSaving(true); setError(null);
-    const eventData = {
-      title: title.trim(), startTime: startTimeValue, endTime: endTimeValue, allDay,
-      timeZone: allDay ? null : Intl.DateTimeFormat().resolvedOptions().timeZone,
-      location: location.trim() || null, description: description.trim() || null, tone,
-      kind, classId: classId || null, className: selectedClass?.name || event?.className || null,
-      recurrence, recurrenceUntil: recurrence === "none" ? null : recurrenceUntil || null,
-      reminderMinutes: Math.max(0, Number(reminderMinutes) || 0),
-      source: "local" as const, updatedAt: serverTimestamp(),
-    };
     try {
-      if (event) await updateDoc(doc(db, "users", user.uid, "events", event.seriesId ?? event.id), eventData);
-      else await addDoc(collection(db, "users", user.uid, "events"), { ...eventData, createdAt: serverTimestamp() });
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      // Reminder defaults must never make the calendar editor unavailable if
+      // the preference read has a transient network failure.
+      const preferences = await getEmailReminderPreferences(db, user.uid, timeZone)
+        .catch((preferenceError) => {
+          console.error("Couldn't load email reminder preferences while saving an event:", preferenceError);
+          return defaultEmailReminderPreferences(timeZone);
+        });
+      const reminderEligible = isEmailReminderEligible({ kind });
+      const emailReminderOffsets = reminderEligible
+        ? event?.emailReminderOffsets?.length
+          ? event.emailReminderOffsets
+          : preferences.offsetsMinutes
+        : [];
+      const dueAt = reminderEligible
+        ? resolveEventDueAt({ kind, startTime: startTimeValue, allDay })
+        : null;
+      const eventData = {
+        title: title.trim(), startTime: startTimeValue, endTime: endTimeValue, allDay,
+        timeZone: allDay ? null : timeZone,
+        location: location.trim() || null, description: description.trim() || null, tone,
+        kind, classId: classId || null, className: selectedClass?.name || event?.className || null,
+        recurrence, recurrenceUntil: recurrence === "none" ? null : recurrenceUntil || null,
+        reminderMinutes: Math.max(0, Number(reminderMinutes) || 0),
+        dueAt,
+        emailReminderOffsets,
+        source: "local" as const,
+      };
+      await saveLocalEventWithReminderJobs({
+        db,
+        uid: user.uid,
+        eventId: event ? event.seriesId ?? event.id : undefined,
+        eventData,
+        reminderEvent: {
+          title: title.trim(),
+          kind,
+          classId: classId || undefined,
+          className: selectedClass?.name || event?.className,
+          startTime: startTimeValue,
+          allDay,
+          dueAt: dueAt || undefined,
+          emailReminderOffsets,
+        },
+      });
       onEventAdded?.();
       onClose();
     } catch (saveError) {
@@ -165,7 +204,11 @@ export default function AddEventModal({ isOpen, onClose, onEventAdded, event, ev
     if (!user || !event || !canEdit || !window.confirm(`Delete "${event.title}"?`)) return;
     setSaving(true);
     try {
-      await deleteDoc(doc(db, "users", user.uid, "events", event.seriesId ?? event.id));
+      await deleteLocalEventAndCancelReminderJobs({
+        db,
+        uid: user.uid,
+        eventId: event.seriesId ?? event.id,
+      });
       onEventAdded?.(); onClose();
     } catch (deleteError) {
       console.error("Could not delete calendar event:", deleteError);

@@ -35,6 +35,9 @@ export type CalendarEvent = {
   recurrence?: "none" | "daily" | "weekly" | "monthly";
   recurrenceUntil?: string;
   reminderMinutes?: number;
+  // Used only by durable email-reminder jobs for assignments and exams.
+  dueAt?: string;
+  emailReminderOffsets?: number[];
   // The names of overlapping non-class events, calculated for the visible
   // calendar range. This is display-only and is never persisted as an event.
   conflictTitles?: string[];
