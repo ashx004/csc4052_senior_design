@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { auth } from "@/src/library/firebase";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { signInWithCustomToken } from "firebase/auth";
 import { signInWithGoogle, signInWithApple } from "@/src/library/socialAuth";
 import { useAuth } from "@/src/context/AuthContext";
 import { touchRememberCookie } from "@/src/library/session";
@@ -17,6 +17,12 @@ function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loginError, setLoginError] = useState("");
+  const [awaitingTwoFactor, setAwaitingTwoFactor] = useState(false);
+  const [twoFactorCode, setTwoFactorCode] = useState("");
+  const [twoFactorMessage, setTwoFactorMessage] = useState("");
+  const [isResendingCode, setIsResendingCode] = useState(false);
+  const [resendAfterSeconds, setResendAfterSeconds] = useState(0);
   const [showPasswordReset, setShowPasswordReset] = useState(false);
   const [isResetSubmitting, setIsResetSubmitting] = useState(false);
   const [resetMessage, setResetMessage] = useState("");
@@ -50,20 +56,76 @@ function LoginForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, user]);
 
+  useEffect(() => {
+    if (resendAfterSeconds <= 0) return;
+    const timer = window.setTimeout(() => setResendAfterSeconds((seconds) => Math.max(0, seconds - 1)), 1_000);
+    return () => window.clearTimeout(timer);
+  }, [resendAfterSeconds]);
+
   async function handleLogin() {
     setIsSubmitting(true);
+    setLoginError("");
     try {
       // Must happen before the actual sign-in call, not after — Firebase
       // fires its internal auth-state listener (AuthContext's
       // onIdTokenChanged) as part of processing the credential, which can
       // run before this async function resumes past the await below.
-      touchRememberCookie();
-      await signInWithEmailAndPassword(auth, email, password);
+      const response = await fetch("/api/auth/login-2fa/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error || "Unable to start sign-in verification.");
+      setAwaitingTwoFactor(true);
+      setPassword("");
+      setTwoFactorCode("");
+      setTwoFactorMessage(data?.message || "A sign-in code was sent to your email address.");
+      setResendAfterSeconds(typeof data?.resendAfterSeconds === "number" ? data.resendAfterSeconds : 60);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Login failed.");
-      console.log(error);
+      setLoginError(error instanceof Error ? error.message : "Login failed.");
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function handleTwoFactorVerification() {
+    setIsSubmitting(true);
+    setTwoFactorMessage("");
+    try {
+      const response = await fetch("/api/auth/login-2fa/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: twoFactorCode }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error || "Unable to verify the sign-in code.");
+      if (typeof data?.customToken !== "string") throw new Error("Unable to complete sign-in.");
+
+      touchRememberCookie();
+      await signInWithCustomToken(auth, data.customToken);
+    } catch (error) {
+      setTwoFactorMessage(error instanceof Error ? error.message : "Unable to verify the sign-in code.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleResendTwoFactorCode() {
+    setIsResendingCode(true);
+    setTwoFactorMessage("");
+    try {
+      const response = await fetch("/api/auth/login-2fa/resend", { method: "POST" });
+      const data = await response.json().catch(() => null);
+      const retryAfter = typeof data?.resendAfterSeconds === "number" ? data.resendAfterSeconds : 0;
+      if (retryAfter) setResendAfterSeconds(retryAfter);
+      if (!response.ok) throw new Error(data?.error || "Unable to send another code.");
+      setTwoFactorMessage(data?.message || "A new sign-in code was sent.");
+      setResendAfterSeconds(retryAfter || 60);
+    } catch (error) {
+      setTwoFactorMessage(error instanceof Error ? error.message : "Unable to send another code.");
+    } finally {
+      setIsResendingCode(false);
     }
   }
 
@@ -129,6 +191,62 @@ function LoginForm() {
     );
   }
 
+  if (awaitingTwoFactor) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-bg-main">
+        <div className="flex w-full max-w-md flex-col items-center rounded bg-bg-container px-10 py-10 shadow-md sm:px-16">
+          <AppLogo className="h-[168px] w-[168px]" />
+          <h1 className="font-sans text-3xl font-extrabold text-text-main">Confirm it&apos;s you</h1>
+          <p className="mt-2 text-center text-sm text-text-muted">
+            Enter the eight-digit code sent to {email.trim() || "your email address"}.
+          </p>
+          <div className="mt-8 flex w-full flex-col gap-4">
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={8}
+              placeholder="12345678"
+              value={twoFactorCode}
+              onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D/g, ""))}
+              className="rounded border border-border-light bg-bg-container px-3 py-2 text-center font-mono text-lg tracking-[0.35em] text-text-main outline-none focus:border-primary"
+              aria-label="Eight-digit sign-in code"
+            />
+            <button
+              type="button"
+              onClick={handleTwoFactorVerification}
+              disabled={isSubmitting || twoFactorCode.length !== 8}
+              className="rounded bg-primary px-4 py-2 text-text-inverse hover:bg-primary-hover disabled:opacity-50"
+            >
+              {isSubmitting ? "Verifying..." : "Verify and sign in"}
+            </button>
+            <button
+              type="button"
+              onClick={handleResendTwoFactorCode}
+              disabled={isResendingCode || resendAfterSeconds > 0}
+              className="text-sm font-medium text-primary hover:text-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isResendingCode
+                ? "Sending..."
+                : resendAfterSeconds > 0
+                  ? `Resend code in ${resendAfterSeconds}s`
+                  : "Resend code"}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setAwaitingTwoFactor(false); setTwoFactorCode(""); setTwoFactorMessage(""); }}
+              disabled={isSubmitting}
+              className="text-sm text-text-muted hover:text-text-main"
+            >
+              Use a different account
+            </button>
+            {twoFactorMessage && <p role="status" className="rounded bg-bg-main px-3 py-2 text-center text-sm text-text-muted">{twoFactorMessage}</p>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center
                     bg-bg-main">
@@ -149,6 +267,11 @@ function LoginForm() {
           {actionMessage && (
             <p role="status" className="rounded bg-alert-success-bg px-3 py-2 text-sm text-alert-success">
               {actionMessage}
+            </p>
+          )}
+          {loginError && (
+            <p role="alert" className="rounded bg-alert-error-bg px-3 py-2 text-sm text-alert-error">
+              {loginError}
             </p>
           )}
           <input
