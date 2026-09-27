@@ -1,4 +1,4 @@
-import type { ActivityType } from "./types";
+import type { ActivityTarget, ActivityType } from "./types";
 
 export function calculateActiveMinutes(
   periods: {
@@ -31,6 +31,31 @@ export function getActivityUrl(
       return `/courses/${courseId}/learning`;
     case "ai_explanation":
       return "/ai-assistant";
+  }
+}
+
+function appendTaskId(url: string, taskId?: string): string {
+  if (!taskId) return url;
+  return `${url}&taskId=${taskId}`;
+}
+
+export function getActivityUrlFromTarget(
+  courseId: string,
+  target: ActivityTarget,
+  taskId?: string
+): string {
+  switch (target.kind) {
+    case "document":
+      return appendTaskId(`/courses/${courseId}?resourceId=${target.resourceId}`, taskId);
+    case "quiz": {
+      const mode = target.mode === "missed_questions" ? "practice" : "take";
+      return appendTaskId(
+        `/courses/${courseId}/quizzes/${target.quizId}?mode=${mode}`,
+        taskId
+      );
+    }
+    case "flashcard_set":
+      return appendTaskId(`/courses/${courseId}/flashcards?setId=${target.setId}`, taskId);
   }
 }
 

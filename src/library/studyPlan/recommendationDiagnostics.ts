@@ -1,16 +1,9 @@
 import {
   chooseActivityType,
   ESTIMATED_MINUTES,
+  isWeakTopic,
 } from "./recommendationEngine";
 import type { EligibleTopic, SetupConfig } from "./types";
-
-function averageMastery(topic: EligibleTopic): number {
-  const known = [topic.quizMastery, topic.flashcardEngagement].filter(
-    (value): value is number => value !== null
-  );
-  if (known.length === 0) return 0;
-  return known.reduce((sum, value) => sum + value, 0) / known.length;
-}
 
 /** Explains why a setup submission could not produce a recommended task. */
 export function getEmptyRecommendationReason(
@@ -39,7 +32,7 @@ export function getEmptyRecommendationReason(
 
   if (
     config.goal === "weak_topics" &&
-    !scopedTopics.some((topic) => averageMastery(topic) < 0.6)
+    !scopedTopics.some((topic) => isWeakTopic(topic))
   ) {
     return "No weak topics were found below the current mastery threshold.";
   }

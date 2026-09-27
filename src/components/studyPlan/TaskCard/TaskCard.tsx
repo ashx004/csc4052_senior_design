@@ -17,6 +17,7 @@ const statusColors: Record<string, string> = {
 interface TaskCardProps {
   task: StudyTask & { id: string };
   onStart: () => void;
+  onContinue?: () => void;
   onSkip: () => void;
   onReschedule: () => void;
   onDelete?: () => void;
@@ -27,6 +28,7 @@ interface TaskCardProps {
 export default function TaskCard({
   task,
   onStart,
+  onContinue,
   onSkip,
   onReschedule,
   onDelete,
@@ -67,6 +69,7 @@ export default function TaskCard({
         <TaskActions
           task={task}
           onStart={onStart}
+          onContinue={onContinue}
           onSkip={onSkip}
           onReschedule={onReschedule}
           onDelete={onDelete}

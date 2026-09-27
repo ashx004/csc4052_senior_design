@@ -8,11 +8,13 @@ import {
   SkipForward,
   CalendarClock,
   Trash2,
+  ArrowRight,
 } from "lucide-react";
 
 interface TaskActionsProps {
   task: StudyTask & { id: string };
   onStart: () => void;
+  onContinue?: () => void;
   onSkip: () => void;
   onReschedule: () => void;
   onDelete?: () => void;
@@ -23,6 +25,7 @@ interface TaskActionsProps {
 export default function TaskActions({
   task,
   onStart,
+  onContinue,
   onSkip,
   onReschedule,
   onDelete,
@@ -41,6 +44,15 @@ export default function TaskActions({
           className="flex items-center gap-1 rounded-lg bg-navy px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
         >
           <Play size={12} /> Start
+        </button>
+      )}
+
+      {task.status === "in_progress" && onContinue && (
+        <button
+          onClick={onContinue}
+          className="flex items-center gap-1 rounded-lg bg-navy px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+        >
+          Continue <ArrowRight size={12} />
         </button>
       )}
 

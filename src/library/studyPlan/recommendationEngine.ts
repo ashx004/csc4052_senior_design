@@ -1,6 +1,7 @@
 import type {
   ActivityType,
   ActivityPreference,
+  ActivityTarget,
   EligibleTopic,
   GeneratedTask,
   PriorityFactors,
@@ -18,6 +19,9 @@ export const ESTIMATED_MINUTES: Record<ActivityType, number> = {
 const REQUIRED_ACTIVITY_MINUTES =
   ESTIMATED_MINUTES.reading + ESTIMATED_MINUTES.quiz + ESTIMATED_MINUTES.flashcards;
 
+const REPEAT_MISS_BONUS = 5;
+const REPEAT_MISS_BONUS_CAP = 15;
+
 export function scoreTopic(
   topic: EligibleTopic,
   examsWithinDays: number | null,
@@ -33,6 +37,7 @@ export function scoreTopic(
     ),
     staleReview: computeStaleReview(topic.lastStudiedAt),
     skipPenalty: Math.max(-15, topic.skipCount * -5),
+    repeatMissBonus: computeRepeatMissBonus(topic.repeatMissCount),
   };
 
   const totalScore =
@@ -41,7 +46,8 @@ export function scoreTopic(
     factors.lowQuizMastery +
     factors.lowFlashcardEngagement +
     factors.staleReview +
-    factors.skipPenalty;
+    factors.skipPenalty +
+    factors.repeatMissBonus;
 
   return { ...topic, factors, totalScore };
 }
@@ -62,7 +68,8 @@ function computeLowMasteryScore(
   mastery: number | null,
   type: "quiz" | "flashcard"
 ): number {
-  const value = mastery ?? 0;
+  if (mastery === null) return 0;
+  const value = mastery;
   const thresholds =
     type === "quiz"
       ? { low: 25, mid: 15, high: 5 }
@@ -74,11 +81,15 @@ function computeLowMasteryScore(
   return 0;
 }
 
+function computeRepeatMissBonus(count: number | undefined): number {
+  if (count == null || count <= 0) return 0;
+  return Math.min(REPEAT_MISS_BONUS_CAP, count * REPEAT_MISS_BONUS);
+}
+
 function computeStaleReview(
   lastStudiedAt: { toMillis(): number } | null
 ): number {
-  // Never studied earns no staleness bonus — the unknown-mastery bonus already
-  // prioritizes it.
+  // A study timestamp affects staleness only. Unknown mastery stays exploration.
   if (!lastStudiedAt) return 0;
   const daysSince =
     (Date.now() - lastStudiedAt.toMillis()) / (1000 * 60 * 60 * 24);
@@ -88,14 +99,17 @@ function computeStaleReview(
   return 0;
 }
 
-// Combined mastery across whichever signals exist. No data at all counts as 0,
-// so brand-new topics are treated as weak.
-function averageMastery(topic: EligibleTopic): number {
+function averageMastery(topic: EligibleTopic): number | null {
   const known = [topic.quizMastery, topic.flashcardEngagement].filter(
     (value): value is number => value !== null
   );
-  if (known.length === 0) return 0;
+  if (known.length === 0) return null;
   return known.reduce((sum, value) => sum + value, 0) / known.length;
+}
+
+export function isWeakTopic(topic: EligibleTopic): boolean {
+  const average = averageMastery(topic);
+  return average !== null && average < 0.6;
 }
 
 export function chooseActivityType(
@@ -107,6 +121,10 @@ export function chooseActivityType(
 
   if (topic.quizMastery === null && topic.flashcardEngagement === null) {
     return "reading";
+  }
+
+  if (topic.activityType === "flashcards" && topic.flashcardEngagement === null) {
+    return "flashcards";
   }
 
   const qm = topic.quizMastery ?? 1;
@@ -153,6 +171,36 @@ function buildReason(scored: ScoredTopic, activityType: ActivityType): string {
     : `${capitalized} — ${parts.slice(1).join(", ")}`;
 }
 
+function activityTargetForTask(
+  topic: EligibleTopic,
+  activityType: ActivityType,
+  targetId: string | null
+): ActivityTarget | undefined {
+  const source = topic.activityTarget;
+  if (!source) return undefined;
+  if (activityType === "reading") {
+    return source.kind === "document" ? source : undefined;
+  }
+  if (topic.activityType !== activityType) return undefined;
+  if (source.kind !== "document") return source;
+  if (topic.activityType === "quiz" && activityType === "quiz" && targetId) {
+    return {
+      kind: "quiz",
+      quizId: targetId,
+      sourceDocKey: source.sourceDocKey,
+      mode: "full",
+    };
+  }
+  if (topic.activityType === "flashcards" && activityType === "flashcards" && targetId) {
+    return {
+      kind: "flashcard_set",
+      setId: targetId,
+      sourceDocKey: source.sourceDocKey,
+    };
+  }
+  return undefined;
+}
+
 function buildTitle(activityType: ActivityType, topicLabel: string): string {
   const prefix: Record<ActivityType, string> = {
     quiz: "Quiz",
@@ -161,6 +209,89 @@ function buildTitle(activityType: ActivityType, topicLabel: string): string {
     ai_explanation: "Explore",
   };
   return `${prefix[activityType]}: ${topicLabel}`;
+}
+
+export function needsDocumentSelection(
+  task: Pick<GeneratedTask, "activityType" | "activityTarget">
+): boolean {
+  return task.activityType === "reading" && task.activityTarget?.kind !== "document";
+}
+
+export interface RecommendationResource {
+  id: string;
+  url?: unknown;
+  sourceDocKey?: unknown;
+  storageKey?: unknown;
+}
+
+function nonEmptyString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export function documentTargetForResource(
+  resource: RecommendationResource
+): Extract<ActivityTarget, { kind: "document" }> {
+  const stored =
+    nonEmptyString(resource.sourceDocKey) ?? nonEmptyString(resource.storageKey);
+  return {
+    kind: "document",
+    resourceId: resource.id,
+    sourceDocKey: stored ?? nonEmptyString(resource.url) ?? "",
+  };
+}
+
+function decodeKey(value: string): string {
+  let current = value.trim();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const decoded = decodeURIComponent(current);
+      if (decoded === current) break;
+      current = decoded.trim();
+    } catch {
+      break;
+    }
+  }
+  return current;
+}
+
+function downloadKey(value: string): string | null {
+  const marker = "key=";
+  const index = value.indexOf(marker);
+  if (index < 0) return null;
+  const raw = value.slice(index + marker.length).split("&")[0] ?? "";
+  const decoded = decodeKey(raw);
+  return decoded.length > 0 ? decoded : null;
+}
+
+function comparableKeys(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  const decoded = decodeKey(trimmed);
+  const keys = new Set<string>([decoded]);
+  const fromDecoded = downloadKey(decoded);
+  if (fromDecoded) keys.add(fromDecoded);
+  const fromRaw = downloadKey(trimmed);
+  if (fromRaw) keys.add(fromRaw);
+  return [...keys];
+}
+
+export function findResourceForSourceDocKey<T extends RecommendationResource>(
+  sourceDocKey: unknown,
+  resources: readonly T[]
+): T | undefined {
+  const source = nonEmptyString(sourceDocKey);
+  if (!source) return undefined;
+  const wanted = new Set(comparableKeys(source));
+  return resources.find((resource) => {
+    const candidates = [...comparableKeys(resource.id)];
+    for (const value of [resource.sourceDocKey, resource.storageKey, resource.url]) {
+      const stored = nonEmptyString(value);
+      if (stored) candidates.push(...comparableKeys(stored));
+    }
+    return candidates.some((key) => wanted.has(key));
+  });
 }
 
 export function generateTasks(
@@ -179,7 +310,7 @@ export function generateTasks(
   if (config.goal === "exam_prep") {
     filtered = filtered.filter((t) => exams.has(t.courseId));
   } else if (config.goal === "weak_topics") {
-    filtered = filtered.filter((t) => averageMastery(t) < 0.6);
+    filtered = filtered.filter((t) => isWeakTopic(t));
   }
 
   const scored = filtered.map((t) => {
@@ -204,6 +335,12 @@ export function generateTasks(
     const estMinutes = ESTIMATED_MINUTES[activityType];
     if (estMinutes > remainingMinutes) return false;
 
+    const resolvedTargetId =
+      activityType === "reading" && topic.activityTarget?.kind === "document"
+        ? topic.activityTarget.resourceId
+        : targetId;
+    const activityTarget = activityTargetForTask(topic, activityType, targetId);
+
     tasks.push({
       title: buildTitle(activityType, topic.topicLabel),
       courseId: topic.courseId,
@@ -211,10 +348,11 @@ export function generateTasks(
       courseCode: topic.courseCode,
       topicLabel: topic.topicLabel,
       activityType,
-      targetId,
+      targetId: resolvedTargetId,
       estimatedMinutes: estMinutes,
       reason: buildReason(topic, activityType),
       priorityScore: topic.totalScore,
+      ...(activityTarget ? { activityTarget } : {}),
     });
 
     remainingMinutes -= estMinutes;
