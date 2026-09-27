@@ -30,6 +30,7 @@ interface StudyPlanContextValue {
   session: (StudySession & { id: string }) | null;
   sessionLoading: boolean;
   elapsedSeconds: number;
+  completedSessionId: string | null;
   focusCard: FocusCardState | null;
   setMinimized: (v: boolean) => void;
   setCorner: (c: CardCorner) => void;
@@ -67,7 +68,7 @@ interface StudyPlanContextValue {
       activityUrl: string;
     }
   ) => Promise<void>;
-  pauseSession: () => Promise<void>;
+  pauseSession: (endAtMs?: number) => Promise<void>;
   resumeSession: () => Promise<void>;
   completeSession: () => Promise<void>;
   abandonSession: () => Promise<void>;
@@ -99,6 +100,7 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
     session,
     loading: sessionLoading,
     elapsedSeconds,
+    completedSessionId,
     startSession,
     attachTaskToSession,
     pauseSession,
@@ -150,6 +152,7 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
       session,
       sessionLoading,
       elapsedSeconds,
+      completedSessionId,
       focusCard,
       setMinimized,
       setCorner,
@@ -174,6 +177,7 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
       session,
       sessionLoading,
       elapsedSeconds,
+      completedSessionId,
       focusCard,
       setMinimized,
       setCorner,

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   focusMachineReducer,
   initialFocusState,
+  shouldOpenDoneChoice,
   BREAK_SECONDS,
   type FocusMachineState,
 } from "./focusMachine";
@@ -82,5 +83,39 @@ describe("focusMachineReducer", () => {
   it("BREAK_TICK is a no-op when not on break", () => {
     const st = s({ overlay: "done_choice", breakSecondsLeft: 10 });
     expect(focusMachineReducer(st, { type: "BREAK_TICK" })).toEqual(st);
+  });
+});
+
+describe("shouldOpenDoneChoice", () => {
+  const base = {
+    completedSessionId: "abc",
+    trackedSessionId: "abc",
+    overlay: "none" as const,
+    alreadyShownSessionId: null as string | null,
+  };
+
+  it("opens when the tracked session just completed and no overlay is up", () => {
+    expect(shouldOpenDoneChoice(base)).toBe(true);
+  });
+
+  it("does not open when nothing has completed", () => {
+    expect(shouldOpenDoneChoice({ ...base, completedSessionId: null })).toBe(false);
+  });
+
+  it("does not open for a different session than the one being tracked", () => {
+    expect(shouldOpenDoneChoice({ ...base, trackedSessionId: "xyz" })).toBe(false);
+  });
+
+  it("does not open while another overlay is already showing", () => {
+    expect(shouldOpenDoneChoice({ ...base, overlay: "break" })).toBe(false);
+    expect(shouldOpenDoneChoice({ ...base, overlay: "done_choice" })).toBe(false);
+  });
+
+  it("does not re-open after the user already saw done for this session (prevents re-trigger after Finish)", () => {
+    expect(shouldOpenDoneChoice({ ...base, alreadyShownSessionId: "abc" })).toBe(false);
+  });
+
+  it("still opens if a previous, different session had shown done", () => {
+    expect(shouldOpenDoneChoice({ ...base, alreadyShownSessionId: "old" })).toBe(true);
   });
 });

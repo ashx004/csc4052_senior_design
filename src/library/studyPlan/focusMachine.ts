@@ -27,6 +27,27 @@ export const initialFocusState: FocusMachineState = {
   breakSecondsLeft: BREAK_SECONDS,
 };
 
+/** Whether the focus card should open the "done" choice overlay because the
+ *  session it is tracking just completed (via the Done button, a quiz submit,
+ *  or finishing a reading). Kept pure so the wiring in useFocusMachine is
+ *  testable without a DOM. `alreadyShownSessionId` guards against re-opening
+ *  after the user dismissed it (e.g. pressed Finish). */
+export function shouldOpenDoneChoice(params: {
+  completedSessionId: string | null;
+  trackedSessionId: string | null;
+  overlay: OverlayPhase;
+  alreadyShownSessionId: string | null;
+}): boolean {
+  const { completedSessionId, trackedSessionId, overlay, alreadyShownSessionId } =
+    params;
+  return (
+    completedSessionId != null &&
+    completedSessionId === trackedSessionId &&
+    overlay === "none" &&
+    alreadyShownSessionId !== completedSessionId
+  );
+}
+
 export function focusMachineReducer(
   state: FocusMachineState,
   action: FocusAction

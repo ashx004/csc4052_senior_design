@@ -5,22 +5,29 @@ import { useStudyPlanContext } from "@/src/context/StudyPlanContext";
 import {
   focusMachineReducer,
   initialFocusState,
+  shouldOpenDoneChoice,
   type OverlayPhase,
 } from "@/src/library/studyPlan/focusMachine";
 import type { ChickenState, FocusCardState } from "@/src/library/studyPlan/types";
 
+/** Pause (not kill) the session only after the tab has been hidden this long,
+ *  so quick tab-switches while studying don't interrupt the run. */
+const AWAY_PAUSE_MS = 5 * 60 * 1000;
+
 export function useFocusMachine() {
   const {
     focusCard,
+    completedSessionId,
     completeSession,
-    abandonSession,
+    pauseSession,
     updateTaskStatus,
   } = useStudyPlanContext();
 
   const [state, dispatch] = useReducer(focusMachineReducer, initialFocusState);
   const [snapshot, setSnapshot] = useState<FocusCardState | null>(null);
   const completedForSessionRef = useRef<string | null>(null);
-  const abandonedForSessionRef = useRef<string | null>(null);
+  const doneShownForSessionRef = useRef<string | null>(null);
+  const pausedForSessionRef = useRef<string | null>(null);
   const hiddenAtRef = useRef<number | null>(null);
   const sessionIdRef = useRef<string | null>(null);
 
@@ -35,11 +42,31 @@ export function useFocusMachine() {
     if (id && id !== sessionIdRef.current) {
       sessionIdRef.current = id;
       completedForSessionRef.current = null;
-      abandonedForSessionRef.current = null;
+      doneShownForSessionRef.current = null;
+      pausedForSessionRef.current = null;
       dispatch({ type: "RESET" });
     }
     if (!id) sessionIdRef.current = null;
   }, [focusCard?.sessionId]);
+
+  // When the tracked session completes (Done button, quiz submit, reading
+  // finished), open the "done" choice instead of letting the card vanish.
+  // Driven by the completion signal, which is set before the session leaves the
+  // active query, so the overlay is up before focusCard goes null — no flicker.
+  useEffect(() => {
+    const trackedSessionId = card?.sessionId ?? null;
+    if (
+      shouldOpenDoneChoice({
+        completedSessionId,
+        trackedSessionId,
+        overlay: state.overlay,
+        alreadyShownSessionId: doneShownForSessionRef.current,
+      })
+    ) {
+      doneShownForSessionRef.current = completedSessionId;
+      dispatch({ type: "COMPLETE" });
+    }
+  }, [completedSessionId, card?.sessionId, state.overlay]);
 
   // Auto-complete exactly once when progress hits 100% while active.
   useEffect(() => {
@@ -63,9 +90,9 @@ export function useFocusMachine() {
           if (!sessionWritten && completedForSessionRef.current === sessionId) {
             completedForSessionRef.current = null;
           }
-          if (!sessionWritten) return;
         }
-        dispatch({ type: "COMPLETE" });
+        // The done overlay is opened by the completion-signal effect above,
+        // not here, so every completion path opens it exactly once.
       })();
     }
   }, [state.overlay, focusCard, completeSession, updateTaskStatus]);
@@ -77,7 +104,9 @@ export function useFocusMachine() {
     return () => window.clearInterval(t);
   }, [state.overlay]);
 
-  // Death on tab-away > 60s (single visibility handler; abandon once).
+  // Auto-pause on tab-away > 60s (single visibility handler; pause once).
+  // The chicken no longer dies — the session pauses at the moment the user left
+  // (away time is not counted) and can be resumed exactly where it stopped.
   useEffect(() => {
     if (!focusCard?.visible || focusCard.mode === "paused" || state.overlay !== "none")
       return;
@@ -85,33 +114,28 @@ export function useFocusMachine() {
       if (document.hidden) {
         hiddenAtRef.current = Date.now();
       } else if (hiddenAtRef.current) {
-        const away = Date.now() - hiddenAtRef.current;
+        const leftAtMs = hiddenAtRef.current;
+        const away = Date.now() - leftAtMs;
         hiddenAtRef.current = null;
-        if (away > 60_000) {
-          const taskId = focusCard.taskId;
+        if (away > AWAY_PAUSE_MS) {
           const sessionId = focusCard.sessionId;
-          if (abandonedForSessionRef.current === sessionId) return;
-          abandonedForSessionRef.current = sessionId;
+          if (pausedForSessionRef.current === sessionId) return;
+          pausedForSessionRef.current = sessionId;
           void (async () => {
-            let sessionWritten = false;
             try {
-              await abandonSession();
-              sessionWritten = true;
-              if (taskId) await updateTaskStatus(taskId, "recommended");
+              await pauseSession(leftAtMs);
             } catch {
-              if (!sessionWritten && abandonedForSessionRef.current === sessionId) {
-                abandonedForSessionRef.current = null;
+              if (pausedForSessionRef.current === sessionId) {
+                pausedForSessionRef.current = null;
               }
-              if (!sessionWritten) return;
             }
-            dispatch({ type: "ABANDON" });
           })();
         }
       }
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, [focusCard?.visible, focusCard?.mode, focusCard?.sessionId, focusCard?.taskId, state.overlay, abandonSession, updateTaskStatus]);
+  }, [focusCard?.visible, focusCard?.mode, focusCard?.sessionId, state.overlay, pauseSession]);
 
   const done = useCallback(() => {
     if (!focusCard?.visible) {
@@ -132,9 +156,8 @@ export function useFocusMachine() {
         if (!sessionWritten && completedForSessionRef.current === sessionId) {
           completedForSessionRef.current = null;
         }
-        if (!sessionWritten) return;
       }
-      dispatch({ type: "COMPLETE" });
+      // The done overlay opens via the completion-signal effect, not here.
     })();
   }, [focusCard, completeSession, updateTaskStatus]);
 
