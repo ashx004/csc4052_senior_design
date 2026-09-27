@@ -1,13 +1,12 @@
-import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { FieldValue, Timestamp, type DocumentReference } from "firebase-admin/firestore";
 import { adminAuth, adminDb } from "@/src/library/firebaseAdmin";
 import { sendEmail } from "@/src/library/email/resend";
 import { dueReminderTemplate } from "@/src/library/email/templates";
+import { isInternalRequest } from "@/src/library/verifyAuth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
 
 const WORK_BATCH_SIZE = 50;
 const MAX_ATTEMPTS = 3;
@@ -33,18 +32,6 @@ type ClaimedJob = {
   uid: string;
   attempt: number;
 };
-
-function sameSecret(actual: string | null, expected: string): boolean {
-  if (!actual || actual.length !== expected.length) return false;
-  return timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
-}
-
-function authorized(request: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const header = request.headers.get("authorization");
-  return sameSecret(header?.startsWith("Bearer ") ? header.slice(7) : null, secret);
-}
 
 function timestamp(value: unknown): Timestamp | null {
   return value instanceof Timestamp ? value : null;
@@ -295,11 +282,11 @@ async function runReminderWorker() {
 }
 
 async function handler(request: NextRequest) {
-  if (!process.env.CRON_SECRET) {
-    console.error("[email/reminder] CRON_SECRET is not configured");
+  if (!process.env.INTERNAL_API_SECRET) {
+    console.error("[email/reminder] INTERNAL_API_SECRET is not configured");
     return NextResponse.json({ error: "Reminder worker is not configured." }, { status: 503 });
   }
-  if (!authorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!isInternalRequest(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
     return NextResponse.json(await runReminderWorker());
@@ -309,6 +296,6 @@ async function handler(request: NextRequest) {
   }
 }
 
-// Vercel Cron invokes GET. POST is useful for protected manual testing.
-export const GET = handler;
+// Called only by scripts/reminderWorker.ts, using the server-only internal
+// secret also used by the durable OCR worker.
 export const POST = handler;
