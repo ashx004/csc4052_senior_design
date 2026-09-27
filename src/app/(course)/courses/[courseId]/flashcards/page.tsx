@@ -25,10 +25,20 @@ import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistan
 import { buildFlashcardSuggestions, type FlashcardPageContext } from '@/src/library/Contextual_AI/contextualAi';
 import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
 import FlashcardSetupModal from '@/src/components/discover/FlashcardSetupModal';
+import QuizSetupModal from '@/src/components/quizzes/QuizSetupModal';
+import QuizChoiceModal, { type QuizChoice } from '@/src/components/studyPlan/QuizChoiceModal';
 import { publishStudySet } from '@/src/library/discover/publishStudySet';
 import type { StudySetVisibility } from '@/src/library/discover/types';
 import PageTutorial from '@/src/components/tutorial/PageTutorial';
 import courseFlashcardsSteps from '@/src/library/tutorials/steps/course-flashcards';
+import { useLearningProgress } from '@/src/hooks/useLearningProgress';
+import { useGenerateQuizFromResource } from '@/src/hooks/useGenerateQuizFromResource';
+import { findResourceForSourceDocKey } from '@/src/library/studyPlan/recommendationEngine';
+import {
+  resolveQuizNextStep,
+  type QuizNextStep,
+  type QuizSetRef,
+} from '@/src/library/studyPlan/nextStudyActivity';
 
 interface Flashcard {
   question: string;
@@ -43,6 +53,38 @@ interface PendingResource {
 
 function extractStorageKey(url: string): string {
   return decodeURIComponent(url.split('key=')[1] ?? '');
+}
+
+interface LoadedQuiz extends QuizSetRef {
+  name: string;
+}
+
+function millisFrom(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (
+    value &&
+    typeof value === 'object' &&
+    'toMillis' in value &&
+    typeof (value as { toMillis: unknown }).toMillis === 'function'
+  ) {
+    const millis = (value as { toMillis: () => unknown }).toMillis();
+    return typeof millis === 'number' && Number.isFinite(millis) ? millis : null;
+  }
+  return null;
+}
+
+async function loadCourseQuizzes(userId: string, courseId: string): Promise<LoadedQuiz[]> {
+  const snapshot = await getDocs(collection(db, 'users', userId, 'enrollment', courseId, 'quizSets'));
+  return snapshot.docs.map((quizDoc) => {
+    const data = quizDoc.data();
+    const name = typeof data.name === 'string' ? data.name.trim() : '';
+    return {
+      id: quizDoc.id,
+      name: name || 'Untitled quiz',
+      sourceDocKey: typeof data.sourceDocKey === 'string' ? data.sourceDocKey : null,
+      createdAtMs: millisFrom(data.createdAt),
+    };
+  });
 }
 
 async function requestFlashcards(
@@ -109,9 +151,13 @@ export default function FlashcardsPage() {
 
   const courseId = params.courseId as string;
   const { courseCode } = useCourseInfo(courseId);
+  const { finishFlashcardReview } = useLearningProgress();
+  const quizFromResource = useGenerateQuizFromResource(courseId);
   const docId = searchParams.get('docId') || '';
   const docNameParam = searchParams.get('docName') || '';
   const setId = searchParams.get('setId') || '';
+  const taskIdParam = searchParams.get('taskId');
+  const taskId = taskIdParam && taskIdParam.trim() ? taskIdParam : null;
 
   const [flashcards, setFlashcards] = useState<Flashcard[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -131,6 +177,14 @@ export default function FlashcardsPage() {
   // The resolved source document, waiting on the user's visibility choice
   // in FlashcardSetupModal before generation actually starts.
   const [pendingResource, setPendingResource] = useState<PendingResource | null>(null);
+  const [savedSetId, setSavedSetId] = useState<string | null>(setId || null);
+  const [reviewSaved, setReviewSaved] = useState(false);
+  const [finishingReview, setFinishingReview] = useState(false);
+  const [finishError, setFinishError] = useState<string | null>(null);
+  const [quizLookupFailed, setQuizLookupFailed] = useState(false);
+  const [quizGuidance, setQuizGuidance] = useState<QuizNextStep | null>(null);
+  const [loadedQuizzes, setLoadedQuizzes] = useState<LoadedQuiz[]>([]);
+  const [choiceOpen, setChoiceOpen] = useState(false);
 
   const [catalystOpen, setCatalystOpen] = useState(false);
   const catalystBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -149,6 +203,10 @@ export default function FlashcardsPage() {
         setCatalystChatContext(null);
       });
   }, [user]);
+
+  useEffect(() => {
+    if (setId) setSavedSetId(setId);
+  }, [setId]);
 
   // Load a previously saved flashcard set (opened from the course sidebar)
   useEffect(() => {
@@ -249,6 +307,7 @@ export default function FlashcardsPage() {
       setSourceDocKey(key);
 
       const setDocId = await persistFlashcardSet(user.uid, courseId, key, topicName, questions, visibility);
+      setSavedSetId(setDocId);
 
       // Publishing is best-effort — a failure here shouldn't block the
       // student from reaching their newly created (already-private-until-
@@ -350,7 +409,8 @@ export default function FlashcardsPage() {
         // inert in practice — persistFlashcardSet only writes it on the
         // create branch. Kept conservative ("private") in case that
         // assumption is ever wrong for an edge case not covered here.
-        await persistFlashcardSet(user.uid, courseId, sourceDocKey, '', questions, 'private');
+        const appendedSetId = await persistFlashcardSet(user.uid, courseId, sourceDocKey, '', questions, 'private');
+        setSavedSetId(appendedSetId);
       }
     } catch (err) {
       console.error('Error generating more flashcards:', err);
@@ -359,6 +419,110 @@ export default function FlashcardsPage() {
       setGenerating(false);
     }
   };
+
+  const resolveQuizzes = async (key: string) => {
+    if (!user) return;
+    const quizzes = await loadCourseQuizzes(user.uid, courseId);
+    setLoadedQuizzes(quizzes);
+    setQuizGuidance(resolveQuizNextStep(key, quizzes));
+    setQuizLookupFailed(false);
+    setFinishError(null);
+  };
+
+  const handleFinishReview = async () => {
+    if (!user || reviewSaved || finishingReview) return;
+    if (!sourceDocKey) {
+      setFinishError('Source document not found for this flashcard set.');
+      return;
+    }
+
+    setFinishingReview(true);
+    setFinishError(null);
+
+    try {
+      await finishFlashcardReview({
+        courseId,
+        sourceDocKey,
+        flashcardSetId: savedSetId,
+        taskId,
+      });
+      setReviewSaved(true);
+      try {
+        await resolveQuizzes(sourceDocKey);
+      } catch (lookupError) {
+        console.error('Error loading quizzes after review:', lookupError);
+        setQuizLookupFailed(true);
+        setFinishError('Your review was saved, but quizzes could not be loaded.');
+      }
+    } catch (err) {
+      console.error('Error finishing flashcard review:', err);
+      setFinishError(err instanceof Error ? err.message : 'Could not save this review. Please try again.');
+    } finally {
+      setFinishingReview(false);
+    }
+  };
+
+  const retryQuizLookup = async () => {
+    if (!user || !sourceDocKey || !reviewSaved || finishingReview) return;
+    setFinishingReview(true);
+    setFinishError(null);
+    try {
+      await resolveQuizzes(sourceDocKey);
+    } catch (lookupError) {
+      console.error('Error loading quizzes after review:', lookupError);
+      setQuizLookupFailed(true);
+      setFinishError('Your review was saved, but quizzes could not be loaded.');
+    } finally {
+      setFinishingReview(false);
+    }
+  };
+
+  const openQuizSetup = async () => {
+    if (!user || !sourceDocKey) {
+      setFinishError('Source document not found for this flashcard set.');
+      return;
+    }
+
+    try {
+      const resources = await getCourseResources(user.uid, courseId);
+      const mapped = resources.map((resource: {
+        id: string;
+        name?: string;
+        url?: string;
+        sourceDocKey?: string;
+        storageKey?: string;
+      }) => ({
+        id: resource.id,
+        name: typeof resource.name === 'string' ? resource.name : '',
+        url: typeof resource.url === 'string' ? resource.url : '',
+        sourceDocKey: resource.sourceDocKey,
+        storageKey: resource.storageKey,
+      }));
+      const byDocId = docId ? mapped.find((resource) => resource.id === docId) : undefined;
+      const matched = findResourceForSourceDocKey(sourceDocKey, mapped) ?? byDocId;
+      quizFromResource.begin({
+        sourceDocKey,
+        resourceId: matched?.id || docId || sourceDocKey,
+        name: matched?.name || displayName,
+        url: matched?.url || `/api/download?key=${encodeURIComponent(sourceDocKey)}`,
+      });
+    } catch (err) {
+      console.error('Error opening quiz setup:', err);
+      setFinishError('Could not open quiz setup. Please try again.');
+    }
+  };
+
+  const openQuiz = (quizId: string) => {
+    setChoiceOpen(false);
+    router.push(`/courses/${courseId}/quizzes/${quizId}?mode=take`);
+  };
+
+  const alternativeIds =
+    quizGuidance?.action === 'open_quiz' ? quizGuidance.alternatives : [];
+  const matchingQuizChoices: QuizChoice[] = alternativeIds.flatMap((id) => {
+    const quiz = loadedQuizzes.find((item) => item.id === id);
+    return quiz ? [{ id: quiz.id, name: quiz.name }] : [];
+  });
 
   const flashcardPageContext: FlashcardPageContext | null =
     flashcards.length > 0
@@ -494,32 +658,121 @@ export default function FlashcardsPage() {
               </button>
             </div>
 
-            {/* Error during "generate more" */}
+            {/* Error during "generate more" or finish review */}
             {error && (
               <p className="mt-4 text-sm text-red-400">{error}</p>
             )}
-
-            {/* Generate More — only on last card */}
-            {isLastCard && (
+            {finishError && (
+              <p className="mt-4 text-sm text-red-400 text-center">{finishError}</p>
+            )}
+            {quizLookupFailed && reviewSaved && (
               <button
-                onClick={handleGenerateMore}
-                disabled={generating}
-                className="mt-6 flex items-center gap-2 px-5 py-2.5 bg-[#1a1a2e] text-text-inverse
-                           text-sm font-medium rounded-lg hover:bg-[#2a2a3e] transition-colors
-                           disabled:opacity-50 disabled:cursor-not-allowed"
+                type="button"
+                onClick={() => void retryQuizLookup()}
+                disabled={finishingReview}
+                className="mt-3 text-sm font-medium text-[#8B6914] hover:underline disabled:opacity-50"
               >
-                {generating ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw size={16} />
-                    Generate More Flashcards
-                  </>
-                )}
+                Try again
               </button>
+            )}
+
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+              {!reviewSaved && (
+                <button
+                  type="button"
+                  onClick={() => void handleFinishReview()}
+                  disabled={finishingReview}
+                  className={
+                    isLastCard
+                      ? `flex items-center gap-2 rounded-xl bg-[#8B6914] px-6 py-3 text-base font-semibold text-white shadow-md transition-colors hover:bg-[#6F5410] disabled:cursor-not-allowed disabled:opacity-50`
+                      : `flex items-center gap-2 rounded-lg border border-border-light bg-bg-container px-4 py-2 text-sm font-medium text-[#1a1a2e] transition-colors hover:bg-[#F5F0EB] disabled:cursor-not-allowed disabled:opacity-50`
+                  }
+                >
+                  {finishingReview ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Saving review...
+                    </>
+                  ) : (
+                    'Finish Review'
+                  )}
+                </button>
+              )}
+
+              {isLastCard && (
+                <button
+                  onClick={handleGenerateMore}
+                  disabled={generating}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-[#1a1a2e] text-text-inverse
+                             text-sm font-medium rounded-lg hover:bg-[#2a2a3e] transition-colors
+                             disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {generating ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw size={16} />
+                      Generate More Flashcards
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+
+            {quizGuidance && (
+              <div
+                className="mt-6 w-full max-w-xl rounded-xl border border-border-light bg-bg-container px-4 py-4"
+                role="region"
+                aria-label="Quiz next step"
+              >
+                <h2 className="text-sm font-semibold text-text-main">You finished this review</h2>
+                <p className="mt-1 text-sm text-text-muted">
+                  {quizGuidance.action === 'open_quiz'
+                    ? 'A quiz from this document is ready whenever you want to check what you remember.'
+                    : 'You can make a quiz from this document whenever you want to check what you remember.'}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {quizGuidance.action === 'open_quiz' ? (
+                    <button
+                      type="button"
+                      onClick={() => openQuiz(quizGuidance.quizId)}
+                      className="rounded-xl bg-[#1a1a2e] px-4 py-2 text-sm font-semibold text-text-inverse transition-colors hover:bg-[#2a2a3e]"
+                    >
+                      Take quiz
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void openQuizSetup()}
+                      className="rounded-xl bg-[#1a1a2e] px-4 py-2 text-sm font-semibold text-text-inverse transition-colors hover:bg-[#2a2a3e]"
+                    >
+                      Create quiz
+                    </button>
+                  )}
+                  {quizGuidance.action === 'open_quiz' && quizGuidance.alternatives.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setChoiceOpen(true)}
+                      className="rounded-xl border border-border-light px-4 py-2 text-sm font-semibold text-[#1a1a2e] transition-colors hover:bg-bg-warm"
+                    >
+                      Choose another quiz
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQuizGuidance(null);
+                      setChoiceOpen(false);
+                    }}
+                    className="rounded-xl border border-border-light px-4 py-2 text-sm font-semibold text-[#1a1a2e] transition-colors hover:bg-bg-warm"
+                  >
+                    Later
+                  </button>
+                </div>
+              </div>
             )}
           </>
         )}
@@ -547,6 +800,22 @@ export default function FlashcardsPage() {
         onClose={handleCloseSetupModal}
         onGenerate={handleGenerateFromModal}
         loading={generating}
+      />
+
+      <QuizSetupModal
+        open={quizFromResource.open}
+        documentName={quizFromResource.documentName}
+        onClose={quizFromResource.close}
+        onStart={quizFromResource.start}
+        loading={quizFromResource.loading}
+        error={quizFromResource.error}
+      />
+
+      <QuizChoiceModal
+        open={choiceOpen}
+        quizzes={matchingQuizChoices}
+        onClose={() => setChoiceOpen(false)}
+        onSelect={openQuiz}
       />
     </div>
   );

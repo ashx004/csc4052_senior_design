@@ -1,3 +1,4 @@
+// Deprecated: masteryEngine.ts replaces quiz-level mastery. Task 11 migrates the remaining buildMasterySignalId caller.
 import type { SignalType } from "./types";
 
 const WEIGHTS = [1.0, 0.5, 0.25];
