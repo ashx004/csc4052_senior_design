@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "worker:ocr": "tsx scripts/ocrWorker.ts"
+    "worker:ocr": "tsx scripts/ocrWorker.ts",
+    "worker:reminders": "tsx scripts/reminderWorker.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1079.0",
