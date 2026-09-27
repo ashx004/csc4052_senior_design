@@ -4,7 +4,7 @@ import './global.css';
 import { AuthProvider } from "@/src/context/AuthContext";
 import { StudyPlanProvider } from "@/src/context/StudyPlanContext";
 import { TutorialProvider } from "@/src/context/TutorialContext";
-import FocusBar from "@/src/components/studyPlan/FocusBar";
+import FocusCard from "@/src/components/studyPlan/FocusCard";
 import ThemeInitializer from "@/src/components/ThemeInitializer";
 
 const jakarta = Plus_Jakarta_Sans({
@@ -35,11 +35,11 @@ export default function RootLayout({
         <ThemeInitializer />
 
         <AuthProvider>
-          {/* Study sessions outlive any single route group — the focus bar
+          {/* Study sessions outlive any single route group — the focus card
               lives here so it stays visible on the course pages a started
               task navigates to, not just the dashboard. */}
           <StudyPlanProvider>
-            <FocusBar />
+            <FocusCard />
             {/* Mounted once at the root (not per-layout) so a user's
                 tutorial progress survives navigating between the dashboard
                 and course route groups without refetching. */}

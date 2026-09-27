@@ -1,5 +1,38 @@
 import type { Timestamp } from "firebase/firestore";
 
+export type ChickenState =
+  | "egg"
+  | "hatching"
+  | "growing"
+  | "almost"
+  | "complete"
+  | "dead"
+  | "paused"
+  | "break";
+
+export type CardCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+
+export type TimerMode = "countdown" | "countup";
+
+export type FocusCardMode = "active_on_task" | "active_navigated" | "paused";
+
+export interface FocusCardState {
+  visible: boolean;
+  mode: FocusCardMode;
+  taskId: string | null;
+  taskTitle: string;
+  courseCode: string;
+  elapsedSeconds: number;
+  sessionId: string;
+  activityUrl: string;
+  chickenState: ChickenState;
+  isMinimized: boolean;
+  corner: CardCorner;
+  timerMode: TimerMode;
+  targetSeconds: number | null;
+  progress: number;
+}
+
 // --- Plan ---
 
 export type PlanState =
@@ -92,7 +125,7 @@ export interface SessionPeriod {
 }
 
 export interface StudySession {
-  taskId: string;
+  taskId: string | null;
   courseId: string;
   activityType: ActivityType;
   targetId: string | null;
@@ -103,6 +136,8 @@ export interface StudySession {
   activeMinutes: number;
   periods: SessionPeriod[];
   activityUrl: string;
+  timerMode: TimerMode;
+  targetSeconds: number | null;
 }
 
 // --- Mastery ---
@@ -189,19 +224,6 @@ export interface SetupFlowState {
   config: Partial<SetupConfig>;
   isGenerating: boolean;
   error: string | null;
-}
-
-export type FocusBarMode = "active_on_task" | "active_navigated" | "paused";
-
-export interface FocusBarState {
-  visible: boolean;
-  mode: FocusBarMode;
-  taskId: string;
-  taskTitle: string;
-  courseCode: string;
-  elapsedSeconds: number;
-  sessionId: string;
-  activityUrl: string;
 }
 
 export type PlanViewMode = "list" | "board" | "schedule";
