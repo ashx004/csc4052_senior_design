@@ -10,7 +10,8 @@ import {
 } from "@/src/library/authEmailOtp";
 import { adminAuth, adminDb } from "@/src/library/firebaseAdmin";
 import { sendEmail } from "@/src/library/email/resend";
-import { loginTwoFactorTemplate } from "@/src/library/email/templates";
+import { emailVerificationTemplate, loginTwoFactorTemplate } from "@/src/library/email/templates";
+import { generateVerificationLink } from "@/src/library/email/firebaseAuthActions";
 import { checkRateLimit } from "@/src/library/rateLimit";
 
 export const runtime = "nodejs";
@@ -71,11 +72,29 @@ export async function POST(request: NextRequest) {
     const uid = await validateFirebasePassword(email, parsed.data.password);
     if (!uid) return NextResponse.json({ error: "Invalid email or password." }, { status: 401 });
 
-    const [user, config] = await Promise.all([adminAuth.getUser(uid), Promise.resolve(getEmailOtpConfig())]);
-    if (!user.email || !user.emailVerified) {
+    const user = await adminAuth.getUser(uid);
+    if (!user.email) {
       return NextResponse.json({ error: "Verify your email address before signing in." }, { status: 403 });
     }
     if (user.disabled) return NextResponse.json({ error: "This account is disabled." }, { status: 403 });
+    if (!user.emailVerified) {
+      const actionUrl = await generateVerificationLink(user.email);
+      const emailMessage = emailVerificationTemplate({
+        actionUrl,
+        recipientName: user.displayName,
+      });
+      await sendEmail({
+        to: user.email,
+        subject: emailMessage.subject,
+        html: emailMessage.html,
+        text: emailMessage.text,
+      });
+      return NextResponse.json(
+        { error: "Verify your email address before signing in. We sent a new verification link to your email." },
+        { status: 403 },
+      );
+    }
+    const config = getEmailOtpConfig();
 
     const challengeId = createLoginChallengeId();
     const code = createEmailOtpCode();
