@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowLeft, ChevronDown, List, HelpCircle, BookCopy, Home, Globe, Lock } from "lucide-react";
+import { ArrowLeft, ChevronDown, HelpCircle, BookCopy, Home, Globe, Lock, GraduationCap } from "lucide-react";
 import Sidebar from "./Sidebar";
 import SidebarItemMenu from "./SidebarItemMenu";
 import { useAuth } from "@/src/context/AuthContext";
@@ -22,13 +22,6 @@ interface FlashcardSetSummary {
   // Missing/undefined is treated as "private", matching RecentItemRow's convention.
   visibility?: StudySetVisibility;
 }
-
-// Notes' entry was removed from here — Discover replaced it as a direct
-// link below, not a dropdown. Summaries stays a hardcoded dropdown
-// placeholder, untouched.
-const PLACEHOLDER_SECTIONS = [
-  { title: "Summaries", icon: List, items: ["Summary 1", "Summary 2", "Summary 3"] },
-];
 
 export default function CourseSidebar({ courseId, courseName }: CourseSidebarProps) {
   const pathname = usePathname();
@@ -282,70 +275,6 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
             )}
           </div>
 
-          {/* Summaries — hardcoded dropdown placeholder */}
-          {PLACEHOLDER_SECTIONS.slice(0, 1).map(({ title, icon: Icon, items }) => {
-            const isOpen = openSections[title] || false;
-            const href = `${base}/summaries`;
-
-            return (
-              <div key={title} className="mt-1">
-                <button
-                  onClick={() => {
-                    toggleSection(title);
-                    router.push(href);
-                  }}
-                  className="flex items-center justify-between w-full text-sm font-semibold text-white/65 px-3 py-3 rounded-xl hover:bg-white/10 hover:text-white transition-colors"
-                >
-                  <span>{title}</span>
-                  <ChevronDown
-                    size={16}
-                    className={`text-white/65 transition-transform duration-200 ${
-                      isOpen ? "rotate-180" : ""
-                    }`}
-                  />
-                </button>
-
-                {isOpen && (
-                  <div className="ml-2 mt-0.5 space-y-0.5">
-                    {items.map((item) => (
-                      <Link
-                        key={item}
-                        href={href}
-                        className="flex items-center gap-3 px-3 py-2 text-sm text-white/65 hover:bg-white/10 hover:text-white rounded-xl transition-colors"
-                      >
-                        <Icon size={16} strokeWidth={1.5} className="shrink-0" />
-                        <span>{item}</span>
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          {/* Assignments */}
-          <Link
-            href={`${base}/assignments`}
-            className={`block text-sm font-semibold px-3 py-3 mt-1 rounded-xl transition-colors ${
-              pathname === `${base}/assignments`
-                ? "bg-white/15 text-white"
-                : "text-white/65 hover:bg-white/10 hover:text-white"
-            }`}
-          >
-            Assignments
-          </Link>
-
-          {/* Due Dates */}
-          <Link
-            href={`${base}/due-dates`}
-            className={`block text-sm font-semibold px-3 py-3 mt-1 rounded-xl transition-colors ${
-              pathname === `${base}/due-dates`
-                ? "bg-white/15 text-white"
-                : "text-white/65 hover:bg-white/10 hover:text-white"
-            }`}
-          >
-            Due Dates
-          </Link>
         </div>
 
         {/* Bottom navigation — pushed to bottom via mt-auto */}
@@ -371,6 +300,19 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
           >
             <Home size={20} strokeWidth={1.5} />
             <span>Home</span>
+          </Link>
+
+          <Link
+            href="/learning"
+            className="
+              flex w-full items-center gap-3 rounded-xl
+              px-3 py-3 mt-1
+              text-sm font-semibold text-white/65
+              transition-colors hover:bg-white/10 hover:text-white
+            "
+          >
+            <GraduationCap size={20} strokeWidth={1.5} />
+            <span>Learning</span>
           </Link>
         </div>
       </div>

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   calculateActiveMinutes,
   getActivityUrl,
+  getActivityUrlFromTarget,
   formatElapsedTime,
 } from "./sessionTimer";
 
@@ -72,6 +73,67 @@ describe("getActivityUrl", () => {
   it("builds AI explanation URL", () => {
     expect(getActivityUrl("ai_explanation", "csc430", null)).toBe(
       "/ai-assistant"
+    );
+  });
+});
+
+describe("getActivityUrlFromTarget", () => {
+  it("builds a document URL and appends taskId when provided", () => {
+    const target = {
+      kind: "document" as const,
+      resourceId: "res-1",
+      sourceDocKey: "users/u/resources/sql.pdf",
+    };
+    expect(getActivityUrlFromTarget("course-1", target)).toBe(
+      "/courses/course-1?resourceId=res-1"
+    );
+    expect(getActivityUrlFromTarget("course-1", target, "task-1")).toBe(
+      "/courses/course-1?resourceId=res-1&taskId=task-1"
+    );
+  });
+
+  it("builds a full quiz URL and appends taskId when provided", () => {
+    const target = {
+      kind: "quiz" as const,
+      quizId: "quiz-1",
+      sourceDocKey: null,
+      mode: "full" as const,
+    };
+    expect(getActivityUrlFromTarget("course-1", target)).toBe(
+      "/courses/course-1/quizzes/quiz-1?mode=take"
+    );
+    expect(getActivityUrlFromTarget("course-1", target, "task-1")).toBe(
+      "/courses/course-1/quizzes/quiz-1?mode=take&taskId=task-1"
+    );
+  });
+
+  it("routes missed-question practice without question IDs in the URL", () => {
+    const target = {
+      kind: "quiz" as const,
+      quizId: "quiz-1",
+      sourceDocKey: null,
+      mode: "missed_questions" as const,
+      questionIds: ["q2", "q5"],
+    };
+    expect(getActivityUrlFromTarget("course-1", target, "task-1")).toBe(
+      "/courses/course-1/quizzes/quiz-1?mode=practice&taskId=task-1"
+    );
+    expect(getActivityUrlFromTarget("course-1", target)).toBe(
+      "/courses/course-1/quizzes/quiz-1?mode=practice"
+    );
+  });
+
+  it("builds a flashcard set URL and appends taskId when provided", () => {
+    const target = {
+      kind: "flashcard_set" as const,
+      setId: "set-1",
+      sourceDocKey: null,
+    };
+    expect(getActivityUrlFromTarget("course-1", target)).toBe(
+      "/courses/course-1/flashcards?setId=set-1"
+    );
+    expect(getActivityUrlFromTarget("course-1", target, "task-1")).toBe(
+      "/courses/course-1/flashcards?setId=set-1&taskId=task-1"
     );
   });
 });
