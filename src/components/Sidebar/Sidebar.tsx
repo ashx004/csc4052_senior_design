@@ -91,11 +91,11 @@ export default function Sidebar({ children }: SidebarProps) {
           the panel (handled by the outside-click listener above). */}
       {isOpen && <div className="fixed inset-0 z-40 bg-black/40 md:hidden" aria-hidden="true" />}
 
-      {/* Sidebar panel — in document flow on md+ (pushes content right),
+      {/* Sidebar panel — sticky in the window on md+ (pushes content right),
           fixed over the page on phones */}
       <aside
         ref={sidebarRef}
-        className={`fixed inset-y-0 left-0 z-50 h-screen shrink-0 overflow-hidden bg-navy text-white transition-[width] duration-300 ease-in-out md:static md:z-auto ${
+        className={`fixed inset-y-0 left-0 z-50 h-screen shrink-0 overflow-hidden bg-navy text-white transition-[width] duration-300 ease-in-out md:sticky md:top-0 md:z-auto md:h-screen md:self-start ${
           isOpen ? "w-72" : "w-0"
         }`}
       >

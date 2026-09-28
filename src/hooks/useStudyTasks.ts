@@ -7,15 +7,21 @@ import {
   where,
   onSnapshot,
   addDoc,
+  getDoc,
   updateDoc,
   doc,
   serverTimestamp,
   arrayUnion,
+  runTransaction,
   Timestamp,
   type DocumentData,
   type UpdateData,
 } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
+import {
+  commitSuggestionTask,
+  findLinkedActiveTask,
+} from "@/src/library/studyPlan/addSuggestionToPlan";
 import {
   studyTasksCollection,
   studyTaskPath,
@@ -25,7 +31,18 @@ import type {
   TaskStatus,
   StatusChange,
   GeneratedTask,
+  MissedQuestionsSuggestion,
 } from "@/src/library/studyPlan/types";
+
+function isTaskStatus(value: unknown): value is TaskStatus {
+  return (
+    value === "recommended" ||
+    value === "in_progress" ||
+    value === "completed" ||
+    value === "skipped" ||
+    value === "rescheduled"
+  );
+}
 
 export function useStudyTasks(uid: string | null, planDate: string | null) {
   const [tasks, setTasks] = useState<(StudyTask & { id: string })[]>([]);
@@ -64,6 +81,9 @@ export function useStudyTasks(uid: string | null, planDate: string | null) {
       if (!uid) return [];
       const ids: string[] = [];
       for (const g of generated) {
+        const activityTarget = g.activityTarget;
+        const targetId =
+          activityTarget?.kind === "document" ? activityTarget.resourceId : g.targetId;
         const taskData: Omit<StudyTask, "createdAt" | "updatedAt"> & {
           createdAt: ReturnType<typeof serverTimestamp>;
           updatedAt: ReturnType<typeof serverTimestamp>;
@@ -74,7 +94,8 @@ export function useStudyTasks(uid: string | null, planDate: string | null) {
           courseCode: g.courseCode,
           title: g.title,
           activityType: g.activityType,
-          targetId: g.targetId,
+          targetId,
+          ...(activityTarget ? { activityTarget } : {}),
           topicLabel: g.topicLabel,
           estimatedMinutes: g.estimatedMinutes,
           source: "recommended",
@@ -102,14 +123,67 @@ export function useStudyTasks(uid: string | null, planDate: string | null) {
     [uid]
   );
 
+  const createTaskFromSuggestion = useCallback(
+    async (
+      suggestion: MissedQuestionsSuggestion & { id: string },
+      planDate: string,
+      course: { name: string; code: string },
+    ): Promise<string | null> => {
+      if (!uid || suggestion.status === "unavailable") return null;
+      const existing = findLinkedActiveTask(suggestion, tasks);
+      return runTransaction(db, async (transaction) =>
+        commitSuggestionTask(
+          {
+            async get(path) {
+              const snap = await transaction.get(doc(db, path));
+              return {
+                exists: snap.exists(),
+                data: () =>
+                  snap.exists()
+                    ? (snap.data() as Record<string, unknown>)
+                    : undefined,
+              };
+            },
+            set(path, data) {
+              transaction.set(doc(db, path), data as DocumentData);
+            },
+            update(path, data) {
+              transaction.update(doc(db, path), data as UpdateData<DocumentData>);
+            },
+            createId() {
+              return doc(collection(db, studyTasksCollection(uid))).id;
+            },
+            serverTimestamp() {
+              return serverTimestamp();
+            },
+          },
+          {
+            uid,
+            suggestion,
+            planDate,
+            course,
+            existingTaskId: existing?.id ?? null,
+          },
+        ),
+      );
+    },
+    [uid, tasks],
+  );
+
   const updateTaskStatus = useCallback(
     async (taskId: string, newStatus: TaskStatus, reason?: string) => {
       if (!uid) return;
-      const task = tasks.find((t) => t.id === taskId);
-      if (!task) return;
+      const localTask = tasks.find((t) => t.id === taskId);
+      let fromStatus = localTask?.status;
+      if (!fromStatus) {
+        const snap = await getDoc(doc(db, studyTaskPath(uid, taskId)));
+        if (!snap.exists()) return;
+        const stored = snap.data().status;
+        fromStatus = isTaskStatus(stored) ? stored : "recommended";
+      }
 
       const change: StatusChange = {
-        from: task.status,
+        from: fromStatus,
         to: newStatus,
         at: Timestamp.now(),
         ...(reason ? { reason } : {}),
@@ -130,5 +204,11 @@ export function useStudyTasks(uid: string | null, planDate: string | null) {
     [uid, tasks]
   );
 
-  return { tasks, loading, createTasksFromGenerated, updateTaskStatus };
+  return {
+    tasks,
+    loading,
+    createTasksFromGenerated,
+    createTaskFromSuggestion,
+    updateTaskStatus,
+  };
 }

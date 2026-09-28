@@ -7,23 +7,27 @@ import { Plus } from "lucide-react";
 interface BoardViewProps {
   tasks: (StudyTask & { id: string })[];
   onStart: (taskId: string) => void;
+  onContinue: (taskId: string) => void;
   onSkip: (taskId: string) => void;
   onReschedule: (taskId: string) => void;
   onDelete: (taskId: string) => void;
   onPause: () => void;
   onComplete: (taskId: string) => void;
   onAddTask: () => void;
+  highlightedTaskId?: string | null;
 }
 
 export default function BoardView({
   tasks,
   onStart,
+  onContinue,
   onSkip,
   onReschedule,
   onDelete,
   onPause,
   onComplete,
   onAddTask,
+  highlightedTaskId = null,
 }: BoardViewProps) {
   const toDo = tasks.filter((t) => t.status === "recommended");
   const inProgress = tasks.filter((t) => t.status === "in_progress");
@@ -44,24 +48,48 @@ export default function BoardView({
             <span className="text-xs font-normal">({col.tasks.length})</span>
           </h3>
           <div className="space-y-3">
-            {col.tasks.map((task) => (
-              <TaskCard
-                key={task.id}
-                task={task}
-                onStart={() => onStart(task.id)}
-                onSkip={() => onSkip(task.id)}
-                onReschedule={() => onReschedule(task.id)}
-                onDelete={
-                  task.source === "manual" ? () => onDelete(task.id) : undefined
-                }
-                onPause={task.status === "in_progress" ? onPause : undefined}
-                onComplete={
-                  task.status === "in_progress"
-                    ? () => onComplete(task.id)
-                    : undefined
-                }
-              />
-            ))}
+            {col.tasks.map((task) => {
+              const highlighted = task.id === highlightedTaskId;
+              const canOpen =
+                task.status === "recommended" || task.status === "in_progress";
+              return (
+                <div
+                  key={task.id}
+                  id={`study-task-${task.id}`}
+                  className={highlighted ? "rounded-xl ring-2 ring-navy" : undefined}
+                >
+                  <TaskCard
+                    task={task}
+                    onStart={() => onStart(task.id)}
+                    onContinue={() => onContinue(task.id)}
+                    onSkip={() => onSkip(task.id)}
+                    onReschedule={() => onReschedule(task.id)}
+                    onDelete={
+                      task.source === "manual" ? () => onDelete(task.id) : undefined
+                    }
+                    onPause={task.status === "in_progress" ? onPause : undefined}
+                    onComplete={
+                      task.status === "in_progress"
+                        ? () => onComplete(task.id)
+                        : undefined
+                    }
+                  />
+                  {highlighted && canOpen && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        task.status === "in_progress"
+                          ? onContinue(task.id)
+                          : onStart(task.id)
+                      }
+                      className="mt-2 w-full rounded-lg bg-navy px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+                    >
+                      {task.status === "in_progress" ? "Continue" : "Start"}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
             {col.showAdd && (
               <button
                 type="button"

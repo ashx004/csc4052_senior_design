@@ -11,11 +11,11 @@ export default function DashboardLayout({
     <AIPageContextProvider>
       <AdvisingCacheProvider>
         <CalendarCacheProvider>
-          <div className="flex h-screen">
+          <div className="flex min-h-screen">
             <GeneralSidebar />
             {/* pt-16 on phones: clears the fixed menu button (Sidebar.tsx), which
                 is always showing there and otherwise sits on the page heading. */}
-            <main className="flex-1 overflow-y-auto pt-16 md:pt-0">{children}</main>
+            <main className="min-w-0 flex-1 pt-16 md:pt-0">{children}</main>
             <AIPanel />
           </div>
         </CalendarCacheProvider>

@@ -2,13 +2,17 @@
 
 interface FocusModeCardProps {
   recommendedMinutes: number;
-  onStartSession: () => void;
+  onStartNextTask: () => void;
+  onPickTask: () => void;
+  hasNextTask: boolean;
   disabled?: boolean;
 }
 
 export default function FocusModeCard({
   recommendedMinutes,
-  onStartSession,
+  onStartNextTask,
+  onPickTask,
+  hasNextTask,
   disabled = false,
 }: FocusModeCardProps) {
   const minutes = Math.max(0, Math.floor(recommendedMinutes));
@@ -29,9 +33,9 @@ export default function FocusModeCard({
 
       <button
         type="button"
-        onClick={onStartSession}
+        onClick={hasNextTask ? onStartNextTask : onPickTask}
         disabled={disabled}
-        className="mt-8 w-full rounded-[10px] bg-white py-3 text-sm font-semibold text-navy transition-colors hover:bg-beige-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:cursor-not-allowed disabled:bg-white/40 disabled:text-navy/60"
+        className="mt-8 min-h-11 w-full cursor-pointer rounded-[10px] bg-white py-3 text-sm font-semibold text-navy transition-colors hover:bg-beige-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-white/40 disabled:text-navy/60 motion-reduce:active:scale-100"
       >
         Start focus session
       </button>
