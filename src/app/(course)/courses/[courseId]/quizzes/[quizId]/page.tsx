@@ -1065,11 +1065,6 @@ export default function QuizTakingPage() {
                   quizName={quizName}
                   missedCount={suggestionForCard?.questionIds.length ?? 0}
                   onAdd={handleAddToPlan}
-                  onView={() => {
-                    const taskId = suggestionForCard?.linkedTaskId;
-                    if (!taskId) return;
-                    router.push(`/learning?taskId=${encodeURIComponent(taskId)}`);
-                  }}
                   onLater={() => setSuggestionHidden(true)}
                   onOpenDocument={handleOpenSourceDocument}
                   onCreateQuiz={() => router.push(`/courses/${courseId}/learning`)}

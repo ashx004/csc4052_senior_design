@@ -11,7 +11,6 @@ interface QuizPracticeSuggestionProps {
   quizName: string;
   missedCount: number;
   onAdd: () => void;
-  onView: () => void;
   onLater: () => void;
   onOpenDocument: () => void;
   onCreateQuiz: () => void;
@@ -31,7 +30,6 @@ function practiceHeading(count: number): string {
 function SuggestionActions({
   view,
   onAdd,
-  onView,
   onLater,
   onOpenDocument,
   onCreateQuiz,
@@ -39,7 +37,6 @@ function SuggestionActions({
 }: {
   view: QuizSuggestionView;
   onAdd: () => void;
-  onView: () => void;
   onLater: () => void;
   onOpenDocument: () => void;
   onCreateQuiz: () => void;
@@ -60,15 +57,9 @@ function SuggestionActions({
 
   return (
     <div className="mt-4 flex flex-wrap gap-3">
-      {view.primaryAction === "add" ? (
-        <button type="button" onClick={onAdd} className={primaryButtonClass}>
-          Add to Plan
-        </button>
-      ) : (
-        <button type="button" onClick={onView} className={primaryButtonClass}>
-          View task
-        </button>
-      )}
+      <button type="button" onClick={onAdd} className={primaryButtonClass}>
+        Add to Plan
+      </button>
       <button type="button" onClick={onLater} className={secondaryButtonClass}>
         Later
       </button>
@@ -81,7 +72,6 @@ export default function QuizPracticeSuggestion({
   quizName,
   missedCount,
   onAdd,
-  onView,
   onLater,
   onOpenDocument,
   onCreateQuiz,
@@ -105,7 +95,6 @@ export default function QuizPracticeSuggestion({
       <SuggestionActions
         view={view}
         onAdd={onAdd}
-        onView={onView}
         onLater={onLater}
         onOpenDocument={onOpenDocument}
         onCreateQuiz={onCreateQuiz}

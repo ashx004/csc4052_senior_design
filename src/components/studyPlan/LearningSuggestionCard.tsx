@@ -10,8 +10,6 @@ interface LearningSuggestionCardProps {
   highlighted?: boolean;
   busy?: boolean;
   onAdd: () => void;
-  onView: () => void;
-  onLater: () => void;
   onDismiss: () => void;
 }
 
@@ -27,8 +25,6 @@ export default function LearningSuggestionCard({
   highlighted = false,
   busy = false,
   onAdd,
-  onView,
-  onLater,
   onDismiss,
 }: LearningSuggestionCardProps) {
   const view = resolveQuizSuggestionView(suggestion);
@@ -53,17 +49,8 @@ export default function LearningSuggestionCard({
         {count} {noun} from {courseName || courseLabel} can be practiced again whenever you have time.
       </p>
       <div className="mt-4 flex flex-wrap gap-3">
-        {view.primaryAction === "add" ? (
-          <button type="button" onClick={onAdd} disabled={busy} className={primaryButtonClass}>
-            Add to plan
-          </button>
-        ) : (
-          <button type="button" onClick={onView} className={primaryButtonClass}>
-            View task
-          </button>
-        )}
-        <button type="button" onClick={onLater} disabled={busy} className={secondaryButtonClass}>
-          Later
+        <button type="button" onClick={onAdd} disabled={busy} className={primaryButtonClass}>
+          Add to plan
         </button>
         <button type="button" onClick={onDismiss} disabled={busy} className={secondaryButtonClass}>
           Dismiss

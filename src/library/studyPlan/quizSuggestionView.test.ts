@@ -37,9 +37,9 @@ describe("resolvePracticeQuestions", () => {
 });
 
 describe("resolveQuizSuggestionView", () => {
-  it("shows View task when the suggestion already links an active task", () => {
+  it("still offers add when the suggestion is already linked to a task (idempotent re-add)", () => {
     expect(resolveQuizSuggestionView(activeSuggestion({ linkedTaskId: "task-1" })))
-      .toEqual({ primaryAction: "view_task", taskId: "task-1" });
+      .toEqual({ primaryAction: "add" });
   });
 
   it("hides the card when nothing was missed", () => {
@@ -56,11 +56,18 @@ describe("resolveQuizSuggestionView", () => {
       .toEqual({ primaryAction: "add" });
   });
 
-  it("shows View task when the suggestion was already added to a task", () => {
+  it("keeps offering add for an already-added suggestion so it does not vanish", () => {
     expect(resolveQuizSuggestionView(activeSuggestion({
       status: "added",
       linkedTaskId: "task-1",
-    }))).toEqual({ primaryAction: "view_task", taskId: "task-1" });
+    }))).toEqual({ primaryAction: "add" });
+  });
+
+  it("hides a dismissed suggestion (it returns only when missed again)", () => {
+    expect(resolveQuizSuggestionView(activeSuggestion({
+      status: "dismissed",
+      questionIds: ["q1"],
+    }))).toBeNull();
   });
 
   it("offers a source fallback when practice questions are unavailable", () => {
