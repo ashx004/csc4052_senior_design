@@ -20,6 +20,7 @@ export function useCarryover(uid: string | null) {
 
   useEffect(() => {
     if (!uid) return;
+    setChecked(false);
 
     const yesterday = yesterdayDateString();
     const q = query(
@@ -28,12 +29,18 @@ export function useCarryover(uid: string | null) {
       where("status", "in", ["recommended", "in_progress"])
     );
 
-    getDocs(q).then((snap) => {
-      setCarryoverTasks(
-        snap.docs.map((d) => ({ id: d.id, ...(d.data() as StudyTask) }))
-      );
-      setChecked(true);
-    });
+    getDocs(q)
+      .then((snap) => {
+        setCarryoverTasks(
+          snap.docs.map((d) => ({ id: d.id, ...(d.data() as StudyTask) }))
+        );
+        setChecked(true);
+      })
+      .catch((error) => {
+        console.error("Carryover check failed:", error);
+        setCarryoverTasks([]);
+        setChecked(true);
+      });
   }, [uid]);
 
   return { carryoverTasks, checked };

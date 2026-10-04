@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MissedQuestionsSuggestion } from "./types";
-import { resolvePracticeQuestions, resolveQuizSuggestionView } from "./quizSuggestionView";
+import { resolvePracticeQuestions, resolveQuizSuggestionView, isRecommendedSuggestion } from "./quizSuggestionView";
 
 function activeSuggestion(
   overrides: Partial<MissedQuestionsSuggestion> = {},
@@ -75,5 +75,46 @@ describe("resolveQuizSuggestionView", () => {
       status: "unavailable",
       questionIds: [],
     }))).toEqual({ primaryAction: "unavailable" });
+  });
+});
+
+describe("isRecommendedSuggestion", () => {
+  it("returns true for active suggestion with no task and no linkedTaskId", () => {
+    const suggestion = activeSuggestion({ status: "active", linkedTaskId: null });
+    expect(isRecommendedSuggestion(suggestion)).toBe(true);
+  });
+
+  it("returns false when status is 'added'", () => {
+    const suggestion = activeSuggestion({ status: "added", linkedTaskId: "task-1" });
+    expect(isRecommendedSuggestion(suggestion)).toBe(false);
+  });
+
+  it("returns false when active but linkedTaskId is set", () => {
+    const suggestion = activeSuggestion({ status: "active", linkedTaskId: "task-1" });
+    expect(isRecommendedSuggestion(suggestion)).toBe(false);
+  });
+
+  it("returns false when status is 'dismissed'", () => {
+    const suggestion = activeSuggestion({ status: "dismissed", linkedTaskId: null });
+    expect(isRecommendedSuggestion(suggestion)).toBe(false);
+  });
+
+  it("returns false when status is 'resolved'", () => {
+    const suggestion = activeSuggestion({ status: "resolved", linkedTaskId: null });
+    expect(isRecommendedSuggestion(suggestion)).toBe(false);
+  });
+
+  it("returns false when status is 'unavailable'", () => {
+    const suggestion = activeSuggestion({ status: "unavailable", linkedTaskId: null });
+    expect(isRecommendedSuggestion(suggestion)).toBe(false);
+  });
+
+  it("returns false when questionIds is empty", () => {
+    const suggestion = activeSuggestion({ status: "active", linkedTaskId: null, questionIds: [] });
+    expect(isRecommendedSuggestion(suggestion)).toBe(false);
+  });
+
+  it("returns false when null", () => {
+    expect(isRecommendedSuggestion(null as any)).toBe(false);
   });
 });

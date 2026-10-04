@@ -11,8 +11,18 @@ export async function PATCH(
 
   const { eventId } = await params;
   const body = await req.json();
-  const event = await updateEvent(req, uid, eventId, body);
-  return Response.json({ event });
+  try {
+    const event = await updateEvent(req, uid, eventId, body);
+    if (!event) return Response.json({ error: "not_connected" }, { status: 409 });
+    return Response.json({ event });
+  } catch (err) {
+    const e = err as { code?: number | string; response?: { status?: number }; message?: string };
+    const status = Number(e.response?.status ?? e.code);
+    if (status === 404 || status === 410) {
+      return Response.json({ error: "not_found" }, { status: 404 });
+    }
+    return Response.json({ error: e.message ?? "Update failed" }, { status: 500 });
+  }
 }
 
 export async function DELETE(

@@ -32,3 +32,19 @@ export function resolveQuizSuggestionView(
   // active task), so re-adding never creates a duplicate.
   return { primaryAction: "add" };
 }
+
+export function isRecommendedSuggestion(
+  suggestion: Pick<MissedQuestionsSuggestion, "status" | "questionIds" | "linkedTaskId"> | null,
+): boolean {
+  if (!suggestion) return false;
+  // Show in "Recommended for you" only if:
+  // 1. The suggestion would show the "add" action
+  // 2. It has not been added yet (status !== "added")
+  // 3. It is not linked to an existing task
+  const view = resolveQuizSuggestionView(suggestion);
+  return (
+    view?.primaryAction === "add"
+    && suggestion.status !== "added"
+    && !suggestion.linkedTaskId
+  );
+}

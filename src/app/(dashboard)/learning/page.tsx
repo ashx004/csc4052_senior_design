@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/src/context/AuthContext";
 import { useStudyPlanContext } from "@/src/context/StudyPlanContext";
@@ -13,7 +13,7 @@ import { useLearningProgress } from "@/src/hooks/useLearningProgress";
 import { buildMasterySignalId } from "@/src/library/studyPlan/masteryCalculation";
 import { useCalendarEvents } from "@/src/hooks/useCalendarEvents";
 import { useLocalCalendarEvents } from "@/src/hooks/useLocalCalendarEvents";
-import { collection, getDocs, addDoc, serverTimestamp, doc, deleteDoc, limit, orderBy, query, type Timestamp } from "firebase/firestore";
+import { collection, getDoc, getDocs, addDoc, serverTimestamp, doc, deleteDoc, limit, orderBy, query, type Timestamp } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
 import {
   documentTargetForResource,
@@ -24,6 +24,18 @@ import {
 import { getVisibleStudyTasks } from "@/src/library/studyPlan/taskVisibility";
 import { getEmptyRecommendationReason } from "@/src/library/studyPlan/recommendationDiagnostics";
 import { hasUsablePlan } from "@/src/library/studyPlan/planState";
+import { scheduleUnscheduledTasks, weakSpotTasksDue } from "@/src/library/studyPlan/studySchedule";
+import { attachGeneratedPractice, getGeneratedPracticeQuizId, writeTaskSchedules } from "@/src/library/studyPlan/studyScheduleRepository";
+import {
+  attachFirstDocument,
+  DEFAULT_AUTO_PLAN_CONFIG,
+  remainingMinutesAfterCarryover,
+  shouldAutoPlan,
+  startOfWeekDateString,
+  weakCoursesNeedingTask,
+} from "@/src/library/studyPlan/autoPlan";
+import { loadNewestDocument, loadTasksSince } from "@/src/library/studyPlan/autoPlanData";
+import { choosePlanStarter, type PlanStarterChoice } from "@/src/library/studyPlan/planStarter";
 import { getStudyPlanDateRange } from "@/src/library/studyPlan/calendarRange";
 import {
   appendPlanTaskIds,
@@ -40,8 +52,10 @@ import {
   getPlanTimeOverage,
   suggestionAfterLater,
 } from "@/src/library/studyPlan/addSuggestionToPlan";
-import { resolveQuizSuggestionView } from "@/src/library/studyPlan/quizSuggestionView";
+import { isRecommendedSuggestion } from "@/src/library/studyPlan/quizSuggestionView";
 import { nextAddIntent } from "@/src/library/studyPlan/addIntent";
+import { missedQuestionTexts } from "@/src/library/studyPlan/missedQuestionText";
+import { conceptLabelFromQuizName, generateTargetedPracticeQuiz } from "@/src/library/studyPlan/targetedPractice";
 import {
   documentMasteryId,
   learningActivityEventsCollection,
@@ -67,7 +81,7 @@ import PlanSection from "@/src/components/studyPlan/PlanSection";
 import FocusModeCard from "@/src/components/studyPlan/FocusModeCard";
 import WeeklyChickenChart from "@/src/components/studyPlan/WeeklyChickenChart";
 import PlanCompletedState from "@/src/components/studyPlan/PlanCompletedState";
-import CarryoverPrompt from "@/src/components/studyPlan/CarryoverPrompt";
+import PlanStarter from "@/src/components/studyPlan/PlanStarter";
 import ClearPlanModal from "@/src/components/studyPlan/ClearPlanModal";
 import AddTaskModal from "@/src/components/studyPlan/AddTaskModal";
 import SkipConfirmModal from "@/src/components/studyPlan/SkipConfirmModal";
@@ -206,7 +220,21 @@ function masteryForSet(
 }
 
 
+interface PracticeQuizDoc {
+  name: string;
+  questions: { id: string; question: string }[];
+  sourceDocKey: string | null;
+}
+
 export default function LearningPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-beige-canvas" />}>
+      <LearningPageContent />
+    </Suspense>
+  );
+}
+
+function LearningPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
@@ -221,6 +249,7 @@ export default function LearningPage() {
     createTasksFromGenerated,
     createTaskFromSuggestion,
     updateTaskStatus,
+    carryOverTask,
     session,
     startSession,
     attachTaskToSession,
@@ -287,6 +316,12 @@ export default function LearningPage() {
   } | null>(null);
   const documentSelectionRef = useRef<((target: DocumentActivityTarget | null) => void) | null>(null);
   const pendingRetryUid = useRef<string | null>(null);
+  const [autoPlanStatus, setAutoPlanStatus] = useState<
+    "idle" | "running" | "done" | "empty" | "error"
+  >("idle");
+  const [planStarter, setPlanStarter] = useState<PlanStarterChoice | null>(null);
+  const autoPlanAttemptedRef = useRef(false);
+  const scheduledTaskIdsRef = useRef(new Set<string>());
 
   const handleNotificationsToggle = useCallback(() => {
     const opening = !notificationsOpen;
@@ -300,7 +335,7 @@ export default function LearningPage() {
     }
   }, [markRead, notifications, notificationsOpen]);
 
-  const todayRange = useMemo(() => getStudyPlanDateRange(), [today]);
+  const todayRange = useMemo(() => getStudyPlanDateRange(new Date(`${today}T12:00:00`)), [today]);
 
   const { events: googleEvents } = useCalendarEvents(todayRange);
   const { events: localEvents } = useLocalCalendarEvents(todayRange);
@@ -370,7 +405,7 @@ export default function LearningPage() {
   }, [authLoading, user, classes, classesLoading]);
 
   useEffect(() => {
-    try { localStorage.setItem("studyPlanView", viewMode); } catch {}
+    try { localStorage.setItem("studyPlanView", viewMode); } catch { /* Storage may be unavailable. */ }
   }, [viewMode]);
 
   const queryTaskId = searchParams.get("taskId");
@@ -726,6 +761,9 @@ export default function LearningPage() {
 
   useEffect(() => {
     if (!querySuggestionId || planLoading || classesLoading || tasksLoading) return;
+    // Wait for auto-plan to settle so it cannot overwrite a manually created plan.
+    if (autoPlanStatus === "running") return;
+    if (!hasUsablePlan(plan) && !autoPlanAttemptedRef.current) return;
     const intent = nextAddIntent(querySuggestionId, handledAddSuggestionIdRef.current);
     if (!intent.shouldAdd) return;
     const suggestion = suggestions.find((item) => item.id === querySuggestionId);
@@ -737,6 +775,8 @@ export default function LearningPage() {
     planLoading,
     classesLoading,
     tasksLoading,
+    autoPlanStatus,
+    plan,
     suggestions,
     handleAddSuggestion,
   ]);
@@ -1044,24 +1084,111 @@ export default function LearningPage() {
     [user, today, plan, updatePlanState]
   );
 
-  const handleCarryoverContinue = useCallback(async () => {
+  const runAutoPlan = useCallback(async () => {
     if (!user) return;
-    const taskIds: string[] = [];
-    for (const t of carryoverTasks) {
-      await updateTaskStatus(t.id, "recommended");
-      taskIds.push(t.id);
+    setAutoPlanStatus("running");
+    try {
+      for (const t of carryoverTasks) {
+        await carryOverTask(t.id, today);
+      }
+      const carried = carryoverTasks;
+      const carriedIds = new Set(carried.map((t) => t.id));
+      const existing = tasks.filter(
+        (t) =>
+          (t.status === "recommended" || t.status === "in_progress") &&
+          !carriedIds.has(t.id)
+      );
+      const kept = [...carried, ...existing];
+      const { topics, exams, resourcesByCourse } = await loadRecommendationInputs();
+      const weekTasks = await loadTasksSince(user.uid, startOfWeekDateString(new Date()));
+      const guaranteed = weakCoursesNeedingTask(topics, [...weekTasks, ...kept]);
+      const budget = remainingMinutesAfterCarryover(
+        DEFAULT_AUTO_PLAN_CONFIG.availableMinutes,
+        kept
+      );
+      const generated =
+        budget > 0
+          ? generateTasks(
+              DEFAULT_AUTO_PLAN_CONFIG,
+              filterTopicsAlreadyInPlan(topics, kept),
+              exams,
+              { minutesBudget: budget, guaranteedCourseIds: guaranteed }
+            )
+          : [];
+      const ready = attachFirstDocument(generated, resourcesByCourse);
+      const newIds = ready.length > 0 ? await createTasksFromGenerated(ready, today) : [];
+      const taskIds = [...kept.map((t) => t.id), ...newIds];
+      if (taskIds.length === 0) {
+        const classIds = classes.map((c) => c.id);
+        const newest = await loadNewestDocument(user.uid, classIds);
+        setPlanStarter(choosePlanStarter({ classIds, newestDocument: newest }));
+        setAutoPlanStatus("empty");
+        return;
+      }
+      await createPlan(DEFAULT_AUTO_PLAN_CONFIG, taskIds);
+      setActiveView("plan");
+      setAutoPlanStatus("done");
+    } catch (error) {
+      console.error("Auto plan failed:", error);
+      setAutoPlanStatus("error");
     }
-    await createPlan(
-      { availableMinutes: 60, goal: "general", courseId: null, activityPreference: "auto" },
-      taskIds
-    );
-  }, [user, carryoverTasks, updateTaskStatus, createPlan]);
+  }, [
+    user,
+    carryoverTasks,
+    carryOverTask,
+    today,
+    tasks,
+    loadRecommendationInputs,
+    createTasksFromGenerated,
+    createPlan,
+    classes,
+  ]);
 
-  const handleCarryoverFresh = useCallback(async () => {
-    for (const t of carryoverTasks) {
-      await updateTaskStatus(t.id, "rescheduled", "Started fresh");
+  useEffect(() => {
+    if (
+      shouldAutoPlan({
+        hasUser: !!user,
+        dataReady:
+          !authLoading &&
+          !classesLoading &&
+          !planLoading &&
+          !tasksLoading &&
+          carryoverChecked &&
+          !documentMasteryLoading,
+        hasUsablePlan: hasUsablePlan(plan),
+        alreadyAttempted: autoPlanAttemptedRef.current,
+      })
+    ) {
+      autoPlanAttemptedRef.current = true;
+      void runAutoPlan();
     }
-  }, [carryoverTasks, updateTaskStatus]);
+  }, [
+    user,
+    authLoading,
+    classesLoading,
+    planLoading,
+    tasksLoading,
+    carryoverChecked,
+    documentMasteryLoading,
+    plan,
+    runAutoPlan,
+  ]);
+
+  useEffect(() => {
+    if (!user || tasksLoading || !plan || !hasUsablePlan(plan)) return;
+    const ordered = (plan.taskIds ?? [])
+      .map((id) => tasks.find((task) => task.id === id))
+      .filter((task): task is (typeof tasks)[number] => Boolean(task));
+    const updates = scheduleUnscheduledTasks(ordered, new Date()).filter(
+      (u) => !scheduledTaskIdsRef.current.has(u.taskId)
+    );
+    if (updates.length === 0) return;
+    updates.forEach((u) => scheduledTaskIdsRef.current.add(u.taskId));
+    void writeTaskSchedules(user.uid, updates).catch((err) => {
+      console.error("Couldn't schedule study blocks:", err);
+      updates.forEach((u) => scheduledTaskIdsRef.current.delete(u.taskId));
+    });
+  }, [user, tasksLoading, plan, tasks]);
 
   const activeTasks = useMemo(
     () =>
@@ -1120,13 +1247,199 @@ export default function LearningPage() {
   const recommendedSuggestions = useMemo(
     () =>
       suggestions
-        .filter((suggestion) => {
-          const view = resolveQuizSuggestionView(suggestion);
-          return view?.primaryAction === "add";
-        })
+        .filter(isRecommendedSuggestion)
         .sort((a, b) => b.priority - a.priority),
     [suggestions],
   );
+
+  const [practiceQuizDocs, setPracticeQuizDocs] = useState<Record<string, PracticeQuizDoc>>({});
+  const [practicingSuggestionId, setPracticingSuggestionId] = useState<string | null>(null);
+  const [practiceErrors, setPracticeErrors] = useState<Record<string, string>>({});
+
+  const loadPracticeQuizDoc = useCallback(
+    async (uid: string, courseId: string, quizId: string): Promise<PracticeQuizDoc | null> => {
+      const snap = await getDoc(doc(db, "users", uid, "enrollment", courseId, "quizSets", quizId));
+      if (!snap.exists()) return null;
+      const data = snap.data();
+      return {
+        name: typeof data.name === "string" ? data.name : "",
+        questions: Array.isArray(data.questions)
+          ? (data.questions as { id: string; question: string }[])
+          : [],
+        sourceDocKey: typeof data.sourceDocKey === "string" ? data.sourceDocKey : null,
+      };
+    },
+    [],
+  );
+
+  const requestedQuizDocsRef = useRef<Set<string>>(new Set());
+  const practicingRef = useRef(false);
+
+  const quizDocUidRef = useRef<string | null>(null);
+
+  // Reset the request cache only when the user changes (or on unmount).
+  useEffect(() => {
+    quizDocUidRef.current = user?.uid ?? null;
+    requestedQuizDocsRef.current = new Set();
+    return () => {
+      quizDocUidRef.current = null;
+    };
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (!user) return;
+    const uid = user.uid;
+    recommendedSuggestions.forEach((suggestion) => {
+      if (requestedQuizDocsRef.current.has(suggestion.id)) return;
+      const requested = requestedQuizDocsRef.current;
+      requested.add(suggestion.id);
+      loadPracticeQuizDoc(uid, suggestion.courseId, suggestion.quizId)
+        .then((quizDoc) => {
+          if (quizDocUidRef.current !== uid) return;
+          if (!quizDoc) {
+            requested.delete(suggestion.id);
+            return;
+          }
+          setPracticeQuizDocs((prev) => ({ ...prev, [suggestion.id]: quizDoc }));
+        })
+        .catch(() => {
+          requested.delete(suggestion.id);
+        });
+    });
+  }, [user, recommendedSuggestions, loadPracticeQuizDoc]);
+
+  const conceptLabelFor = useCallback(
+    (suggestion: { id: string; courseId: string }, quizDoc?: PracticeQuizDoc | null) => {
+      const d = quizDoc ?? practiceQuizDocs[suggestion.id] ?? null;
+      return (d ? conceptLabelFromQuizName(d.name) : "") || courseInfoFor(suggestion.courseId).name;
+    },
+    [practiceQuizDocs, courseInfoFor],
+  );
+
+  const handlePracticeWeakSpot = useCallback(
+    async (suggestion: (typeof recommendedSuggestions)[number]) => {
+      if (!user || practicingRef.current) return;
+      practicingRef.current = true;
+      setPracticingSuggestionId(suggestion.id);
+      setPracticeErrors((prev) => {
+        const rest = { ...prev };
+        delete rest[suggestion.id];
+        return rest;
+      });
+      try {
+        let quizDoc: PracticeQuizDoc | null = practiceQuizDocs[suggestion.id] ?? null;
+        if (!quizDoc) {
+          try {
+            quizDoc = await loadPracticeQuizDoc(user.uid, suggestion.courseId, suggestion.quizId);
+          } catch {
+            quizDoc = null;
+          }
+        }
+        const sourceDocKey = suggestion.sourceDocKey ?? quizDoc?.sourceDocKey ?? null;
+        if (!sourceDocKey) {
+          setPracticeErrors((prev) => ({
+            ...prev,
+            [suggestion.id]: "Couldn't find the source document for this quiz.",
+          }));
+          practicingRef.current = false;
+          setPracticingSuggestionId(null);
+          return;
+        }
+        const conceptLabel = conceptLabelFor(suggestion, quizDoc);
+        const newId = await generateTargetedPracticeQuiz({
+          uid: user.uid,
+          courseId: suggestion.courseId,
+          sourceDocKey,
+          conceptLabel,
+          avoidQuestions: quizDoc ? missedQuestionTexts(suggestion.questionIds, quizDoc.questions) : [],
+        });
+        router.push(`/courses/${suggestion.courseId}/quizzes/${newId}?mode=take`);
+      } catch (err) {
+        setPracticeErrors((prev) => ({
+          ...prev,
+          [suggestion.id]: err instanceof Error ? err.message : "Failed to generate practice questions.",
+        }));
+        practicingRef.current = false;
+        setPracticingSuggestionId(null);
+      }
+    },
+    [user, practiceQuizDocs, loadPracticeQuizDoc, conceptLabelFor, router],
+  );
+
+  // A 60-second clock so weak-spot tasks are noticed when their block starts.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // When a weak-spot task's calendar block starts, generate fresh targeted
+  // practice and point the task at it. One task per run.
+  const generatingPracticeRef = useRef<Set<string>>(new Set());
+  const generatedQuizIdsRef = useRef<Map<string, string>>(new Map());
+  const practiceAttemptsRef = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    if (!user || tasksLoading) return;
+    const dueIds = weakSpotTasksDue(tasks, new Date(nowTick));
+    // First due id not yet handled whose task and suggestion both resolve;
+    // unresolvable ones are skipped (re-evaluated when suggestions load).
+    let task: (typeof tasks)[number] | undefined;
+    let suggestion: (typeof suggestions)[number] | undefined;
+    for (const id of dueIds) {
+      if (generatingPracticeRef.current.has(id)) continue;
+      const t = tasks.find((item) => item.id === id);
+      const sg = t ? suggestions.find((item) => item.id === t.sourceSuggestionId) : undefined;
+      if (t && sg) {
+        task = t;
+        suggestion = sg;
+        break;
+      }
+    }
+    if (!task || !suggestion) return;
+    const taskId = task.id;
+    generatingPracticeRef.current.add(taskId);
+    practiceAttemptsRef.current.set(taskId, (practiceAttemptsRef.current.get(taskId) ?? 0) + 1);
+    const uid = user.uid;
+    void (async () => {
+      try {
+        let newId = generatedQuizIdsRef.current.get(task.id) ?? null;
+        let sourceDocKey: string | null = suggestion.sourceDocKey ?? null;
+        if (!newId) {
+          if (await getGeneratedPracticeQuizId(uid, task.id)) return; // already attached; snapshot catches up
+          let quizDoc: PracticeQuizDoc | null = null;
+          try {
+            quizDoc = await loadPracticeQuizDoc(uid, suggestion.courseId, suggestion.quizId);
+          } catch {
+            quizDoc = null;
+          }
+          sourceDocKey = sourceDocKey ?? quizDoc?.sourceDocKey ?? null;
+          if (!sourceDocKey) {
+            console.error("Couldn't prepare weak-spot practice: no source document for", task.id);
+            return;
+          }
+          const conceptLabel =
+            conceptLabelFromQuizName(quizDoc?.name ?? "") || courseInfoFor(suggestion.courseId).name;
+          const avoidQuestions = quizDoc ? missedQuestionTexts(suggestion.questionIds, quizDoc.questions) : [];
+          newId = await generateTargetedPracticeQuiz({
+            uid,
+            courseId: suggestion.courseId,
+            sourceDocKey,
+            conceptLabel,
+            avoidQuestions,
+          });
+          generatedQuizIdsRef.current.set(task.id, newId);
+        }
+        await attachGeneratedPractice(uid, task.id, newId, sourceDocKey);
+      } catch (error) {
+        console.error("Couldn't prepare weak-spot practice:", error);
+        if ((practiceAttemptsRef.current.get(taskId) ?? 0) < 3) {
+          generatingPracticeRef.current.delete(taskId);
+        } else {
+          console.error(`Giving up on weak-spot practice for task ${taskId} after 3 tries`);
+        }
+      }
+    })();
+  }, [user, tasksLoading, tasks, suggestions, nowTick, loadPracticeQuizDoc, courseInfoFor]);
 
   const highlightedTask = useMemo(
     () => tasks.find((task) => task.id === highlightedTaskId) ?? null,
@@ -1138,12 +1451,13 @@ export default function LearningPage() {
   }, []);
 
   const handleHeroStartPlan = useCallback(() => {
+    if (autoPlanStatus === "running") return;
     if (hasUsablePlan(plan)) {
       setActiveView("plan");
     } else {
       setShowSetup(true);
     }
-  }, [plan]);
+  }, [plan, autoPlanStatus]);
 
   const handleStartNextTask = useCallback(() => {
     if (nextTask) handleStartTask(nextTask.id);
@@ -1193,12 +1507,10 @@ export default function LearningPage() {
         tasks={visibleTasks}
         highlightedTaskId={highlightedTaskId}
         calendarEvents={allEvents}
+        today={today}
         onStart={handleStartTask}
         onContinue={handleOpenTaskActivity}
-        onSkip={handleSkipTask}
-        onReschedule={(id) => setRescheduleTarget(id)}
-        onComplete={handleCompleteTask}
-        onPause={pauseSession}
+        onShowList={() => setViewMode("list")}
       />
     ) : (
       <ListView
@@ -1235,14 +1547,6 @@ export default function LearningPage() {
           />
         </div>
 
-        {!plan && carryoverChecked && carryoverTasks.length > 0 && (
-          <CarryoverPrompt
-            taskCount={carryoverTasks.length}
-            onContinue={handleCarryoverContinue}
-            onStartFresh={handleCarryoverFresh}
-          />
-        )}
-
         <div data-tutorial="learning-hero">
           <HeroBanner
             hasPlan={planIsUsable}
@@ -1250,6 +1554,23 @@ export default function LearningPage() {
             onStartPlan={handleHeroStartPlan}
           />
         </div>
+
+        {autoPlanStatus === "running" && (
+          <div className="flex items-center gap-2" role="status">
+            <Loader2 size={16} className="animate-spin text-brown-label" />
+            <p className="text-sm text-text-muted">Building today&apos;s plan…</p>
+          </div>
+        )}
+
+        {autoPlanStatus === "error" && !planIsUsable && (
+          <p className="text-sm text-text-muted">
+            We couldn&apos;t build today&apos;s plan automatically. Use Start study plan to make one.
+          </p>
+        )}
+
+        {autoPlanStatus === "empty" && planStarter && !planIsUsable && (
+          <PlanStarter choice={planStarter} onGo={(href) => router.push(href)} />
+        )}
 
         {recommendedSuggestions.length > 0 && (
           <section aria-labelledby="recommended-for-you">
@@ -1265,12 +1586,19 @@ export default function LearningPage() {
                     suggestion={suggestion}
                     courseCode={course.code}
                     courseName={course.name}
+                    conceptLabel={conceptLabelFor(suggestion)}
                     highlighted={suggestion.id === highlightedSuggestionId}
                     busy={savingSuggestion}
                     onAdd={() => handleAddSuggestion(suggestion)}
                     onDismiss={() => {
                       void dismissSuggestion(suggestion.id);
                     }}
+                    onPractice={() => {
+                      void handlePracticeWeakSpot(suggestion);
+                    }}
+                    practicing={practicingSuggestionId === suggestion.id}
+                    practiceDisabled={practicingSuggestionId !== null}
+                    practiceError={practiceErrors[suggestion.id] ?? null}
                   />
                 );
               })}
