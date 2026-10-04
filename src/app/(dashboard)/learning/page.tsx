@@ -29,7 +29,7 @@ import {
   appendPlanTaskIds,
   filterTopicsAlreadyInPlan,
 } from "@/src/library/studyPlan/taskSuggestions";
-import { getActivityUrl, getActivityUrlFromTarget } from "@/src/library/studyPlan/sessionTimer";
+import { resolveTaskActivityUrl } from "@/src/library/studyPlan/sessionTimer";
 import {
   afterSuccessfulPlan,
   beginAddWithoutPlan,
@@ -105,11 +105,6 @@ interface CourseDocumentOption {
   id: string;
   name: string;
   sourceDocKey: string;
-}
-
-function withTaskId(url: string, taskId: string): string {
-  const separator = url.includes("?") ? "&" : "?";
-  return `${url}${separator}taskId=${encodeURIComponent(taskId)}`;
 }
 
 function resourceLabel(name: unknown, id: string): string {
@@ -834,16 +829,7 @@ export default function LearningPage() {
       const task = tasks.find((t) => t.id === taskId);
       if (!task) return;
 
-      const target = task.activityTarget;
-      const fallbackUrl = getActivityUrl(task.activityType, task.courseId, task.targetId);
-      const url =
-        target?.kind === "document" && task.activityType === "reading"
-          ? getActivityUrlFromTarget(task.courseId, target, task.id)
-          : target && target.kind !== "document"
-            ? getActivityUrlFromTarget(task.courseId, target, task.id)
-            : task.activityType === "quiz" || task.activityType === "flashcards"
-              ? withTaskId(fallbackUrl, taskId)
-              : fallbackUrl;
+      const url = resolveTaskActivityUrl(task, taskId);
 
       if (session && session.taskId == null) {
         await updateTaskStatus(taskId, "in_progress");
@@ -886,7 +872,7 @@ export default function LearningPage() {
     (taskId: string) => {
       const task = tasks.find((t) => t.id === taskId);
       if (!task) return;
-      router.push(getActivityUrl(task.activityType, task.courseId, task.targetId));
+      router.push(resolveTaskActivityUrl(task, taskId));
     },
     [tasks, router]
   );
