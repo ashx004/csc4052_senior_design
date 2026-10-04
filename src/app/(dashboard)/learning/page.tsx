@@ -41,6 +41,7 @@ import {
   suggestionAfterLater,
 } from "@/src/library/studyPlan/addSuggestionToPlan";
 import { resolveQuizSuggestionView } from "@/src/library/studyPlan/quizSuggestionView";
+import { nextAddIntent } from "@/src/library/studyPlan/addIntent";
 import {
   documentMasteryId,
   learningActivityEventsCollection,
@@ -81,6 +82,7 @@ import LearningSuggestionCard from "@/src/components/studyPlan/LearningSuggestio
 import CourseMasterySummary from "@/src/components/studyPlan/CourseMasterySummary";
 import PlanTimeOverageModal from "@/src/components/studyPlan/PlanTimeOverageModal";
 import DocumentPickerModal from "@/src/components/studyPlan/DocumentPickerModal";
+import ActionToast from "@/src/components/studyPlan/ActionToast";
 
 const CLASSES_ANCHOR = "learning-classes";
 const PLAN_ANCHOR = "learning-study-plan";
@@ -213,6 +215,7 @@ export default function LearningPage() {
     planLoading,
     today,
     tasks,
+    tasksLoading,
     createPlan,
     updatePlanState,
     createTasksFromGenerated,
@@ -269,6 +272,9 @@ export default function LearningPage() {
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
   const [highlightedSuggestionId, setHighlightedSuggestionId] = useState<string | null>(null);
   const [savingSuggestion, setSavingSuggestion] = useState(false);
+  const handledAddSuggestionIdRef = useRef<string | null>(null);
+  const [addToast, setAddToast] = useState<string | null>(null);
+  const clearAddToast = useCallback(() => setAddToast(null), []);
   const savingSuggestionRef = useRef(false);
   const [timeOverage, setTimeOverage] = useState<{
     suggestion: MissedQuestionsSuggestion & { id: string };
@@ -639,6 +645,7 @@ export default function LearningPage() {
           });
         }
         revealTask(taskId);
+        setAddToast("Added to your plan");
         setPendingSuggestionId((current) =>
           current === suggestion.id ? completePendingAdd(current, true) : current,
         );
@@ -678,6 +685,7 @@ export default function LearningPage() {
         );
         setHighlightedTaskId(taskId);
         setActiveView("plan");
+        setAddToast("Added to your plan");
         return taskId;
       } finally {
         savingSuggestionRef.current = false;
@@ -715,6 +723,23 @@ export default function LearningPage() {
     },
     [savingSuggestion, plan, courseInfoFor, today, tasks, saveSuggestionOnPlan],
   );
+
+  useEffect(() => {
+    if (!querySuggestionId || planLoading || classesLoading || tasksLoading) return;
+    const intent = nextAddIntent(querySuggestionId, handledAddSuggestionIdRef.current);
+    if (!intent.shouldAdd) return;
+    const suggestion = suggestions.find((item) => item.id === querySuggestionId);
+    if (!suggestion) return; // suggestions not loaded yet; effect re-runs when they are
+    handledAddSuggestionIdRef.current = intent.handledSuggestionId;
+    handleAddSuggestion(suggestion);
+  }, [
+    querySuggestionId,
+    planLoading,
+    classesLoading,
+    tasksLoading,
+    suggestions,
+    handleAddSuggestion,
+  ]);
 
   const handleSetupSubmit = useCallback(
     async (config: SetupConfig) => {
@@ -1097,7 +1122,7 @@ export default function LearningPage() {
       suggestions
         .filter((suggestion) => {
           const view = resolveQuizSuggestionView(suggestion);
-          return view?.primaryAction === "add" || view?.primaryAction === "view_task";
+          return view?.primaryAction === "add";
         })
         .sort((a, b) => b.priority - a.priority),
     [suggestions],
@@ -1234,7 +1259,6 @@ export default function LearningPage() {
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
               {recommendedSuggestions.map((suggestion) => {
                 const course = courseInfoFor(suggestion.courseId);
-                const view = resolveQuizSuggestionView(suggestion);
                 return (
                   <LearningSuggestionCard
                     key={suggestion.id}
@@ -1244,14 +1268,6 @@ export default function LearningPage() {
                     highlighted={suggestion.id === highlightedSuggestionId}
                     busy={savingSuggestion}
                     onAdd={() => handleAddSuggestion(suggestion)}
-                    onView={() => {
-                      if (view?.primaryAction === "view_task") revealTask(view.taskId);
-                    }}
-                    onLater={() => {
-                      const kept = suggestionAfterLater(suggestion);
-                      if (kept.status === "added") return;
-                      void markSuggestionActive(suggestion.id);
-                    }}
                     onDismiss={() => {
                       void dismissSuggestion(suggestion.id);
                     }}
@@ -1435,6 +1451,7 @@ export default function LearningPage() {
           onReschedule={handleReschedule}
           onCancel={() => setRescheduleTarget(null)}
         />
+        <ActionToast message={addToast} onDone={clearAddToast} />
         {showTaskPicker && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/35 p-4">
             <div
