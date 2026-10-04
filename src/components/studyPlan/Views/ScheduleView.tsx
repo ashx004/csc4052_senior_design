@@ -1,260 +1,155 @@
 "use client";
 
 import { useMemo } from "react";
+import Link from "next/link";
+import { ArrowUpRight, Check, Play } from "lucide-react";
 import type { StudyTask } from "@/src/library/studyPlan/types";
 import type { CalendarEvent } from "@/src/components/calendar/calendarTypes";
+import {
+  buildTodayScheduleItems,
+  type WorkspaceScheduleItem,
+} from "@/src/library/studyPlan/workspaceSchedule";
 
 interface ScheduleViewProps {
   tasks: (StudyTask & { id: string })[];
   calendarEvents: CalendarEvent[];
+  today: string;
   onStart: (taskId: string) => void;
   onContinue: (taskId: string) => void;
-  onSkip: (taskId: string) => void;
-  onReschedule: (taskId: string) => void;
-  onComplete: (taskId: string) => void;
-  onPause: () => void;
+  onShowList: () => void;
   highlightedTaskId?: string | null;
 }
 
-interface ScheduleBlock {
-  id: string;
-  title: string;
-  startHour: number;
-  startMinute: number;
-  durationMin: number;
-  colorClass: string;
-  dayIndex: number;
-  taskId?: string;
-  status?: string;
+function formatHour(hour: number): string {
+  return new Date(2026, 0, 1, hour).toLocaleTimeString("en-US", { hour: "numeric" });
 }
 
-const TASK_COLORS = [
-  "bg-accent-peach",
-  "bg-accent-lavender",
-  "bg-accent-sage",
-];
-
-const START_HOUR = 9;
-
-function getDayColumns(): { label: string; date: Date }[] {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const dayNames = [
-    "Sunday", "Monday", "Tuesday", "Wednesday",
-    "Thursday", "Friday", "Saturday",
-  ];
-  const columns: { label: string; date: Date }[] = [];
-  for (let i = 0; i < 3; i++) {
-    const d = new Date(today);
-    d.setDate(today.getDate() + i);
-    const label = i === 0 ? "Today" : i === 1 ? "Tomorrow" : dayNames[d.getDay()];
-    columns.push({ label, date: d });
-  }
-  return columns;
+function formatTime(value: string): string {
+  return new Date(value).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
-function toDateKey(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-function formatTime(hour: number, minute: number): string {
-  const h = hour % 12 || 12;
-  const m = String(minute).padStart(2, "0");
-  return `${h}:${m}`;
+function taskAction(item: WorkspaceScheduleItem): "Start" | "Continue" | null {
+  if (item.kind !== "task") return null;
+  if (item.status === "recommended") return "Start";
+  if (item.status === "in_progress") return "Continue";
+  return null;
 }
 
 export default function ScheduleView({
   tasks,
   calendarEvents,
+  today,
   onStart,
   onContinue,
+  onShowList,
   highlightedTaskId = null,
 }: ScheduleViewProps) {
-  const dayColumns = useMemo(() => getDayColumns(), []);
-
-  const blocks = useMemo(() => {
-    const result: ScheduleBlock[] = [];
-    let colorIdx = 0;
-
-    const dayKeyMap = new Map<string, number>();
-    dayColumns.forEach((col, i) => dayKeyMap.set(toDateKey(col.date), i));
-
-    for (const event of calendarEvents) {
-      const eventDate = new Date(event.startTime);
-      const dayIdx = dayKeyMap.get(toDateKey(eventDate));
-      if (dayIdx === undefined) continue;
-      const endDate = new Date(event.endTime);
-      const durationMin = Math.max(
-        15,
-        Math.round((endDate.getTime() - eventDate.getTime()) / 60000)
-      );
-      result.push({
-        id: event.id,
-        title: event.title,
-        startHour: eventDate.getHours(),
-        startMinute: eventDate.getMinutes(),
-        durationMin,
-        colorClass: TASK_COLORS[colorIdx % TASK_COLORS.length],
-        dayIndex: dayIdx,
-      });
-      colorIdx++;
+  const day = useMemo(() => new Date(`${today}T12:00:00`), [today]);
+  const items = useMemo(
+    () => buildTodayScheduleItems(tasks, calendarEvents, day),
+    [tasks, calendarEvents, day],
+  );
+  const hourGroups = useMemo(() => {
+    const groups = new Map<number, WorkspaceScheduleItem[]>();
+    for (const item of items) {
+      const hour = new Date(item.startTime).getHours();
+      const group = groups.get(hour) ?? [];
+      group.push(item);
+      groups.set(hour, group);
     }
-
-    const nextSlot = new Map<number, number>();
-    for (let i = 0; i < 3; i++) nextSlot.set(i, START_HOUR * 60);
-    for (const block of result) {
-      const endMin = block.startHour * 60 + block.startMinute + block.durationMin;
-      const current = nextSlot.get(block.dayIndex) ?? START_HOUR * 60;
-      if (endMin > current) nextSlot.set(block.dayIndex, endMin);
-    }
-
-    const activeTasks = tasks.filter(
-      (t) => t.status !== "skipped" && t.status !== "rescheduled"
-    );
-    for (const task of activeTasks) {
-      let dayIdx = 0;
-      if (task.scheduledDate) {
-        const mapped = dayKeyMap.get(task.scheduledDate);
-        if (mapped !== undefined) dayIdx = mapped;
-      }
-      const slotMinutes = nextSlot.get(dayIdx) ?? START_HOUR * 60;
-      const startHour = Math.floor(slotMinutes / 60);
-      const startMinute = slotMinutes % 60;
-      result.push({
-        id: task.id,
-        title: task.title,
-        startHour,
-        startMinute,
-        durationMin: task.estimatedMinutes,
-        colorClass: TASK_COLORS[colorIdx % TASK_COLORS.length],
-        dayIndex: dayIdx,
-        taskId: task.id,
-        status: task.status,
-      });
-      nextSlot.set(dayIdx, slotMinutes + task.estimatedMinutes + 5);
-      colorIdx++;
-    }
-
-    return result;
-  }, [tasks, calendarEvents, dayColumns]);
-
-  const hours = useMemo(() => {
-    let minH = START_HOUR;
-    let maxH = START_HOUR + 3;
-    for (const b of blocks) {
-      if (b.startHour < minH) minH = b.startHour;
-      const endH = Math.ceil(
-        (b.startHour * 60 + b.startMinute + b.durationMin) / 60
-      );
-      if (endH > maxH) maxH = endH;
-    }
-    const arr: number[] = [];
-    for (let h = minH; h <= maxH; h++) arr.push(h);
-    return arr;
-  }, [blocks]);
-
-  const ROW_H = 72;
-  const totalHeight = hours.length * ROW_H;
+    return [...groups.entries()].sort(([a], [b]) => a - b);
+  }, [items]);
+  const unscheduledCount = tasks.filter(
+    (task) =>
+      (task.status === "recommended" || task.status === "in_progress") &&
+      (!task.scheduledStart || !task.scheduledEnd),
+  ).length;
+  const studyCount = items.filter((item) => item.kind === "task").length;
 
   return (
-    <section className="rounded-[19px] bg-white p-5">
-      <div className="grid grid-cols-[75px_repeat(3,1fr)] gap-x-2">
-        {/* Column headers */}
-        <div />
-        {dayColumns.map((col) => (
-          <div
-            key={col.label}
-            className="pb-3 text-[11px] font-bold text-gray-secondary"
-          >
-            {col.label}
-          </div>
-        ))}
+    <section aria-label="Today's study schedule" className="overflow-hidden rounded-[19px] border border-gray-light bg-white">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-gray-light px-5 py-5 sm:px-6">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-brown-label">Today’s schedule</p>
+          <h4 className="mt-1 text-lg font-semibold text-navy">
+            {day.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+          </h4>
+          <p className="mt-1 text-sm text-gray-secondary">
+            {studyCount} study {studyCount === 1 ? "block" : "blocks"} today
+          </p>
+        </div>
+        <Link
+          href="/calendar"
+          className="inline-flex min-h-10 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-navy transition-colors hover:bg-gray-input focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+        >
+          Open full calendar <ArrowUpRight size={16} aria-hidden="true" />
+        </Link>
+      </div>
 
-        {/* Hour labels column */}
-        <div className="relative" style={{ height: totalHeight }}>
-          {hours.map((h, i) => (
-            <div
-              key={h}
-              className="absolute left-0 text-xs text-gray-secondary"
-              style={{ top: i * ROW_H + 4 }}
-            >
-              {h % 12 || 12} {h < 12 ? "AM" : "PM"}
+      {hourGroups.length === 0 ? (
+        <div className="px-5 py-12 text-center sm:px-6">
+          <p className="text-sm font-medium text-navy">Nothing timed for today yet</p>
+          <p className="mt-1 text-sm text-gray-secondary">Scheduled study blocks and calendar events will appear here.</p>
+        </div>
+      ) : (
+        <div className="px-4 py-3 sm:px-6">
+          {hourGroups.map(([hour, group]) => (
+            <div key={hour} className="grid grid-cols-[54px_minmax(0,1fr)] gap-3 border-b border-gray-light/70 py-3 last:border-b-0 sm:grid-cols-[70px_minmax(0,1fr)] sm:gap-4">
+              <div className="pt-2 text-xs font-semibold text-gray-secondary">{formatHour(hour)}</div>
+              <div className="space-y-2 border-l border-gray-light pl-3 sm:pl-4">
+                {group.map((item) => {
+                  const action = taskAction(item);
+                  const completed = item.status === "completed";
+                  const highlighted = item.taskId === highlightedTaskId;
+                  return (
+                    <div
+                      key={`${item.kind}-${item.id}`}
+                      id={item.taskId ? `study-task-${item.taskId}` : undefined}
+                      className={`flex min-w-0 flex-wrap items-center gap-3 rounded-xl border px-3.5 py-3 sm:px-4 ${
+                        item.kind === "task"
+                          ? "border-gray-light bg-white shadow-sm"
+                          : "border-transparent bg-gray-input/70"
+                      } ${highlighted ? "ring-2 ring-navy" : ""}`}
+                    >
+                      <span className={`h-9 w-1 shrink-0 rounded-full ${item.kind === "task" ? "bg-brown-label" : "bg-gray-secondary/40"}`} aria-hidden="true" />
+                      <div className="min-w-0 flex-1">
+                        <p className={`text-sm font-semibold leading-snug ${completed ? "text-gray-secondary line-through" : "text-navy"}`}>{item.title}</p>
+                        <p className="mt-1 text-xs text-gray-secondary">
+                          {formatTime(item.startTime)}–{formatTime(item.endTime)}
+                          {item.courseCode ? ` · ${item.courseCode}` : ""}
+                          {item.kind === "event" ? " · Calendar event" : ""}
+                        </p>
+                      </div>
+                      {completed && (
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-gray-secondary">
+                          <Check size={14} aria-hidden="true" /> Done
+                        </span>
+                      )}
+                      {action && item.taskId && (
+                        <button
+                          type="button"
+                          onClick={() => action === "Continue" ? onContinue(item.taskId!) : onStart(item.taskId!)}
+                          className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-gray-light bg-white px-3 text-xs font-semibold text-navy transition-colors hover:border-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+                        >
+                          <Play size={13} fill="currentColor" aria-hidden="true" /> {action}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           ))}
         </div>
+      )}
 
-        {/* Day columns — each is a relative container for absolute blocks */}
-        {[0, 1, 2].map((dayIdx) => (
-          <div key={dayIdx} className="relative" style={{ height: totalHeight }}>
-            {/* Hour grid lines */}
-            {hours.map((_, i) => (
-              <div
-                key={i}
-                className="absolute left-0 right-0 border-t border-gray-light/50"
-                style={{ top: i * ROW_H }}
-              />
-            ))}
-
-            {/* Blocks for this day */}
-            {blocks
-              .filter((b) => b.dayIndex === dayIdx)
-              .map((block) => {
-                const offsetMin =
-                  (block.startHour - hours[0]) * 60 + block.startMinute;
-                const topPx = (offsetMin / 60) * ROW_H;
-                const heightPx = Math.max(36, (block.durationMin / 60) * ROW_H);
-
-                const endTotalMin =
-                  block.startHour * 60 +
-                  block.startMinute +
-                  block.durationMin;
-                const endH = Math.floor(endTotalMin / 60);
-                const endM = endTotalMin % 60;
-                const timeLabel = `${formatTime(block.startHour, block.startMinute)}–${formatTime(endH, endM)}`;
-
-                const highlighted = block.taskId != null && block.taskId === highlightedTaskId;
-                const canOpen =
-                  block.status === "recommended" || block.status === "in_progress";
-
-                return (
-                  <div
-                    key={block.id}
-                    id={block.taskId ? `study-task-${block.taskId}` : undefined}
-                    className={`absolute left-0 right-1 overflow-hidden rounded-[10px] ${block.colorClass} px-3 py-2 text-navy ${
-                      highlighted ? "ring-2 ring-navy" : ""
-                    }`}
-                    style={{ top: topPx, height: heightPx }}
-                  >
-                    <strong className="block truncate text-xs">
-                      {block.title}
-                    </strong>
-                    <span className="text-[10px] text-navy/70">
-                      {timeLabel}
-                    </span>
-                    {highlighted && canOpen && block.taskId && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          block.status === "in_progress"
-                            ? onContinue(block.taskId!)
-                            : onStart(block.taskId!)
-                        }
-                        className="mt-1 rounded-full bg-navy px-2 py-0.5 text-[10px] font-semibold text-white"
-                      >
-                        {block.status === "in_progress" ? "Continue" : "Start"}
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-          </div>
-        ))}
-      </div>
-
-      {blocks.length === 0 && (
-        <p className="py-8 text-center text-sm text-gray-secondary">
-          No events or tasks scheduled for this period.
-        </p>
+      {unscheduledCount > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-light bg-gray-input/40 px-5 py-3 text-sm sm:px-6">
+          <span className="text-gray-secondary">{unscheduledCount} {unscheduledCount === 1 ? "task has" : "tasks have"} no scheduled time</span>
+          <button type="button" onClick={onShowList} className="font-semibold text-navy underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy">
+            View in List
+          </button>
+        </div>
       )}
     </section>
   );

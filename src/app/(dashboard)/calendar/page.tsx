@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import {
   CalendarDays,
   ChevronLeft,
@@ -20,7 +21,13 @@ import { useCalendarEvents } from "@/src/hooks/useCalendarEvents";
 import { useLocalCalendarEvents } from "@/src/hooks/useLocalCalendarEvents";
 import { useClassCalendarEvents } from "@/src/hooks/useClassCalendarEvents";
 import { useCalendarReminders } from "@/src/hooks/useCalendarReminders";
-import { getWeekStart } from "@/src/library/calendarHelpers";
+import { getWeekStart, dateKey } from "@/src/library/calendarHelpers";
+import StudyBlockPanel from "@/src/components/calendar/StudyBlockPanel";
+import { useScheduledStudyTasks } from "@/src/hooks/useScheduledStudyTasks";
+import { useStudyPlanContext } from "@/src/context/StudyPlanContext";
+import { studyTasksToCalendarEvents, googleEventBodyForTask, hideSyncedGoogleDuplicates } from "@/src/library/studyPlan/studyTaskEvents";
+import { moveBlock } from "@/src/library/studyPlan/studySchedule";
+import { writeTaskSchedules, clearTaskSchedule, setTaskGoogleEventId, clearTaskGoogleEventId } from "@/src/library/studyPlan/studyScheduleRepository";
 import PageTutorial from "@/src/components/tutorial/PageTutorial";
 import calendarSteps from "@/src/library/tutorials/steps/calendar";
 
@@ -39,6 +46,8 @@ const MONTH_NAMES = [
 
 export default function CalendarPage() {
   const { user } = useAuth();
+  const router = useRouter();
+  const { updateTaskStatus, session } = useStudyPlanContext();
   const [view, setView] = useState<CalendarView>("month");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -49,7 +58,11 @@ export default function CalendarPage() {
   const [showLocal, setShowLocal] = useState(true);
   const [showGoogle, setShowGoogle] = useState(true);
   const [showClassMeetings, setShowClassMeetings] = useState(true);
+  const [showStudy, setShowStudy] = useState(true);
+  const [studyPanelEvent, setStudyPanelEvent] = useState<CalendarEvent | null>(null);
   const [classFilter, setClassFilter] = useState("all");
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const { status, refresh } = useCalendarConnection();
 
   // Compute the date range to fetch based on the current view.
@@ -109,7 +122,15 @@ export default function CalendarPage() {
   const { events: localEvents, loading: localLoading, error: localEventsError, refetch: refetchLocal } = useLocalCalendarEvents(localDateRange);
   const { events: classEvents, loading: classEventsLoading } = useClassCalendarEvents(localDateRange);
 
-  const allEvents = useMemo(() => [...events, ...localEvents, ...classEvents], [events, localEvents, classEvents]);
+  const { tasks: studyTasks } = useScheduledStudyTasks(
+    user?.uid ?? null,
+    dateKey(localDateRange.start),
+    dateKey(localDateRange.end)
+  );
+  const studyEvents = useMemo(() => studyTasksToCalendarEvents(studyTasks), [studyTasks]);
+
+  const visibleGoogleEvents = useMemo(() => hideSyncedGoogleDuplicates(events, studyTasks), [events, studyTasks]);
+  const allEvents = useMemo(() => [...visibleGoogleEvents, ...localEvents, ...classEvents, ...studyEvents], [visibleGoogleEvents, localEvents, classEvents, studyEvents]);
   const eventsWithConflicts = useMemo(() => allEvents.map((event) => {
     if (event.source !== "class" || event.allDay) return event;
     const start = new Date(event.startTime).getTime();
@@ -128,8 +149,9 @@ export default function CalendarPage() {
     (showLocal || event.source !== "local") &&
     (showGoogle || event.source !== "google") &&
     (showClassMeetings || event.source !== "class") &&
+    (showStudy || event.source !== "study") &&
     (classFilter === "all" || event.classId === classFilter)
-  ), [eventsWithConflicts, showLocal, showGoogle, showClassMeetings, classFilter]);
+  ), [eventsWithConflicts, showLocal, showGoogle, showClassMeetings, showStudy, classFilter]);
 
   // ── Navigation handlers ──────────────────────────────────────────────────
 
@@ -210,6 +232,70 @@ export default function CalendarPage() {
     });
   }
 
+  async function handleStudyBlockMove(event: CalendarEvent, newStart: Date) {
+    if (!user) return;
+    const task = studyTasks.find((candidate) => candidate.id === event.taskId);
+    if (!task?.scheduledStart || !task.scheduledEnd) return;
+    const next = moveBlock({ scheduledStart: task.scheduledStart, scheduledEnd: task.scheduledEnd }, newStart);
+    await writeTaskSchedules(user.uid, [{ taskId: task.id, ...next }]);
+  }
+
+  async function syncStudyBlocksToGoogle() {
+    if (!user || syncing) return;
+    setSyncing(true);
+    setSyncMessage(null);
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    let synced = 0;
+    let failed = 0;
+    for (const task of studyTasks) {
+      const body = googleEventBodyForTask(task, timeZone);
+      if (!body || task.status === "skipped" || task.status === "rescheduled") continue;
+      try {
+        let needsCreate = !task.googleEventId;
+        if (task.googleEventId) {
+          const res = await fetch(`/api/calendar/events/${encodeURIComponent(task.googleEventId)}`, {
+            method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+          });
+          if (res.status === 404) {
+            needsCreate = true;
+          } else {
+            const data = await res.json().catch(() => null);
+            if (!res.ok || !data?.event) throw new Error("Update failed");
+            if (data.event.status === "cancelled") needsCreate = true;
+          }
+          if (needsCreate) await clearTaskGoogleEventId(user.uid, task.id);
+        }
+        if (needsCreate) {
+          const res = await fetch("/api/calendar/events", {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+          });
+          const data = await res.json();
+          if (!res.ok || !data.event?.id) throw new Error("Create failed");
+          await setTaskGoogleEventId(user.uid, task.id, data.event.id);
+        }
+        synced += 1;
+      } catch (error) {
+        console.error("Couldn't sync study block:", error);
+        failed += 1;
+      }
+    }
+    setSyncMessage(
+      failed > 0 && synced === 0
+        ? "Couldn't sync to Google Calendar."
+        : `Synced ${synced} study block${synced === 1 ? "" : "s"} to Google Calendar.${failed ? ` ${failed} couldn't be synced.` : ""}`
+    );
+    setSyncing(false);
+  }
+
+  function openEvent(event: CalendarEvent) {
+    if (event.source === "study") {
+      setStudyPanelEvent(event);
+      return;
+    }
+    setSelectedEvent(event);
+    setShowAddEvent(true);
+  }
+
   // ── Header text ──────────────────────────────────────────────────────────
 
   const headerText =
@@ -283,8 +369,19 @@ export default function CalendarPage() {
                 <label className="mt-3 flex items-center gap-2 text-sm text-text-main"><input type="checkbox" checked={showLocal} onChange={(change) => setShowLocal(change.target.checked)} /> My events</label>
                 <label className="mt-2 flex items-center gap-2 text-sm text-text-main"><input type="checkbox" checked={showGoogle} onChange={(change) => setShowGoogle(change.target.checked)} /> Google Calendar</label>
                 <label className="mt-2 flex items-center gap-2 text-sm text-text-main"><input type="checkbox" checked={showClassMeetings} onChange={(change) => setShowClassMeetings(change.target.checked)} /> Class meetings</label>
+                <label className="mt-2 flex items-center gap-2 text-sm text-text-main"><input type="checkbox" checked={showStudy} onChange={(change) => setShowStudy(change.target.checked)} /> Study blocks</label>
                 {classOptions.length > 0 && <label className="mt-3 block text-sm text-text-main">Class<select value={classFilter} onChange={(change) => setClassFilter(change.target.value)} className="mt-1 w-full rounded-md border border-border-light bg-bg-main px-2 py-1.5 text-sm"><option value="all">All classes</option>{classOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>}
               </div>
+            )}
+            {status === "connected" && (
+              <button
+                type="button"
+                onClick={() => void syncStudyBlocksToGoogle()}
+                disabled={syncing}
+                className="inline-flex items-center gap-2 rounded-lg border border-border-light bg-bg-container px-4 py-2 text-sm font-medium text-text-main shadow-sm transition hover:bg-bg-warm disabled:opacity-60"
+              >
+                {syncing ? "Syncing…" : "Sync study blocks to Google"}
+              </button>
             )}
             <button
               type="button"
@@ -297,6 +394,8 @@ export default function CalendarPage() {
             </button>
           </div>
         </header>
+
+        {syncMessage && <p className="mb-3 text-right text-sm text-text-muted">{syncMessage}</p>}
 
         {/* ── Calendar card ── */}
         <div className="rounded-3xl border border-border-light bg-bg-container p-6 shadow-sm">
@@ -403,7 +502,7 @@ export default function CalendarPage() {
                   currentMonth={currentDate.getMonth()}
                   selectedDate={selectedDate}
                   onSelectDate={handleSelectDate}
-                  onEventClick={(event) => { setSelectedEvent(event); setShowAddEvent(true); }}
+                  onEventClick={openEvent}
                   onEventMove={(event, date) => void handleMoveEvent(event, date).catch((error) => console.error("Couldn't reschedule event:", error))}
                 />
               )}
@@ -412,18 +511,24 @@ export default function CalendarPage() {
                   events={filteredEvents}
                   selectedDate={selectedDate}
                   onSelectDate={handleSelectDate}
-                  onEventClick={(event) => { setSelectedEvent(event); setShowAddEvent(true); }}
+                  onEventClick={openEvent}
+                  onStudyBlockMove={(event, newStart) => void handleStudyBlockMove(event, newStart).catch((error) => console.error("Couldn't move study block:", error))}
                 />
               )}
               {view === "day" && (
-                <DayView events={filteredEvents} selectedDate={selectedDate} onEventClick={(event) => { setSelectedEvent(event); setShowAddEvent(true); }} />
+                <DayView
+                  events={filteredEvents}
+                  selectedDate={selectedDate}
+                  onEventClick={openEvent}
+                  onStudyBlockMove={(event, newStart) => void handleStudyBlockMove(event, newStart).catch((error) => console.error("Couldn't move study block:", error))}
+                />
               )}
               {localEventsError && (
                 <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                   {localEventsError}
                 </div>
               )}
-              {view === "agenda" && <AgendaView events={filteredEvents} onEventClick={(event) => { setSelectedEvent(event); setShowAddEvent(true); }} />}
+              {view === "agenda" && <AgendaView events={filteredEvents} onEventClick={openEvent} />}
               {status === "disconnected" && (
                 <div className="mt-6">
                   <GoogleCalendarConnect onConnected={refresh} />
@@ -439,11 +544,36 @@ export default function CalendarPage() {
         onClose={() => { setShowAddEvent(false); setSelectedEvent(null); }}
         event={selectedEvent}
         events={eventsWithConflicts}
-        onOpenEvent={(event) => setSelectedEvent(event)}
+        onOpenEvent={(event) => {
+          if (event.source === "study") {
+            setShowAddEvent(false);
+            setStudyPanelEvent(event);
+          } else {
+            setSelectedEvent(event);
+          }
+        }}
         onEventAdded={() => {
           refetchLocal();
         }}
       />
+      {studyPanelEvent && (
+        <StudyBlockPanel
+          event={studyPanelEvent}
+          canMarkDone={!(session && session.taskId === studyPanelEvent.taskId)}
+          onClose={() => setStudyPanelEvent(null)}
+          onMarkDone={async () => {
+            if (!studyPanelEvent.taskId) return;
+            await updateTaskStatus(studyPanelEvent.taskId, "completed");
+            setStudyPanelEvent(null);
+          }}
+          onRemove={async () => {
+            if (!user || !studyPanelEvent.taskId) return;
+            await clearTaskSchedule(user.uid, studyPanelEvent.taskId);
+            setStudyPanelEvent(null);
+          }}
+          onOpenPlan={() => router.push(studyPanelEvent.taskId ? `/learning?taskId=${encodeURIComponent(studyPanelEvent.taskId)}` : "/learning")}
+        />
+      )}
     </section>
   );
 }

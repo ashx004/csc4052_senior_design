@@ -294,10 +294,18 @@ export function findResourceForSourceDocKey<T extends RecommendationResource>(
   });
 }
 
+export interface GenerateTasksOptions {
+  /** Overrides config.availableMinutes as the minutes left to fill (e.g. after carryover). */
+  minutesBudget?: number;
+  /** Courses that must get a task (weak and untouched this week), forced in first. */
+  guaranteedCourseIds?: readonly string[];
+}
+
 export function generateTasks(
   config: SetupConfig,
   topics: EligibleTopic[],
-  exams: Map<string, number>
+  exams: Map<string, number>,
+  options: GenerateTasksOptions = {}
 ): GeneratedTask[] {
   let filtered = topics;
 
@@ -321,7 +329,7 @@ export function generateTasks(
   scored.sort((a, b) => b.totalScore - a.totalScore);
 
   const tasks: GeneratedTask[] = [];
-  let remainingMinutes = config.availableMinutes;
+  let remainingMinutes = options.minutesBudget ?? config.availableMinutes;
   const usedTopics = new Set<string>();
 
   const addTask = (
@@ -360,9 +368,15 @@ export function generateTasks(
     return true;
   };
 
+  for (const courseId of options.guaranteedCourseIds ?? []) {
+    const topic = scored.find((candidate) => candidate.courseId === courseId);
+    if (!topic) continue;
+    addTask(topic, chooseActivityType(topic, config.activityPreference));
+  }
+
   if (
     config.activityPreference === "auto" &&
-    config.availableMinutes >= REQUIRED_ACTIVITY_MINUTES
+    remainingMinutes >= REQUIRED_ACTIVITY_MINUTES
   ) {
     const quizTopic = scored.find(
       (topic) => topic.activityType === "quiz" && topic.targetId !== null
