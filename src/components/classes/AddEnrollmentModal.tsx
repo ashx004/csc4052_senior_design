@@ -77,6 +77,7 @@ export default function AddEnrollmentModal({
   const [meetingTimeZone, setMeetingTimeZone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
   const [termStartDate, setTermStartDate] = useState("");
   const [termEndDate, setTermEndDate] = useState("");
+  const [createCalendarEvents, setCreateCalendarEvents] = useState(false);
   // Former standalone Advising page, now reachable only from here - see
   // "See course catalog" link at the bottom of the form below.
   const [catalogOpen, setCatalogOpen] = useState(false);
@@ -142,6 +143,7 @@ export default function AddEnrollmentModal({
     setMeetingTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
     setTermStartDate("");
     setTermEndDate("");
+    setCreateCalendarEvents(false);
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -185,7 +187,7 @@ export default function AddEnrollmentModal({
       color: DEFAULT_CLASS_COLOR,
       ...(parsedCode ? { subject: parsedCode.subject, courseNumber: parsedCode.number } : {}),
       ...(Number.isFinite(parsedCreditHours) ? { creditHours: parsedCreditHours } : {}),
-      ...(hasMeetingDetails ? { meetingDays, meetingStartTime, meetingEndTime, meetingTimeZone } : {}),
+      ...(hasMeetingDetails ? { meetingDays, meetingStartTime, meetingEndTime, meetingTimeZone, createCalendarEvents } : {}),
       ...(termStartDate ? { termStartDate } : {}),
       ...(termEndDate ? { termEndDate } : {}),
     };
@@ -337,31 +339,9 @@ export default function AddEnrollmentModal({
               </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="block text-sm font-medium text-text-muted">Time</label>
-                  <input
-                    type="text"
-                    name="time"
-                    value={formData.time}
-                    onChange={handleChange}
-                    className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-green-500 focus:outline-none"
-                    placeholder="e.g. 10:00 AM - 11:30 AM"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-text-muted">Class Schedule</label>
-                  <input
-                    type="text"
-                    name="classSchedule"
-                    value={formData.classSchedule}
-                    onChange={handleChange}
-                    className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-green-500 focus:outline-none"
-                    placeholder="e.g. Mon / Wed"
-                  />
-                </div>
                 <div className="sm:col-span-2 rounded-2xl border border-border-light bg-bg-main p-4">
-                  <p className="text-sm font-medium text-text-main">Structured meeting schedule</p>
-                  <p className="mt-1 text-xs text-text-muted">Optional. This is used for calendar-connected class meetings; the free-text fields above remain for display.</p>
+                  <p className="text-sm font-medium text-text-main">Class meeting time</p>
+                  <p className="mt-1 text-xs text-text-muted">Optional. Add the days and time your class meets.</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {CLASS_MEETING_DAYS.map((day) => {
                       const selected = meetingDays.includes(day);
@@ -397,6 +377,18 @@ export default function AddEnrollmentModal({
                       <input type="date" value={termEndDate} onChange={(e) => setTermEndDate(e.target.value)} className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-2 py-1.5 text-sm text-text-main" />
                     </label>
                   </div>
+                  <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-border-light bg-bg-container p-3 text-sm text-text-main transition hover:bg-bg-warm">
+                    <input
+                      type="checkbox"
+                      checked={createCalendarEvents}
+                      onChange={(event) => setCreateCalendarEvents(event.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-border-light text-primary focus:ring-primary"
+                    />
+                    <span>
+                      <span className="block font-medium">Add these meetings to Calendar automatically</span>
+                      <span className="mt-0.5 block text-xs leading-5 text-text-muted">Recurring class events will appear on your Calendar when you save this class.</span>
+                    </span>
+                  </label>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-text-muted">Credit Hours</label>
