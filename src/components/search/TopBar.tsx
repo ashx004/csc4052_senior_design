@@ -25,7 +25,7 @@ export default function TopBar({ extraSearchEntries }: TopBarProps) {
   }
 
   return (
-    <header className="flex h-16 shrink-0 items-center justify-center border-b border-border-light bg-bg-main pl-16 pr-4 md:h-[68px] md:px-6">
+    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-center border-b border-border-light bg-bg-main pl-16 pr-4 md:h-[68px] md:px-6">
       <SearchBar extraEntries={extraSearchEntries} />
     </header>
   );
