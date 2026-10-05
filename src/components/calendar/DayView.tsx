@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import EventPill from "@/src/components/calendar/EventPill";
 import TimedEvent from "@/src/components/calendar/TimedEvent";
 import {
@@ -8,6 +8,7 @@ import {
   getEventPosition,
 } from "@/src/library/calendarHelpers";
 import type { CalendarEvent } from "@/src/components/calendar/calendarTypes";
+import { dropStartFromPointer } from "@/src/library/studyPlan/studySchedule";
 
 // Class schedules can run outside the traditional daytime window. Month view
 // showed them because it has no hour cutoff; daily view must use the same
@@ -27,9 +28,12 @@ type DayViewProps = {
   events: CalendarEvent[];
   selectedDate: Date;
   onEventClick?: (event: CalendarEvent) => void;
+  onStudyBlockMove?: (event: CalendarEvent, newStart: Date) => void;
 };
 
-export default function DayView({ events, selectedDate, onEventClick }: DayViewProps) {
+export default function DayView({ events, selectedDate, onEventClick, onStudyBlockMove }: DayViewProps) {
+  const [dragged, setDragged] = useState<CalendarEvent | null>(null);
+  const [grabOffsetY, setGrabOffsetY] = useState(0);
   const timeSlots = useMemo(() => buildTimeSlots(START_HOUR, END_HOUR), []);
   const timedEvents = useMemo(
     () => getTimedEventsForDay(events, selectedDate),
@@ -91,13 +95,26 @@ export default function DayView({ events, selectedDate, onEventClick }: DayViewP
 
           return (
             <div key={`day-${time}`} className="grid grid-cols-[95px_1fr]">
-              <div className="h-20 border-r border-b border-border-light bg-bg-container px-4 pt-2 text-right text-xs text-text-muted">
+              <div className="h-16 border-r border-b border-border-light bg-bg-container px-4 pt-2 text-right text-xs text-text-muted">
                 {time}
               </div>
 
-              <div className="relative h-20 border-b border-border-light p-2">
+              <div
+                className="relative h-16 border-b border-border-light p-2"
+                onDragOver={(e) => { if (dragged) e.preventDefault(); }}
+                onDrop={(e) => {
+                  if (!dragged) return;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const start = dropStartFromPointer(selectedDate, hour, e.clientY - rect.top, rect.height, grabOffsetY);
+                  if (start.toDateString() === selectedDate.toDateString() && new Date(dragged.startTime).toDateString() === selectedDate.toDateString()) {
+                    onStudyBlockMove?.(dragged, start);
+                  }
+                  setDragged(null);
+                }}
+              >
                 {hourEvents.map((ev) => {
                   const { topPx, heightPx } = getEventPosition(ev, hour);
+                  const movable = ev.source === "study" && !ev.done && Boolean(onStudyBlockMove);
                   return (
                     <TimedEvent
                       key={ev.id}
@@ -108,6 +125,10 @@ export default function DayView({ events, selectedDate, onEventClick }: DayViewP
                       style={{ top: `${topPx}px` }}
                       onClick={() => onEventClick?.(ev)}
                       hasConflict={Boolean(ev.conflictTitles?.length)}
+                      done={ev.source === "study" ? ev.done : undefined}
+                      draggable={movable}
+                      onDragStart={movable ? (e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", ev.id); setGrabOffsetY(e.clientY - e.currentTarget.getBoundingClientRect().top); setDragged(ev); } : undefined}
+                      onDragEnd={movable ? () => setDragged(null) : undefined}
                     />
                   );
                 })}

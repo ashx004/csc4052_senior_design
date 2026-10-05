@@ -4,6 +4,7 @@ import {
   getActivityUrl,
   getActivityUrlFromTarget,
   formatElapsedTime,
+  resolveTaskActivityUrl,
 } from "./sessionTimer";
 
 function ts(ms: number) {
@@ -65,6 +66,18 @@ describe("getActivityUrl", () => {
   });
 
   it("builds reading URL", () => {
+    expect(getActivityUrl("reading", "csc430", null)).toBe(
+      "/courses/csc430/learning"
+    );
+  });
+
+  it("deep-links reading to the document when a resource target is present", () => {
+    expect(getActivityUrl("reading", "csc430", "res-9")).toBe(
+      "/courses/csc430?resourceId=res-9"
+    );
+  });
+
+  it("falls back to the study-set list for reading with no target", () => {
     expect(getActivityUrl("reading", "csc430", null)).toBe(
       "/courses/csc430/learning"
     );
@@ -147,5 +160,56 @@ describe("formatElapsedTime", () => {
 
   it("pads seconds with leading zero", () => {
     expect(formatElapsedTime(5)).toBe("0:05");
+  });
+});
+
+describe("resolveTaskActivityUrl", () => {
+  it("reading with a document target opens the PDF deep link", () => {
+    const task = {
+      activityType: "reading" as const,
+      courseId: "csc430",
+      targetId: "res-9",
+      activityTarget: {
+        kind: "document" as const,
+        resourceId: "res-9",
+        sourceDocKey: "users/u/resources/wk3.pdf",
+      },
+    };
+    expect(resolveTaskActivityUrl(task, "task-1")).toBe(
+      "/courses/csc430?resourceId=res-9&taskId=task-1"
+    );
+  });
+
+  it("reading with only a resource id (no activityTarget) still opens the PDF", () => {
+    const task = {
+      activityType: "reading" as const,
+      courseId: "csc430",
+      targetId: "res-9",
+    };
+    expect(resolveTaskActivityUrl(task, "task-1")).toBe(
+      "/courses/csc430?resourceId=res-9"
+    );
+  });
+
+  it("reading with nothing to open falls back to the study-set list", () => {
+    const task = {
+      activityType: "reading" as const,
+      courseId: "csc430",
+      targetId: null,
+    };
+    expect(resolveTaskActivityUrl(task, "task-1")).toBe(
+      "/courses/csc430/learning"
+    );
+  });
+
+  it("quiz appends the taskId to the take URL", () => {
+    const task = {
+      activityType: "quiz" as const,
+      courseId: "csc430",
+      targetId: "quiz1",
+    };
+    expect(resolveTaskActivityUrl(task, "task-1")).toBe(
+      "/courses/csc430/quizzes/quiz1?mode=take&taskId=task-1"
+    );
   });
 });

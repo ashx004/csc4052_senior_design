@@ -38,6 +38,8 @@ import {
   studyTaskPath,
 } from '@/src/library/studyPlan/firestorePaths';
 import { filterAvailableQuestions } from '@/src/library/studyPlan/learningSuggestionEngine';
+import { missedQuestionTexts } from '@/src/library/studyPlan/missedQuestionText';
+import { generateTargetedPracticeQuiz } from '@/src/library/studyPlan/targetedPractice';
 import { resolvePracticeQuestions } from '@/src/library/studyPlan/quizSuggestionView';
 import type { QuizProgressOutcome } from '@/src/library/studyPlan/learningProgressService';
 import type {
@@ -360,6 +362,9 @@ export default function QuizTakingPage() {
   const [regenerating, setRegenerating] = useState(false);
   const [regenerateError, setRegenerateError] = useState<string | null>(null);
   const [allQuestions, setAllQuestions] = useState<QuizQuestion[]>([]);
+  const [practicing, setPracticing] = useState(false);
+  const practicingRef = useRef(false);
+  const [practiceError, setPracticeError] = useState<string | null>(null);
   const [activeQuestions, setActiveQuestions] = useState<QuizQuestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -775,6 +780,32 @@ export default function QuizTakingPage() {
     scrollToTop();
   };
 
+  const handlePracticeWeakSpot = async () => {
+    if (!user || !suggestionForCard || practicingRef.current) return;
+    const sourceDocKey = suggestionForCard.sourceDocKey ?? quizSource?.key ?? null;
+    if (!sourceDocKey) {
+      setPracticeError("Couldn't find the source document for this quiz.");
+      return;
+    }
+    practicingRef.current = true;
+    setPracticing(true);
+    setPracticeError(null);
+    try {
+      const newId = await generateTargetedPracticeQuiz({
+        uid: user.uid,
+        courseId,
+        sourceDocKey,
+        conceptLabel: quizName,
+        avoidQuestions: missedQuestionTexts(suggestionForCard.questionIds, allQuestions),
+      });
+      router.push(`/courses/${courseId}/quizzes/${newId}?mode=take`);
+    } catch (err) {
+      setPracticeError(err instanceof Error ? err.message : 'Failed to generate practice questions.');
+      practicingRef.current = false;
+      setPracticing(false);
+    }
+  };
+
   // A new quiz set from the same file that avoids this quiz's questions. It's a
   // separate set (not an overwrite) so this quiz's attempt history stays intact.
   const handleNewQuestions = async () => {
@@ -1063,16 +1094,13 @@ export default function QuizTakingPage() {
                 <QuizPracticeSuggestion
                   suggestion={suggestionForCard}
                   quizName={quizName}
-                  missedCount={suggestionForCard?.questionIds.length ?? 0}
                   onAdd={handleAddToPlan}
-                  onView={() => {
-                    const taskId = suggestionForCard?.linkedTaskId;
-                    if (!taskId) return;
-                    router.push(`/learning?taskId=${encodeURIComponent(taskId)}`);
-                  }}
                   onLater={() => setSuggestionHidden(true)}
                   onOpenDocument={handleOpenSourceDocument}
                   onCreateQuiz={() => router.push(`/courses/${courseId}/learning`)}
+                  onPractice={handlePracticeWeakSpot}
+                  practicing={practicing}
+                  practiceError={practiceError}
                   openDocumentLabel={openDocumentLabel}
                 />
               </div>
