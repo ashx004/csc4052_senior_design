@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
 import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
@@ -84,6 +84,23 @@ export default function CourseLearningPage() {
   const [deleting, setDeleting] = useState(false);
 
   const quizFromResource = useGenerateQuizFromResource(courseId);
+
+  const searchParams = useSearchParams();
+  const quizFromId = searchParams.get('quizFrom');
+  const handledQuizFromRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!quizFromId || loading || handledQuizFromRef.current === quizFromId) return;
+    const resource = resources.find((item) => item.id === quizFromId);
+    if (!resource) return;
+    handledQuizFromRef.current = quizFromId;
+    quizFromResource.begin({
+      sourceDocKey: extractStorageKey(resource.url),
+      resourceId: resource.id,
+      name: resource.name,
+      url: resource.url,
+    });
+  }, [quizFromId, loading, resources, quizFromResource.begin]);
 
   const [togglingVisibilityId, setTogglingVisibilityId] = useState<string | null>(null);
 

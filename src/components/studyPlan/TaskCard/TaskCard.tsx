@@ -25,6 +25,21 @@ interface TaskCardProps {
   onComplete?: () => void;
 }
 
+const TIME_FORMAT: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit" };
+
+function formatBlockTime(start: string, end: string): string {
+  const s = new Date(start);
+  const e = new Date(end);
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return "";
+  const startText = s.toLocaleTimeString("en-US", TIME_FORMAT);
+  const endText = e.toLocaleTimeString("en-US", TIME_FORMAT);
+  const [endClock, endMeridiem] = endText.split(/\s/);
+  const [startClock, startMeridiem] = startText.split(/\s/);
+  return startMeridiem === endMeridiem
+    ? `${startClock}–${endClock} ${endMeridiem}`
+    : `${startText}–${endText}`;
+}
+
 export default function TaskCard({
   task,
   onStart,
@@ -62,6 +77,11 @@ export default function TaskCard({
           <span className="mt-1 inline-block rounded-lg bg-accent-peach px-2 py-1 text-xs font-bold text-brown-label">
             {task.estimatedMinutes} min
           </span>
+          {task.scheduledStart && task.scheduledEnd && (
+            <p className="mt-1 text-xs text-gray-secondary">
+              {formatBlockTime(task.scheduledStart, task.scheduledEnd)}
+            </p>
+          )}
         </div>
       </div>
 

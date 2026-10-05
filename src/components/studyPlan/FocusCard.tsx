@@ -18,6 +18,9 @@ import {
 import ChickenAvatar from "./ChickenAvatar";
 import type { CardCorner } from "@/src/library/studyPlan/types";
 
+// Drop-zone tint while dragging. Fixed gray so it doesn't change with the chicken state.
+const DROP_ZONE_COLOR = "#E7E5E4";
+
 const CORNERS: CardCorner[] = [
   "top-left",
   "top-right",
@@ -249,7 +252,7 @@ export default function FocusCard() {
                 ...cornerFrame(corner, cardSize),
                 width: cardSize.width,
                 height: cardSize.height,
-                backgroundColor: stateColors.accent,
+                backgroundColor: DROP_ZONE_COLOR,
                 opacity: activeZone === corner ? 0.5 : 0.22,
               }}
             />
@@ -401,10 +404,7 @@ export default function FocusCard() {
                   <button
                     type="button"
                     onPointerDown={stopDrag}
-                    onClick={() => {
-                      actions.chooseFinish();
-                      router.push("/learning");
-                    }}
+                    onClick={actions.chooseFinish}
                     className={`${buttonClass} bg-navy text-white focus-visible:outline-navy`}
                   >
                     <Check size={14} aria-hidden />
@@ -499,17 +499,31 @@ export default function FocusCard() {
               </button>
             )}
 
-            <div className="mt-2 flex items-center justify-center gap-3">
+            {overlay === "done_choice" ? (
               <button
                 type="button"
                 onPointerDown={stopDrag}
-                onClick={() => setMinimized(true)}
-                className="inline-flex min-h-11 cursor-pointer items-center gap-1 text-[11px] text-gray-secondary hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+                onClick={() => {
+                  actions.chooseFinish();
+                  router.push("/learning");
+                }}
+                className="mt-2 min-h-11 w-full cursor-pointer text-center text-xs font-medium text-brown-label hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
               >
-                <Minimize2 size={12} aria-hidden />
-                Minimize
+                Back to learning
               </button>
-            </div>
+            ) : overlay === "none" ? (
+              <div className="mt-2 flex items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onPointerDown={stopDrag}
+                  onClick={() => setMinimized(true)}
+                  className="inline-flex min-h-11 cursor-pointer items-center gap-1 text-[11px] text-gray-secondary hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+                >
+                  <Minimize2 size={12} aria-hidden />
+                  Minimize
+                </button>
+              </div>
+            ) : null}
           </motion.div>
         )}
       </AnimatePresence>

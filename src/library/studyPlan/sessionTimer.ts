@@ -28,7 +28,8 @@ export function getActivityUrl(
       if (!targetId) return `/courses/${courseId}/learning`;
       return `/courses/${courseId}/flashcards?setId=${targetId}`;
     case "reading":
-      return `/courses/${courseId}/learning`;
+      if (!targetId) return `/courses/${courseId}/learning`;
+      return `/courses/${courseId}?resourceId=${targetId}`;
     case "ai_explanation":
       return "/ai-assistant";
   }
@@ -57,6 +58,33 @@ export function getActivityUrlFromTarget(
     case "flashcard_set":
       return appendTaskId(`/courses/${courseId}/flashcards?setId=${target.setId}`, taskId);
   }
+}
+
+export function withTaskId(url: string, taskId: string): string {
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}taskId=${encodeURIComponent(taskId)}`;
+}
+
+export function resolveTaskActivityUrl(
+  task: {
+    activityType: ActivityType;
+    courseId: string;
+    targetId: string | null;
+    activityTarget?: ActivityTarget;
+  },
+  taskId: string,
+): string {
+  const target = task.activityTarget;
+  // A concrete target wins: documents only drive the URL for reading; quiz /
+  // flashcard_set targets always do.
+  if (target && (target.kind !== "document" || task.activityType === "reading")) {
+    return getActivityUrlFromTarget(task.courseId, target, taskId);
+  }
+  const fallbackUrl = getActivityUrl(task.activityType, task.courseId, task.targetId);
+  if (task.activityType === "quiz" || task.activityType === "flashcards") {
+    return withTaskId(fallbackUrl, taskId);
+  }
+  return fallbackUrl;
 }
 
 export function formatElapsedTime(seconds: number): string {
