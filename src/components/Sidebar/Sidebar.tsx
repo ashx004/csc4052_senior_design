@@ -66,7 +66,7 @@ export default function Sidebar({ children }: SidebarProps) {
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed top-6 left-6 z-50 flex h-10 w-10 items-center justify-center rounded-lg bg-navy text-white shadow-md transition-colors hover:bg-navy/90"
+          className="fixed top-3 left-4 z-50 flex h-10 w-10 items-center justify-center rounded-lg bg-navy text-white shadow-md transition-colors hover:bg-navy/90"
           aria-label="Open menu"
         >
           <Menu className="h-5 w-5" />
