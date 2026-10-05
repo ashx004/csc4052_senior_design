@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
 import Link from "next/link";
 import { ArrowUpRight, Check, Play } from "lucide-react";
 import type { StudyTask } from "@/src/library/studyPlan/types";
@@ -59,6 +59,17 @@ export default function ScheduleView({
     }
     return [...groups.entries()].sort(([a], [b]) => a - b);
   }, [items]);
+  // Short gaps between back-to-back items (the 5-minute study breaks).
+  const breakBefore = useMemo(() => {
+    const gaps = new Map<string, number>();
+    for (let i = 1; i < items.length; i++) {
+      const gap = Math.round(
+        (new Date(items[i].startTime).getTime() - new Date(items[i - 1].endTime).getTime()) / 60_000,
+      );
+      if (gap > 0 && gap <= 15) gaps.set(`${items[i].kind}-${items[i].id}`, gap);
+    }
+    return gaps;
+  }, [items]);
   const unscheduledCount = tasks.filter(
     (task) =>
       (task.status === "recommended" || task.status === "in_progress") &&
@@ -101,9 +112,17 @@ export default function ScheduleView({
                   const action = taskAction(item);
                   const completed = item.status === "completed";
                   const highlighted = item.taskId === highlightedTaskId;
+                  const breakMinutes = breakBefore.get(`${item.kind}-${item.id}`);
                   return (
+                    <Fragment key={`${item.kind}-${item.id}`}>
+                    {breakMinutes && (
+                      <div className="flex items-center gap-2 py-0.5 text-[11px] font-medium text-gray-secondary">
+                        <span className="h-px flex-1 border-t border-dashed border-gray-light" aria-hidden="true" />
+                        {breakMinutes} min break
+                        <span className="h-px flex-1 border-t border-dashed border-gray-light" aria-hidden="true" />
+                      </div>
+                    )}
                     <div
-                      key={`${item.kind}-${item.id}`}
                       id={item.taskId ? `study-task-${item.taskId}` : undefined}
                       className={`flex min-w-0 flex-wrap items-center gap-3 rounded-xl border px-3.5 py-3 sm:px-4 ${
                         item.kind === "task"
@@ -135,6 +154,7 @@ export default function ScheduleView({
                         </button>
                       )}
                     </div>
+                    </Fragment>
                   );
                 })}
               </div>
