@@ -1,3 +1,5 @@
+import { notifyDataChanged } from "./dataChanged";
+
 // Shared client-side parser for the newline-delimited JSON stream produced
 // by POST /api/chat (see the response-protocol comment above the route
 // handler in src/app/api/chat/route.ts). Previously duplicated verbatim
@@ -16,7 +18,9 @@ export type ChatStreamEvent =
       type: "done";
       documentsRead?: string[];
       generatedFiles?: { name: string; url: string }[];
-      generatedStudySets?: { kind: "flashcard" | "quiz"; id: string; courseId: string; name: string }[];
+      generatedStudySets?: { kind: "flashcard" | "quiz" | "note"; id: string; courseId: string; name: string }[];
+      /** Changes waiting on a Confirm/Cancel card (see pendingActions.ts). */
+      pendingActions?: { id: string; title: string; details: string[] }[];
       summary?: string;
       summarizedCount?: number;
     }
@@ -42,7 +46,22 @@ export const TOOL_STATUS_LABELS: Record<string, string> = {
   recall_past_chat: "Checking past conversations...",
 };
 
+// Tools that change data another page may be showing.
+const WRITE_TOOL = /^(create|update|delete|edit|organize|set)_/;
+
 export async function* readChatStream(response: Response): AsyncGenerator<ChatStreamEvent> {
+  let wrote = false;
+  try {
+    for await (const event of readChatStreamEvents(response)) {
+      if (event.type === "tool" && WRITE_TOOL.test(event.name)) wrote = true;
+      yield event;
+    }
+  } finally {
+    if (wrote) notifyDataChanged();
+  }
+}
+
+async function* readChatStreamEvents(response: Response): AsyncGenerator<ChatStreamEvent> {
   if (!response.body) return;
 
   const reader = response.body.getReader();

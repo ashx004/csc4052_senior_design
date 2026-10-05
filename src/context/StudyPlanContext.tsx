@@ -5,17 +5,20 @@ import { useAuth } from "@/src/context/AuthContext";
 import { useStudyPlan } from "@/src/hooks/useStudyPlan";
 import { useStudyTasks } from "@/src/hooks/useStudyTasks";
 import { useStudySession } from "@/src/hooks/useStudySession";
-import { useFocusBar } from "@/src/hooks/useFocusBar";
+import { useFocusCard } from "@/src/hooks/useFocusCard";
 import { getPlanAggregateUpdates } from "@/src/library/studyPlan/planState";
 import type {
   DailyPlan,
   StudyTask,
   StudySession,
-  FocusBarState,
+  FocusCardState,
+  CardCorner,
   SetupConfig,
   TaskStatus,
   GeneratedTask,
   ActivityType,
+  TimerMode,
+  MissedQuestionsSuggestion,
 } from "@/src/library/studyPlan/types";
 
 interface StudyPlanContextValue {
@@ -27,7 +30,10 @@ interface StudyPlanContextValue {
   session: (StudySession & { id: string }) | null;
   sessionLoading: boolean;
   elapsedSeconds: number;
-  focusBar: FocusBarState | null;
+  completedSessionId: string | null;
+  focusCard: FocusCardState | null;
+  setMinimized: (v: boolean) => void;
+  setCorner: (c: CardCorner) => void;
 
   createPlan: (config: SetupConfig, taskIds: string[]) => Promise<void>;
   updatePlanState: (updates: Partial<DailyPlan>) => Promise<void>;
@@ -35,6 +41,11 @@ interface StudyPlanContextValue {
     generated: GeneratedTask[],
     planDate: string
   ) => Promise<string[]>;
+  createTaskFromSuggestion: (
+    suggestion: MissedQuestionsSuggestion & { id: string },
+    planDate: string,
+    course: { name: string; code: string }
+  ) => Promise<string | null>;
   updateTaskStatus: (
     taskId: string,
     newStatus: TaskStatus,
@@ -44,9 +55,20 @@ interface StudyPlanContextValue {
     taskId: string,
     courseId: string,
     activityType: ActivityType,
-    targetId: string | null
+    targetId: string | null,
+    timerMode?: TimerMode,
+    targetSeconds?: number | null
   ) => Promise<string | null>;
-  pauseSession: () => Promise<void>;
+  attachTaskToSession: (
+    taskId: string,
+    details?: {
+      courseId: string;
+      activityType: ActivityType;
+      targetId: string | null;
+      activityUrl: string;
+    }
+  ) => Promise<void>;
+  pauseSession: (endAtMs?: number) => Promise<void>;
   resumeSession: () => Promise<void>;
   completeSession: () => Promise<void>;
   abandonSession: () => Promise<void>;
@@ -70,6 +92,7 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
     tasks,
     loading: tasksLoading,
     createTasksFromGenerated,
+    createTaskFromSuggestion,
     updateTaskStatus,
   } = useStudyTasks(uid, today);
 
@@ -77,18 +100,20 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
     session,
     loading: sessionLoading,
     elapsedSeconds,
+    completedSessionId,
     startSession,
+    attachTaskToSession,
     pauseSession,
     resumeSession,
     completeSession,
     abandonSession,
   } = useStudySession(uid);
 
-  const activeTask = session
+  const activeTask = session?.taskId
     ? tasks.find((t) => t.id === session.taskId)
     : null;
 
-  const focusBar = useFocusBar(
+  const { focusCard, setMinimized, setCorner } = useFocusCard(
     session,
     activeTask?.title ?? "",
     activeTask?.courseCode ?? "",
@@ -127,12 +152,17 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
       session,
       sessionLoading,
       elapsedSeconds,
-      focusBar,
+      completedSessionId,
+      focusCard,
+      setMinimized,
+      setCorner,
       createPlan,
       updatePlanState,
       createTasksFromGenerated,
+      createTaskFromSuggestion,
       updateTaskStatus: updateTaskStatusAndPlan,
       startSession,
+      attachTaskToSession,
       pauseSession,
       resumeSession,
       completeSession,
@@ -147,12 +177,17 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
       session,
       sessionLoading,
       elapsedSeconds,
-      focusBar,
+      completedSessionId,
+      focusCard,
+      setMinimized,
+      setCorner,
       createPlan,
       updatePlanState,
       createTasksFromGenerated,
+      createTaskFromSuggestion,
       updateTaskStatusAndPlan,
       startSession,
+      attachTaskToSession,
       pauseSession,
       resumeSession,
       completeSession,

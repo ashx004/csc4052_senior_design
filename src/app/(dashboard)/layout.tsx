@@ -12,13 +12,13 @@ export default function DashboardLayout({
     <AIPageContextProvider>
       <AdvisingCacheProvider>
         <CalendarCacheProvider>
-          <div className="flex h-screen">
+          <div className="flex min-h-screen">
             <GeneralSidebar />
             {/* The top bar (site search) also holds the phones' fixed menu
                 button (Sidebar.tsx), so pages no longer need padding to clear it. */}
             <div className="flex min-w-0 flex-1 flex-col">
               <TopBar />
-              <main className="flex-1 overflow-y-auto">{children}</main>
+              <main className="min-w-0 flex-1">{children}</main>
             </div>
             <AIPanel />
           </div>

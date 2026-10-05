@@ -1,5 +1,38 @@
 import type { Timestamp } from "firebase/firestore";
 
+export type ChickenState =
+  | "egg"
+  | "hatching"
+  | "growing"
+  | "almost"
+  | "complete"
+  | "dead"
+  | "paused"
+  | "break";
+
+export type CardCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+
+export type TimerMode = "countdown" | "countup";
+
+export type FocusCardMode = "active_on_task" | "active_navigated" | "paused";
+
+export interface FocusCardState {
+  visible: boolean;
+  mode: FocusCardMode;
+  taskId: string | null;
+  taskTitle: string;
+  courseCode: string;
+  elapsedSeconds: number;
+  sessionId: string;
+  activityUrl: string;
+  chickenState: ChickenState;
+  isMinimized: boolean;
+  corner: CardCorner;
+  timerMode: TimerMode;
+  targetSeconds: number | null;
+  progress: number;
+}
+
 // --- Plan ---
 
 export type PlanState =
@@ -45,6 +78,17 @@ export type TaskStatus =
 export type TaskSource = "recommended" | "manual";
 export type ActivityType = "quiz" | "flashcards" | "reading" | "ai_explanation";
 
+export type ActivityTarget =
+  | { kind: "document"; resourceId: string; sourceDocKey: string }
+  | { kind: "flashcard_set"; setId: string; sourceDocKey: string | null }
+  | {
+      kind: "quiz";
+      quizId: string;
+      sourceDocKey: string | null;
+      mode: "full" | "missed_questions";
+      questionIds?: string[];
+    };
+
 export interface StatusChange {
   from: TaskStatus;
   to: TaskStatus;
@@ -75,6 +119,8 @@ export interface StudyTask {
   createdAt: Timestamp;
   updatedAt: Timestamp;
   completedAt: Timestamp | null;
+  activityTarget?: ActivityTarget;
+  sourceSuggestionId?: string | null;
 }
 
 // --- Session ---
@@ -92,7 +138,7 @@ export interface SessionPeriod {
 }
 
 export interface StudySession {
-  taskId: string;
+  taskId: string | null;
   courseId: string;
   activityType: ActivityType;
   targetId: string | null;
@@ -101,11 +147,51 @@ export interface StudySession {
   pausedAt: Timestamp | null;
   completedAt: Timestamp | null;
   activeMinutes: number;
+  /** Second-precise accumulated active time. Lets pause/resume keep the exact
+   *  tick; activeMinutes stays for stats/aggregation. Optional for legacy docs. */
+  activeSeconds?: number;
   periods: SessionPeriod[];
   activityUrl: string;
+  timerMode: TimerMode;
+  targetSeconds: number | null;
 }
 
 // --- Mastery ---
+
+export type QuizAttemptType = "full_quiz" | "targeted_practice";
+
+export interface QuizQuestionResult {
+  questionId: string;
+  selectedAnswer: string;
+  correctAnswer: string;
+  isCorrect: boolean;
+}
+
+export interface QuizAttemptEvidence {
+  id: string;
+  attemptType?: QuizAttemptType;
+  score: number;
+  total: number;
+  questionIds: string[];
+  fullQuizQuestionCount: number | null;
+  completedAtMs: number;
+}
+
+export interface DocumentMasteryCalculation {
+  value: number;
+  level: "weak" | "developing" | "strong";
+  sourceAttemptIds: string[];
+}
+
+export interface DocumentMastery {
+  value: number;
+}
+
+export interface CourseMastery {
+  value: number;
+  knownDocuments: number;
+  totalDocuments: number;
+}
 
 export type SignalType = "quiz_mastery" | "flashcard_engagement";
 
@@ -119,6 +205,71 @@ export interface MasterySignal {
   lastCalculatedAt: Timestamp;
   sourceAttemptIds?: string[];
   sourceSessionIds?: string[];
+}
+
+// --- Learning suggestions ---
+
+export type LearningSuggestionStatus =
+  | "active" | "added" | "dismissed" | "resolved" | "unavailable";
+
+export interface MissedQuestionsSuggestion {
+  type: "missed_questions";
+  courseId: string;
+  sourceDocKey: string | null;
+  quizId: string;
+  questionIds: string[];
+  questionFailureCounts: Record<string, number>;
+  status: LearningSuggestionStatus;
+  priority: number;
+  linkedTaskId: string | null;
+  sourceAttemptId: string;
+}
+
+export interface LearningActivityEvent {
+  type: "reading_finished" | "flashcard_review_finished";
+  courseId: string;
+  sourceDocKey: string;
+  resourceId: string | null;
+  flashcardSetId: string | null;
+  sourceTaskId: string | null;
+  completedAt: Timestamp;
+}
+
+export type NewLearningActivityEvent = Omit<LearningActivityEvent, "completedAt"> & {
+  completedAt?: Timestamp;
+};
+
+export interface QuizContext {
+  sourceDocKey: string | null;
+  fullQuizQuestionCount: number;
+}
+
+export interface PersistQuizOutcomeInput {
+  courseId: string;
+  quizId: string;
+  attemptId: string;
+  mastery: DocumentMasteryCalculation | null;
+  suggestion: MissedQuestionsSuggestion;
+  taskId: string | null;
+}
+
+export interface PendingAttemptRef {
+  courseId: string;
+  quizId: string;
+  attemptId: string;
+}
+
+export interface NewQuizAttempt {
+  courseId: string;
+  quizId: string;
+  answers: Record<string, string>;
+  score: number;
+  total: number;
+  attemptType: QuizAttemptType;
+  questionIds: string[];
+  questionResults: QuizQuestionResult[];
+  sourceTaskId: string | null;
+  sourceSuggestionId: string | null;
 }
 
 // --- Notifications ---
@@ -200,19 +351,6 @@ export interface SetupFlowState {
   error: string | null;
 }
 
-export type FocusBarMode = "active_on_task" | "active_navigated" | "paused";
-
-export interface FocusBarState {
-  visible: boolean;
-  mode: FocusBarMode;
-  taskId: string;
-  taskTitle: string;
-  courseCode: string;
-  elapsedSeconds: number;
-  sessionId: string;
-  activityUrl: string;
-}
-
 export type PlanViewMode = "list" | "board" | "schedule";
 
 export interface PlanViewState {
@@ -233,6 +371,8 @@ export interface EligibleTopic {
   flashcardEngagement: number | null;
   lastStudiedAt: Timestamp | null;
   skipCount: number;
+  repeatMissCount?: number;
+  activityTarget?: ActivityTarget;
 }
 
 export interface PriorityFactors {
@@ -242,6 +382,7 @@ export interface PriorityFactors {
   lowFlashcardEngagement: number;
   staleReview: number;
   skipPenalty: number;
+  repeatMissBonus: number;
 }
 
 export interface ScoredTopic extends EligibleTopic {
@@ -260,4 +401,5 @@ export interface GeneratedTask {
   estimatedMinutes: number;
   reason: string;
   priorityScore: number;
+  activityTarget?: ActivityTarget;
 }

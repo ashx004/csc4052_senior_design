@@ -4,17 +4,22 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { useAuth } from "@/src/context/AuthContext";
+import { useStudyPlanContext } from "@/src/context/StudyPlanContext";
 import { useStudyNotifications } from "@/src/hooks/useStudyNotifications";
 
-// Advising notifications (written server-side when a background upload or
-// schedule job finishes) stay up until the student closes them or clicks
-// through - the job may finish while they're looking at something else, so a
-// 5-second popup is easy to miss. Study-plan notifications keep auto-hiding.
+const SESSION_NOTIFICATION_TYPES = new Set([
+  "break_suggestion",
+  "pause_reminder",
+  "task_completed",
+  "session_expired",
+]);
+
 const isAdvising = (type: string) => type.startsWith("advising_");
 
 export default function NotificationToast() {
   const { user } = useAuth();
   const router = useRouter();
+  const { focusCard } = useStudyPlanContext();
   const { notifications, dismissNotification } = useStudyNotifications(
     user?.uid ?? null
   );
@@ -24,7 +29,8 @@ export default function NotificationToast() {
   const newest = notifications.find(
     (n) =>
       (n.status === "created" || n.status === "delivered") &&
-      !dismissed.has(n.id)
+      !dismissed.has(n.id) &&
+      !(focusCard?.visible && SESSION_NOTIFICATION_TYPES.has(n.type))
   );
 
   useEffect(() => {
@@ -75,8 +81,8 @@ export default function NotificationToast() {
       </div>
       <button
         onClick={handleDismiss}
+        className="mt-0.5 inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center text-white/70 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
         aria-label="Dismiss notification"
-        className="mt-0.5 text-white/50 hover:text-white"
       >
         <X size={16} />
       </button>

@@ -2,6 +2,7 @@ import { collection, doc, getDoc, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
 import { Term } from "./academicTerm";
 import { EnrollmentStatus, getEnrollmentStatus } from "./enrollmentStatus";
+import type { StructuredClassSchedule } from "./classSchedule";
 
 export type ChatDocument = {
   resourceId: string;
@@ -26,7 +27,7 @@ export type ChatDocument = {
   ocrScanned?: boolean;
 };
 
-export type ChatClass = {
+export type ChatClass = StructuredClassSchedule & {
   classId: string;
   className: string;
   classCode: string;
@@ -36,6 +37,8 @@ export type ChatClass = {
   facultyPhoneNumber: string;
   facultyOfficeNumber: string;
   classSchedule: string;
+  /** Meeting time, e.g. "3:30 - 4:45" */
+  time?: string;
   classRoom: string;
   classDescription: string;
   documents: ChatDocument[];
@@ -72,6 +75,9 @@ export type ChatContext = {
   name: string;
   college: string;
   classes: ChatClass[];
+  /** The browser's IANA time zone - the chat's calendar tools and "current
+   *  time" read and write wall-clock times in it (the server runs in UTC). */
+  timeZone?: string;
 };
 
 // Pulls together everything the AI assistant is allowed to know about the
@@ -144,8 +150,15 @@ export async function buildChatContext(userId: string, email: string): Promise<C
         facultyPhoneNumber: data.facultyPhoneNumber ?? "",
         facultyOfficeNumber: data.facultyOfficeNumber ?? "",
         classSchedule: data.classSchedule ?? "",
+        time: data.time ?? "",
         classRoom: data.classRoom ?? "",
         classDescription: data.classDescription ?? "",
+        meetingDays: Array.isArray(data.meetingDays) ? data.meetingDays : undefined,
+        meetingStartTime: typeof data.meetingStartTime === "string" ? data.meetingStartTime : undefined,
+        meetingEndTime: typeof data.meetingEndTime === "string" ? data.meetingEndTime : undefined,
+        meetingTimeZone: typeof data.meetingTimeZone === "string" ? data.meetingTimeZone : undefined,
+        termStartDate: typeof data.termStartDate === "string" ? data.termStartDate : undefined,
+        termEndDate: typeof data.termEndDate === "string" ? data.termEndDate : undefined,
         termSeason: data.termSeason,
         termYear: data.termYear,
         subject: data.subject,
@@ -158,5 +171,6 @@ export async function buildChatContext(userId: string, email: string): Promise<C
     console.error("Error fetching enrollments for chat context:", error);
   }
 
-  return { userId, email, name, college, classes };
+  const timeZone = typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
+  return { userId, email, name, college, classes, timeZone };
 }

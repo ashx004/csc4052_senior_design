@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, use } from 'react';
 import dynamic from 'next/dynamic';
+import { useSearchParams } from 'next/navigation';
 import { Pencil, Loader2, X, Sparkles } from 'lucide-react';
 import CircleIconButton from '@/src/components/resourceManagement/CircleIconButton';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
@@ -13,6 +14,7 @@ import { buildPageTextSuggestions, type PageTextPageContext } from '@/src/librar
 import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
 import PageTutorial from '@/src/components/tutorial/PageTutorial';
 import courseSteps from '@/src/library/tutorials/steps/course';
+import { DATA_CHANGED_EVENT } from '@/src/library/dataChanged';
 
 // Lazy-loaded: pulls in docx-preview, pdfjs-dist, xlsx, and syntax
 // highlighting — heavy, and not needed until this section actually renders.
@@ -80,6 +82,8 @@ export default function CourseOverview({
     params: Promise<{ courseId: string }>;
 }) {
     const { courseId } = use(params);
+    const searchParams = useSearchParams();
+    const initialResourceId = searchParams.get("resourceId");
 
     const { user, loading: authLoading } = useAuth();
 
@@ -126,6 +130,9 @@ export default function CourseOverview({
         }
         
         fetchCourseData();
+        // The AI panel changed this class's details (a confirmed edit): show them.
+        window.addEventListener(DATA_CHANGED_EVENT, fetchCourseData);
+        return () => window.removeEventListener(DATA_CHANGED_EVENT, fetchCourseData);
     }, [courseId, user, authLoading]);
 
     function openEdit(section: "details" | "instructor") {
@@ -336,7 +343,12 @@ export default function CourseOverview({
                 <div className="mt-6 rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light" data-tutorial="course-resources">
                     <h2 className="text-sm font-semibold text-text-main mb-4">Course Resources</h2>
                     {/* PASSING DOWN DYNAMIC CURRENT USER ID TO CLEANLY REROUTE CAROUSEL MINIO FETCHES */}
-                    <ResourcePreview userId={user.uid} courseId={courseId} />
+                    <ResourcePreview
+                        userId={user.uid}
+                        courseId={courseId}
+                        initialResourceId={initialResourceId}
+                        taskId={searchParams.get("taskId")}
+                    />
                 </div>
             </div>
 

@@ -13,20 +13,24 @@ import {
 } from "@/src/library/calendarHelpers";
 import type { CalendarEvent } from "@/src/components/calendar/calendarTypes";
 
-const START_HOUR = 6;
-const END_HOUR = 22;
+// Keep weekly view consistent with monthly view and include every scheduled
+// class meeting, including early morning and evening sections.
+const START_HOUR = 0;
+const END_HOUR = 24;
 const HOUR_HEIGHT = 64; // px — matches h-16 in the grid rows
 
 type WeekViewProps = {
   events: CalendarEvent[];
   selectedDate: Date;
   onSelectDate: (date: Date) => void;
+  onEventClick?: (event: CalendarEvent) => void;
 };
 
 export default function WeekView({
   events,
   selectedDate,
   onSelectDate,
+  onEventClick,
 }: WeekViewProps) {
   const weekStart = useMemo(() => getWeekStart(selectedDate), [selectedDate]);
   const weekDays = useMemo(
@@ -84,7 +88,7 @@ export default function WeekView({
                 >
                   <div className="space-y-1">
                     {allDayEvts.map((ev, j) => (
-                      <EventPill key={`${ev.id}-${j}`} event={ev} />
+                      <EventPill key={`${ev.id}-${j}`} event={ev} onClick={onEventClick} />
                     ))}
                   </div>
                 </div>
@@ -126,8 +130,11 @@ export default function WeekView({
                             key={ev.id}
                             title={`${new Date(ev.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}–${new Date(ev.endTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} ${ev.title}`}
                             tone={ev.tone ?? "cream"}
+                            color={ev.color}
                             height={`h-[${heightPx}px]`}
                             style={{ top: `${topPx}px` }}
+                            onClick={() => onEventClick?.(ev)}
+                            hasConflict={Boolean(ev.conflictTitles?.length)}
                           />
                         );
                       })}

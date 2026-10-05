@@ -19,10 +19,38 @@ import {
   studySessionPath,
 } from "@/src/library/studyPlan/firestorePaths";
 import { getActivityUrl } from "@/src/library/studyPlan/sessionTimer";
+import {
+  computeActiveMinutes,
+  computeActiveSeconds,
+  computeElapsedSeconds,
+} from "@/src/library/studyPlan/focusTimer";
 import type {
   StudySession,
   ActivityType,
+  TimerMode,
 } from "@/src/library/studyPlan/types";
+
+const LAST_SEEN_KEY = "focus-session-last-seen";
+
+/** A closed/backgrounded tab auto-pauses (not abandons) only after this long
+ *  away, matching the in-tab visibility threshold. */
+const AWAY_PAUSE_MS = 5 * 60 * 1000;
+
+function touchLastSeen() {
+  try {
+    localStorage.setItem(LAST_SEEN_KEY, Date.now().toString());
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+function clearLastSeen() {
+  try {
+    localStorage.removeItem(LAST_SEEN_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 export function useStudySession(uid: string | null) {
   const [session, setSession] = useState<
@@ -30,6 +58,10 @@ export function useStudySession(uid: string | null) {
   >(null);
   const [loading, setLoading] = useState(true);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  // The id of the session that most recently completed. The focus card watches
+  // this to open its "done" choice instead of silently vanishing when a session
+  // finishes (Done button, quiz submit, reading finished).
+  const [completedSessionId, setCompletedSessionId] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -52,7 +84,42 @@ export function useStudySession(uid: string | null) {
           setSession(null);
         } else {
           const d = snap.docs[0];
-          setSession({ id: d.id, ...(d.data() as StudySession) });
+          const s = { id: d.id, ...(d.data() as StudySession) };
+
+          // A closed/backgrounded tab stops the timer. If we return more than a
+          // minute later, the session auto-pauses at the moment we left (away
+          // time is not counted) so it can be resumed exactly where it stopped.
+          if (s.status === "active") {
+            try {
+              const lastSeen = localStorage.getItem(LAST_SEEN_KEY);
+              if (lastSeen) {
+                const leftAtMs = parseInt(lastSeen, 10);
+                const elapsed = Date.now() - leftAtMs;
+                if (Number.isFinite(elapsed) && elapsed > AWAY_PAUSE_MS) {
+                  const end = Timestamp.fromMillis(leftAtMs);
+                  const updatedPeriods = s.periods.map((p, i) =>
+                    i === s.periods.length - 1 && !p.endedAt
+                      ? { ...p, endedAt: end }
+                      : p
+                  );
+                  updateDoc(doc(db, studySessionPath(uid!, d.id)), {
+                    status: "paused",
+                    pausedAt: serverTimestamp(),
+                    periods: updatedPeriods,
+                    activeMinutes: computeActiveMinutes(updatedPeriods, leftAtMs),
+                    activeSeconds: computeActiveSeconds(updatedPeriods, leftAtMs),
+                  });
+                  clearLastSeen();
+                  setLoading(false);
+                  return;
+                }
+              }
+            } catch {
+              /* storage unavailable */
+            }
+          }
+
+          setSession(s);
         }
         setLoading(false);
       },
@@ -66,22 +133,14 @@ export function useStudySession(uid: string | null) {
     if (timerRef.current) clearInterval(timerRef.current);
 
     if (session?.status === "active") {
-      const baseMinutes = session.activeMinutes;
-      const periodStart =
-        session.periods.length > 0
-          ? session.periods[session.periods.length - 1].startedAt
-          : session.startedAt;
-      const startMs =
-        typeof periodStart?.toMillis === "function"
-          ? periodStart.toMillis()
-          : Date.now();
-
       timerRef.current = setInterval(() => {
-        const sinceStart = Math.floor((Date.now() - startMs) / 1000);
-        setElapsedSeconds(baseMinutes * 60 + sinceStart);
+        setElapsedSeconds(computeElapsedSeconds(session, Date.now()));
+        touchLastSeen();
       }, 1000);
     } else {
-      setElapsedSeconds((session?.activeMinutes ?? 0) * 60);
+      setElapsedSeconds(
+        session ? computeElapsedSeconds(session, Date.now()) : 0
+      );
     }
 
     return () => {
@@ -95,9 +154,12 @@ export function useStudySession(uid: string | null) {
       taskId: string,
       courseId: string,
       activityType: ActivityType,
-      targetId: string | null
+      targetId: string | null,
+      timerMode: TimerMode = "countup",
+      targetSeconds: number | null = null
     ) => {
       if (!uid) return null;
+      touchLastSeen();
       const url = getActivityUrl(activityType, courseId, targetId);
       const now = Timestamp.now();
       const ref = await addDoc(
@@ -114,6 +176,8 @@ export function useStudySession(uid: string | null) {
           activeMinutes: 0,
           periods: [{ startedAt: now, endedAt: null }],
           activityUrl: url,
+          timerMode,
+          targetSeconds,
         }
       );
       return ref.id;
@@ -121,37 +185,52 @@ export function useStudySession(uid: string | null) {
     [uid]
   );
 
-  const pauseSession = useCallback(async () => {
+  const attachTaskToSession = useCallback(
+    async (
+      taskId: string,
+      details?: {
+        courseId: string;
+        activityType: ActivityType;
+        targetId: string | null;
+        activityUrl: string;
+      }
+    ) => {
+      if (!uid || !session) return;
+      await updateDoc(doc(db, studySessionPath(uid, session.id)), {
+        taskId,
+        ...(details ?? {}),
+      });
+    },
+    [uid, session]
+  );
+
+  const pauseSession = useCallback(async (endAtMs?: number) => {
     if (!uid || !session) return;
-    const now = Timestamp.now();
+    // Auto-pause (tab-away) passes the moment the user left so the away time is
+    // not counted; a manual pause ends the open period now. Guard against
+    // onClick handlers that hand us a MouseEvent instead of a timestamp.
+    const end =
+      typeof endAtMs === "number" && Number.isFinite(endAtMs)
+        ? Timestamp.fromMillis(endAtMs)
+        : Timestamp.now();
     const updatedPeriods = session.periods.map((p, i) =>
       i === session.periods.length - 1 && !p.endedAt
-        ? { ...p, endedAt: now }
+        ? { ...p, endedAt: end }
         : p
     );
-    const totalMs = updatedPeriods.reduce((sum, p) => {
-      if (p.endedAt && p.startedAt) {
-        const start =
-          typeof p.startedAt.toMillis === "function"
-            ? p.startedAt.toMillis()
-            : 0;
-        const end =
-          typeof p.endedAt.toMillis === "function" ? p.endedAt.toMillis() : 0;
-        return sum + (end - start);
-      }
-      return sum;
-    }, 0);
-
+    const nowMs = Date.now();
     await updateDoc(doc(db, studySessionPath(uid, session.id)), {
       status: "paused",
       pausedAt: serverTimestamp(),
       periods: updatedPeriods,
-      activeMinutes: Math.floor(totalMs / 60000),
+      activeMinutes: computeActiveMinutes(updatedPeriods, nowMs),
+      activeSeconds: computeActiveSeconds(updatedPeriods, nowMs),
     });
   }, [uid, session]);
 
   const resumeSession = useCallback(async () => {
     if (!uid || !session) return;
+    touchLastSeen();
     const now = Timestamp.now();
     await updateDoc(doc(db, studySessionPath(uid, session.id)), {
       status: "active",
@@ -162,31 +241,30 @@ export function useStudySession(uid: string | null) {
 
   const completeSession = useCallback(async () => {
     if (!uid || !session) return;
+    const sessionId = session.id;
     const now = Timestamp.now();
     const updatedPeriods = session.periods.map((p, i) =>
       i === session.periods.length - 1 && !p.endedAt
         ? { ...p, endedAt: now }
         : p
     );
-    const totalMs = updatedPeriods.reduce((sum, p) => {
-      if (p.endedAt && p.startedAt) {
-        const start =
-          typeof p.startedAt.toMillis === "function"
-            ? p.startedAt.toMillis()
-            : 0;
-        const end =
-          typeof p.endedAt.toMillis === "function" ? p.endedAt.toMillis() : 0;
-        return sum + (end - start);
-      }
-      return sum;
-    }, 0);
-
-    await updateDoc(doc(db, studySessionPath(uid, session.id)), {
-      status: "completed",
-      completedAt: serverTimestamp(),
-      periods: updatedPeriods,
-      activeMinutes: Math.floor(totalMs / 60000),
-    });
+    clearLastSeen();
+    const nowMs = Date.now();
+    // Signal the focus card before the write lands, so its "done" overlay opens
+    // in the same beat the session leaves the active query (no flicker/vanish).
+    setCompletedSessionId(sessionId);
+    try {
+      await updateDoc(doc(db, studySessionPath(uid, sessionId)), {
+        status: "completed",
+        completedAt: serverTimestamp(),
+        periods: updatedPeriods,
+        activeMinutes: computeActiveMinutes(updatedPeriods, nowMs),
+        activeSeconds: computeActiveSeconds(updatedPeriods, nowMs),
+      });
+    } catch (error) {
+      setCompletedSessionId((id) => (id === sessionId ? null : id));
+      throw error;
+    }
   }, [uid, session]);
 
   const abandonSession = useCallback(async () => {
@@ -197,23 +275,13 @@ export function useStudySession(uid: string | null) {
         ? { ...p, endedAt: now }
         : p
     );
-    const totalMs = updatedPeriods.reduce((sum, p) => {
-      if (p.endedAt && p.startedAt) {
-        const start =
-          typeof p.startedAt.toMillis === "function"
-            ? p.startedAt.toMillis()
-            : 0;
-        const end =
-          typeof p.endedAt.toMillis === "function" ? p.endedAt.toMillis() : 0;
-        return sum + (end - start);
-      }
-      return sum;
-    }, 0);
-
+    clearLastSeen();
+    const nowMs = Date.now();
     await updateDoc(doc(db, studySessionPath(uid, session.id)), {
       status: "abandoned",
       periods: updatedPeriods,
-      activeMinutes: Math.floor(totalMs / 60000),
+      activeMinutes: computeActiveMinutes(updatedPeriods, nowMs),
+      activeSeconds: computeActiveSeconds(updatedPeriods, nowMs),
     });
   }, [uid, session]);
 
@@ -221,7 +289,9 @@ export function useStudySession(uid: string | null) {
     session,
     loading,
     elapsedSeconds,
+    completedSessionId,
     startSession,
+    attachTaskToSession,
     pauseSession,
     resumeSession,
     completeSession,

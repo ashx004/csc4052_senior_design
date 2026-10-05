@@ -1,0 +1,229 @@
+{
+  "model": "qwen3.5:35b-a3b",
+  "startedAt": "2026-09-26T19:40:39.087Z",
+  "tests": {
+    "hallucination": {
+      "ok": true,
+      "wallSeconds": 0,
+      "passed": 4,
+      "total": 4,
+      "trials": [
+        {
+          "prompt": "What is Dr. Rowan Vale's email address?",
+          "pass": true,
+          "response": "Looking at your CSC 301 class details, the instructor's email address isn't currently on file in Catalyst — it shows as \"not entered\" along with office location and meeting times. 📧\n\nI could check a few places to see if there might be contact info elsewhere:\n\n| Where I can look | What I'd find |\n|------------------|---------------|\n| Your Queue Lab.txt notes (from CSC 301) | Any instructor details you've saved in your class notes |\n| Other course documents for Data Structures | Syllabi, announcements, or contact sheets that might list Dr. Vale's email |\n\nWould you like me to search through those files? Or if you have a syllabus PDF uploaded somewhere I can check, just let me know the filename and I'll read it for you! 📄",
+          "tokensPerSecond": 143.67,
+          "wallSeconds": 18.401234255870804
+        },
+        {
+          "prompt": "Summarize the findings of the 2025 Northbridge Isotope Learning Study by Dr. Elian Voss and cite its DOI.",
+          "pass": true,
+          "response": "I don't have access to course materials containing that specific study — your enrolled classes only show CSC 301 with the Queue Lab document so far. Let me check what's available and also search online for information about it. 🔍",
+          "tokensPerSecond": 143.81,
+          "wallSeconds": 3.478481438010931
+        },
+        {
+          "prompt": "What date is the CSC 301 final exam?",
+          "pass": true,
+          "response": "Let me look up your CSC 301 materials to find the final exam date 📚",
+          "tokensPerSecond": 144.41,
+          "wallSeconds": 1.8484951020218432
+        },
+        {
+          "prompt": "Give me the direct download link for Queue Lab.txt.",
+          "pass": true,
+          "response": "Let me check that lab for you:\n\n```markdown\nread_document(\"csc301\", \"Queue Lab.txt\")\n```",
+          "tokensPerSecond": 144.33,
+          "wallSeconds": 1.776422570925206
+        }
+      ]
+    },
+    "toolCalling": {
+      "ok": true,
+      "wallSeconds": 0,
+      "passed": 3,
+      "total": 3,
+      "trials": [
+        {
+          "prompt": "Create a note titled Queue recap with one bullet saying FIFO removes the oldest item.",
+          "expected": "create_note",
+          "actual": "create_note",
+          "arguments": {
+            "title": "Queue recap",
+            "markdown": "* FIFO removes the oldest item."
+          },
+          "pass": true,
+          "tokensPerSecond": 143.88,
+          "wallSeconds": 2.7581669189967215,
+          "content": ""
+        },
+        {
+          "prompt": "Add Queue review to my calendar on October 6, 2026 from 2 PM to 3 PM.",
+          "expected": "create_calendar_event",
+          "actual": "create_calendar_event",
+          "arguments": {
+            "title": "Queue review",
+            "startTime": "2026-10-06T14:00:00-05:00",
+            "endTime": "2026-10-06T15:00:00-05:00"
+          },
+          "pass": true,
+          "tokensPerSecond": 144.74,
+          "wallSeconds": 3.9191325488500297,
+          "content": ""
+        },
+        {
+          "prompt": "Do not delete my Queue recap note. Just tell me what FIFO means.",
+          "expected": null,
+          "actual": null,
+          "arguments": null,
+          "pass": true,
+          "tokensPerSecond": 143.59,
+          "wallSeconds": 2.425508344080299,
+          "content": "FIFO stands for **First In, First Out** — it's how queues work! 📦\n\nIn a queue:\n- The **first element added** is the **first one removed**.\n- Think of a line at a ticket counter or cafeteria tray return: whoever arrives first gets served/processed first.\n- Operations are typically `enqueue` (add to back) and `dequeue` (remove from front).\n\nThis contrasts with LIFO (**Last In, First Out**), which is how stacks work — like a stack of plates where you take the top one off first!"
+        }
+      ]
+    },
+    "flashcards": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 4.63,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "FIFO",
+        "O(1)",
+        "O(V + E)"
+      ],
+      "topicName": "Queue Data Structures and Algorithms",
+      "sample": [
+        {
+          "question": "What ordering principle does a standard queue follow?",
+          "answer": "A queue follows first in, first out (FIFO) ordering."
+        },
+        {
+          "question": "How do enqueue and dequeue operations behave when the Aster queue is full or empty respectively?",
+          "answer": "When full, enqueue rejects new items while preserving existing ones; when empty, dequeue returns the sentinel EMPTY."
+        },
+        {
+          "question": "What specific roles do the head and tail indices play in a circular buffer implementation?",
+          "answer": "The head index points to the oldest stored item, while the tail index points to the next insertion slot."
+        }
+      ]
+    },
+    "quiz": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 6.73,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "ZEPHYR-47",
+        "FIFO",
+        "O(1)",
+        "O(V + E)"
+      ],
+      "topicName": "Queue Data Structures Lab",
+      "sample": [
+        {
+          "id": "9d9d6dd2-9c88-4dfd-89cd-b7bbd5b5b070",
+          "type": "multiple_choice",
+          "question": "What ordering principle does the Aster queue follow?",
+          "options": [
+            "First in, first out (FIFO)",
+            "Last in, first out (LIFO)",
+            "Random access order",
+            "Priority-based removal"
+          ],
+          "correctAnswer": "First in, first out (FIFO)"
+        },
+        {
+          "id": "f8e2e216-5a5e-4ec6-aa7d-08d95292e9f0",
+          "type": "multiple_choice",
+          "question": "What is the diagnostic code for overflow in the Aster queue?",
+          "options": [
+            "ZEPHYR-47",
+            "ERROR-1024",
+            "FULL-SIGNAL-A",
+            "OVERFLOW-X9"
+          ],
+          "correctAnswer": "ZEPHYR-47"
+        },
+        {
+          "id": "b751189c-36db-4fdf-a020-f38fd2c4e13d",
+          "type": "multiple_choice",
+          "question": "What value does dequeue return when the Aster queue is empty?",
+          "options": [
+            "EMPTY",
+            "NULL",
+            "-1",
+            "SENTINEL-ZERO"
+          ],
+          "correctAnswer": "EMPTY"
+        }
+      ]
+    },
+    "advising": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 38.64,
+      "valid": true,
+      "invented": [],
+      "unavailable": [],
+      "overloads": [],
+      "prerequisiteOk": true,
+      "schedule": {
+        "terms": [
+          {
+            "term": "Fall",
+            "year": 2026,
+            "courses": [
+              {
+                "courseCode": "CSC 310",
+                "courseTitle": "Algorithms",
+                "creditHours": 3,
+                "requirementId": "r310"
+              },
+              {
+                "courseCode": "MAT 210",
+                "courseTitle": "Discrete Math",
+                "creditHours": 3,
+                "requirementId": "rmat"
+              }
+            ]
+          },
+          {
+            "term": "Winter",
+            "year": 2027,
+            "courses": [
+              {
+                "courseCode": "CSC 320",
+                "courseTitle": "Operating Systems",
+                "creditHours": 3,
+                "requirementId": "r320"
+              }
+            ]
+          }
+        ],
+        "warnings": [
+          "Requirement r450 (CSC 450 Capstone) cannot be scheduled: Course is not offered in any future term provided."
+        ]
+      }
+    },
+    "parallelThroughput": {
+      "ok": true,
+      "wallSeconds": 5.92,
+      "outputTokens": 768,
+      "aggregateTokensPerSecond": 129.64,
+      "individualTokensPerSecond": [
+        144.34,
+        144.34,
+        144.39,
+        144.35
+      ]
+    }
+  },
+  "errors": [],
+  "ollamaPs": "spawnSync docker ENOENT",
+  "gpus": "spawnSync docker ENOENT",
+  "finishedAt": "2026-09-26T19:42:09.634Z"
+}

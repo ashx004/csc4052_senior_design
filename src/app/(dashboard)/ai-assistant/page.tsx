@@ -3,7 +3,7 @@
 import { FormEvent, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { FileDown, History, Loader2, Paperclip, BookOpen, ListChecks, Wrench, Volume2, Square } from "lucide-react";
+import { FileDown, History, Loader2, Paperclip, BookOpen, ListChecks, NotebookText, Wrench, Volume2, Square } from "lucide-react";
 import { isSpeechSupported, speak, stopSpeaking } from "@/src/library/tts";
 import { useSpeechToText } from "@/src/library/useSpeechToText";
 import MicButton from "@/src/components/aiAssistant/MicButton";
@@ -29,6 +29,9 @@ import { useChatStatus } from "@/src/library/useChatStatus";
 import { getEffectiveModelKey } from "@/src/library/chatMode";
 import PageTutorial from "@/src/components/tutorial/PageTutorial";
 import aiAssistantSteps from "@/src/library/tutorials/steps/ai-assistant";
+import QuickActions from "@/src/components/aiAssistant/QuickActions";
+import ConfirmActionCard from "@/src/components/aiAssistant/ConfirmActionCard";
+import { useStickToBottom } from "@/src/hooks/useStickToBottom";
 
 type ChatMessage = StoredChatMessage;
 
@@ -140,18 +143,24 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
                 <Link
                   key={`${set.kind}-${set.id}`}
                   href={
-                    set.kind === "flashcard"
-                      ? `/courses/${set.courseId}/flashcards?setId=${set.id}`
-                      : `/courses/${set.courseId}/quizzes/${set.id}?mode=take`
+                    set.kind === "note"
+                      ? `/notes/${set.id}`
+                      : set.kind === "flashcard"
+                        ? `/courses/${set.courseId}/flashcards?setId=${set.id}`
+                        : `/courses/${set.courseId}/quizzes/${set.id}?mode=take`
                   }
                   className="flex items-center gap-1.5 rounded-md border border-border-light bg-bg-container px-3 py-1.5 text-xs font-medium text-primary shadow-sm transition hover:bg-bg-warm"
                 >
-                  {set.kind === "flashcard" ? <BookOpen size={14} /> : <ListChecks size={14} />}
-                  {set.kind === "flashcard" ? "Study" : "Take quiz"}: {set.name}
+                  {set.kind === "note" ? <NotebookText size={14} /> : set.kind === "flashcard" ? <BookOpen size={14} /> : <ListChecks size={14} />}
+                  {set.kind === "note" ? "Open note" : set.kind === "flashcard" ? "Study" : "Take quiz"}: {set.name}
                 </Link>
               ))}
             </div>
           )}
+
+          {message.pendingActions?.map((action) => (
+            <ConfirmActionCard key={action.id} action={action} />
+          ))}
         </div>
       )}
     </div>
@@ -392,9 +401,8 @@ function AIAssistantPageContent() {
   // keyed on visibleMessageCount alone: revealing older messages via the
   // "show earlier" button below must not yank the student back down away
   // from the history they just asked to see.
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
-  }, [messages]);
+  // Follows new text only while the student is at the bottom (see useStickToBottom).
+  const scroller = useStickToBottom<HTMLDivElement>([messages]);
 
   async function loadSession(id: string) {
     if (!user || id === sessionId.current) {
@@ -458,11 +466,11 @@ function AIAssistantPageContent() {
     }
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function handleSubmit(event: FormEvent<HTMLFormElement> | null, override?: string) {
+    event?.preventDefault();
     stt.stop();
 
-    const trimmed = input.trim();
+    const trimmed = (override ?? input).trim();
     if (!trimmed || isSending) {
       return;
     }
@@ -496,6 +504,7 @@ function AIAssistantPageContent() {
 
     setMessages([...nextMessages, assistantMessage]);
     setHasStarted(true);
+    scroller.stick();
     setInput("");
     setErrorText(null);
     setIsSending(true);
@@ -525,6 +534,7 @@ function AIAssistantPageContent() {
           summarizedCount: summarizedCountRef.current,
           currentSessionId: sessionId.current,
           modelKey: getEffectiveModelKey("chat"),
+          pendingActionIds: nextMessages.flatMap((message) => message.pendingActions?.map((action) => action.id) ?? []),
         }),
       });
 
@@ -538,7 +548,8 @@ function AIAssistantPageContent() {
       let streamError: string | null = null;
       let documentsRead: string[] | undefined;
       let generatedFiles: { name: string; url: string }[] | undefined;
-      let generatedStudySets: { kind: "flashcard" | "quiz"; id: string; courseId: string; name: string }[] | undefined;
+      let generatedStudySets: { kind: "flashcard" | "quiz" | "note"; id: string; courseId: string; name: string }[] | undefined;
+      let pendingActions: { id: string; title: string; details: string[] }[] | undefined;
 
       for await (const event of readChatStream(response)) {
         if (event.type === "delta") {
@@ -560,6 +571,7 @@ function AIAssistantPageContent() {
           if (event.documentsRead?.length) documentsRead = event.documentsRead;
           if (event.generatedFiles?.length) generatedFiles = event.generatedFiles;
           if (event.generatedStudySets?.length) generatedStudySets = event.generatedStudySets;
+          if (event.pendingActions?.length) pendingActions = event.pendingActions;
           if (typeof event.summary === "string") summaryRef.current = event.summary;
           if (typeof event.summarizedCount === "number") summarizedCountRef.current = event.summarizedCount;
         } else if (event.type === "error") {
@@ -581,6 +593,7 @@ function AIAssistantPageContent() {
       if (documentsRead) finalMessage.documentsRead = documentsRead;
       if (generatedFiles) finalMessage.generatedFiles = generatedFiles;
       if (generatedStudySets) finalMessage.generatedStudySets = generatedStudySets;
+      if (pendingActions) finalMessage.pendingActions = pendingActions;
       setMessages([...nextMessages, finalMessage]);
 
       if (streamError) setErrorText(streamError);
@@ -719,7 +732,7 @@ function AIAssistantPageContent() {
       </header>
 
       <main className="relative flex min-h-0 flex-1 flex-col">
-        <div className="flex-1 overflow-y-auto px-6 pb-36 pt-10">
+        <div ref={scroller.ref} onScroll={scroller.onScroll} className="flex-1 overflow-y-auto px-6 pb-48 pt-10">
           {!hasStarted ? (
             <div className="mx-auto flex min-h-[55vh] max-w-3xl flex-col items-center justify-center text-center">
               <div className="mb-8 flex h-16 w-16 items-center justify-center rounded-3xl border border-border-light bg-bg-container shadow-sm">
@@ -798,6 +811,12 @@ function AIAssistantPageContent() {
               {errorText}
             </p>
           )}
+
+          <QuickActions
+            classes={chatContext?.classes ?? []}
+            disabled={isSending}
+            onSend={(prompt) => void handleSubmit(null, prompt)}
+          />
 
           <form
             onSubmit={handleSubmit}

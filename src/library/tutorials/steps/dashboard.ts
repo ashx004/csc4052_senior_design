@@ -13,14 +13,14 @@ const dashboardSteps: TutorialStep[] = [
   },
   {
     target: '[data-tutorial="dashboard-heading"]',
-    title: "Home base",
-    body: "This is your dashboard — a quick launcher for whatever you want to do next.",
+    title: "Your daily overview",
+    body: "Your dashboard keeps today's most important information in one place, so you can see what needs attention before jumping into a workspace.",
     placement: "bottom",
   },
   {
     target: '[data-tutorial="dashboard-cards"]',
-    title: "Shortcuts to everything",
-    body: "Each card jumps straight into a feature: Notes, Learning tools, Advising, your Schedule, community Discover, and AI Chat.",
+    title: "What needs attention",
+    body: "Check today's schedule, upcoming deadlines, your next study task, and your active classes. Use each card to open the full workspace when you're ready.",
     placement: "top",
   },
 ];
