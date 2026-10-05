@@ -2,6 +2,7 @@
 
 import { Bell, ChevronDown } from "lucide-react";
 import type { StudyNotification } from "@/src/library/studyPlan/types";
+import SearchBar from "@/src/components/search/SearchBar";
 
 interface WorkspaceHeaderProps {
   userName: string;
@@ -41,6 +42,9 @@ export default function WorkspaceHeader({
       </div>
 
       <div className="flex items-center gap-3">
+        {/* Learning shows the site search as just this button, in place of
+            the top bar every other page has (see TopBar). */}
+        <SearchBar compact />
         <div className="relative">
           <button
             type="button"
