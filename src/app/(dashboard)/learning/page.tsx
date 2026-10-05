@@ -1,18 +1,26 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/src/context/AuthContext";
 import { useStudyPlanContext } from "@/src/context/StudyPlanContext";
 import { useCarryover } from "@/src/hooks/useCarryover";
 import { useMasterySignals } from "@/src/hooks/useMasterySignals";
 import { useStudyNotifications } from "@/src/hooks/useStudyNotifications";
+import { useLearningSuggestions } from "@/src/hooks/useLearningSuggestions";
+import { useDocumentMastery } from "@/src/hooks/useDocumentMastery";
+import { useLearningProgress } from "@/src/hooks/useLearningProgress";
 import { buildMasterySignalId } from "@/src/library/studyPlan/masteryCalculation";
 import { useCalendarEvents } from "@/src/hooks/useCalendarEvents";
 import { useLocalCalendarEvents } from "@/src/hooks/useLocalCalendarEvents";
-import { collection, getDocs, addDoc, serverTimestamp, doc, deleteDoc } from "firebase/firestore";
+import { collection, getDocs, addDoc, serverTimestamp, doc, deleteDoc, limit, orderBy, query, type Timestamp } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
-import { generateTasks } from "@/src/library/studyPlan/recommendationEngine";
+import {
+  documentTargetForResource,
+  findResourceForSourceDocKey,
+  generateTasks,
+  needsDocumentSelection,
+} from "@/src/library/studyPlan/recommendationEngine";
 import { getVisibleStudyTasks } from "@/src/library/studyPlan/taskVisibility";
 import { getEmptyRecommendationReason } from "@/src/library/studyPlan/recommendationDiagnostics";
 import { hasUsablePlan } from "@/src/library/studyPlan/planState";
@@ -21,16 +29,34 @@ import {
   appendPlanTaskIds,
   filterTopicsAlreadyInPlan,
 } from "@/src/library/studyPlan/taskSuggestions";
-import { getActivityUrl } from "@/src/library/studyPlan/sessionTimer";
-import { studyTasksCollection } from "@/src/library/studyPlan/firestorePaths";
+import { getActivityUrl, getActivityUrlFromTarget } from "@/src/library/studyPlan/sessionTimer";
+import {
+  afterSuccessfulPlan,
+  beginAddWithoutPlan,
+  buildTaskFromSuggestion,
+  cancelPendingAdd,
+  completePendingAdd,
+  deferOverageSuggestion,
+  getPlanTimeOverage,
+  suggestionAfterLater,
+} from "@/src/library/studyPlan/addSuggestionToPlan";
+import { resolveQuizSuggestionView } from "@/src/library/studyPlan/quizSuggestionView";
+import {
+  documentMasteryId,
+  learningActivityEventsCollection,
+  studyTasksCollection,
+} from "@/src/library/studyPlan/firestorePaths";
 import { inferEventCategory } from "@/src/library/studyPlan/calendarKeywordMatch";
 import type {
   SetupConfig,
   PlanViewMode,
   EligibleTopic,
   ActivityType,
+  ActivityTarget,
+  GeneratedTask,
+  MissedQuestionsSuggestion,
 } from "@/src/library/studyPlan/types";
-import { Loader2 } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import WorkspaceHeader from "@/src/components/studyPlan/WorkspaceHeader";
 import HeroBanner from "@/src/components/studyPlan/HeroBanner";
 import StatCards from "@/src/components/studyPlan/StatCards";
@@ -38,6 +64,7 @@ import ClassGrid from "@/src/components/studyPlan/ClassGrid";
 import TodayPlanSidebar from "@/src/components/studyPlan/TodayPlanSidebar";
 import PlanSection from "@/src/components/studyPlan/PlanSection";
 import FocusModeCard from "@/src/components/studyPlan/FocusModeCard";
+import WeeklyChickenChart from "@/src/components/studyPlan/WeeklyChickenChart";
 import PlanCompletedState from "@/src/components/studyPlan/PlanCompletedState";
 import CarryoverPrompt from "@/src/components/studyPlan/CarryoverPrompt";
 import ClearPlanModal from "@/src/components/studyPlan/ClearPlanModal";
@@ -50,9 +77,20 @@ import BoardView from "@/src/components/studyPlan/Views/BoardView";
 import PageTutorial from "@/src/components/tutorial/PageTutorial";
 import learningSteps from "@/src/library/tutorials/steps/learning";
 import ScheduleView from "@/src/components/studyPlan/Views/ScheduleView";
+import LearningSuggestionCard from "@/src/components/studyPlan/LearningSuggestionCard";
+import CourseMasterySummary from "@/src/components/studyPlan/CourseMasterySummary";
+import PlanTimeOverageModal from "@/src/components/studyPlan/PlanTimeOverageModal";
+import DocumentPickerModal from "@/src/components/studyPlan/DocumentPickerModal";
 
 const CLASSES_ANCHOR = "learning-classes";
 const PLAN_ANCHOR = "learning-study-plan";
+
+const ACTIVITY_LABELS: Record<ActivityType, string> = {
+  quiz: "Quiz",
+  flashcards: "Flashcards",
+  reading: "Reading",
+  ai_explanation: "AI explanation",
+};
 
 interface EnrolledClass {
   id: string;
@@ -61,9 +99,119 @@ interface EnrolledClass {
   term: string;
 }
 
+type DocumentActivityTarget = Extract<ActivityTarget, { kind: "document" }>;
+
+interface CourseDocumentOption {
+  id: string;
+  name: string;
+  sourceDocKey: string;
+}
+
+function withTaskId(url: string, taskId: string): string {
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}taskId=${encodeURIComponent(taskId)}`;
+}
+
+function resourceLabel(name: unknown, id: string): string {
+  if (typeof name === "string" && name.trim()) return name.trim();
+  return id;
+}
+
+function completedTimestamp(value: unknown): Timestamp | null {
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    "toMillis" in value &&
+    typeof (value as { toMillis?: unknown }).toMillis === "function"
+  ) {
+    return value as Timestamp;
+  }
+  return null;
+}
+
+async function latestStudyTimes(uid: string): Promise<Map<string, Timestamp>> {
+  const snap = await getDocs(
+    query(
+      collection(db, learningActivityEventsCollection(uid)),
+      orderBy("completedAt", "desc"),
+      limit(100),
+    ),
+  );
+  const latest = new Map<string, Timestamp>();
+  for (const eventDoc of snap.docs) {
+    const data = eventDoc.data();
+    if (data.type !== "reading_finished" && data.type !== "flashcard_review_finished") continue;
+    const courseId = data.courseId;
+    const sourceDocKey = data.sourceDocKey;
+    if (typeof courseId !== "string" || typeof sourceDocKey !== "string" || sourceDocKey.length === 0) {
+      continue;
+    }
+    const completedAt = completedTimestamp(data.completedAt);
+    if (!completedAt) continue;
+    const id = documentMasteryId(courseId, sourceDocKey);
+    const existing = latest.get(id);
+    if (!existing || completedAt.toMillis() > existing.toMillis()) {
+      latest.set(id, completedAt);
+    }
+  }
+  return latest;
+}
+
+function studiedAtFor(
+  latest: Map<string, Timestamp>,
+  courseId: string,
+  sourceDocKey: unknown,
+): Timestamp | null {
+  if (typeof sourceDocKey !== "string" || sourceDocKey.length === 0) return null;
+  return latest.get(documentMasteryId(courseId, sourceDocKey)) ?? null;
+}
+
+function repeatMissCountFor(
+  suggestions: MissedQuestionsSuggestion[],
+  courseId: string,
+  quizId: string,
+): number {
+  let repeats = 0;
+  for (const suggestion of suggestions) {
+    if (suggestion.courseId !== courseId || suggestion.quizId !== quizId) continue;
+    if (
+      suggestion.status === "dismissed" ||
+      suggestion.status === "resolved" ||
+      suggestion.status === "unavailable"
+    ) {
+      continue;
+    }
+    for (const questionId of suggestion.questionIds) {
+      const failures = suggestion.questionFailureCounts?.[questionId] ?? 0;
+      repeats += Math.max(0, failures - 1);
+    }
+  }
+  return repeats;
+}
+
+function masteryForSet(
+  bySourceDocument: Map<string, { value: number }>,
+  courseId: string,
+  sourceDocKey: unknown,
+  topicLabel: string,
+  signalValue: (label: string, kind: "quiz_mastery" | "flashcard_engagement") => number | null,
+): { quizMastery: number | null; flashcardEngagement: number | null } {
+  if (typeof sourceDocKey === "string" && sourceDocKey.length > 0) {
+    const mastery = bySourceDocument.get(documentMasteryId(courseId, sourceDocKey));
+    if (mastery && Number.isFinite(mastery.value)) {
+      return { quizMastery: mastery.value / 100, flashcardEngagement: null };
+    }
+  }
+  return {
+    quizMastery: signalValue(topicLabel, "quiz_mastery"),
+    flashcardEngagement: signalValue(topicLabel, "flashcard_engagement"),
+  };
+}
+
 
 export default function LearningPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
   const {
     plan,
@@ -73,9 +221,11 @@ export default function LearningPage() {
     createPlan,
     updatePlanState,
     createTasksFromGenerated,
+    createTaskFromSuggestion,
     updateTaskStatus,
     session,
     startSession,
+    attachTaskToSession,
     pauseSession,
     completeSession,
     abandonSession,
@@ -91,10 +241,23 @@ export default function LearningPage() {
     dismissNotification,
     createNotification,
   } = useStudyNotifications(user?.uid ?? null);
+  const {
+    suggestions,
+    dismissSuggestion,
+    markSuggestionActive,
+  } = useLearningSuggestions(user?.uid ?? null);
+  const {
+    bySourceDocument,
+    getCourseMastery,
+    loading: documentMasteryLoading,
+  } = useDocumentMastery(user?.uid ?? null);
+  const { retryPendingAttempts } = useLearningProgress();
 
   const [activeView, setActiveView] = useState<"explore" | "plan" | null>(null);
   const [classes, setClasses] = useState<EnrolledClass[]>([]);
   const [classesLoading, setClassesLoading] = useState(true);
+  const [documentCounts, setDocumentCounts] = useState<Map<string, number>>(new Map());
+  const [documentCountsReady, setDocumentCountsReady] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
   const [viewMode, setViewMode] = useState<PlanViewMode>(() => {
     if (typeof window === "undefined") return "list";
@@ -103,9 +266,26 @@ export default function LearningPage() {
   const [showClearModal, setShowClearModal] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
   const [showSuggestTasks, setShowSuggestTasks] = useState(false);
+  const [showTaskPicker, setShowTaskPicker] = useState(false);
   const [skipConfirm, setSkipConfirm] = useState<{ taskId: string; title: string } | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<string | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [pendingSuggestionId, setPendingSuggestionId] = useState<string | null>(null);
+  const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
+  const [highlightedSuggestionId, setHighlightedSuggestionId] = useState<string | null>(null);
+  const [savingSuggestion, setSavingSuggestion] = useState(false);
+  const savingSuggestionRef = useRef(false);
+  const [timeOverage, setTimeOverage] = useState<{
+    suggestion: MissedQuestionsSuggestion & { id: string };
+    overageMinutes: number;
+    baseTaskIds?: string[];
+  } | null>(null);
+  const [documentPicker, setDocumentPicker] = useState<{
+    courseId: string;
+    resources: CourseDocumentOption[];
+  } | null>(null);
+  const documentSelectionRef = useRef<((target: DocumentActivityTarget | null) => void) | null>(null);
+  const pendingRetryUid = useRef<string | null>(null);
 
   const handleNotificationsToggle = useCallback(() => {
     const opening = !notificationsOpen;
@@ -147,57 +327,169 @@ export default function LearningPage() {
   }, [user, authLoading]);
 
   useEffect(() => {
+    if (authLoading || !user) return;
+    if (pendingRetryUid.current === user.uid) return;
+    pendingRetryUid.current = user.uid;
+    void retryPendingAttempts(20).catch((error) => {
+      console.error(error);
+    });
+  }, [authLoading, user, retryPendingAttempts]);
+
+  useEffect(() => {
+    if (authLoading || !user || classesLoading) {
+      setDocumentCountsReady(false);
+      return;
+    }
+    if (classes.length === 0) {
+      setDocumentCounts(new Map());
+      setDocumentCountsReady(true);
+      return;
+    }
+    let cancelled = false;
+    setDocumentCountsReady(false);
+    void Promise.all(
+      classes.map(async (cls) => {
+        const snap = await getDocs(
+          collection(db, "users", user.uid, "enrollment", cls.id, "resources")
+        );
+        return [cls.id, snap.size] as const;
+      })
+    )
+      .then((entries) => {
+        if (cancelled) return;
+        setDocumentCounts(new Map(entries));
+        setDocumentCountsReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) setDocumentCountsReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, user, classes, classesLoading]);
+
+  useEffect(() => {
     try { localStorage.setItem("studyPlanView", viewMode); } catch {}
   }, [viewMode]);
 
+  const queryTaskId = searchParams.get("taskId");
+  const querySuggestionId = searchParams.get("suggestionId");
+
+  useEffect(() => {
+    if (!queryTaskId) return;
+    setHighlightedTaskId(queryTaskId);
+    if (hasUsablePlan(plan)) setActiveView("plan");
+  }, [queryTaskId, plan]);
+
+  useEffect(() => {
+    if (!querySuggestionId) return;
+    setHighlightedSuggestionId(querySuggestionId);
+    document
+      .getElementById(`learning-suggestion-${querySuggestionId}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [querySuggestionId, suggestions]);
+
+  useEffect(() => {
+    if (!highlightedTaskId) return;
+    document
+      .getElementById(`study-task-${highlightedTaskId}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [highlightedTaskId, tasks, viewMode, activeView]);
+
   const loadRecommendationInputs = useCallback(async () => {
-    if (!user) return { topics: [] as EligibleTopic[], exams: new Map<string, number>() };
+    const resourcesByCourse = new Map<string, CourseDocumentOption[]>();
+    if (!user) {
+      return { topics: [] as EligibleTopic[], exams: new Map<string, number>(), resourcesByCourse };
+    }
 
       const topics: EligibleTopic[] = [];
+      const lastStudied = await latestStudyTimes(user.uid);
       for (const cls of classes) {
+        const resourceSnap = await getDocs(
+          collection(db, "users", user.uid, "enrollment", cls.id, "resources")
+        );
+        const courseResources = resourceSnap.docs.map((resourceDoc) => {
+          const data = resourceDoc.data();
+          return {
+            id: resourceDoc.id,
+            name: data.name,
+            url: data.url,
+            sourceDocKey: data.sourceDocKey,
+            storageKey: data.storageKey,
+          };
+        });
+        const pickerResources = courseResources.map((resource) => {
+          const target = documentTargetForResource(resource);
+          return {
+            id: resource.id,
+            name: resourceLabel(resource.name, resource.id),
+            sourceDocKey: target.sourceDocKey,
+          };
+        });
+        resourcesByCourse.set(cls.id, pickerResources);
+
+        const masteryValue = (label: string, kind: "quiz_mastery" | "flashcard_engagement") => {
+          const signalId = buildMasterySignalId(cls.id, label, kind);
+          return masterySignals.get(signalId)?.value ?? null;
+        };
+
         const quizSnap = await getDocs(
           collection(db, "users", user.uid, "enrollment", cls.id, "quizSets")
         );
         for (const qs of quizSnap.docs) {
+          const data = qs.data();
+          const topicLabel = data.topicName ?? data.name ?? qs.id;
+          const matched = findResourceForSourceDocKey(data.sourceDocKey, courseResources);
+          const activityTarget = matched ? documentTargetForResource(matched) : undefined;
+          const repeats = repeatMissCountFor(suggestions, cls.id, qs.id);
+          const mastery = masteryForSet(
+            bySourceDocument,
+            cls.id,
+            data.sourceDocKey,
+            topicLabel,
+            masteryValue,
+          );
           topics.push({
             courseId: cls.id,
             courseName: cls.className,
             courseCode: cls.classCode,
-            topicLabel: qs.data().topicName ?? qs.data().name ?? qs.id,
+            topicLabel,
             targetId: qs.id,
             activityType: "quiz",
-            quizMastery: (() => {
-              const signalId = buildMasterySignalId(cls.id, qs.data().topicName ?? qs.data().name ?? qs.id, "quiz_mastery");
-              return masterySignals.get(signalId)?.value ?? null;
-            })(),
-            flashcardEngagement: (() => {
-              const signalId = buildMasterySignalId(cls.id, qs.data().topicName ?? qs.data().name ?? qs.id, "flashcard_engagement");
-              return masterySignals.get(signalId)?.value ?? null;
-            })(),
-            lastStudiedAt: null,
+            ...(activityTarget ? { activityTarget } : {}),
+            quizMastery: mastery.quizMastery,
+            flashcardEngagement: mastery.flashcardEngagement,
+            lastStudiedAt: studiedAtFor(lastStudied, cls.id, data.sourceDocKey),
             skipCount: 0,
+            ...(repeats > 0 ? { repeatMissCount: repeats } : {}),
           });
         }
         const fcSnap = await getDocs(
           collection(db, "users", user.uid, "enrollment", cls.id, "flashcardSets")
         );
         for (const fc of fcSnap.docs) {
+          const data = fc.data();
+          const topicLabel = data.topicName ?? data.name ?? fc.id;
+          const matched = findResourceForSourceDocKey(data.sourceDocKey, courseResources);
+          const activityTarget = matched ? documentTargetForResource(matched) : undefined;
+          const mastery = masteryForSet(
+            bySourceDocument,
+            cls.id,
+            data.sourceDocKey,
+            topicLabel,
+            masteryValue,
+          );
           topics.push({
             courseId: cls.id,
             courseName: cls.className,
             courseCode: cls.classCode,
-            topicLabel: fc.data().topicName ?? fc.data().name ?? fc.id,
+            topicLabel,
             targetId: fc.id,
             activityType: "flashcards",
-            quizMastery: (() => {
-              const signalId = buildMasterySignalId(cls.id, fc.data().topicName ?? fc.data().name ?? fc.id, "quiz_mastery");
-              return masterySignals.get(signalId)?.value ?? null;
-            })(),
-            flashcardEngagement: (() => {
-              const signalId = buildMasterySignalId(cls.id, fc.data().topicName ?? fc.data().name ?? fc.id, "flashcard_engagement");
-              return masterySignals.get(signalId)?.value ?? null;
-            })(),
-            lastStudiedAt: null,
+            ...(activityTarget ? { activityTarget } : {}),
+            quizMastery: mastery.quizMastery,
+            flashcardEngagement: mastery.flashcardEngagement,
+            lastStudiedAt: studiedAtFor(lastStudied, cls.id, data.sourceDocKey),
             skipCount: 0,
           });
         }
@@ -205,6 +497,29 @@ export default function LearningPage() {
 
       for (const cls of classes) {
         if (topics.some((topic) => topic.courseId === cls.id)) continue;
+        const resources = resourcesByCourse.get(cls.id) ?? [];
+        if (resources.length > 0) {
+          for (const resource of resources) {
+            topics.push({
+              courseId: cls.id,
+              courseName: cls.className,
+              courseCode: cls.classCode,
+              topicLabel: resource.name,
+              targetId: null,
+              activityType: "reading",
+              activityTarget: {
+                kind: "document",
+                resourceId: resource.id,
+                sourceDocKey: resource.sourceDocKey,
+              },
+              quizMastery: null,
+              flashcardEngagement: null,
+              lastStudiedAt: studiedAtFor(lastStudied, cls.id, resource.sourceDocKey),
+              skipCount: 0,
+            });
+          }
+          continue;
+        }
         topics.push({
           courseId: cls.id,
           courseName: cls.className,
@@ -245,29 +560,238 @@ export default function LearningPage() {
         }
       }
 
-      return { topics, exams };
-    }, [user, classes, allEvents, masterySignals]);
+      return { topics, exams, resourcesByCourse };
+    }, [user, classes, allEvents, masterySignals, bySourceDocument, suggestions]);
+
+  const requestDocumentSelection = useCallback(
+    (courseId: string, resources: CourseDocumentOption[]) =>
+      new Promise<DocumentActivityTarget | null>((resolve) => {
+        documentSelectionRef.current = resolve;
+        setDocumentPicker({ courseId, resources });
+      }),
+    []
+  );
+
+  const finishDocumentSelection = useCallback((target: DocumentActivityTarget | null) => {
+    setDocumentPicker(null);
+    const resolve = documentSelectionRef.current;
+    documentSelectionRef.current = null;
+    resolve?.(target);
+  }, []);
+
+  const attachSelectedDocuments = useCallback(
+    async (
+      generated: GeneratedTask[],
+      resourcesByCourse: Map<string, CourseDocumentOption[]>
+    ) => {
+      const ready: GeneratedTask[] = [];
+      for (const task of generated) {
+        if (!needsDocumentSelection(task)) {
+          ready.push(task);
+          continue;
+        }
+        const resources = resourcesByCourse.get(task.courseId) ?? [];
+        if (resources.length === 0) continue;
+        const selected = await requestDocumentSelection(task.courseId, resources);
+        if (!selected) continue;
+        ready.push({
+          ...task,
+          targetId: selected.resourceId,
+          activityTarget: selected,
+        });
+      }
+      return ready;
+    },
+    [requestDocumentSelection]
+  );
+
+  const courseInfoFor = useCallback(
+    (courseId: string) => {
+      const enrolled = classes.find((item) => item.id === courseId);
+      return {
+        name: enrolled?.className || "Course",
+        code: enrolled?.classCode || "Course",
+      };
+    },
+    [classes],
+  );
+
+  const revealTask = useCallback(
+    (taskId: string) => {
+      setHighlightedTaskId(taskId);
+      if (hasUsablePlan(plan)) setActiveView("plan");
+    },
+    [plan],
+  );
+
+  const saveSuggestionOnPlan = useCallback(
+    async (suggestion: MissedQuestionsSuggestion & { id: string }) => {
+      if (!user || !plan || savingSuggestionRef.current) return null;
+      savingSuggestionRef.current = true;
+      setSavingSuggestion(true);
+      try {
+        const taskId = await createTaskFromSuggestion(
+          suggestion,
+          today,
+          courseInfoFor(suggestion.courseId),
+        );
+        if (!taskId) return null;
+        if (!(plan.taskIds ?? []).includes(taskId)) {
+          await updatePlanState({
+            state: "active",
+            taskIds: appendPlanTaskIds(plan.taskIds ?? [], [taskId]),
+            totalTasks: (plan.totalTasks ?? plan.taskIds?.length ?? 0) + 1,
+          });
+        }
+        revealTask(taskId);
+        setPendingSuggestionId((current) =>
+          current === suggestion.id ? completePendingAdd(current, true) : current,
+        );
+        return taskId;
+      } finally {
+        savingSuggestionRef.current = false;
+        setSavingSuggestion(false);
+      }
+    },
+    [user, plan, today, courseInfoFor, createTaskFromSuggestion, updatePlanState, revealTask],
+  );
+
+  const attachSuggestionToPlan = useCallback(
+    async (
+      suggestion: MissedQuestionsSuggestion & { id: string },
+      baseTaskIds: string[],
+    ) => {
+      if (!user || savingSuggestionRef.current) return null;
+      savingSuggestionRef.current = true;
+      setSavingSuggestion(true);
+      try {
+        const taskId = await createTaskFromSuggestion(
+          suggestion,
+          today,
+          courseInfoFor(suggestion.courseId),
+        );
+        if (!taskId) return null;
+        if (!baseTaskIds.includes(taskId)) {
+          await updatePlanState({
+            state: "active",
+            taskIds: appendPlanTaskIds(baseTaskIds, [taskId]),
+            totalTasks: baseTaskIds.length + 1,
+          });
+        }
+        setPendingSuggestionId((current) =>
+          current === suggestion.id ? completePendingAdd(current, true) : current,
+        );
+        setHighlightedTaskId(taskId);
+        setActiveView("plan");
+        return taskId;
+      } finally {
+        savingSuggestionRef.current = false;
+        setSavingSuggestion(false);
+      }
+    },
+    [user, today, courseInfoFor, createTaskFromSuggestion, updatePlanState],
+  );
+
+  const handleAddSuggestion = useCallback(
+    (suggestion: MissedQuestionsSuggestion & { id: string }) => {
+      if (savingSuggestion || savingSuggestionRef.current) return;
+      if (!plan || !hasUsablePlan(plan)) {
+        setPendingSuggestionId((current) => beginAddWithoutPlan(current, suggestion.id));
+        setShowSetup(true);
+        return;
+      }
+      const draft = buildTaskFromSuggestion(
+        suggestion,
+        courseInfoFor(suggestion.courseId),
+        today,
+      );
+      const overage = getPlanTimeOverage(
+        plan.setupConfig.availableMinutes,
+        tasks,
+        draft.estimatedMinutes,
+      );
+      if (overage > 0) {
+        setTimeOverage({ suggestion, overageMinutes: overage });
+        return;
+      }
+      void saveSuggestionOnPlan(suggestion).catch(() => {
+        // The suggestion stays active so the student can try again.
+      });
+    },
+    [savingSuggestion, plan, courseInfoFor, today, tasks, saveSuggestionOnPlan],
+  );
 
   const handleSetupSubmit = useCallback(
     async (config: SetupConfig) => {
       if (!user) return;
-      const { topics, exams } = await loadRecommendationInputs();
+      const { topics, exams, resourcesByCourse } = await loadRecommendationInputs();
 
       const generated = generateTasks(config, topics, exams);
-      if (generated.length === 0) {
+      const tasksToSave = await attachSelectedDocuments(generated, resourcesByCourse);
+      if (tasksToSave.length === 0) {
         throw new Error(getEmptyRecommendationReason(config, topics, exams));
       }
-      const taskIds = await createTasksFromGenerated(generated, today);
-      await createPlan(config, taskIds);
+      const taskIds = await createTasksFromGenerated(tasksToSave, today);
+      try {
+        await createPlan(config, taskIds);
+      } catch (error) {
+        setPendingSuggestionId((current) => completePendingAdd(current, false));
+        throw error;
+      }
       setShowSetup(false);
+      setActiveView("plan");
+
+      if (!pendingSuggestionId) return;
+      const suggestion = suggestions.find((item) => item.id === pendingSuggestionId);
+      if (!suggestion) return;
+
+      const draft = buildTaskFromSuggestion(
+        suggestion,
+        courseInfoFor(suggestion.courseId),
+        today,
+      );
+      const overage = getPlanTimeOverage(
+        config.availableMinutes,
+        tasksToSave.map((task) => ({
+          estimatedMinutes: task.estimatedMinutes,
+          status: "recommended" as const,
+        })),
+        draft.estimatedMinutes,
+      );
+      const followUp = afterSuccessfulPlan(pendingSuggestionId, overage);
+      setPendingSuggestionId(followUp.pendingSuggestionId);
+      if (followUp.showOverage) {
+        setTimeOverage({
+          suggestion,
+          overageMinutes: overage,
+          baseTaskIds: taskIds,
+        });
+        return;
+      }
+      if (!followUp.createTask) return;
+      const taskId = await attachSuggestionToPlan(suggestion, taskIds);
+      if (!taskId) {
+        setPendingSuggestionId((current) => completePendingAdd(current, false));
+      }
     },
-    [user, loadRecommendationInputs, today, createPlan, createTasksFromGenerated]
+    [
+      user,
+      loadRecommendationInputs,
+      attachSelectedDocuments,
+      today,
+      createPlan,
+      createTasksFromGenerated,
+      pendingSuggestionId,
+      suggestions,
+      courseInfoFor,
+      attachSuggestionToPlan,
+    ]
   );
 
   const handleSuggestTasks = useCallback(
     async (config: SetupConfig) => {
       if (!user || !plan) return;
-      const { topics, exams } = await loadRecommendationInputs();
+      const { topics, exams, resourcesByCourse } = await loadRecommendationInputs();
       const activeExistingTasks = tasks.filter(
         (task) => task.status === "recommended" || task.status === "in_progress"
       );
@@ -276,14 +800,15 @@ export default function LearningPage() {
         activeExistingTasks
       );
       const generated = generateTasks(config, availableTopics, exams);
+      const tasksToSave = await attachSelectedDocuments(generated, resourcesByCourse);
 
-      if (generated.length === 0) {
+      if (tasksToSave.length === 0) {
         throw new Error(
           getEmptyRecommendationReason(config, availableTopics, exams)
         );
       }
 
-      const newTaskIds = await createTasksFromGenerated(generated, today);
+      const newTaskIds = await createTasksFromGenerated(tasksToSave, today);
       await updatePlanState({
         state: "active",
         taskIds: appendPlanTaskIds(plan.taskIds ?? [], newTaskIds),
@@ -296,6 +821,7 @@ export default function LearningPage() {
       plan,
       tasks,
       loadRecommendationInputs,
+      attachSelectedDocuments,
       today,
       createTasksFromGenerated,
       updatePlanState,
@@ -308,7 +834,30 @@ export default function LearningPage() {
       const task = tasks.find((t) => t.id === taskId);
       if (!task) return;
 
-      if (session) {
+      const target = task.activityTarget;
+      const fallbackUrl = getActivityUrl(task.activityType, task.courseId, task.targetId);
+      const url =
+        target?.kind === "document" && task.activityType === "reading"
+          ? getActivityUrlFromTarget(task.courseId, target, task.id)
+          : target && target.kind !== "document"
+            ? getActivityUrlFromTarget(task.courseId, target, task.id)
+            : task.activityType === "quiz" || task.activityType === "flashcards"
+              ? withTaskId(fallbackUrl, taskId)
+              : fallbackUrl;
+
+      if (session && session.taskId == null) {
+        await updateTaskStatus(taskId, "in_progress");
+        await attachTaskToSession(taskId, {
+          courseId: task.courseId,
+          activityType: task.activityType,
+          targetId: task.targetId,
+          activityUrl: url,
+        });
+        router.push(url);
+        return;
+      }
+
+      if (session?.taskId) {
         await pauseSession();
         const prevTask = tasks.find((t) => t.id === session.taskId);
         if (prevTask && prevTask.status === "in_progress") {
@@ -321,13 +870,25 @@ export default function LearningPage() {
         taskId,
         task.courseId,
         task.activityType,
-        task.targetId
+        task.targetId,
+        "countup",
+        task.estimatedMinutes * 60
       );
 
-      const url = getActivityUrl(task.activityType, task.courseId, task.targetId);
       router.push(url);
     },
-    [user, tasks, session, pauseSession, updateTaskStatus, startSession, router]
+    [user, tasks, session, pauseSession, updateTaskStatus, startSession, attachTaskToSession, router]
+  );
+
+  // "Continue" on an already in-progress task: just reopen its activity,
+  // never restart the session.
+  const handleOpenTaskActivity = useCallback(
+    (taskId: string) => {
+      const task = tasks.find((t) => t.id === taskId);
+      if (!task) return;
+      router.push(getActivityUrl(task.activityType, task.courseId, task.targetId));
+    },
+    [tasks, router]
   );
 
   const handleSkipTask = useCallback(
@@ -507,6 +1068,14 @@ export default function LearningPage() {
     [activeTasks]
   );
 
+  const pickableTasks = useMemo(
+    () =>
+      activeTasks.filter(
+        (task) => task.status === "recommended" || task.status === "in_progress"
+      ),
+    [activeTasks]
+  );
+
   const remainingMinutes = useMemo(
     () =>
       activeTasks
@@ -537,6 +1106,22 @@ export default function LearningPage() {
     };
   }, [activeTasks, tasks]);
 
+  const recommendedSuggestions = useMemo(
+    () =>
+      suggestions
+        .filter((suggestion) => {
+          const view = resolveQuizSuggestionView(suggestion);
+          return view?.primaryAction === "add" || view?.primaryAction === "view_task";
+        })
+        .sort((a, b) => b.priority - a.priority),
+    [suggestions],
+  );
+
+  const highlightedTask = useMemo(
+    () => tasks.find((task) => task.id === highlightedTaskId) ?? null,
+    [tasks, highlightedTaskId],
+  );
+
   const handleExploreClasses = useCallback(() => {
     setActiveView("explore");
   }, []);
@@ -552,6 +1137,15 @@ export default function LearningPage() {
   const handleStartNextTask = useCallback(() => {
     if (nextTask) handleStartTask(nextTask.id);
   }, [nextTask, handleStartTask]);
+
+  useEffect(() => {
+    if (!showTaskPicker) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowTaskPicker(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showTaskPicker]);
 
   if (authLoading || classesLoading || planLoading) {
     return (
@@ -573,7 +1167,9 @@ export default function LearningPage() {
     viewMode === "board" ? (
       <BoardView
         tasks={visibleTasks}
+        highlightedTaskId={highlightedTaskId}
         onStart={handleStartTask}
+        onContinue={handleOpenTaskActivity}
         onSkip={handleSkipTask}
         onReschedule={(id) => setRescheduleTarget(id)}
         onDelete={handleDeleteTask}
@@ -584,8 +1180,10 @@ export default function LearningPage() {
     ) : viewMode === "schedule" ? (
       <ScheduleView
         tasks={visibleTasks}
+        highlightedTaskId={highlightedTaskId}
         calendarEvents={allEvents}
         onStart={handleStartTask}
+        onContinue={handleOpenTaskActivity}
         onSkip={handleSkipTask}
         onReschedule={(id) => setRescheduleTarget(id)}
         onComplete={handleCompleteTask}
@@ -594,7 +1192,9 @@ export default function LearningPage() {
     ) : (
       <ListView
         tasks={visibleTasks}
+        highlightedTaskId={highlightedTaskId}
         onStart={handleStartTask}
+        onContinue={handleOpenTaskActivity}
         onSkip={handleSkipTask}
         onReschedule={(id) => setRescheduleTarget(id)}
         onDelete={handleDeleteTask}
@@ -640,6 +1240,59 @@ export default function LearningPage() {
           />
         </div>
 
+        {recommendedSuggestions.length > 0 && (
+          <section aria-labelledby="recommended-for-you">
+            <h2 id="recommended-for-you" className="text-lg font-semibold text-navy">
+              Recommended for you
+            </h2>
+            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+              {recommendedSuggestions.map((suggestion) => {
+                const course = courseInfoFor(suggestion.courseId);
+                const view = resolveQuizSuggestionView(suggestion);
+                return (
+                  <LearningSuggestionCard
+                    key={suggestion.id}
+                    suggestion={suggestion}
+                    courseCode={course.code}
+                    courseName={course.name}
+                    highlighted={suggestion.id === highlightedSuggestionId}
+                    busy={savingSuggestion}
+                    onAdd={() => handleAddSuggestion(suggestion)}
+                    onView={() => {
+                      if (view?.primaryAction === "view_task") revealTask(view.taskId);
+                    }}
+                    onLater={() => {
+                      const kept = suggestionAfterLater(suggestion);
+                      if (kept.status === "added") return;
+                      void markSuggestionActive(suggestion.id);
+                    }}
+                    onDismiss={() => {
+                      void dismissSuggestion(suggestion.id);
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {user && !documentMasteryLoading && documentCountsReady && classes.length > 0 && (
+          <section aria-labelledby="course-mastery-heading" className="space-y-4">
+            <h2 id="course-mastery-heading" className="text-lg font-semibold text-navy">
+              Course mastery
+            </h2>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {classes.map((cls) => (
+                <CourseMasterySummary
+                  key={cls.id}
+                  courseName={cls.className || cls.classCode}
+                  summary={getCourseMastery(cls.id, documentCounts.get(cls.id) ?? 0)}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Explore view: stats + classes + today's plan sidebar */}
         {(activeView === "explore" || (!activeView && !planIsUsable)) && (
           <>
@@ -684,11 +1337,29 @@ export default function LearningPage() {
                 sidebar={
                   <FocusModeCard
                     recommendedMinutes={nextTask?.estimatedMinutes ?? 25}
-                    onStartSession={handleStartNextTask}
-                    disabled={!nextTask}
+                    onStartNextTask={handleStartNextTask}
+                    onPickTask={() => setShowTaskPicker(true)}
+                    hasNextTask={!!nextTask}
+                    disabled={!!session}
                   />
                 }
               >
+                {highlightedTask &&
+                  (highlightedTask.status === "recommended" ||
+                    highlightedTask.status === "in_progress") && (
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white px-4 py-3 ring-1 ring-navy/15">
+                      <p className="text-sm text-navy">
+                        <span className="font-semibold">{highlightedTask.title}</span> is in today’s plan.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => handleStartTask(highlightedTask.id)}
+                        className="rounded-full bg-navy px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+                      >
+                        {highlightedTask.status === "in_progress" ? "Continue" : "Start"}
+                      </button>
+                    </div>
+                  )}
                 {planView}
               </PlanSection>
             </div>
@@ -702,10 +1373,53 @@ export default function LearningPage() {
           />
         )}
 
+        <WeeklyChickenChart />
+
         <SetupModal
           open={showSetup}
-          onClose={() => setShowSetup(false)}
+          onClose={() => {
+            setPendingSuggestionId((current) => cancelPendingAdd(current));
+            setShowSetup(false);
+          }}
           onSubmit={handleSetupSubmit}
+        />
+        <PlanTimeOverageModal
+          open={timeOverage != null}
+          overageMinutes={timeOverage?.overageMinutes ?? 0}
+          busy={savingSuggestion}
+          onAddAnyway={() => {
+            if (!timeOverage || savingSuggestion) return;
+            const save = timeOverage.baseTaskIds
+              ? attachSuggestionToPlan(timeOverage.suggestion, timeOverage.baseTaskIds)
+              : saveSuggestionOnPlan(timeOverage.suggestion);
+            void save
+              .then((taskId) => {
+                if (taskId) setTimeOverage(null);
+              })
+              .catch(() => {
+                // Keep the warning open so Add anyway can be tried again.
+              });
+          }}
+          onLater={() => {
+            if (!timeOverage || savingSuggestion) return;
+            const suggestion = timeOverage.suggestion;
+            const kept = suggestionAfterLater(suggestion);
+            const recordLater = () => {
+              setPendingSuggestionId((current) =>
+                deferOverageSuggestion(current, suggestion.id, kept).pendingSuggestionId,
+              );
+              setTimeOverage(null);
+            };
+            if (kept.status === "added") {
+              recordLater();
+              return;
+            }
+            void markSuggestionActive(suggestion.id)
+              .then(recordLater)
+              .catch(() => {
+                // Deferral was not recorded, so keep the pending suggestion.
+              });
+          }}
         />
         <SetupModal
           open={showSuggestTasks}
@@ -734,6 +1448,80 @@ export default function LearningPage() {
           open={!!rescheduleTarget}
           onReschedule={handleReschedule}
           onCancel={() => setRescheduleTarget(null)}
+        />
+        {showTaskPicker && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/35 p-4">
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="task-picker-title"
+              className="relative w-full max-w-[500px] rounded-[20px] bg-beige-light p-6 shadow-[0_18px_50px_rgba(26,26,48,.08)]"
+            >
+              <button
+                type="button"
+                onClick={() => setShowTaskPicker(false)}
+                className="absolute right-4 top-4 inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-lg text-gray-secondary hover:bg-gray-input hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+                aria-label="Close task picker"
+              >
+                <X size={20} aria-hidden="true" />
+              </button>
+
+              <h3
+                id="task-picker-title"
+                className="pr-12 text-xl font-bold tracking-[-0.04em] text-navy"
+              >
+                Choose a task
+              </h3>
+              <p className="mt-2 text-sm leading-relaxed text-gray-secondary">
+                Start a focus session on a recommended or in-progress task.
+              </p>
+
+              {pickableTasks.length === 0 ? (
+                <p className="mt-4 text-sm leading-relaxed text-gray-secondary">
+                  No recommended or in-progress tasks are ready to start.
+                </p>
+              ) : (
+                <ul className="mt-4 max-h-80 space-y-2 overflow-y-auto">
+                  {pickableTasks.map((task) => (
+                    <li key={task.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowTaskPicker(false);
+                          void handleStartTask(task.id);
+                        }}
+                        className="flex min-h-11 w-full cursor-pointer flex-col items-start justify-center gap-0.5 rounded-[10px] bg-gray-input px-3 py-2 text-left transition-colors hover:bg-beige-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+                      >
+                        <span className="text-sm font-semibold text-navy">
+                          {task.title}
+                        </span>
+                        <span className="text-xs text-gray-secondary">
+                          {task.courseCode} · {ACTIVITY_LABELS[task.activityType]}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="mt-6 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowTaskPicker(false)}
+                  className="min-h-11 cursor-pointer rounded-[10px] border border-brown-label px-4 py-2.5 text-sm font-semibold text-navy transition-colors hover:bg-beige-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        <DocumentPickerModal
+          open={documentPicker != null}
+          courseId={documentPicker?.courseId ?? ""}
+          resources={documentPicker?.resources ?? []}
+          onSelect={(target) => finishDocumentSelection(target)}
+          onClose={() => finishDocumentSelection(null)}
         />
       </div>
     </div>

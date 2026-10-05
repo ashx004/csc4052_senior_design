@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import EventPill from "@/src/components/calendar/EventPill";
 import { buildMonthGrid } from "@/src/library/calendarHelpers";
 import type { CalendarEvent } from "@/src/components/calendar/calendarTypes";
@@ -11,6 +11,8 @@ type MonthViewProps = {
   currentMonth: number; // 0-indexed
   selectedDate: Date;
   onSelectDate: (date: Date) => void;
+  onEventClick?: (event: CalendarEvent) => void;
+  onEventMove?: (event: CalendarEvent, targetDate: Date) => void;
 };
 
 export default function MonthView({
@@ -19,7 +21,10 @@ export default function MonthView({
   currentMonth,
   selectedDate,
   onSelectDate,
+  onEventClick,
+  onEventMove,
 }: MonthViewProps) {
+  const [draggedEvent, setDraggedEvent] = useState<CalendarEvent | null>(null);
   const grid = useMemo(
     () => buildMonthGrid(currentYear, currentMonth, events),
     [currentYear, currentMonth, events]
@@ -62,6 +67,11 @@ export default function MonthView({
                   onSelectDate(new Date(currentYear, currentMonth, cell.day));
                 }
               }}
+              onDragOver={(dragEvent) => { if (!cell.muted && draggedEvent) dragEvent.preventDefault(); }}
+              onDrop={() => {
+                if (draggedEvent && !cell.muted) onEventMove?.(draggedEvent, new Date(currentYear, currentMonth, cell.day));
+                setDraggedEvent(null);
+              }}
               className={`min-h-[118px] border-r border-b border-border-light p-3 ${
                 index % 7 === 6 ? "border-r-0" : ""
               } ${cell.muted ? "bg-bg-main" : "bg-bg-container"} ${
@@ -82,7 +92,7 @@ export default function MonthView({
 
               <div className="space-y-1.5">
                 {cell.events?.slice(0, 3).map((event, eventIndex) => (
-                  <EventPill key={`${event.id}-${eventIndex}`} event={event} />
+                  <EventPill key={`${event.id}-${eventIndex}`} event={event} onClick={onEventClick} onDragStart={event.source === "local" && !event.seriesId ? setDraggedEvent : undefined} />
                 ))}
                 {(cell.events?.length ?? 0) > 3 && (
                   <p className="px-2 text-[11px] font-medium text-text-muted">

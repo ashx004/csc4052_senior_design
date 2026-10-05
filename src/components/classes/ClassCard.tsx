@@ -3,7 +3,7 @@
 import "@/src/components/classes/ClassCard.css";
 import { useState } from "react";
 import Link from 'next/link';
-import { Pencil } from "lucide-react";
+import { CalendarClock, Pencil } from "lucide-react";
 import { EnrollmentStatus } from "@/src/library/enrollmentStatus";
 import { CLASS_COLOR_PALETTE } from "@/src/library/classColors";
 
@@ -16,9 +16,11 @@ export interface ClassCardProps {
   color?: string;
   variant?: "default" | "compact";
   status?: EnrollmentStatus;
+  scheduleLabel?: string;
   // Omitted by callers that don't want the color square editable (e.g. a
   // read-only preview) — when present, a pencil icon appears on the banner.
   onColorChange?: (color: string) => void;
+  onScheduleEdit?: () => void;
 }
 
 export default function ClassCard({
@@ -29,6 +31,8 @@ export default function ClassCard({
   color = "#0a2a3c",
   variant = "default",
   onColorChange,
+  onScheduleEdit,
+  scheduleLabel,
 }: ClassCardProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -100,6 +104,17 @@ export default function ClassCard({
         </Link>
         <p className="class-card-code">{classCode}</p>
         <p className="class-card-term">{term}</p>
+        {scheduleLabel && <p className="class-card-schedule">{scheduleLabel}</p>}
+        {onScheduleEdit && (
+          <button
+            type="button"
+            onClick={onScheduleEdit}
+            className="class-card-schedule-edit"
+          >
+            <CalendarClock size={13} />
+            Edit schedule
+          </button>
+        )}
       </div>
 
       {/* Nav row

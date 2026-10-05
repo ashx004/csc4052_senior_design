@@ -4,7 +4,7 @@ import './global.css';
 import { AuthProvider } from "@/src/context/AuthContext";
 import { StudyPlanProvider } from "@/src/context/StudyPlanContext";
 import { TutorialProvider } from "@/src/context/TutorialContext";
-import FocusBar from "@/src/components/studyPlan/FocusBar";
+import FocusCard from "@/src/components/studyPlan/FocusCard";
 import NotificationToast from "@/src/components/studyPlan/NotificationToast";
 import ThemeInitializer from "@/src/components/ThemeInitializer";
 
@@ -23,7 +23,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={jakarta.variable} suppressHydrationWarning>
-      <body 
+      <body
         className="
           min-h-screen
           bg-bg-main
@@ -36,16 +36,16 @@ export default function RootLayout({
         <ThemeInitializer />
 
         <AuthProvider>
-          {/* Study sessions outlive any single route group — the focus bar
+          {/* Study sessions outlive any single route group — the focus card
               lives here so it stays visible on the course pages a started
               task navigates to, not just the dashboard. */}
           <StudyPlanProvider>
-            <FocusBar />
+            <FocusCard />
             {/* Here rather than in the dashboard layout so notifications
                 (e.g. an advising upload or schedule finishing in the
                 background) pop up on every page, course pages included. */}
             <NotificationToast />
-            {/* Mounted once at the root (not per-layout) so
+            {/* Mounted once at the root (not per-layout) so a user's
                 tutorial progress survives navigating between the dashboard
                 and course route groups without refetching. */}
             <TutorialProvider>{children}</TutorialProvider>

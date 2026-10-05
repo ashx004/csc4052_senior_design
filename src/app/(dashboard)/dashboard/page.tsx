@@ -1,59 +1,12 @@
-import DashboardCard from '@/src/components/dashboard/DashboardCard';
 import PageTutorial from '@/src/components/tutorial/PageTutorial';
 import dashboardSteps from '@/src/library/tutorials/steps/dashboard';
+import DashboardHome from '@/src/components/dashboard/DashboardHome';
 
 export default function Dashboard() {
   return (
-    <div className="flex min-h-screen flex-col items-center bg-bg-main px-8 py-12">
+    <>
       <PageTutorial id="dashboard" steps={dashboardSteps} />
-      <div className="w-full max-w-4xl">
-        <h1 className="text-center text-2xl font-bold text-text-main" data-tutorial="dashboard-heading">
-          What Would You Like To Do?
-        </h1>
-
-        <div
-          className="mt-8 grid grid-cols-1 place-items-center gap-6 sm:grid-cols-2 md:grid-cols-3"
-          data-tutorial="dashboard-cards"
-        >
-          {/* TODO: Route to /notes when Notes feature is implemented */}
-          <DashboardCard
-            icon="/icons/notebook-pen.png"
-            title="Notes"
-            description="Create and manage your notes"
-            href="/notes"
-          />
-          <DashboardCard
-            icon="/icons/book-open.png"
-            title="Learning"
-            description="Make flashcards and quizzes from your lectures"
-            href="/learning"
-          />
-          <DashboardCard
-            icon="/icons/user-pen.png"
-            title="Advising"
-            description="Discuss your academic plans"
-            href="/advising_new"
-          />
-          <DashboardCard
-            icon="/icons/calendar-days.png"
-            title="Schedule"
-            description="Manage your academic and personal calendar"
-            href="/calendar"
-          />
-          <DashboardCard
-            icon="/icons/discover.png"
-            title="Discover"
-            description="Explore community quizzes and play Blocks"
-            href="/discover"
-          />
-          <DashboardCard
-            icon="/icons/bot-message-square.png"
-            title="AI Chat"
-            description="Chat with our AI assistant"
-            href="/ai-assistant"
-          />
-        </div>
-      </div>
-    </div>
+      <DashboardHome />
+    </>
   );
 }

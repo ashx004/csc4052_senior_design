@@ -30,7 +30,11 @@ import { // import symbols
     ScanText,
     RotateCcw,
     Pencil,
+    NotebookPen,
 } from "lucide-react";
+import Link from "next/link";
+import AddNotesFlow from "@/src/components/notes/AddNotesFlow";
+import { addResourceToNotes, documentNoteId, isResourceInNotes } from "@/src/library/notes/notesStore";
 // PrismLight + explicit per-language registration instead of the default
 // `react-syntax-highlighter` import, which bundles all ~300 Prism language
 // grammars (~400KB) even though this app only ever highlights ~20 of them —
@@ -66,10 +70,14 @@ import nasm from "react-syntax-highlighter/dist/esm/languages/prism/nasm";
     ["ruby", ruby], ["kotlin", kotlin], ["swift", swift], ["bash", bash], ["nasm", nasm],
 ].forEach(([name, lang]) => SyntaxHighlighter.registerLanguage(name as string, lang as any));
 import { renderAsync } from "docx-preview";
-import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
+import { collection, getDocs, onSnapshot, orderBy, query } from "firebase/firestore";
 import CircleIconButton from "./CircleIconButton";
 import { addOcrDocumentPages, uploadUserResource, getCourseResources, deleteUserResource, MAX_FILE_SIZE_BYTES, INDEXABLE_FILE_TYPES } from "./fileUploadService";
 import { db } from "@/src/library/firebase";
+import { useLearningProgress } from "@/src/hooks/useLearningProgress";
+import { documentTargetForResource, findResourceForSourceDocKey } from "@/src/library/studyPlan/recommendationEngine";
+import { resolveFlashcardNextStep, type FlashcardNextStep, type FlashcardSetRef } from "@/src/library/studyPlan/nextStudyActivity";
+import NextStepGuidance from "@/src/components/studyPlan/NextStepGuidance";
 
 const MAX_FILES_PER_BATCH = 5;
 
@@ -165,6 +173,8 @@ export interface Resource {
     resourceKind?: "ocr_document";
     pageCount?: number;
     manualTranscript?: boolean;
+    sourceDocKey?: string;
+    storageKey?: string;
 }
 
 const CATEGORY_LABELS: Record<Category, string> = {
@@ -274,7 +284,53 @@ function toResource(raw: any): Resource | null {
         resourceKind: raw.resourceKind === "ocr_document" ? "ocr_document" : undefined,
         pageCount: typeof raw.pageCount === "number" ? raw.pageCount : undefined,
         manualTranscript: raw.manualTranscript === true,
+        sourceDocKey: typeof raw.sourceDocKey === "string" ? raw.sourceDocKey : undefined,
+        storageKey: typeof raw.storageKey === "string" ? raw.storageKey : undefined,
     };
+}
+
+function millisFrom(value: unknown): number | null {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return value.getTime();
+    if (
+        value &&
+        typeof value === "object" &&
+        "toMillis" in value &&
+        typeof (value as { toMillis: unknown }).toMillis === "function"
+    ) {
+        const millis = (value as { toMillis: () => unknown }).toMillis();
+        return typeof millis === "number" && Number.isFinite(millis) ? millis : null;
+    }
+    return null;
+}
+
+function matchingFlashcardSets(sourceDocKey: string, resource: Resource, sets: FlashcardSetRef[]): FlashcardSetRef[] {
+    const resourceRef = {
+        id: resource.id,
+        url: resource.url,
+        sourceDocKey: resource.sourceDocKey,
+        storageKey: resource.storageKey,
+    };
+    return sets
+        .filter((set) => {
+            if (!set.sourceDocKey) return false;
+            if (set.sourceDocKey === sourceDocKey) return true;
+            return findResourceForSourceDocKey(set.sourceDocKey, [resourceRef]) != null;
+        })
+        .map((set) => ({ ...set, sourceDocKey }));
+}
+
+async function loadFlashcardSetRefs(userId: string, courseId: string): Promise<FlashcardSetRef[]> {
+    const snapshot = await getDocs(collection(db, "users", userId, "enrollment", courseId, "flashcardSets"));
+    return snapshot.docs.map((setDoc) => {
+        const data = setDoc.data();
+        return {
+            id: setDoc.id,
+            sourceDocKey: typeof data.sourceDocKey === "string" ? data.sourceDocKey : null,
+            createdAt: millisFrom(data.createdAt),
+            updatedAt: millisFrom(data.updatedAt),
+        };
+    });
 }
 
 function thumbnailCacheKey(resource: Resource): string {
@@ -438,7 +494,8 @@ function FileThumbnail({
     );
 }
 
-export default function ResourcePreview({ userId, courseId }: { userId: string; courseId: string }) {
+export default function ResourcePreview({ userId, courseId, initialResourceId = null, taskId = null }: { userId: string; courseId: string; initialResourceId?: string | null; taskId?: string | null }) {
+    const { finishReading } = useLearningProgress();
     const [resources, setResources] = useState<Resource[]>([]);
     const [isLoadingResources, setIsLoadingResources] = useState(true);
     const [loadError, setLoadError] = useState<string | null>(null);
@@ -457,6 +514,9 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
     const [showAddModal, setShowAddModal] = useState(false);
+    const [showNotesFlow, setShowNotesFlow] = useState(false);
+    // Whether the file being previewed is in the Notes tab ("Add to Notes").
+    const [notesState, setNotesState] = useState<"unknown" | "out" | "adding" | "in">("unknown");
     const [selectedFiles, setSelectedFiles] = useState<File[]>([]);    
     const [isDragging, setIsDragging] = useState(false);
     const [newCategory, setNewCategory] = useState<Category>("classDoc");
@@ -479,6 +539,14 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
     const [excelHtml, setExcelHtml] = useState<string | null>(null);
     const [previewLoading, setPreviewLoading] = useState(false);
     const [previewError, setPreviewError] = useState<string | null>(null);
+    const [initialResourceUnavailable, setInitialResourceUnavailable] = useState(false);
+    const [finishingReading, setFinishingReading] = useState(false);
+    const [readingSaved, setReadingSaved] = useState(false);
+    const readingSavedRef = useRef(false);
+    const finishReadingInFlight = useRef(false);
+    const [finishReadingError, setFinishReadingError] = useState<string | null>(null);
+    const [guidanceOpen, setGuidanceOpen] = useState(false);
+    const [nextStep, setNextStep] = useState<FlashcardNextStep | null>(null);
     const docxContainerRef = useRef<HTMLDivElement | null>(null);
 
     const [thumbnails, setThumbnails] = useState<Record<string, ThumbnailData>>({});
@@ -514,6 +582,21 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
             return next;
         });
     }
+
+    useEffect(() => {
+        if (!previewResource) {
+            setNotesState("unknown");
+            return;
+        }
+        let cancelled = false;
+        setNotesState("unknown");
+        isResourceInNotes(userId, courseId, previewResource.id)
+            .then((inNotes) => !cancelled && setNotesState(inNotes ? "in" : "out"))
+            .catch(() => !cancelled && setNotesState("out"));
+        return () => {
+            cancelled = true;
+        };
+    }, [previewResource, userId, courseId]);
 
     async function loadResources() {
         setIsLoadingResources(true);
@@ -581,6 +664,71 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
             current ? resources.find((resource) => resource.id === current.id) ?? current : null
         );
     }, [resources]);
+
+    const openedResourceId = useRef<string | null>(null);
+    useEffect(() => {
+        if (!initialResourceId) {
+            setInitialResourceUnavailable(false);
+            return;
+        }
+        if (openedResourceId.current === initialResourceId) return;
+        if (isLoadingResources) return;
+        const match = resources.find((resource) => resource.id === initialResourceId);
+        if (!match) {
+            setInitialResourceUnavailable(true);
+            return;
+        }
+        openedResourceId.current = initialResourceId;
+        setInitialResourceUnavailable(false);
+        setPreviewResource(match);
+    }, [initialResourceId, resources, isLoadingResources]);
+
+    useEffect(() => {
+        readingSavedRef.current = false;
+        setReadingSaved(false);
+        setGuidanceOpen(false);
+        setNextStep(null);
+        setFinishReadingError(null);
+    }, [initialResourceId, taskId]);
+
+    async function handleFinishReading() {
+        if (!taskId || !previewResource || previewResource.id !== initialResourceId) return;
+        if (finishReadingInFlight.current) return;
+        finishReadingInFlight.current = true;
+        const sourceDocKey = documentTargetForResource(previewResource).sourceDocKey;
+        setFinishingReading(true);
+        setFinishReadingError(null);
+        if (!readingSavedRef.current) {
+            try {
+                await finishReading({
+                    courseId,
+                    sourceDocKey,
+                    resourceId: previewResource.id,
+                    taskId,
+                });
+                readingSavedRef.current = true;
+                setReadingSaved(true);
+            } catch (error) {
+                console.error("Finish reading failed:", error);
+                setFinishReadingError("Your reading couldn't be saved. You can try again.");
+                finishReadingInFlight.current = false;
+                setFinishingReading(false);
+                return;
+            }
+        }
+
+        try {
+            const sets = await loadFlashcardSetRefs(userId, courseId);
+            setNextStep(resolveFlashcardNextStep(sourceDocKey, matchingFlashcardSets(sourceDocKey, previewResource, sets)));
+            setGuidanceOpen(true);
+        } catch (error) {
+            console.error("Flashcard lookup failed:", error);
+            setFinishReadingError("Your reading is saved. Flashcard options couldn't be loaded. You can try again.");
+        } finally {
+            finishReadingInFlight.current = false;
+            setFinishingReading(false);
+        }
+    }
 
     useEffect(() => {
         if (!previewResource || previewResource.resourceKind !== "ocr_document") {
@@ -1033,8 +1181,15 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
         return <p className="py-8 text-center text-sm text-alert-error">{loadError}</p>;
     }
 
+    const showFinishReading = Boolean(taskId && previewResource && previewResource.id === initialResourceId && !readingSaved);
+
     return (
         <div>
+            {initialResourceUnavailable && (
+                <p className="mb-4 rounded-lg border border-border-light bg-bg-warm px-3 py-2 text-sm text-text-main" role="status">
+                    This document isn&apos;t available. You can browse the other resources in this course.
+                </p>
+            )}
             {/* Toolbar */}
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
@@ -1119,6 +1274,13 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                         ariaLabel="Upload document"
                         size="sm"
                         onClick={() => setShowAddModal(true)}
+                    />
+                    <CircleIconButton
+                        icon={<Plus size={15} />}
+                        ariaLabel="Add notes (scan or type)"
+                        size="sm"
+                        variant="accent"
+                        onClick={() => setShowNotesFlow(true)}
                     />
                     <CircleIconButton
                         icon={<CheckSquare size={15} />}
@@ -1472,9 +1634,68 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                         )}
                                     </>
                                 )}
+                                {notesState === "in" ? (
+                                    <Link
+                                        href={`/notes/${documentNoteId(courseId, previewResource.id)}?from=${courseId}`}
+                                        className="flex items-center gap-1 rounded-md border border-border-light px-2 py-1 text-xs font-medium text-primary hover:bg-bg-main"
+                                    >
+                                        <NotebookPen size={13} /> Open in Notes
+                                    </Link>
+                                ) : notesState !== "unknown" && (
+                                    <button
+                                        onClick={async () => {
+                                            setNotesState("adding");
+                                            try {
+                                                await addResourceToNotes(userId, courseId, {
+                                                    id: previewResource.id,
+                                                    name: previewResource.name,
+                                                    fileType: previewResource.fileType,
+                                                    url: previewResource.url,
+                                                    resourceKind: previewResource.resourceKind,
+                                                });
+                                                setNotesState("in");
+                                            } catch (error) {
+                                                console.error("Add to Notes failed:", error);
+                                                setNotesState("out");
+                                            }
+                                        }}
+                                        disabled={notesState === "adding"}
+                                        className="flex items-center gap-1 rounded-md border border-border-light px-2 py-1 text-xs font-medium text-text-main hover:bg-bg-main disabled:opacity-50"
+                                        title="Add this file to the Notes tab to annotate it and use it in notebooks"
+                                    >
+                                        <NotebookPen size={13} /> {notesState === "adding" ? "Adding..." : "Add to Notes"}
+                                    </button>
+                                )}
+                                {showFinishReading && (
+                                    <button
+                                        type="button"
+                                        onClick={() => void handleFinishReading()}
+                                        disabled={finishingReading}
+                                        aria-busy={finishingReading}
+                                        className="flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-text-inverse hover:opacity-90 disabled:opacity-50"
+                                    >
+                                        {finishingReading && <Loader2 size={13} className="animate-spin" />}
+                                        Finish reading
+                                    </button>
+                                )}
                                 <CircleIconButton icon={<X size={16} />} ariaLabel="Close preview" size="sm" onClick={() => setPreviewResource(null)} />
                             </div>
                         </div>
+                        {finishReadingError && (
+                            <div className="flex flex-wrap items-center gap-2 border-b border-border-light bg-bg-warm px-4 py-2" role="status">
+                                <p className="text-xs text-text-main">{finishReadingError}</p>
+                                {readingSaved && (
+                                    <button
+                                        type="button"
+                                        onClick={() => void handleFinishReading()}
+                                        disabled={finishingReading}
+                                        className="rounded-md border border-border-light bg-bg-container px-2 py-1 text-xs font-medium text-text-main hover:bg-bg-main disabled:opacity-50"
+                                    >
+                                        Try again
+                                    </button>
+                                )}
+                            </div>
+                        )}
 
                         <div className="relative flex-1 overflow-auto bg-bg-container">
                             {previewResource.resourceKind === "ocr_document" && showOcrPages && (
@@ -1685,6 +1906,15 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                                 </SyntaxHighlighter>
                             ) : null}
                         </div>
+                        {guidanceOpen && nextStep && previewResource.id === initialResourceId && (
+                            <NextStepGuidance
+                                courseId={courseId}
+                                resourceId={previewResource.id}
+                                resourceName={previewResource.name}
+                                step={nextStep}
+                                onLater={() => setGuidanceOpen(false)}
+                            />
+                        )}
                     </div>
                 </div>
             )}
@@ -1713,6 +1943,15 @@ export default function ResourcePreview({ userId, courseId }: { userId: string; 
                         </div>
                     </div>
                 </div>
+            )}
+
+            {showNotesFlow && (
+                <AddNotesFlow
+                    uid={userId}
+                    courseId={courseId}
+                    onClose={() => setShowNotesFlow(false)}
+                    onUploaded={() => void loadResources()}
+                />
             )}
 
             {/* Upload document modal */}

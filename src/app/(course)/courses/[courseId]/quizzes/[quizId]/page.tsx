@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
 import { useCourseInfo } from '@/src/hooks/useCourseInfo';
+import { useLearningProgress } from '@/src/hooks/useLearningProgress';
 import {
   addDoc,
   collection,
@@ -14,17 +16,36 @@ import {
   query,
   serverTimestamp,
   Timestamp,
+  updateDoc,
 } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
-import { ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
+import { refreshCourseConfidence } from '@/src/library/courseConfidenceStore';
+import { getEffectiveModelKey } from '@/src/library/chatMode';
+import { ArrowLeft, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import QuestionCard from '@/src/components/quizzes/QuestionCard';
 import MatchingQuestionGroup from '@/src/components/quizzes/MatchingQuestionGroup';
 import QuizResults from '@/src/components/quizzes/QuizResults';
+import QuizPracticeSuggestion from '@/src/components/quizzes/QuizPracticeSuggestion';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
 import { buildQuizSuggestions, type QuizResultPageContext } from '@/src/library/Contextual_AI/contextualAi';
 import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
 import PageTutorial from '@/src/components/tutorial/PageTutorial';
 import courseQuizSteps from '@/src/library/tutorials/steps/course-quiz';
+import { resolveActivityTarget } from '@/src/library/studyPlan/activityTarget';
+import {
+  learningSuggestionId,
+  learningSuggestionPath,
+  studyTaskPath,
+} from '@/src/library/studyPlan/firestorePaths';
+import { filterAvailableQuestions } from '@/src/library/studyPlan/learningSuggestionEngine';
+import { resolvePracticeQuestions } from '@/src/library/studyPlan/quizSuggestionView';
+import type { QuizProgressOutcome } from '@/src/library/studyPlan/learningProgressService';
+import type {
+  ActivityTarget,
+  ActivityType,
+  LearningSuggestionStatus,
+  MissedQuestionsSuggestion,
+} from '@/src/library/studyPlan/types';
 
 interface QuizQuestion {
   id: string;
@@ -45,6 +66,273 @@ interface PastAttempt {
 
 type Mode = 'landing' | 'taking' | 'results';
 
+interface LoadedPracticeTask {
+  id: string;
+  courseId: string;
+  sourceSuggestionId: string | null;
+  activityType: ActivityType;
+  targetId: string | null;
+  activityTarget?: ActivityTarget;
+}
+
+interface PracticeReturnLinks {
+  sourceDocKey: string | null;
+  resourceId: string | null;
+}
+
+const ACTIVITY_TYPES: readonly ActivityType[] = ['quiz', 'flashcards', 'reading', 'ai_explanation'];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function readActivityTarget(value: unknown): ActivityTarget | undefined {
+  if (!isRecord(value)) return undefined;
+  if (value.kind === 'document' && typeof value.resourceId === 'string' && typeof value.sourceDocKey === 'string') {
+    return { kind: 'document', resourceId: value.resourceId, sourceDocKey: value.sourceDocKey };
+  }
+  if (value.kind === 'flashcard_set' && typeof value.setId === 'string') {
+    return {
+      kind: 'flashcard_set',
+      setId: value.setId,
+      sourceDocKey: typeof value.sourceDocKey === 'string' ? value.sourceDocKey : null,
+    };
+  }
+  if (
+    value.kind === 'quiz' &&
+    typeof value.quizId === 'string' &&
+    (value.mode === 'full' || value.mode === 'missed_questions')
+  ) {
+    const questionIds = Array.isArray(value.questionIds)
+      ? value.questionIds.filter((id): id is string => typeof id === 'string')
+      : undefined;
+    return {
+      kind: 'quiz',
+      quizId: value.quizId,
+      sourceDocKey: typeof value.sourceDocKey === 'string' ? value.sourceDocKey : null,
+      mode: value.mode,
+      questionIds,
+    };
+  }
+  return undefined;
+}
+
+function readPracticeTask(id: string, data: Record<string, unknown>): LoadedPracticeTask | null {
+  const activityTarget = readActivityTarget(data.activityTarget);
+  const activityType = ACTIVITY_TYPES.find((type) => type === data.activityType)
+    ?? (activityTarget ? 'quiz' : null);
+  if (!activityType) return null;
+  return {
+    id,
+    courseId: typeof data.courseId === 'string' ? data.courseId : '',
+    sourceSuggestionId: typeof data.sourceSuggestionId === 'string' && data.sourceSuggestionId
+      ? data.sourceSuggestionId
+      : null,
+    activityType,
+    targetId: typeof data.targetId === 'string' ? data.targetId : null,
+    activityTarget,
+  };
+}
+
+const PRACTICE_QUESTION_LIMIT = 10;
+
+function practiceReturnLinks(
+  data: Record<string, unknown> | null,
+  quizSourceKey: string | null,
+): PracticeReturnLinks {
+  const target = data ? readActivityTarget(data.activityTarget) : undefined;
+  if (target?.kind === 'document') {
+    return {
+      sourceDocKey: target.sourceDocKey || quizSourceKey,
+      resourceId: target.resourceId || null,
+    };
+  }
+  if (target && (target.kind === 'quiz' || target.kind === 'flashcard_set')) {
+    return { sourceDocKey: target.sourceDocKey ?? quizSourceKey, resourceId: null };
+  }
+  return { sourceDocKey: quizSourceKey, resourceId: null };
+}
+
+function isSuggestionStatus(value: unknown): value is LearningSuggestionStatus {
+  return (
+    value === 'active' ||
+    value === 'added' ||
+    value === 'dismissed' ||
+    value === 'resolved' ||
+    value === 'unavailable'
+  );
+}
+
+function readStoredSuggestion(
+  id: string,
+  data: Record<string, unknown>,
+): (MissedQuestionsSuggestion & { id: string }) | null {
+  if (!isSuggestionStatus(data.status)) return null;
+  const questionFailureCounts =
+    isRecord(data.questionFailureCounts)
+      ? Object.fromEntries(
+          Object.entries(data.questionFailureCounts).filter(
+            (entry): entry is [string, number] => typeof entry[1] === 'number',
+          ),
+        )
+      : {};
+  return {
+    id,
+    type: 'missed_questions',
+    courseId: typeof data.courseId === 'string' ? data.courseId : '',
+    sourceDocKey: typeof data.sourceDocKey === 'string' ? data.sourceDocKey : null,
+    quizId: typeof data.quizId === 'string' ? data.quizId : '',
+    questionIds: Array.isArray(data.questionIds)
+      ? data.questionIds.filter((item): item is string => typeof item === 'string')
+      : [],
+    questionFailureCounts,
+    status: data.status,
+    priority: typeof data.priority === 'number' ? data.priority : 0,
+    linkedTaskId: typeof data.linkedTaskId === 'string' ? data.linkedTaskId : null,
+    sourceAttemptId: typeof data.sourceAttemptId === 'string' ? data.sourceAttemptId : '',
+  };
+}
+
+async function persistUnavailableSuggestion(
+  uid: string,
+  courseId: string,
+  quizId: string,
+  preferredSuggestionId: string | null,
+  availableIds: Set<string>,
+): Promise<string | null> {
+  const ids = [...new Set(
+    [preferredSuggestionId, learningSuggestionId(courseId, quizId)].filter(
+      (id): id is string => Boolean(id),
+    ),
+  )];
+  let sourceDocKey: string | null = null;
+  for (const id of ids) {
+    const suggestionRef = doc(db, learningSuggestionPath(uid, id));
+    const snap = await getDoc(suggestionRef);
+    if (!snap.exists()) continue;
+    const raw: unknown = snap.data();
+    const data = isRecord(raw) ? raw : null;
+    if (!data) continue;
+    const suggestion = readStoredSuggestion(id, data);
+    if (!suggestion) continue;
+    sourceDocKey ??= suggestion.sourceDocKey;
+    const filtered = filterAvailableQuestions(suggestion, availableIds);
+    if (filtered.status !== 'unavailable') continue;
+    if (suggestion.status === 'unavailable' && suggestion.questionIds.length === 0) continue;
+    await updateDoc(suggestionRef, {
+      status: 'unavailable',
+      questionIds: filtered.questionIds,
+      priority: filtered.priority,
+      updatedAt: serverTimestamp(),
+    });
+  }
+  return sourceDocKey;
+}
+
+function taskPointsAtQuiz(task: LoadedPracticeTask, courseId: string, quizId: string): boolean {
+  if (task.courseId !== courseId) return false;
+  const target = resolveActivityTarget(task);
+  return Boolean(target && target.kind === 'quiz' && target.quizId === quizId);
+}
+
+function acceptedQuizTarget(
+  task: LoadedPracticeTask,
+  courseId: string,
+  quizId: string,
+): Extract<ActivityTarget, { kind: 'quiz' }> | null {
+  if (!taskPointsAtQuiz(task, courseId, quizId)) return null;
+  const target = resolveActivityTarget(task);
+  if (!target || target.kind !== 'quiz' || target.mode !== 'missed_questions') return null;
+  return target;
+}
+
+function isFullQuestionSet(
+  active: readonly { id: string }[],
+  all: readonly { id: string }[],
+): boolean {
+  if (active.length !== all.length) return false;
+  const ids = new Set(active.map((question) => question.id));
+  return all.every((question) => ids.has(question.id));
+}
+
+function limitPracticeQuestions<T extends { id: string }>(
+  questions: readonly T[],
+  questionIds: readonly string[] | undefined,
+): T[] {
+  const byId = new Map(questions.map((question) => [question.id, question]));
+  const limited: T[] = [];
+  for (const questionId of questionIds ?? []) {
+    const question = byId.get(questionId);
+    if (!question) continue;
+    limited.push(question);
+    if (limited.length === PRACTICE_QUESTION_LIMIT) break;
+  }
+  return limited;
+}
+
+function storageKeyFromUrl(url: string): string {
+  const key = url.split('key=')[1] ?? '';
+  if (!key) return '';
+  try {
+    return decodeURIComponent(key);
+  } catch {
+    return key;
+  }
+}
+
+function resourceIdForSource(
+  sourceDocKey: string | null,
+  explicitResourceId: string | null,
+  documents: readonly { resourceId: string; url: string }[],
+): string | null {
+  if (explicitResourceId) return explicitResourceId;
+  if (!sourceDocKey) return null;
+  const match = documents.find((document) => {
+    if (document.resourceId === sourceDocKey || document.url === sourceDocKey) return true;
+    const key = storageKeyFromUrl(document.url);
+    return key !== '' && key === sourceDocKey;
+  });
+  return match?.resourceId ?? null;
+}
+
+function resolveCourseResourceId(
+  sourceDocKey: string | null,
+  explicitResourceId: string | null,
+  quizSourceKey: string | null,
+  quizResourceId: string | null,
+  documents: readonly { resourceId: string; url: string }[],
+): string | null {
+  if (explicitResourceId) return explicitResourceId;
+  if (quizResourceId && (!sourceDocKey || sourceDocKey === quizSourceKey)) return quizResourceId;
+  return resourceIdForSource(sourceDocKey, null, documents);
+}
+
+function courseHref(courseId: string, resourceId: string | null): string {
+  if (!resourceId) return `/courses/${courseId}`;
+  return `/courses/${courseId}?resourceId=${encodeURIComponent(resourceId)}`;
+}
+
+async function acceptedSubmitTaskId(
+  uid: string,
+  taskId: string | null,
+  courseId: string,
+  quizId: string,
+): Promise<string | null> {
+  if (!taskId) return null;
+  try {
+    const taskSnap = await getDoc(doc(db, studyTaskPath(uid, taskId)));
+    if (!taskSnap.exists()) return null;
+    const raw: unknown = taskSnap.data();
+    const data = isRecord(raw) ? raw : null;
+    const task = data ? readPracticeTask(taskSnap.id, data) : null;
+    if (!task || !taskPointsAtQuiz(task, courseId, quizId)) return null;
+    return task.id;
+  } catch (error) {
+    console.error('Error loading quiz task:', error);
+    return null;
+  }
+}
+
 function formatAttemptDate(timestamp: Timestamp | null): string {
   if (!timestamp) return 'Unknown date';
   const date = timestamp.toDate();
@@ -61,14 +349,21 @@ export default function QuizTakingPage() {
 
   const courseId = params.courseId as string;
   const quizId = params.quizId as string;
+  const { submitQuiz } = useLearningProgress();
 
   const { displayName: courseDisplayName } = useCourseInfo(courseId);
 
   const [quizName, setQuizName] = useState('Quiz');
+  // Where the quiz came from, so "New questions" can build a fresh set from the same file.
+  const [quizSource, setQuizSource] = useState<{ key: string; questionTypes: unknown } | null>(null);
+  const [quizResourceId, setQuizResourceId] = useState<string | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenerateError, setRegenerateError] = useState<string | null>(null);
   const [allQuestions, setAllQuestions] = useState<QuizQuestion[]>([]);
   const [activeQuestions, setActiveQuestions] = useState<QuizQuestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [quizDocumentMissing, setQuizDocumentMissing] = useState(false);
 
   const [mode, setMode] = useState<Mode>('landing');
   const [modeResolved, setModeResolved] = useState(false);
@@ -79,6 +374,10 @@ export default function QuizTakingPage() {
   const [pastAttempts, setPastAttempts] = useState<PastAttempt[]>([]);
   const [viewedAttempt, setViewedAttempt] = useState<PastAttempt | null>(null);
   const [attemptNotFound, setAttemptNotFound] = useState(false);
+  const [practiceTask, setPracticeTask] = useState<{ id: string; sourceSuggestionId: string | null } | null>(null);
+  const [practiceUnavailable, setPracticeUnavailable] = useState<PracticeReturnLinks | null>(null);
+  const [quizOutcome, setQuizOutcome] = useState<QuizProgressOutcome | null>(null);
+  const [suggestionHidden, setSuggestionHidden] = useState(false);
 
   const [catalystOpen, setCatalystOpen] = useState(false);
   const catalystBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -113,25 +412,38 @@ export default function QuizTakingPage() {
     const loadQuiz = async () => {
       setLoading(true);
       setNotFound(false);
+      setQuizDocumentMissing(false);
 
       try {
         const quizRef = doc(db, 'users', user.uid, 'enrollment', courseId, 'quizSets', quizId);
         const quizSnap = await getDoc(quizRef);
 
         if (!quizSnap.exists()) {
-          setNotFound(true);
+          setQuizDocumentMissing(true);
+          setAllQuestions([]);
+          setActiveQuestions([]);
+          setQuizSource(null);
+          setQuizResourceId(null);
           setLoading(false);
           return;
         }
+        setQuizDocumentMissing(false);
 
         const data = quizSnap.data();
         const questions: QuizQuestion[] = data.questions || [];
 
         setQuizName(data.name || 'Quiz');
+        setQuizSource(
+          typeof data.sourceDocKey === 'string' && data.sourceDocKey
+            ? { key: data.sourceDocKey, questionTypes: data.questionTypes }
+            : null
+        );
+        setQuizResourceId(typeof data.resourceId === 'string' && data.resourceId ? data.resourceId : null);
         setAllQuestions(questions);
         setActiveQuestions(questions);
       } catch (error) {
         console.error('Error loading quiz set:', error);
+        setQuizDocumentMissing(false);
         setNotFound(true);
       } finally {
         setLoading(false);
@@ -177,21 +489,32 @@ export default function QuizTakingPage() {
 
   // Load the list of past attempts once the quiz set is loaded
   useEffect(() => {
-    if (!user || loading || notFound) return;
+    if (!user || loading || notFound || quizDocumentMissing) return;
     fetchPastAttempts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, courseId, quizId, loading, notFound]);
+  }, [user, courseId, quizId, loading, notFound, quizDocumentMissing]);
 
-  // Resolve mode from the URL — no params -> landing, ?mode=take -> taking, ?attemptId= -> results
+  // Resolve mode from the URL — no params -> landing, ?mode=take -> full quiz,
+  // ?mode=practice&taskId= -> missed-question practice, ?attemptId= -> results.
   useEffect(() => {
-    if (!user || loading || notFound) return;
+    if (!user || loading) return;
+    if (notFound && !quizDocumentMissing) return;
 
     let cancelled = false;
     const attemptId = searchParams.get('attemptId');
     const modeParam = searchParams.get('mode');
 
     const resolveMode = async () => {
-      if (attemptId) {
+      if (quizDocumentMissing && modeParam !== 'practice') {
+        setPracticeTask(null);
+        setPracticeUnavailable(null);
+        setNotFound(true);
+        setModeResolved(true);
+        return;
+      }
+      if (attemptId && !quizDocumentMissing) {
+        setPracticeTask(null);
+        setPracticeUnavailable(null);
         setAttemptNotFound(false);
         try {
           const attemptRef = doc(
@@ -238,7 +561,81 @@ export default function QuizTakingPage() {
             setModeResolved(true);
           }
         }
+      } else if (modeParam === 'practice') {
+        setNotFound(false);
+        setViewedAttempt(null);
+        setAttemptNotFound(false);
+        const taskId = searchParams.get('taskId');
+        let links = practiceReturnLinks(null, quizSource?.key ?? null);
+        let accepted: { id: string; sourceSuggestionId: string | null } | null = null;
+        let suggestionId: string | null = null;
+        let requestedQuestionIds: string[] = [];
+        let questions: QuizQuestion[] = [];
+
+        if (taskId) {
+          try {
+            const taskSnap = await getDoc(doc(db, studyTaskPath(user.uid, taskId)));
+            if (cancelled) return;
+            if (taskSnap.exists()) {
+              const raw: unknown = taskSnap.data();
+              const data = isRecord(raw) ? raw : null;
+              links = practiceReturnLinks(data, quizSource?.key ?? null);
+              const task = data ? readPracticeTask(taskSnap.id, data) : null;
+              const target = task ? acceptedQuizTarget(task, courseId, quizId) : null;
+              if (task && target) {
+                suggestionId = task.sourceSuggestionId;
+                requestedQuestionIds = target.questionIds ?? [];
+                questions = limitPracticeQuestions(
+                  resolvePracticeQuestions(allQuestions, target),
+                  target.questionIds,
+                );
+                if (questions.length > 0) {
+                  accepted = { id: task.id, sourceSuggestionId: task.sourceSuggestionId };
+                }
+              }
+            }
+          } catch (error) {
+            console.error('Error loading practice task:', error);
+          }
+        }
+
+        if (cancelled) return;
+        const targetsMissing = requestedQuestionIds.length > 0 && questions.length === 0;
+        if (!accepted && (quizDocumentMissing || targetsMissing)) {
+          try {
+            const sourceDocKey = await persistUnavailableSuggestion(
+              user.uid,
+              courseId,
+              quizId,
+              suggestionId,
+              new Set(allQuestions.map((question) => question.id)),
+            );
+            if (!links.sourceDocKey && sourceDocKey) {
+              links = { sourceDocKey, resourceId: links.resourceId };
+            }
+          } catch (error) {
+            console.error('Error updating practice suggestion:', error);
+          }
+        }
+
+        if (cancelled) return;
+        if (accepted) {
+          setPracticeTask(accepted);
+          setPracticeUnavailable(null);
+          setActiveQuestions(questions);
+          setAnswers({});
+          setAttemptStartTime(Date.now());
+          setMode('taking');
+        } else {
+          setPracticeTask(null);
+          setActiveQuestions([]);
+          setPracticeUnavailable(links);
+          setMode('landing');
+        }
+        setModeResolved(true);
       } else if (modeParam === 'take') {
+        setPracticeTask(null);
+        setPracticeUnavailable(null);
         setViewedAttempt(null);
         setAttemptNotFound(false);
         setActiveQuestions(allQuestions);
@@ -247,6 +644,8 @@ export default function QuizTakingPage() {
         setMode('taking');
         setModeResolved(true);
       } else {
+        setPracticeTask(null);
+        setPracticeUnavailable(null);
         setViewedAttempt(null);
         setAttemptNotFound(false);
         setMode('landing');
@@ -259,7 +658,7 @@ export default function QuizTakingPage() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams, user, loading, notFound, allQuestions, courseId, quizId]);
+  }, [searchParams, user, loading, notFound, quizDocumentMissing, allQuestions, courseId, quizId, quizSource]);
 
   const answeredCount = activeQuestions.filter((q) => !!answers[q.id]).length;
   const allAnswered = activeQuestions.length > 0 && answeredCount === activeQuestions.length;
@@ -276,9 +675,23 @@ export default function QuizTakingPage() {
   const missedCount = activeQuestions.filter((q) => answers[q.id] !== q.correctAnswer).length;
 
   // The results banner shows the loaded past attempt's saved score/total when viewing
-  // history, or the freshly computed score/total right after a Submit.
-  const resultsScore = viewedAttempt ? viewedAttempt.score : score;
-  const resultsTotal = viewedAttempt ? viewedAttempt.total : total;
+  // history, the saved submitQuiz outcome right after a Submit, or the live tally
+  // if saving has not returned an attempt yet.
+  const resultsScore = viewedAttempt ? viewedAttempt.score : (quizOutcome?.score ?? score);
+  const resultsTotal = viewedAttempt ? viewedAttempt.total : (quizOutcome?.total ?? total);
+  const suggestionForCard: (MissedQuestionsSuggestion & { id: string }) | null =
+    mode === 'results' && !viewedAttempt && !suggestionHidden
+      ? (quizOutcome?.suggestion ?? null)
+      : null;
+  const courseDocuments = catalystChatContext?.classes.find((item) => item.classId === courseId)?.documents ?? [];
+  const openResourceId = resolveCourseResourceId(
+    suggestionForCard?.sourceDocKey ?? quizSource?.key ?? null,
+    null,
+    quizSource?.key ?? null,
+    quizResourceId,
+    courseDocuments,
+  );
+  const openDocumentLabel = openResourceId ? 'Open source document' : 'Back to course';
 
   const handleAnswerChange = (questionId: string, answer: string) => {
     setAnswers((prev) => ({ ...prev, [questionId]: answer }));
@@ -293,30 +706,28 @@ export default function QuizTakingPage() {
   const handleSubmit = async () => {
     if (!user || !allAnswered || submitting) return;
     setSubmitting(true);
-
-    const finalScore = activeQuestions.reduce(
-      (count, q) => (answers[q.id] === q.correctAnswer ? count + 1 : count),
-      0
-    );
+    setQuizOutcome(null);
 
     try {
-      const attemptsRef = collection(
-        db,
-        'users',
-        user.uid,
-        'enrollment',
+      const linkedTaskId = practiceTask
+        ? practiceTask.id
+        : await acceptedSubmitTaskId(user.uid, searchParams.get('taskId'), courseId, quizId);
+      const result = await submitQuiz({
         courseId,
-        'quizSets',
         quizId,
-        'attempts'
-      );
-      await addDoc(attemptsRef, {
+        attemptType: practiceTask || !isFullQuestionSet(activeQuestions, allQuestions)
+          ? 'targeted_practice'
+          : 'full_quiz',
+        taskId: linkedTaskId,
+        suggestionId: practiceTask?.sourceSuggestionId ?? null,
         answers,
-        score: finalScore,
-        total: activeQuestions.length,
-        completedAt: serverTimestamp(),
+        questions: activeQuestions,
       });
+      setQuizOutcome(result.attemptId ? result : null);
+      setSuggestionHidden(false);
       await fetchPastAttempts();
+      // Best-effort: the AI assistant's sense of how the student is doing.
+      refreshCourseConfidence(user.uid, courseId).catch((e) => console.error('Refreshing course confidence failed:', e));
     } catch (error) {
       console.error('Error saving quiz attempt:', error);
     } finally {
@@ -325,6 +736,16 @@ export default function QuizTakingPage() {
 
     setMode('results');
     scrollToTop();
+  };
+
+  const handleAddToPlan = () => {
+    const suggestionId = suggestionForCard?.id ?? null;
+    if (!suggestionId) return;
+    router.push(`/learning?suggestionId=${encodeURIComponent(suggestionId)}`);
+  };
+
+  const handleOpenSourceDocument = () => {
+    router.push(courseHref(courseId, openResourceId));
   };
 
   const handleRetestMissed = () => {
@@ -342,6 +763,8 @@ export default function QuizTakingPage() {
   // Shared by "Take again" (landing) and "Do it again" (results) — both reset to the
   // full quiz in taking mode and sync the URL so a refresh preserves the mode.
   const handleResetToFullQuiz = () => {
+    setPracticeTask(null);
+    setPracticeUnavailable(null);
     setViewedAttempt(null);
     setAttemptNotFound(false);
     setActiveQuestions(allQuestions);
@@ -351,6 +774,66 @@ export default function QuizTakingPage() {
     router.push(`/courses/${courseId}/quizzes/${quizId}?mode=take`);
     scrollToTop();
   };
+
+  // A new quiz set from the same file that avoids this quiz's questions. It's a
+  // separate set (not an overwrite) so this quiz's attempt history stays intact.
+  const handleNewQuestions = async () => {
+    if (!user || !quizSource || regenerating) return;
+    setRegenerating(true);
+    setRegenerateError(null);
+    try {
+      const docName = quizSource.key.split('/').pop()?.replace(/^\d+[-_]/, '') || 'document';
+      const response = await fetch('/api/generate-quiz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          docUrl: `/api/download?key=${encodeURIComponent(quizSource.key)}`,
+          docName,
+          questionCount: allQuestions.length || 10,
+          questionTypes: quizSource.questionTypes,
+          modelKey: getEffectiveModelKey('quiz'),
+          avoidQuestions: allQuestions.map((q) => q.question).filter(Boolean),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to generate new questions.');
+
+      const baseName = quizName.replace(/\s*\(new questions(?: \d+)?\)$/i, '');
+      const newDoc = await addDoc(collection(db, 'users', user.uid, 'enrollment', courseId, 'quizSets'), {
+        name: `${baseName} (new questions)`,
+        sourceDocKey: quizSource.key,
+        questions: data.questions,
+        questionTypes: quizSource.questionTypes ?? null,
+        questionCount: data.questions.length,
+        pinned: true,
+        visibility: 'private',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      router.push(`/courses/${courseId}/quizzes/${newDoc.id}`);
+    } catch (error) {
+      console.error('Error generating new questions:', error);
+      setRegenerateError(error instanceof Error ? error.message : 'Failed to generate new questions.');
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
+  const newQuestionsButton = quizSource ? (
+    <button
+      onClick={handleNewQuestions}
+      disabled={regenerating}
+      title="Make a new quiz from the same file, with different questions"
+      className="inline-flex items-center gap-2 rounded-xl border border-border-light px-5 py-2.5 text-sm font-semibold text-[#1a1a2e] transition-colors hover:bg-bg-warm disabled:cursor-wait disabled:opacity-60"
+    >
+      {regenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+      {regenerating ? 'Writing new questions…' : 'New questions'}
+    </button>
+  ) : null;
+
+  const regenerateErrorNote = regenerateError ? (
+    <p className="w-full text-sm text-red-600">{regenerateError}</p>
+  ) : null;
 
   const handleViewLastResult = () => {
     if (pastAttempts.length === 0) return;
@@ -466,6 +949,38 @@ export default function QuizTakingPage() {
     );
   }
 
+  if (practiceUnavailable) {
+    const resourceId = resolveCourseResourceId(
+      practiceUnavailable.sourceDocKey,
+      practiceUnavailable.resourceId,
+      quizSource?.key ?? null,
+      quizResourceId,
+      courseDocuments,
+    );
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#FAFAF8] px-4">
+        <AlertCircle size={36} className="text-red-400" />
+        <p className="max-w-md text-center text-sm text-text-main">
+          This practice quiz is unavailable.
+        </p>
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
+          <Link
+            href="/learning"
+            className="rounded-lg border border-[#8B6914] px-4 py-2 text-sm text-[#8B6914] transition-colors hover:bg-[#F5F0EB]"
+          >
+            Back to Learning
+          </Link>
+          <Link
+            href={courseHref(courseId, resourceId)}
+            className="rounded-lg border border-[#8B6914] px-4 py-2 text-sm text-[#8B6914] transition-colors hover:bg-[#F5F0EB]"
+          >
+            {resourceId ? 'Open source document' : 'Back to course'}
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#FAFAF8]">
       <PageTutorial id="course-quiz" steps={courseQuizSteps} />
@@ -503,6 +1018,8 @@ export default function QuizTakingPage() {
                   View last result
                 </button>
               )}
+              {newQuestionsButton}
+              {regenerateErrorNote}
             </div>
 
             {pastAttempts.length > 0 ? (
@@ -543,6 +1060,21 @@ export default function QuizTakingPage() {
             {mode === 'results' && (
               <div className="mb-6">
                 <QuizResults score={resultsScore} total={resultsTotal} />
+                <QuizPracticeSuggestion
+                  suggestion={suggestionForCard}
+                  quizName={quizName}
+                  missedCount={suggestionForCard?.questionIds.length ?? 0}
+                  onAdd={handleAddToPlan}
+                  onView={() => {
+                    const taskId = suggestionForCard?.linkedTaskId;
+                    if (!taskId) return;
+                    router.push(`/learning?taskId=${encodeURIComponent(taskId)}`);
+                  }}
+                  onLater={() => setSuggestionHidden(true)}
+                  onOpenDocument={handleOpenSourceDocument}
+                  onCreateQuiz={() => router.push(`/courses/${courseId}/learning`)}
+                  openDocumentLabel={openDocumentLabel}
+                />
               </div>
             )}
 
@@ -590,7 +1122,9 @@ export default function QuizTakingPage() {
                 </button>
               </div>
             ) : (
-              <div className="mt-8 flex items-center justify-end gap-3 pb-10">
+              <div className="mt-8 flex flex-wrap items-center justify-end gap-3 pb-10">
+                {regenerateErrorNote}
+                {newQuestionsButton}
                 <button
                   onClick={handleRetestMissed}
                   disabled={missedCount === 0}

@@ -84,8 +84,18 @@ function chunkSinglePage(text: string, chunkSize: number, overlap: number): stri
 // above for why chunks don't span pages); when it isn't, this degrades to
 // exactly the old single-pass behavior with `page` left undefined.
 export function chunkText(text: string, chunkSize = 1400, overlap = 150): TextChunk[] {
+  if (!Number.isInteger(chunkSize) || chunkSize < 1 || !Number.isInteger(overlap) || overlap < 0) throw new Error("Invalid chunk size or overlap");
   const pages = text.split(PAGE_BREAK_MARKER);
   if (pages.length === 1) {
+    // PDF extraction also serves advising, which needs its human-readable
+    // page labels. Recognize that existing format without changing advising.
+    const headers = [...text.matchAll(/^--- PAGE (\d+) ---\s*$/gm)];
+    if (headers.length && !text.slice(0, headers[0].index).trim()) {
+      return headers.flatMap((header, i) => {
+        const pageText = text.slice(header.index! + header[0].length, headers[i + 1]?.index ?? text.length);
+        return chunkSinglePage(pageText, chunkSize, overlap).map((t) => ({ text: t, page: Number(header[1]) }));
+      });
+    }
     return chunkSinglePage(text, chunkSize, overlap).map((t) => ({ text: t }));
   }
 

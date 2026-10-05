@@ -5,6 +5,7 @@ import { useAuth } from "@/src/context/AuthContext";
 import { useSetPageContext } from "@/src/context/AIPageContext";
 import ClassCard, { ClassCardProps } from '@/src/components/classes/ClassCard';
 import AddEnrollmentModal from '@/src/components/classes/AddEnrollmentModal';
+import EditClassScheduleModal from '@/src/components/classes/EditClassScheduleModal';
 import PageTutorial from '@/src/components/tutorial/PageTutorial';
 import classesSteps from '@/src/library/tutorials/steps/classes';
 import { doc, getDoc, collection, getDocs, deleteDoc, updateDoc } from 'firebase/firestore';
@@ -12,10 +13,11 @@ import { db } from '@/src/library/firebase';
 import { Minus } from "lucide-react";
 import { Term } from "@/src/library/academicTerm";
 import { EnrollmentStatus, getEnrollmentStatus } from "@/src/library/enrollmentStatus";
+import { formatClassMeetingSchedule, type StructuredClassSchedule } from "@/src/library/classSchedule";
 
 // database fields that a class should have (YOU MUST FOLLOW THIS STRUCTURE IF YOU INSERT A CLASS!!!!)
 // note that only className, classCode, and term are required, the rest are optional
-export interface EnrollmentFields {
+export interface EnrollmentFields extends StructuredClassSchedule {
     className: string;
     classCode: string;
     term: string;
@@ -97,6 +99,7 @@ async function getAllEnrollments(userId: string): Promise<ClassCardProps[]> {
             classCode: data.classCode,
             term: data.term,
             color: data.color,
+            scheduleLabel: formatClassMeetingSchedule(data) ?? undefined,
             status: getEnrollmentStatus(data),
         });
     });
@@ -116,9 +119,15 @@ export default function Classes() {
     const { user, loading } = useAuth();
     const [enrollments, setEnrollments] = useState<ClassCardProps[]>([]);
     const [deleteMode, setDeleteMode] = useState(false);
+    const [scheduleClassId, setScheduleClassId] = useState<string | null>(null);
     // Holds the class being asked about — offers "mark completed" as a real
     // alternative to permanent deletion, instead of just a plain confirm.
     const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+
+    useEffect(() => {
+        const requestedClassId = new URLSearchParams(window.location.search).get("editSchedule");
+        if (requestedClassId) setScheduleClassId(requestedClassId);
+    }, []);
 
     // Define the data re-fetch function cleanly
     const refreshEnrollments = () => {
@@ -211,6 +220,14 @@ export default function Classes() {
                 onToggleDeleteMode={() => setDeleteMode((d) => !d)}
             />
 
+            {scheduleClassId && (
+                <EditClassScheduleModal
+                    classId={scheduleClassId}
+                    onClose={() => setScheduleClassId(null)}
+                    onSaved={refreshEnrollments}
+                />
+            )}
+
             {confirmingClass && confirmingClass.classId && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
                     <div className="w-full max-w-sm rounded-lg bg-bg-container p-6 shadow-xl">
@@ -260,6 +277,7 @@ export default function Classes() {
                                 <ClassCard
                                     {...enrollment}
                                     onColorChange={(color) => enrollment.classId && handleColorChange(enrollment.classId, color)}
+                                    onScheduleEdit={() => enrollment.classId && setScheduleClassId(enrollment.classId)}
                                 />
                                 {deleteMode && (
                                     <button
