@@ -19,6 +19,9 @@ export type StructuredClassSchedule = {
   meetingStartTime?: string;
   meetingEndTime?: string;
   meetingTimeZone?: string;
+  // New enrollments opt in before recurring class meetings appear in Calendar.
+  // Older enrollments omit this field and retain their existing behavior.
+  createCalendarEvents?: boolean;
   // These are ISO calendar dates (YYYY-MM-DD), not instants. They define
   // the term boundary for derived recurring class meetings.
   termStartDate?: string;
