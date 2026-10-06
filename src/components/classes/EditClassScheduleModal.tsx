@@ -18,6 +18,7 @@ type ScheduleValues = {
   meetingStartTime: string;
   meetingEndTime: string;
   meetingTimeZone: string;
+  createCalendarEvents: boolean;
   termStartDate: string;
   termEndDate: string;
   meetingReminderMinutes: string;
@@ -32,6 +33,7 @@ const createEmptyValues = (): ScheduleValues => ({
   meetingStartTime: "",
   meetingEndTime: "",
   meetingTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+  createCalendarEvents: false,
   termStartDate: "",
   termEndDate: "",
   meetingReminderMinutes: "0",
@@ -93,6 +95,7 @@ export default function EditClassScheduleModal({ classId, onClose, onSaved }: Ed
           meetingTimeZone: typeof data.meetingTimeZone === "string" && data.meetingTimeZone
             ? data.meetingTimeZone
             : Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+          createCalendarEvents: data.createCalendarEvents !== false,
           termStartDate: typeof data.termStartDate === "string" ? data.termStartDate : "",
           termEndDate: typeof data.termEndDate === "string" ? data.termEndDate : "",
           meetingReminderMinutes: String(Math.max(0, Number(data.meetingReminderMinutes) || 0)),
@@ -174,6 +177,7 @@ export default function EditClassScheduleModal({ classId, onClose, onSaved }: Ed
         meetingStartTime: values.meetingStartTime,
         meetingEndTime: values.meetingEndTime,
         meetingTimeZone: values.meetingTimeZone.trim(),
+        createCalendarEvents: values.createCalendarEvents,
         termStartDate: values.termStartDate,
         termEndDate: values.termEndDate,
         meetingReminderMinutes: reminderMinutes,
@@ -238,6 +242,11 @@ export default function EditClassScheduleModal({ classId, onClose, onSaved }: Ed
 
             <label className="block text-sm font-medium text-text-main">Room / location
               <input type="text" value={values.classRoom} onChange={(event) => setValue("classRoom", event.target.value)} className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main" placeholder="e.g. Bogard Hall 101" />
+            </label>
+
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border-light bg-bg-main p-3 text-sm text-text-main">
+              <input type="checkbox" checked={values.createCalendarEvents} onChange={(event) => setValue("createCalendarEvents", event.target.checked)} className="mt-0.5 h-4 w-4 rounded border-border-light text-primary focus:ring-primary" />
+              <span><span className="block font-medium">Add meetings to Calendar automatically</span><span className="mt-1 block text-xs font-normal text-text-muted">Turn this off to keep the meeting times on this class without showing recurring events in Calendar.</span></span>
             </label>
 
             <label className="block text-sm font-medium text-text-main">Class reminder
