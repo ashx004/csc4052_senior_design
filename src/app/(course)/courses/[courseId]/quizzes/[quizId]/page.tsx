@@ -40,6 +40,7 @@ import {
 import { filterAvailableQuestions } from '@/src/library/studyPlan/learningSuggestionEngine';
 import { missedQuestionTexts } from '@/src/library/studyPlan/missedQuestionText';
 import { generateTargetedPracticeQuiz } from '@/src/library/studyPlan/targetedPractice';
+import { DEFAULT_QUIZ_DIFFICULTY, parseQuizDifficulty, storedQuizDifficulty, difficultyLabel, type QuizDifficulty } from '@/src/library/quizDifficulty';
 import { resolvePracticeQuestions } from '@/src/library/studyPlan/quizSuggestionView';
 import type { QuizProgressOutcome } from '@/src/library/studyPlan/learningProgressService';
 import type {
@@ -56,6 +57,9 @@ interface QuizQuestion {
   options: string[];
   correctAnswer: string;
   matchingGroupId?: string;
+  bloomLevel?: string;
+  concept?: string;
+  explanation?: string;
 }
 
 interface PastAttempt {
@@ -356,6 +360,7 @@ export default function QuizTakingPage() {
   const { displayName: courseDisplayName } = useCourseInfo(courseId);
 
   const [quizName, setQuizName] = useState('Quiz');
+  const [quizDifficulty, setQuizDifficulty] = useState<QuizDifficulty | null>(null);
   // Where the quiz came from, so "New questions" can build a fresh set from the same file.
   const [quizSource, setQuizSource] = useState<{ key: string; questionTypes: unknown } | null>(null);
   const [quizResourceId, setQuizResourceId] = useState<string | null>(null);
@@ -438,6 +443,7 @@ export default function QuizTakingPage() {
         const questions: QuizQuestion[] = data.questions || [];
 
         setQuizName(data.name || 'Quiz');
+        setQuizDifficulty(storedQuizDifficulty(data.difficulty));
         setQuizSource(
           typeof data.sourceDocKey === 'string' && data.sourceDocKey
             ? { key: data.sourceDocKey, questionTypes: data.questionTypes }
@@ -822,6 +828,7 @@ export default function QuizTakingPage() {
           docName,
           questionCount: allQuestions.length || 10,
           questionTypes: quizSource.questionTypes,
+          difficulty: quizDifficulty ?? DEFAULT_QUIZ_DIFFICULTY,
           modelKey: getEffectiveModelKey('quiz'),
           avoidQuestions: allQuestions.map((q) => q.question).filter(Boolean),
         }),
@@ -835,6 +842,7 @@ export default function QuizTakingPage() {
         sourceDocKey: quizSource.key,
         questions: data.questions,
         questionTypes: quizSource.questionTypes ?? null,
+        difficulty: parseQuizDifficulty(data.difficulty),
         questionCount: data.questions.length,
         pinned: true,
         visibility: 'private',
@@ -1027,7 +1035,14 @@ export default function QuizTakingPage() {
         </div>
         <div className="pointer-events-none absolute inset-x-16 min-w-0 text-center md:inset-x-28" data-tutorial="course-quiz-heading">
           <p className="truncate text-xs text-text-muted">{courseDisplayName}</p>
-          <h1 className="truncate text-xl font-bold text-[#1a1a2e]">{quizName}</h1>
+          <div className="flex min-w-0 items-center justify-center gap-2">
+            <h1 className="min-w-0 truncate text-xl font-bold text-[#1a1a2e]">{quizName}</h1>
+            {quizDifficulty && (
+              <span className="shrink-0 rounded-full border border-border-light px-2 py-0.5 text-[11px] font-medium text-text-muted">
+                {difficultyLabel(quizDifficulty)}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 

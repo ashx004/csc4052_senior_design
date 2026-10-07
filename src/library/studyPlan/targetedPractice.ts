@@ -1,5 +1,6 @@
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { getEffectiveModelKey } from '@/src/library/chatMode';
+import { DEFAULT_QUIZ_DIFFICULTY } from '@/src/library/quizDifficulty';
 
 export const TARGETED_PRACTICE_QUESTION_COUNT = 10;
 export const TARGETED_PRACTICE_QUESTION_TYPES = {
@@ -87,6 +88,7 @@ export async function generateTargetedPracticeQuiz(input: {
       sourceDocKey: input.sourceDocKey,
       questions: data.questions,
       questionTypes: TARGETED_PRACTICE_QUESTION_TYPES,
+      difficulty: DEFAULT_QUIZ_DIFFICULTY,
       questionCount: data.questions.length,
       pinned: true,
       visibility: 'private',
