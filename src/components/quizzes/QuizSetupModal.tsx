@@ -4,6 +4,7 @@ import { useState } from "react";
 import { FileText, X, Loader2 } from "lucide-react";
 import VisibilitySelector from "@/src/components/discover/VisibilitySelector";
 import type { StudySetVisibility } from "@/src/library/discover/types";
+import { DEFAULT_QUIZ_DIFFICULTY, QUIZ_DIFFICULTY_OPTIONS, type QuizDifficulty } from "@/src/library/quizDifficulty";
 
 interface QuestionTypes {
   multipleChoice: boolean;
@@ -18,6 +19,7 @@ interface QuizSetupModalProps {
   onStart: (config: {
     questionCount: number;
     questionTypes: QuestionTypes;
+    difficulty: QuizDifficulty;
     visibility: StudySetVisibility;
   }) => Promise<void>;
   loading?: boolean;
@@ -66,6 +68,7 @@ export default function QuizSetupModal({
   const [multipleChoice, setMultipleChoice] = useState(true);
   const [matching, setMatching] = useState(false);
   const [visibility, setVisibility] = useState<StudySetVisibility>("public");
+  const [difficulty, setDifficulty] = useState<QuizDifficulty>(DEFAULT_QUIZ_DIFFICULTY);
 
   if (!open) return null;
 
@@ -78,6 +81,7 @@ export default function QuizSetupModal({
     void onStart({
       questionCount,
       questionTypes: { multipleChoice, trueFalse, matching },
+      difficulty,
       visibility,
     });
   };
@@ -146,6 +150,43 @@ export default function QuizSetupModal({
         {!hasTypeSelected && (
           <p className="mt-2 text-xs text-red-400">Select at least one question type.</p>
         )}
+
+        {/* Level */}
+        <div className="mt-5">
+          <span className="mb-2 block text-sm font-medium text-text-main">Level</span>
+          <div
+            role="radiogroup"
+            aria-label="Quiz level"
+            className="grid grid-cols-3 gap-1 rounded-xl border border-border-light bg-bg-warm/40 p-1"
+          >
+            {QUIZ_DIFFICULTY_OPTIONS.map((option) => {
+              const selected = difficulty === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => setDifficulty(option.value)}
+                  disabled={loading}
+                  className={`min-w-0 rounded-lg px-2 py-2 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8B6914] focus-visible:ring-offset-1 focus-visible:ring-offset-bg-container disabled:cursor-not-allowed disabled:opacity-50 sm:px-3 ${
+                    selected
+                      ? "bg-[#1a1a2e] text-white shadow-sm ring-1 ring-[#8B6914]/60"
+                      : "text-text-muted hover:bg-bg-warm hover:text-text-main"
+                  }`}
+                >
+                  <span className="block text-sm font-medium leading-tight">{option.label}</span>
+                  <span className={`mt-0.5 block text-xs leading-snug ${selected ? "text-white/70" : "text-text-muted"}`}>
+                    {option.subtitle}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {matching && !multipleChoice && !trueFalse && (
+            <p className="mt-2 text-xs text-text-muted">Matching questions test recall, so the level has less effect.</p>
+          )}
+        </div>
 
         {/* Visibility */}
         <div className="mt-5">
