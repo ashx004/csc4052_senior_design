@@ -1,5 +1,6 @@
 "use client";
 
+import { track } from "@/src/library/analytics";
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   collection,
@@ -180,6 +181,7 @@ export function useStudySession(uid: string | null) {
           targetSeconds,
         }
       );
+      void track("study_session_started", { task_type: activityType }, ref.id);
       return ref.id;
     },
     [uid]
@@ -261,6 +263,14 @@ export function useStudySession(uid: string | null) {
         activeMinutes: computeActiveMinutes(updatedPeriods, nowMs),
         activeSeconds: computeActiveSeconds(updatedPeriods, nowMs),
       });
+      void track(
+        "study_session_completed",
+        {
+          task_type: session.activityType,
+          duration_seconds: computeActiveSeconds(updatedPeriods, nowMs),
+        },
+        sessionId,
+      );
     } catch (error) {
       setCompletedSessionId((id) => (id === sessionId ? null : id));
       throw error;

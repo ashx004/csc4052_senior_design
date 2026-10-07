@@ -1,8 +1,9 @@
 "use client";
 
+import { useAuth } from "@/src/context/AuthContext";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {Home,Briefcase,Calendar,MessageSquare,Users,User,BookOpen, Notebook } from "lucide-react";
+import {Home,Briefcase,Calendar,MessageSquare,Users,User,BookOpen, Notebook, BarChart3 } from "lucide-react";
 import Sidebar from "./Sidebar";
 
 const links = [
@@ -18,11 +19,21 @@ const links = [
 
 export default function GeneralSidebar() {
   const pathname = usePathname();
+  const { isAdmin } = useAuth();
+  const analyticsLink = {
+    label: "Analytics",
+    href: "/admin/analytics",
+    icon: BarChart3,
+  };
+  const visibleLinks = [...links];
+  if (isAdmin) {
+    visibleLinks.push(analyticsLink);
+  }
 
   return (
     <Sidebar>
       <ul className="flex flex-col gap-1" data-tutorial="sidebar-nav">
-        {links.map(({ label, href, icon: Icon }) => {
+        {visibleLinks.map(({ label, href, icon: Icon }) => {
           const isActive = pathname === href;
 
           return (
