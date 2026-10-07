@@ -1,3 +1,4 @@
+import PageTracker from "@/src/components/analytics/PageTracker";
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import './global.css';
@@ -34,6 +35,7 @@ export default function RootLayout({
         "
       >
         <ThemeInitializer />
+        <PageTracker />
 
         <AuthProvider>
           {/* Study sessions outlive any single route group — the focus card

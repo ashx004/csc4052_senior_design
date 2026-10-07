@@ -1,5 +1,7 @@
 'use client';
 
+import { createAnalyticsAttemptId } from '@/src/library/analyticsContract';
+import { track } from '@/src/library/analytics';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -665,6 +667,37 @@ export default function QuizTakingPage() {
     };
   }, [searchParams, user, loading, notFound, quizDocumentMissing, allQuestions, courseId, quizId, quizSource]);
 
+  const analyticsAttempt = useRef({
+    key: '',
+    startedAtMs: 0,
+    isActive: false,
+  });
+
+  useEffect(() => {
+    if (mode !== 'taking') {
+      analyticsAttempt.current.isActive = false;
+      return;
+    }
+
+    const isReadyToStart = modeResolved && activeQuestions.length > 0;
+    if (!isReadyToStart || analyticsAttempt.current.isActive) return;
+
+    analyticsAttempt.current = {
+      key: createAnalyticsAttemptId(),
+      startedAtMs: Date.now(),
+      isActive: true,
+    };
+    const isTargetedPractice = practiceTask !== null || !isFullQuestionSet(activeQuestions, allQuestions);
+    void track(
+      'quiz_started',
+      {
+        quiz_type: isTargetedPractice ? 'targeted_practice' : 'full_quiz',
+        question_count: activeQuestions.length,
+      },
+      analyticsAttempt.current.key,
+    );
+  }, [mode, modeResolved, activeQuestions, allQuestions, practiceTask]);
+
   const answeredCount = activeQuestions.filter((q) => !!answers[q.id]).length;
   const allAnswered = activeQuestions.length > 0 && answeredCount === activeQuestions.length;
 
@@ -728,6 +761,19 @@ export default function QuizTakingPage() {
         answers,
         questions: activeQuestions,
       });
+      if (result.attemptId && analyticsAttempt.current.key) {
+        const isTargetedPractice = practiceTask !== null || !isFullQuestionSet(activeQuestions, allQuestions);
+        const elapsedSeconds = (Date.now() - analyticsAttempt.current.startedAtMs) / 1000;
+        void track(
+          'quiz_completed',
+          {
+            quiz_type: isTargetedPractice ? 'targeted_practice' : 'full_quiz',
+            question_count: activeQuestions.length,
+            duration_seconds: Math.max(0, elapsedSeconds),
+          },
+          analyticsAttempt.current.key,
+        );
+      }
       setQuizOutcome(result.attemptId ? result : null);
       setSuggestionHidden(false);
       await fetchPastAttempts();

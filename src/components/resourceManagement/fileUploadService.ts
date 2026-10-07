@@ -1,3 +1,8 @@
+import { track } from "@/src/library/analytics";
+import {
+  createAnalyticsAttemptId,
+  analyticsFileType,
+} from "@/src/library/analyticsContract";
 import { collection, addDoc, getDoc, getDocs, query, orderBy, serverTimestamp, updateDoc, doc } from "firebase/firestore";
 import { db } from "../../library/firebase"; 
 import { deleteDoc } from "firebase/firestore";
@@ -34,6 +39,48 @@ function fileExtensionFor(file: File): string {
   return file.name.split(".").pop()?.toLowerCase() || "";
 }
 
+// Records storage outcomes only; metadata and indexing have their own lifecycles.
+async function uploadStoredFile(
+  file: File,
+  storagePath: string,
+  entryPoint: "resource" | "ocr",
+) {
+  const eventProperties = {
+    file_type: analyticsFileType(file.name),
+    entry_point: entryPoint,
+  };
+  const attemptKey = createAnalyticsAttemptId();
+  void track("resource_upload_started", eventProperties, attemptKey);
+
+  // Identify which stage failed without sending raw errors to analytics.
+  let errorCategory: "network" | "storage" | "unknown" = "unknown";
+  try {
+    const body = await file.arrayBuffer();
+    errorCategory = "network";
+    const response = await fetch("/api/upload", {
+      method: "POST",
+      headers: {
+        "Content-Type": file.type || "application/octet-stream",
+        "x-storage-path": storagePath,
+      },
+      body,
+    });
+    errorCategory = "storage";
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || "File storage failed.");
+    }
+    void track("resource_upload_succeeded", eventProperties, attemptKey);
+  } catch (error) {
+    void track(
+      "resource_upload_failed",
+      { ...eventProperties, error_category: errorCategory },
+      attemptKey,
+    );
+    throw error;
+  }
+}
+
 async function uploadOcrPage(
   userId: string,
   courseId: string,
@@ -51,18 +98,7 @@ async function uploadOcrPage(
   }
 
   const storagePath = `users/${userId}/classes/${courseId}/ocr-pages/${resourceId}/${Date.now()}_${order}_${file.name}`;
-  const response = await fetch("/api/upload", {
-    method: "POST",
-    headers: {
-      "Content-Type": file.type || "application/octet-stream",
-      "x-storage-path": storagePath,
-    },
-    body: await file.arrayBuffer(),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.error || `Failed to upload "${file.name}".`);
-  }
+  await uploadStoredFile(file, storagePath, "ocr");
 
   const pageUrl = `/api/download?key=${encodeURIComponent(storagePath)}`;
   const pageCollection = collection(db, "users", userId, "enrollment", courseId, "resources", resourceId, "pages");
@@ -173,21 +209,7 @@ export const uploadUserResource = async ({ userId, classDocId, file, category }:
   const storagePath = `users/${userId}/classes/${classDocId}/${uniqueFileName}`;
 
   try {
-    const fileBuffer = await file.arrayBuffer();
-
-    const response = await fetch('/api/upload', {
-        method: 'POST',
-        headers: {
-            'Content-Type': file.type || 'application/octet-stream',
-            'x-storage-path': storagePath,
-        },
-        body: fileBuffer,
-    });
-
-    if (!response.ok) {
-      const errData = await response.json();
-      throw new Error(errData.error || 'Failed to upload file via server proxy');
-    }
+    await uploadStoredFile(file, storagePath, "resource");
 
     const directFileUrl = `/api/download?key=${encodeURIComponent(storagePath)}`;
     const resourcesCollectionRef = collection(db, "users", userId, "enrollment", classDocId, "resources");

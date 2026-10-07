@@ -8,12 +8,14 @@ import { clearRememberCookie, hasRememberCookie, touchRememberCookie } from "@/s
 interface AuthContextType {
   user: User | null;
   loading: boolean;
+  isAdmin: boolean;
   logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
+  isAdmin: false,
   logout: async () => {},
 });
 
@@ -21,6 +23,7 @@ const SESSION_COOKIE = "fb_token";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -33,6 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // login page's already-signed-in redirect) can navigate to a
       // middleware-gated route a moment before the fresh cookie actually
       // exists, bouncing straight back to /login on a stale/missing cookie.
+      setIsAdmin(false);
       if (currentUser) {
         // The 30-day remember window is set at interactive sign-in
         // (login/signup pages, before this listener even fires — see
@@ -52,6 +56,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         touchRememberCookie();
 
         const token = await currentUser.getIdToken();
+        // This claim controls navigation; the server separately enforces access.
+        const tokenResult = await currentUser.getIdTokenResult();
+        setIsAdmin(tokenResult.claims.admin === true);
         document.cookie = `${SESSION_COOKIE}=${token}; path=/; max-age=3600; SameSite=Lax`;
       } else {
         document.cookie = `${SESSION_COOKIE}=; path=/; max-age=0`;
@@ -67,7 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = () => signOut(auth);
 
   return (
-    <AuthContext.Provider value={{ user, loading, logout }}>
+    <AuthContext.Provider value={{ user, loading, isAdmin, logout }}>
       {children}
     </AuthContext.Provider>
   );

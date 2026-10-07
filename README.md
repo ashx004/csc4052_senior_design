@@ -60,3 +60,7 @@ For durable advising extraction jobs (transcript + curriculum parsing), run
 `npm run worker:advising` as a separate managed process. Set
 `ADVISING_WORKER_URL` to the deployed `/api/advising-jobs/worker` endpoint and
 provide the same `INTERNAL_API_SECRET` used by the web application.
+
+## Usage analytics and administrator dashboard
+
+See [docs/analytics.md](docs/analytics.md) for opt-in tracking, isolated test collection, GA4 reporting setup, and granting/revoking administrator access. The dashboard is available at `/admin/analytics` after configuration.
