@@ -67,6 +67,47 @@ export type ChunkSearchResult = {
   payload: ChunkPoint["payload"];
 };
 
+/** Every live vector stores user-supplied or derived document text in its
+ * payload. Account export/delete must operate by userId, not by resource,
+ * because resources can be removed before their orphaned points are cleaned. */
+export async function listChunksForUser(userId: string): Promise<ChunkPoint["payload"][]> {
+  const payloads: ChunkPoint["payload"][] = [];
+  let offset: string | number | undefined;
+
+  do {
+    const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS, "Qdrant export scroll");
+    try {
+      const response = await fetch(`${await baseUrl()}/collections/${COLLECTION}/points/scroll`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({
+          limit: 256,
+          with_payload: true,
+          with_vector: false,
+          ...(offset === undefined ? {} : { offset }),
+          filter: { must: [{ key: "userId", match: { value: userId } }] },
+        }),
+        signal,
+      });
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new Error(`Qdrant export scroll failed (${response.status}): ${text}`);
+      }
+      const result = await response.json() as {
+        result?: { points?: Array<{ payload?: ChunkPoint["payload"] }>; next_page_offset?: string | number | null };
+      };
+      for (const point of result.result?.points ?? []) {
+        if (point.payload?.userId === userId) payloads.push(point.payload);
+      }
+      offset = result.result?.next_page_offset ?? undefined;
+    } finally {
+      cancel();
+    }
+  } while (offset !== undefined);
+
+  return payloads;
+}
+
 // LAN-direct when reachable, falling back to the public tunneled URL
 // (QDRANT_FALLBACK_URL) for callers off the home/school LAN — same
 // primary/fallback pattern as ollamaClient.ts and minioClient.ts.
