@@ -261,10 +261,10 @@ export async function buildAccountDataExport(uid: string): Promise<Buffer> {
     "# Catalyst data export",
     "",
     firebaseData
-      ? "This archive contains your private Catalyst data, original uploaded files, and derived indexed context."
-      : "This is an incomplete temporary export containing original uploaded files and derived indexed context only.",
+      ? "This archive contains your private Catalyst account records, original uploaded files, and derived indexed context."
+      : "This temporary archive contains original uploaded files and derived indexed context only.",
     "It excludes credentials, OAuth tokens, password hashes, one-time login challenges, and server secrets.",
-    ...(firebaseData ? [] : ["Firebase Auth and Firestore data were excluded because ACCOUNT_DATA_EXPORT_INCLUDE_FIREBASE=false."]),
+    ...(firebaseData ? [] : ["Additional account records were not included in this temporary export."]),
     "The files/objects paths are safe archive names; their original MinIO keys are recorded in manifest.json.",
     "A future Catalyst restore imports this data into a newly authenticated account and rebuilds document indexing.",
     "",
@@ -274,7 +274,7 @@ export async function buildAccountDataExport(uid: string): Promise<Buffer> {
     generatedAt,
     uid,
     includedServices: {
-      firebase: Boolean(firebaseData),
+      accountRecords: Boolean(firebaseData),
       minio: true,
       qdrant: true,
     },
