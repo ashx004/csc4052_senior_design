@@ -37,6 +37,7 @@ import {
 } from "@/src/library/email/reminderPreferences";
 import { syncUpcomingReminderJobsForUser } from "@/src/library/email/reminderJobs";
 import { getSidebarAutoCollapse, setSidebarAutoCollapse } from "@/src/library/sidebarPreference";
+import { downloadDataExport, requestDataExport } from "@/src/library/dataExportDownload";
 
 const EMAIL_REMINDER_OFFSET_OPTIONS = [
     { minutes: 10_080, label: "1 week before" },
@@ -95,6 +96,9 @@ export default function Settings() {
     const [accountError, setAccountError] = useState<string>("");
     const [isUpdatingAccount, setIsUpdatingAccount] = useState<boolean>(false);
     const [isSendingVerification, setIsSendingVerification] = useState<boolean>(false);
+    const [isPreparingDataExport, setIsPreparingDataExport] = useState(false);
+    const [dataExportMessage, setDataExportMessage] = useState("");
+    const [dataExportError, setDataExportError] = useState("");
 
     const router = useRouter();
     const [aiModels, setAiModels] = useState<{ main: string | null; ocr: string | null } | null>(null);
@@ -415,6 +419,26 @@ export default function Settings() {
         }
     }
 
+    async function handleDataExport(): Promise<void> {
+        if (!user) {
+            setDataExportError("You must be signed in to download your data.");
+            return;
+        }
+
+        setDataExportError("");
+        setDataExportMessage("");
+        setIsPreparingDataExport(true);
+        try {
+            const download = await requestDataExport(await user.getIdToken());
+            downloadDataExport(download);
+            setDataExportMessage("Your data export is ready and downloading now.");
+        } catch (error) {
+            setDataExportError(error instanceof Error ? error.message : "Unable to create a data export. Please try again.");
+        } finally {
+            setIsPreparingDataExport(false);
+        }
+    }
+
 
     function handleAccountError(error: unknown): void {
         console.error(error);
@@ -685,8 +709,6 @@ export default function Settings() {
                 {emailReminderError && <p role="alert" className="text-xs text-alert-error">{emailReminderError}</p>}
                 {emailReminderMessage && <p role="status" className="text-xs text-alert-success">{emailReminderMessage}</p>}
             </section>
-
-
 
             {/* Appearance */ }
             <header className="mt-5 relative flex w-3/4 self-center
@@ -1207,7 +1229,51 @@ export default function Settings() {
 
 
 
-
+            {/* Account data */}
+            <header className="mt-5 flex w-3/4 shrink-0 self-center border-b border-border-light px-6" />
+            <section className="mt-2 flex w-3/4 self-center flex-col gap-4 rounded-lg bg-bg-main px-3 py-4" aria-labelledby="account-data-heading">
+                <div className="flex flex-col gap-1">
+                    <h2 id="account-data-heading" className="text-sm font-medium text-text-main">Account data</h2>
+                    <p className="text-xs text-text-muted">
+                        Download a portable copy of your Catalyst information and uploaded files.
+                    </p>
+                </div>
+                <div className="rounded-md border border-border-light bg-bg-container p-3">
+                    <h3 className="text-sm font-medium text-text-main">Download my data</h3>
+                    <p className="mt-1 text-xs text-text-muted">
+                        Your export includes available account data, stored study content, uploaded documents, and indexed document context. It excludes passwords, sign-in tokens, and connected-service credentials.
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-xs text-text-muted">The download is created for your current signed-in account.</p>
+                        <button
+                            type="button"
+                            onClick={handleDataExport}
+                            disabled={!user || isPreparingDataExport}
+                            className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-text-inverse transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            {isPreparingDataExport ? "Preparing export..." : "Download my data"}
+                        </button>
+                    </div>
+                </div>
+                <div className="rounded-md border border-border-light bg-bg-container p-3">
+                    <h3 className="text-sm font-medium text-text-main">Delete account</h3>
+                    <p id="account-deletion-placeholder" className="mt-1 text-xs text-text-muted">
+                        Account deletion will be available here soon. It will permanently remove your Catalyst account and stored data after confirmation.
+                    </p>
+                    <div className="mt-3 flex justify-end">
+                        <button
+                            type="button"
+                            disabled
+                            aria-describedby="account-deletion-placeholder"
+                            className="rounded-md border border-alert-error px-3 py-1.5 text-xs font-medium text-alert-error opacity-60"
+                        >
+                            Delete account (coming soon)
+                        </button>
+                    </div>
+                </div>
+                {dataExportError && <p role="alert" className="text-xs text-alert-error">{dataExportError}</p>}
+                {dataExportMessage && <p role="status" className="text-xs text-alert-success">{dataExportMessage}</p>}
+            </section>
 
             {/* Sign Out */}
             <header className="mt-5 relative flex w-3/4 self-center

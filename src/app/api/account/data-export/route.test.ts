@@ -23,6 +23,7 @@ vi.mock("@/src/library/verifyAuth", () => ({
 vi.mock("@/src/library/accountDataExport", () => ({
   buildAccountDataExport: mocks.buildAccountDataExport,
   AccountDataExportError: mocks.AccountDataExportError,
+  shouldIncludeFirebaseData: () => true,
 }));
 
 import { GET } from "./route";
