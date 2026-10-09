@@ -2,7 +2,10 @@
 
 import { useRef, useState } from "react";
 import { buildChatContext, PageAIContext } from "@/src/library/chatContext";
-import { readChatStream, TOOL_STATUS_LABELS } from "@/src/library/chatStream";
+import { readChatStream } from "@/src/library/chatStream";
+import { toolRunningLabel } from "@/src/library/toolActivity";
+import { useChatActivity } from "@/src/hooks/useChatActivity";
+import { useChatRun } from "@/src/hooks/useChatRun";
 import { useChatStatus } from "@/src/library/useChatStatus";
 import { getEffectiveModelKey } from "@/src/library/chatMode";
 import type { PageTextPageContext } from "@/src/library/Contextual_AI/contextualAi";
@@ -19,13 +22,16 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
   const [messages, setMessages] = useState<PanelMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
   const chatStatus = useChatStatus();
+  const liveActivity = useChatActivity();
+  const chatRun = useChatRun();
   const [errorText, setErrorText] = useState<string | null>(null);
   const nextId = useRef(1);
   const summaryRef = useRef("");
   const summarizedCountRef = useRef(0);
 
-  async function sendMessage(text: string, pageContext: PageAIContext | null) {
-    if (!text.trim() || isSending) return;
+  /** Resolves with whether the student pressed Stop, so the caller can put the question back to re-word. */
+  async function sendMessage(text: string, pageContext: PageAIContext | null): Promise<{ stopped: boolean }> {
+    if (!text.trim() || isSending) return { stopped: false };
 
     const userMessage: PanelMessage = { id: nextId.current++, role: "user", text };
     const assistantId = nextId.current++;
@@ -36,6 +42,9 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
     setErrorText(null);
     setIsSending(true);
     chatStatus.connecting();
+    liveActivity.reset();
+    const { runId, signal } = chatRun.begin();
+    let stopped = false;
 
     function updateAssistant(patch: Partial<PanelMessage>) {
       setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, ...patch } : m)));
@@ -68,7 +77,9 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
           ephemeral: true,
           modelKey: getEffectiveModelKey("chat"),
           pendingActionIds: nextMessages.flatMap((m) => m.pendingActions?.map((a) => a.id) ?? []),
+          runId,
         }),
+        signal,
       });
 
       if (!response.ok || !response.body) {
@@ -81,12 +92,15 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
       let streamError: string | null = null;
 
       for await (const event of readChatStream(response)) {
-        if (event.type === "delta") {
+        liveActivity.handle(event);
+        if (event.type === "stopped") {
+          stopped = true;
+        } else if (event.type === "delta") {
           fullText += event.text;
           chatStatus.clear();
           updateAssistant({ text: fullText });
         } else if (event.type === "tool") {
-          chatStatus.tool(TOOL_STATUS_LABELS[event.name] || "Working on it...");
+          chatStatus.tool(toolRunningLabel(event.name));
         } else if (event.type === "status") {
           chatStatus.progress(event.label);
         } else if (event.type === "done") {
@@ -98,19 +112,37 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
         }
       }
 
-      if (!fullText) {
+      if (stopped) {
+        updateAssistant({ text: fullText ? `${fullText}\n\n_(Stopped)_` : "_(Stopped before the assistant answered.)_" });
+      } else if (!fullText) {
         throw new Error(streamError || "The assistant didn't generate a response. Please try again.");
       }
       if (streamError) setErrorText(streamError);
     } catch (error) {
+      if (chatRun.wasStopped()) {
+        // The connection was cut right after Stop: keep whatever was written.
+        setMessages((prev) => prev.filter((m) => !(m.id === assistantId && m.text === "")));
+        return { stopped: true };
+      }
       console.error("AI panel request failed:", error);
       setMessages((prev) => prev.filter((m) => m.id !== assistantId));
       setErrorText(error instanceof Error ? error.message : "Couldn't reach the assistant. Please try again.");
     } finally {
       setIsSending(false);
       chatStatus.clear();
+      liveActivity.reset();
+      chatRun.finish();
     }
+    return { stopped };
   }
 
-  return { messages, isSending, toolStatus: chatStatus.status, errorText, sendMessage };
+  return {
+    messages,
+    isSending,
+    toolStatus: chatStatus.status,
+    activity: liveActivity.activity,
+    errorText,
+    sendMessage,
+    stop: chatRun.stop,
+  };
 }
