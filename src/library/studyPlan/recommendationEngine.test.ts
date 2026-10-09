@@ -352,6 +352,82 @@ describe("generateTasks", () => {
   });
 });
 
+describe("generateTasks options", () => {
+  const cfg = { availableMinutes: 60 as const, goal: "general" as const, courseId: null, activityPreference: "quiz" as const };
+  function quizTopic(courseId: string, label: string, quizMastery: number | null): EligibleTopic {
+    return {
+      courseId,
+      courseName: courseId,
+      courseCode: courseId,
+      topicLabel: label,
+      targetId: `${courseId}-${label}`,
+      activityType: "quiz",
+      quizMastery,
+      flashcardEngagement: null,
+      lastStudiedAt: null,
+      skipCount: 0,
+    };
+  }
+
+  it("uses minutesBudget instead of availableMinutes", () => {
+    const topics = [quizTopic("A", "a1", 0.2), quizTopic("B", "b1", 0.2), quizTopic("C", "c1", 0.2)];
+    const tasks = generateTasks(cfg, topics, new Map(), { minutesBudget: 25 });
+    expect(tasks).toHaveLength(1); // one 20-minute quiz fits in 25 minutes
+  });
+
+  it("returns nothing when the budget is 0", () => {
+    expect(generateTasks(cfg, [quizTopic("A", "a1", 0.2)], new Map(), { minutesBudget: 0 })).toEqual([]);
+  });
+
+  it("forces a guaranteed course in even when it scores lowest", () => {
+    const topics = [
+      quizTopic("A", "a1", 0.1),
+      quizTopic("B", "b1", 0.1),
+      quizTopic("C", "c1", 0.1),
+      quizTopic("D", "d1", 0.55), // weakest score of the four
+    ];
+    const tasks = generateTasks(cfg, topics, new Map(), { guaranteedCourseIds: ["D"] });
+    expect(tasks[0].courseId).toBe("D");
+    expect(tasks.map((t) => t.courseId)).toContain("D");
+  });
+
+  it("does not add a guaranteed course twice", () => {
+    const topics = [
+      quizTopic("A", "a1", 0.1),
+      quizTopic("B", "b1", 0.1),
+      quizTopic("C", "c1", 0.1),
+      quizTopic("D", "d1", 0.55),
+      quizTopic("D", "d2", 0.6),
+    ];
+    const tasks = generateTasks(cfg, topics, new Map(), { guaranteedCourseIds: ["D"] });
+    const pairs = tasks.map((t) => `${t.courseId}/${t.topicLabel}`);
+    expect(new Set(pairs).size).toBe(pairs.length);
+    expect(pairs.filter((p) => p === "D/d1")).toHaveLength(1);
+  });
+
+  it("behaves as before with no options", () => {
+    const topics = [quizTopic("A", "a1", 0.1), quizTopic("B", "b1", 0.3)];
+    const tasks = generateTasks(cfg, topics, new Map());
+    expect(tasks.map((t) => [t.courseId, t.topicLabel, t.activityType])).toEqual([
+      ["A", "a1", "quiz"],
+      ["B", "b1", "quiz"],
+    ]);
+  });
+
+  it("does not start the reading+quiz+flashcards trio when the budget is under it", () => {
+    const autoCfg = { ...cfg, activityPreference: "auto" as const };
+    const topics: EligibleTopic[] = [
+      { ...quizTopic("A", "a1", 0.1), activityType: "quiz" },
+      { ...quizTopic("A", "a2", 0.2), activityType: "flashcards", targetId: "A-fc" },
+      { ...quizTopic("A", "a3", 0.3), activityType: "reading", targetId: "A-rd" },
+    ];
+    const tasks = generateTasks(autoCfg, topics, new Map(), { minutesBudget: 30 });
+    const total = tasks.reduce((sum, t) => sum + t.estimatedMinutes, 0);
+    expect(total).toBeLessThanOrEqual(30);
+    expect(tasks.map((t) => [t.activityType, t.topicLabel])).toEqual([["quiz", "a1"]]);
+  });
+});
+
 describe("document mastery priority", () => {
   const quiet = { quizMastery: null as number | null, flashcardEngagement: null as number | null };
 

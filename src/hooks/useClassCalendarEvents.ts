@@ -15,6 +15,7 @@ type ClassEnrollment = StructuredClassSchedule & {
   classRoom?: string;
   color?: string;
   status?: string;
+  createCalendarEvents?: boolean;
 };
 
 type ScheduledClass = ClassEnrollment & { id: string };
@@ -84,7 +85,7 @@ export function useClassCalendarEvents(dateRange?: { start: Date; end: Date }) {
     const visible: CalendarEvent[] = [];
 
     for (const enrollment of enrollments) {
-      if (getEnrollmentStatus(enrollment) === "completed" || !enrollment.meetingDays?.length) continue;
+      if (getEnrollmentStatus(enrollment) === "completed" || enrollment.createCalendarEvents === false || !enrollment.meetingDays?.length) continue;
       for (const date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
         const dateString = dateKey(date);
         if (!isClassMeetingOnDate(enrollment, date)) continue;

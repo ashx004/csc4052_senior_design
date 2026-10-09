@@ -28,7 +28,7 @@ export type CalendarEvent = {
   // Class-derived events use the enrollment's actual class color instead of
   // one of the small manual-event tone presets.
   color?: string;
-  source: "google" | "local" | "class";
+  source: "google" | "local" | "class" | "study";
   kind?: "event" | "study" | "assignment" | "exam" | "class";
   classId?: string;
   className?: string;
@@ -43,6 +43,10 @@ export type CalendarEvent = {
   conflictTitles?: string[];
   classException?: boolean;
   seriesId?: string;
+  // Study task reference for study blocks
+  taskId?: string;
+  // Marks study blocks whose task is completed
+  done?: boolean;
 };
 
 export type CalendarDay = {

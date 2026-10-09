@@ -51,6 +51,7 @@ interface StudyPlanContextValue {
     newStatus: TaskStatus,
     reason?: string
   ) => Promise<void>;
+  carryOverTask: (taskId: string, today: string) => Promise<void>;
   startSession: (
     taskId: string,
     courseId: string,
@@ -94,6 +95,7 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
     createTasksFromGenerated,
     createTaskFromSuggestion,
     updateTaskStatus,
+    carryOverTask,
   } = useStudyTasks(uid, today);
 
   const {
@@ -161,6 +163,7 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
       createTasksFromGenerated,
       createTaskFromSuggestion,
       updateTaskStatus: updateTaskStatusAndPlan,
+      carryOverTask,
       startSession,
       attachTaskToSession,
       pauseSession,
@@ -186,6 +189,7 @@ export function StudyPlanProvider({ children }: { children: ReactNode }) {
       createTasksFromGenerated,
       createTaskFromSuggestion,
       updateTaskStatusAndPlan,
+      carryOverTask,
       startSession,
       attachTaskToSession,
       pauseSession,

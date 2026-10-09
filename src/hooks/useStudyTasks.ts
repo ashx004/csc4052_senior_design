@@ -26,6 +26,7 @@ import {
   studyTasksCollection,
   studyTaskPath,
 } from "@/src/library/studyPlan/firestorePaths";
+import { buildCarryoverUpdate } from "@/src/library/studyPlan/carryover";
 import type {
   StudyTask,
   TaskStatus,
@@ -50,8 +51,6 @@ export function useStudyTasks(uid: string | null, planDate: string | null) {
 
   useEffect(() => {
     if (!uid || !planDate) {
-      setTasks([]);
-      setLoading(false);
       return;
     }
 
@@ -204,11 +203,41 @@ export function useStudyTasks(uid: string | null, planDate: string | null) {
     [uid, tasks]
   );
 
+  const carryOverTask = useCallback(
+    async (taskId: string, today: string) => {
+      if (!uid) return;
+      const ref = doc(db, studyTaskPath(uid, taskId));
+      const snap = await getDoc(ref);
+      if (!snap.exists()) return;
+      const data = snap.data();
+      const update = buildCarryoverUpdate(
+        {
+          status: isTaskStatus(data.status) ? data.status : "recommended",
+          rescheduleCount: typeof data.rescheduleCount === "number" ? data.rescheduleCount : 0,
+        },
+        today,
+      );
+      await updateDoc(ref, {
+        status: update.status,
+        scheduledDate: update.scheduledDate,
+        planDate: update.planDate,
+        scheduledStart: update.scheduledStart,
+        scheduledEnd: update.scheduledEnd,
+        scheduleRemoved: update.scheduleRemoved,
+        rescheduleCount: update.rescheduleCount,
+        statusHistory: arrayUnion({ ...update.change, at: Timestamp.now() }),
+        updatedAt: serverTimestamp(),
+      });
+    },
+    [uid]
+  );
+
   return {
     tasks,
     loading,
     createTasksFromGenerated,
     createTaskFromSuggestion,
     updateTaskStatus,
+    carryOverTask,
   };
 }
