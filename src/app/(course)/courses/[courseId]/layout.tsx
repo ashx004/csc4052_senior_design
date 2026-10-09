@@ -7,6 +7,7 @@ import CourseSidebar from "@/src/components/Sidebar/CourseSidebar";
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
 import { useAuth } from "@/src/context/AuthContext";
+import { DATA_CHANGED_EVENT } from "@/src/library/dataChanged";
 
 async function getEnrollmentName(userId: string, enrollmentId: string): Promise<string | null> {
     const docRef = doc(db, "users", userId, "enrollment", enrollmentId);
@@ -40,12 +41,17 @@ export default function CourseLayout({
       return;
     }
 
-    getEnrollmentName(user.uid, courseId)
-      .then(setCourseName)
-      .catch((error) => {
-        console.error("Error getting enrollment name: ", error);
-        setCourseName(null);
-      });
+    const load = () =>
+      getEnrollmentName(user.uid, courseId)
+        .then(setCourseName)
+        .catch((error) => {
+          console.error("Error getting enrollment name: ", error);
+          setCourseName(null);
+        });
+    void load();
+    // The course was renamed from its page or by the AI panel.
+    window.addEventListener(DATA_CHANGED_EVENT, load);
+    return () => window.removeEventListener(DATA_CHANGED_EVENT, load);
   }, [user, authLoading, courseId, router]);
 
   if (authLoading || !user) {

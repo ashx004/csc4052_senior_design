@@ -57,6 +57,8 @@ export interface EnrollmentFields extends StructuredClassSchedule {
     // at least one supported document has been uploaded and indexed.
     courseSummary?: string;
     courseSummaryUpdatedAt?: unknown;
+    // Facts read from the syllabus the student chose (see SyllabusModal).
+    syllabus?: import("@/src/components/course/SyllabusModal").StoredSyllabus;
 }
 
 async function getEnrollment(

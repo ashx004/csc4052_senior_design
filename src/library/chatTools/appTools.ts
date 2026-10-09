@@ -307,7 +307,7 @@ async function listNotes(env: ToolEnv, args: Record<string, unknown>): Promise<T
   const lines = rows.slice(0, 25).map((n) => {
     const kind = n.data.kind === "typed" ? "typed note" : n.data.scan ? "scanned notes" : `${str(n.data.fileType).toUpperCase() || "file"} from class files`;
     const book = n.data.notebookId ? `, notebook "${bookName(n.data.notebookId)}"` : "";
-    const text = n.data.kind === "typed" ? snippet(str(n.data.plainText), query || undefined) : "";
+    const text = snippet(str(n.data.plainText), query || undefined);
     return `- "${str(n.data.title)}" (${kind}, ${classLabel(env, n.data.courseId)}${book}, edited ${when(env, n.data.updatedAt)})${text ? ` - preview: ${text}` : ""}`;
   });
   const more = rows.length > 25 ? `\n...and ${rows.length - 25} more. Narrow it with a query or class.` : "";
