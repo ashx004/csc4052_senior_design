@@ -46,6 +46,10 @@ import { getIdToken, firestoreCreate, firestoreGet, firestoreUpdate, firestoreDe
 import { deriveChatTitle } from "@/src/library/chatTitle";
 import type { StoredChatMessage } from "@/src/library/chatMemory";
 import { THINK_CLOSE_TAG, stripThinkLeak } from "@/src/library/stripThinkLeak";
+import { ChatStoppedError, registerChatRun, releaseChatRun } from "@/src/library/chatRuns";
+import { createThoughtRelay } from "@/src/library/thoughtRelay";
+import { thoughtSummarizerFromEnv } from "@/src/library/thoughtSummary";
+import { toolDetail } from "@/src/library/toolActivity";
 
 const CHAT_RATE_LIMIT_WINDOW_MS = 60_000;
 const CHAT_RATE_LIMIT_MAX = 15; // per user per window — generous for real use, catches runaway/abusive callers
@@ -1588,10 +1592,22 @@ async function streamOllamaRound(
   temperature: number,
   target: OllamaTarget,
   thinking: ChatThinking,
-  onDelta: (text: string) => void
+  onDelta: (text: string) => void,
+  live?: {
+    /** Aborted when the student presses Stop; cancels the request to the model. */
+    signal?: AbortSignal;
+    /** The model's reasoning (Ollama's message.thinking), as it is written. */
+    onThinking?: (text: string) => void;
+  }
 ): Promise<{ content: string; toolCalls: any[] | null; rawMessage: any }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
+  const stopListener = () => controller.abort();
+  if (live?.signal?.aborted) {
+    clearTimeout(timeout);
+    throw new ChatStoppedError();
+  }
+  live?.signal?.addEventListener("abort", stopListener, { once: true });
 
   try {
     const response = await fetch(`${target.baseUrl}/api/chat`, {
@@ -1649,6 +1665,9 @@ async function streamOllamaRound(
           continue; // skip a malformed line rather than aborting the whole stream
         }
 
+        const thought = chunk?.message?.thinking;
+        if (typeof thought === "string" && thought.length > 0) live?.onThinking?.(thought);
+
         const delta = chunk?.message?.content;
         if (typeof delta === "string" && delta.length > 0) {
           contentAccum += delta;
@@ -1671,8 +1690,13 @@ async function streamOllamaRound(
       toolCalls,
       rawMessage: rawMessage ?? { role: "assistant", content: contentAccum },
     };
+  } catch (error) {
+    // Pressing Stop aborts the fetch/read; that is not a failure.
+    if (live?.signal?.aborted) throw new ChatStoppedError();
+    throw error;
   } finally {
     clearTimeout(timeout);
+    live?.signal?.removeEventListener("abort", stopListener);
   }
 }
 
@@ -1935,6 +1959,7 @@ export async function POST(request: NextRequest) {
     extraTools,
     pendingActionIds,
     ephemeral,
+    runId,
   } = parsedBody.data as {
     messages?: ChatMessage[];
     context?: ChatContext;
@@ -1952,6 +1977,8 @@ export async function POST(request: NextRequest) {
     modelKey?: string;
     pendingActionIds?: string[];
     ephemeral?: boolean;
+    // Names this request so the Stop button can cancel it (see chatRuns.ts).
+    runId?: string;
     // Opt-in for tools that aren't always necessary (web/YouTube search) -
     // off by default. Fewer tools in the schema on every request means less
     // for the model to choose between (real tool-selection accuracy cost,
@@ -2050,6 +2077,8 @@ export async function POST(request: NextRequest) {
     keepAlive: FAST_MODEL_KEEP_ALIVE,
     numCtx: mainModelContextOption().num_ctx,
   };
+  // The Stop button's handle on this reply (chatRuns.ts).
+  const stopSignal = runId ? registerChatRun(auth.uid, runId).signal : undefined;
   const stream = new ReadableStream({
     async start(controller) {
       // Swallows enqueue failures (e.g. the client already disconnected) so
@@ -2063,6 +2092,9 @@ export async function POST(request: NextRequest) {
           // client gone — ignore, generation continues regardless
         }
       }
+      // The model's reasoning, forwarded live (and summarized by a small model
+      // when one is configured) so the student can see what it is working on.
+      const thoughtRelay = createThoughtRelay({ send, summarize: thoughtSummarizerFromEnv() });
 
       let studentProfile: StudentProfile = { summary: "", messageCount: 0 };
       const documentsRead: string[] = [];
@@ -2340,6 +2372,7 @@ export async function POST(request: NextRequest) {
         });
 
         for (let round = 0; round < MAX_TOOL_ROUNDS && !finished; round++) {
+          if (stopSignal?.aborted) throw new ChatStoppedError();
           const { handleDelta, flush, discard } = makeDeltaHandler();
           const { content, toolCalls, rawMessage } = await streamOllamaRound(
             conversation,
@@ -2347,8 +2380,10 @@ export async function POST(request: NextRequest) {
             CHAT_TEMPERATURE,
             primaryTarget,
             thinking,
-            handleDelta
+            handleDelta,
+            { signal: stopSignal, onThinking: (t) => thoughtRelay.push(t) }
           );
+          thoughtRelay.flush();
 
           if (toolCalls && toolCalls.length > 0) {
             // A tool-call round must never leave visible/persisted text
@@ -2372,6 +2407,7 @@ export async function POST(request: NextRequest) {
             conversation.push(rawMessage);
 
             for (const toolCall of toolCalls) {
+              if (stopSignal?.aborted) throw new ChatStoppedError();
               const fnName = toolCall.function?.name;
               // Arguments are checked against the tool's own schema before it
               // runs (toolValidation.ts); a bad call becomes an error the
@@ -2383,7 +2419,7 @@ export async function POST(request: NextRequest) {
               }
               // eslint-disable-next-line @typescript-eslint/no-explicit-any -- tool args are schema-validated above
               const args: any = validation.args;
-              send({ type: "tool", name: fnName });
+              send({ type: "tool", name: fnName, detail: toolDetail(fnName, args) });
               let result: string;
 
               // Exact repeat of an earlier call this same turn (identical
@@ -2541,6 +2577,7 @@ export async function POST(request: NextRequest) {
               for (const id of result.match(/\[id: ([A-Za-z0-9]+)\]/g) ?? []) outputGuard.hideId(id.slice(5, -1));
               calledToolSignatures.set(toolSignature, result);
               conversation.push({ role: "tool", tool_call_id: toolCall.id, content: result });
+              send({ type: "tool_done", name: fnName, ok: toolSucceeded(result) });
             }
 
             send({ type: "status", label: "Reviewing what it found..." });
@@ -2741,8 +2778,10 @@ export async function POST(request: NextRequest) {
             CHAT_TEMPERATURE,
             primaryTarget,
             thinking,
-            finalRoundHandler.handleDelta
+            finalRoundHandler.handleDelta,
+            { signal: stopSignal, onThinking: (t) => thoughtRelay.push(t) }
           );
+          thoughtRelay.flush();
           finalRoundHandler.flush();
           // The forced last answer gets the same claim check as any other.
           let finalNote = "";
@@ -2791,10 +2830,22 @@ export async function POST(request: NextRequest) {
           }
         }
       } catch (error: any) {
-        console.error("Chat route error:", error);
-        finalAnswerText = describeChatError(error);
-        send({ type: "error", error: finalAnswerText });
+        if (error instanceof ChatStoppedError || stopSignal?.aborted) {
+          // The student pressed Stop: keep what was written so far (it is saved
+          // like any reply) and mark it, so they can re-word and ask again.
+          guardedStream.flush();
+          const partial = outputGuard.clean(liveReplyText).trim();
+          finalAnswerText = partial ? `${partial}\n\n_(Stopped)_` : "_(Stopped before the assistant answered.)_";
+          send({ type: "stopped" });
+          send({ type: "done", documentsRead, generatedFiles, generatedStudySets, pendingActions, summary: persistedSummary, summarizedCount: persistedSummarizedCount });
+        } else {
+          console.error("Chat route error:", error);
+          finalAnswerText = describeChatError(error);
+          send({ type: "error", error: finalAnswerText });
+        }
       } finally {
+        thoughtRelay.end();
+        if (runId) releaseChatRun(auth.uid, runId);
         // Fire-and-forget — never awaited, must not add latency to a
         // response the student is already looking at. Errors are handled
         // entirely inside maybeUpdateStudentProfile itself.

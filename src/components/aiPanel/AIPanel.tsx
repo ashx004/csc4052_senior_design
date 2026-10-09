@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Loader2, MessageSquare, X, Send } from "lucide-react";
+import { MessageSquare, X, Send, Square } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -18,6 +18,7 @@ import ConfirmActionCard from "@/src/components/aiAssistant/ConfirmActionCard";
 import { useStickToBottom } from "@/src/hooks/useStickToBottom";
 import type { ChatClass } from "@/src/library/chatContext";
 import { useChatContext } from "@/src/hooks/useChatContext";
+import ThinkingIndicator from "@/src/components/aiAssistant/ThinkingIndicator";
 
 const STORAGE_KEY = "catalyst:aiPanelOpen";
 
@@ -36,9 +37,9 @@ export default function AIPanel() {
   const pathname = usePathname();
   const { user } = useAuth();
   const pageContext = useAIPageContext();
-  const { messages, isSending, toolStatus, errorText, sendMessage } = useAIPanelChat(user?.uid, user?.email ?? undefined);
+  const { messages, isSending, toolStatus, activity, errorText, sendMessage, stop } = useAIPanelChat(user?.uid, user?.email ?? undefined);
   // Follows new text and Confirm cards unless the student has scrolled up.
-  const scroller = useStickToBottom<HTMLDivElement>([messages, toolStatus, errorText]);
+  const scroller = useStickToBottom<HTMLDivElement>([messages, toolStatus, activity, errorText]);
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
   const stt = useSpeechToText({ text: input, onText: setInput, maxLength: 4000 });
@@ -69,7 +70,10 @@ export default function AIPanel() {
     const text = input;
     setInput("");
     scroller.stick();
-    sendMessage(text, pageContext);
+    // Stopped replies hand the question back so it can be re-worded.
+    void sendMessage(text, pageContext).then((result) => {
+      if (result.stopped) setInput((current) => current || text);
+    });
   }
 
   return (
@@ -123,19 +127,8 @@ export default function AIPanel() {
                     </ReactMarkdown>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 rounded-2xl bg-bg-container px-4 py-3 shadow-sm ring-1 ring-border-light">
-                    {toolStatus ? (
-                      <>
-                        <Loader2 size={12} className="shrink-0 animate-spin text-text-muted" />
-                        <span className="text-xs text-text-muted">{toolStatus}</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-muted [animation-delay:-0.3s]" />
-                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-muted [animation-delay:-0.15s]" />
-                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-muted" />
-                      </>
-                    )}
+                  <div className="min-w-0 max-w-[85%] rounded-2xl bg-bg-container px-4 py-3 shadow-sm ring-1 ring-border-light">
+                    <ThinkingIndicator status={toolStatus} activity={activity} compact />
                   </div>
                 )}
                 {message.pendingActions?.map((action) => (
@@ -159,7 +152,7 @@ export default function AIPanel() {
               compact
               onSend={(prompt) => {
                 scroller.stick();
-                sendMessage(prompt, pageContext);
+                void sendMessage(prompt, pageContext);
               }}
             />
           </div>
@@ -178,14 +171,26 @@ export default function AIPanel() {
               className="flex-1 rounded-full border border-border-light bg-bg-container px-4 py-2 text-sm focus:border-primary focus:outline-none disabled:opacity-60"
             />
             <MicButton stt={stt} disabled={isSending} />
-            <button
-              type="submit"
-              disabled={isSending || !input.trim()}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-text-inverse transition hover:bg-primary-hover disabled:opacity-50"
-              aria-label="Send message"
-            >
-              <Send className="h-4 w-4" />
-            </button>
+            {isSending ? (
+              <button
+                type="button"
+                onClick={stop}
+                title="Stop, then re-word your question"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-text-inverse transition hover:bg-primary-hover"
+                aria-label="Stop generating"
+              >
+                <Square className="h-3.5 w-3.5" fill="currentColor" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!input.trim()}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-text-inverse transition hover:bg-primary-hover disabled:opacity-50"
+                aria-label="Send message"
+              >
+                <Send className="h-4 w-4" />
+              </button>
+            )}
           </form>
           {stt.error && (
             <p role="status" className="px-3 pb-3 text-xs text-alert-error">

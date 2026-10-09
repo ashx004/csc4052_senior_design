@@ -24,7 +24,11 @@ import {
 import { deriveChatTitle } from "@/src/library/chatTitle";
 import ChatUploadModal from "@/src/components/aiAssistant/ChatUploadModal";
 import ChatHistoryPanel from "@/src/components/aiAssistant/ChatHistoryPanel";
-import { readChatStream, TOOL_STATUS_LABELS } from "@/src/library/chatStream";
+import { readChatStream } from "@/src/library/chatStream";
+import { toolRunningLabel } from "@/src/library/toolActivity";
+import type { LiveActivity } from "@/src/library/chatLive";
+import { useChatActivity } from "@/src/hooks/useChatActivity";
+import { useChatRun } from "@/src/hooks/useChatRun";
 import { useChatStatus } from "@/src/library/useChatStatus";
 import { getEffectiveModelKey } from "@/src/library/chatMode";
 import PageTutorial from "@/src/components/tutorial/PageTutorial";
@@ -46,6 +50,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
   message,
   isPending,
   toolStatus,
+  activity,
   onCopy,
   isSpeaking,
   onToggleSpeak,
@@ -53,6 +58,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
   message: ChatMessage;
   isPending: boolean;
   toolStatus: string | null;
+  activity: LiveActivity;
   onCopy: (text: string) => void;
   isSpeaking: boolean;
   onToggleSpeak: (message: ChatMessage) => void;
@@ -67,7 +73,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
         </div>
       ) : isPending ? (
         <div className="min-w-0 max-w-xl rounded-2xl bg-bg-container px-5 py-4 shadow-sm ring-1 ring-border-light">
-          <ThinkingIndicator status={toolStatus} />
+          <ThinkingIndicator status={toolStatus} activity={activity} />
         </div>
       ) : (
         <div className="group flex max-w-2xl flex-col items-start gap-1.5">
@@ -289,6 +295,8 @@ function AIAssistantPageContent() {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const [isSending, setIsSending] = useState(false);
   const chatStatus = useChatStatus();
+  const liveActivity = useChatActivity();
+  const chatRun = useChatRun();
   const [errorText, setErrorText] = useState<string | null>(null);
   const [chatContext, setChatContext] = useState<ChatContext | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -499,6 +507,8 @@ function AIAssistantPageContent() {
     setErrorText(null);
     setIsSending(true);
     chatStatus.connecting();
+    liveActivity.reset();
+    const { runId, signal } = chatRun.begin();
 
     function updateAssistant(patch: Partial<ChatMessage>) {
       setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, ...patch } : m)));
@@ -525,7 +535,9 @@ function AIAssistantPageContent() {
           currentSessionId: sessionId.current,
           modelKey: getEffectiveModelKey("chat"),
           pendingActionIds: nextMessages.flatMap((message) => message.pendingActions?.map((action) => action.id) ?? []),
+          runId,
         }),
+        signal,
       });
 
       if (!response.ok || !response.body) {
@@ -535,6 +547,7 @@ function AIAssistantPageContent() {
 
       chatStatus.streaming();
       let text = "";
+      let stopped = false;
       let streamError: string | null = null;
       let documentsRead: string[] | undefined;
       let generatedFiles: { name: string; url: string }[] | undefined;
@@ -542,12 +555,15 @@ function AIAssistantPageContent() {
       let pendingActions: { id: string; title: string; details: string[] }[] | undefined;
 
       for await (const event of readChatStream(response)) {
+        liveActivity.handle(event);
         if (event.type === "delta") {
           text += event.text;
           chatStatus.clear();
           updateAssistant({ text });
         } else if (event.type === "tool") {
-          chatStatus.tool(TOOL_STATUS_LABELS[event.name] || "Working on it...");
+          chatStatus.tool(toolRunningLabel(event.name));
+        } else if (event.type === "stopped") {
+          stopped = true;
         } else if (event.type === "status") {
           chatStatus.progress(event.label);
         } else if (event.type === "session") {
@@ -569,7 +585,7 @@ function AIAssistantPageContent() {
         }
       }
 
-      if (!text) {
+      if (!text && !stopped) {
         // No content ever arrived — whether from an explicit error event or
         // a stream that ended early (e.g. a dropped connection) without one.
         // Never silently show/persist an empty bubble.
@@ -579,15 +595,22 @@ function AIAssistantPageContent() {
       // The server already persisted the finished reply (see the route's
       // finally block) — this just reflects it locally for whoever's still
       // watching this tab.
-      const finalMessage: ChatMessage = { id: assistantId, role: "assistant", text };
+      const finalMessage: ChatMessage = { id: assistantId, role: "assistant", text: stopped ? (text ? `${text}\n\n_(Stopped)_` : "_(Stopped before the assistant answered.)_") : text };
       if (documentsRead) finalMessage.documentsRead = documentsRead;
       if (generatedFiles) finalMessage.generatedFiles = generatedFiles;
       if (generatedStudySets) finalMessage.generatedStudySets = generatedStudySets;
       if (pendingActions) finalMessage.pendingActions = pendingActions;
       setMessages([...nextMessages, finalMessage]);
 
+      if (stopped) setInput((current) => current || trimmed);
       if (streamError) setErrorText(streamError);
     } catch (error) {
+      if (chatRun.wasStopped()) {
+        // The connection was cut right after Stop: keep whatever was written.
+        setMessages((prev) => prev.filter((m) => !(m.id === assistantId && m.text === "")));
+        setInput((current) => current || trimmed);
+        return;
+      }
       console.error("Chat request failed:", error);
       // Drop the empty placeholder bubble rather than leaving a blank one.
       setMessages((prev) => prev.filter((m) => m.id !== assistantId));
@@ -597,6 +620,8 @@ function AIAssistantPageContent() {
     } finally {
       setIsSending(false);
       chatStatus.clear();
+      liveActivity.reset();
+      chatRun.finish();
     }
   }
 
@@ -784,6 +809,7 @@ function AIAssistantPageContent() {
                   message={message}
                   isPending={message.text === "" && (isSending || isResuming)}
                   toolStatus={chatStatus.status}
+                  activity={liveActivity.activity}
                   onCopy={handleCopy}
                   isSpeaking={speakingMessageId === message.id}
                   onToggleSpeak={handleToggleSpeak}
@@ -859,14 +885,27 @@ function AIAssistantPageContent() {
 
             <MicButton stt={stt} />
 
-            <button
-              type="submit"
-              disabled={isSending || !input.trim()}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-xl text-text-inverse shadow-sm transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
-              aria-label="Send message"
-            >
-              ➤
-            </button>
+            {isSending ? (
+              <button
+                type="button"
+                onClick={chatRun.stop}
+                title="Stop, then re-word your question"
+                data-tutorial="ai-stop-btn"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-text-inverse shadow-sm transition hover:bg-primary-hover"
+                aria-label="Stop generating"
+              >
+                <Square size={14} fill="currentColor" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!input.trim()}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-xl text-text-inverse shadow-sm transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label="Send message"
+              >
+                ➤
+              </button>
+            )}
           </form>
           {stt.error && (
             <p role="status" className="mt-2 text-center text-xs text-alert-error">
