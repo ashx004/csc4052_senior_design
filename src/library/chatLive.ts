@@ -1,4 +1,4 @@
-import { toolRunningLabel } from "./toolActivity";
+import { toolDoneLabel, toolRunningLabel } from "./toolActivity";
 
 // What the browser shows while a reply is being worked out: the model's
 // reasoning (raw and, when available, a one-line summary) plus a list of the
@@ -8,7 +8,10 @@ import { toolRunningLabel } from "./toolActivity";
 export interface LiveTool {
   id: number;
   name: string;
+  /** Shown while the tool runs ("Searching your documents..."). */
   label: string;
+  /** Shown once it has finished ("Searched your documents"). */
+  doneLabel: string;
   detail?: string;
   state: "running" | "done" | "failed";
 }
@@ -51,6 +54,7 @@ export function reduceActivity(activity: LiveActivity, event: LiveEvent): LiveAc
         id: (activity.tools[activity.tools.length - 1]?.id ?? 0) + 1,
         name: event.name,
         label: toolRunningLabel(event.name),
+        doneLabel: toolDoneLabel(event.name),
         detail: event.detail,
         state: "running",
       };

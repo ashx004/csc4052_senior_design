@@ -5,7 +5,16 @@ import { Brain, Check, ChevronDown, Loader2, X } from "lucide-react";
 import { formatElapsed, recordStep, type ThinkingStep } from "@/src/library/thinkingSteps";
 import { currentHeadline, type LiveActivity, type LiveTool } from "@/src/library/chatLive";
 
+/** "Reading a document..." -> "Reading a document" (a colon and the detail follow it). */
+const withoutDots = (label: string) => label.replace(/\.\.\.$/, "");
+
 function ToolRow({ tool, compact }: { tool: LiveTool; compact: boolean }) {
+  const text =
+    tool.state === "running"
+      ? tool.detail ? withoutDots(tool.label) : tool.label
+      : tool.state === "failed"
+        ? `${tool.doneLabel} (didn't work)`
+        : tool.doneLabel;
   return (
     <li className={`flex min-w-0 items-center gap-2 ${compact ? "text-[11px]" : "text-xs"} text-text-muted`}>
       {tool.state === "running" ? (
@@ -15,8 +24,8 @@ function ToolRow({ tool, compact }: { tool: LiveTool; compact: boolean }) {
       ) : (
         <Check size={11} className="shrink-0 text-primary" />
       )}
-      <span className="shrink-0">{tool.state === "running" ? tool.label : tool.label.replace(/\.\.\.$/, "")}</span>
-      {tool.detail && <span className="min-w-0 truncate font-medium text-text-main">{tool.detail}</span>}
+      <span className="shrink-0">{tool.detail && tool.state !== "failed" ? `${text}:` : text}</span>
+      {tool.detail && tool.state !== "failed" && <span className="min-w-0 truncate font-medium text-text-main">{tool.detail}</span>}
     </li>
   );
 }
@@ -65,7 +74,7 @@ export default function ThinkingIndicator({
   const running = tools.find((t) => t.state === "running");
   // The most specific thing known right now: a tool in use, else what the model
   // is reasoning about, else the pipeline stage.
-  const headline = running ? `${running.label}${running.detail ? ` ${running.detail}` : ""}` : (activity && currentHeadline(activity)) || status || `${fallback}...`;
+  const headline = running ? (running.detail ? `${withoutDots(running.label)}: ${running.detail}` : running.label) : (activity && currentHeadline(activity)) || status || `${fallback}...`;
   const past = steps.slice(0, -1);
   const canExpand = past.length > 0;
   const text = compact ? "text-xs" : "text-sm";
