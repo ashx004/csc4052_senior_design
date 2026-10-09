@@ -61,6 +61,7 @@ describe("buildTargetedPracticeRequest", () => {
     expect(req.questionTypes).toEqual(TARGETED_PRACTICE_QUESTION_TYPES);
     expect(req.modelKey).toBe("gpt-4");
     expect(req.avoidQuestions).toEqual(["q1", "q2"]);
+    expect(req.difficulty).toBe("exam");
   });
 
   it("removes leading digits with dash from docName", () => {

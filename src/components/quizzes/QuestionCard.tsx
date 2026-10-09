@@ -44,7 +44,7 @@ export default function QuestionCard({
       <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
         Question {questionNumber}
       </p>
-      <h3 className="mb-4 text-base font-bold text-[#1a1a2e]">{question.question}</h3>
+      <h3 className="mb-4 text-base font-bold text-text-main">{question.question}</h3>
 
       {isResults && (
         <p
