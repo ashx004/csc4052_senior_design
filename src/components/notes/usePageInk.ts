@@ -8,13 +8,15 @@ const SAVE_DELAY_MS = 700;
 const MAX_UNDO = 60;
 
 /** Per-page drawings/annotations for one note: loading, debounced saving
- *  (each page saves on its own), and undo across pages. */
+ *  (each page saves on its own), and undo/redo across pages. */
 export function usePageInk(uid: string | undefined, noteId: string) {
   const [pages, setPages] = useState<Record<number, PageAnnotations>>({});
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const history = useRef<{ page: number; before: PageAnnotations }[]>([]);
+  const redoStack = useRef<{ page: number; state: PageAnnotations }[]>([]);
   const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
   const timers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
   const pagesRef = useRef(pages);
   pagesRef.current = pages;
@@ -67,7 +69,9 @@ export function usePageInk(uid: string | undefined, noteId: string) {
     (index: number, next: PageAnnotations) => {
       const before = pagesRef.current[index] ?? EMPTY_PAGE;
       history.current = [...history.current.slice(-MAX_UNDO + 1), { page: index, before }];
+      redoStack.current = [];
       setCanUndo(true);
+      setCanRedo(false);
       setPages((prev) => ({ ...prev, [index]: next }));
       pagesRef.current = { ...pagesRef.current, [index]: next };
       scheduleSave(index);
@@ -79,9 +83,22 @@ export function usePageInk(uid: string | undefined, noteId: string) {
     const last = history.current.pop();
     setCanUndo(history.current.length > 0);
     if (!last) return;
+    redoStack.current.push({ page: last.page, state: pagesRef.current[last.page] ?? EMPTY_PAGE });
+    setCanRedo(true);
     setPages((prev) => ({ ...prev, [last.page]: last.before }));
     pagesRef.current = { ...pagesRef.current, [last.page]: last.before };
     scheduleSave(last.page);
+  }, [scheduleSave]);
+
+  const redo = useCallback(() => {
+    const next = redoStack.current.pop();
+    setCanRedo(redoStack.current.length > 0);
+    if (!next) return;
+    history.current = [...history.current.slice(-MAX_UNDO + 1), { page: next.page, before: pagesRef.current[next.page] ?? EMPTY_PAGE }];
+    setCanUndo(true);
+    setPages((prev) => ({ ...prev, [next.page]: next.state }));
+    pagesRef.current = { ...pagesRef.current, [next.page]: next.state };
+    scheduleSave(next.page);
   }, [scheduleSave]);
 
   const clear = useCallback(async () => {
@@ -92,8 +109,10 @@ export function usePageInk(uid: string | undefined, noteId: string) {
     pagesRef.current = {};
     setPages({});
     history.current = [];
+    redoStack.current = [];
     setCanUndo(false);
+    setCanRedo(false);
   }, [uid, noteId]);
 
-  return { pages, loaded, saving, updatePage, undo, canUndo, clear };
+  return { pages, loaded, saving, updatePage, undo, redo, canUndo, canRedo, clear };
 }

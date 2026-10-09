@@ -16,7 +16,8 @@ import { useAIPanelChat } from "./useAIPanelChat";
 import QuickActions from "@/src/components/aiAssistant/QuickActions";
 import ConfirmActionCard from "@/src/components/aiAssistant/ConfirmActionCard";
 import { useStickToBottom } from "@/src/hooks/useStickToBottom";
-import { buildChatContext, type ChatClass } from "@/src/library/chatContext";
+import type { ChatClass } from "@/src/library/chatContext";
+import { useChatContext } from "@/src/hooks/useChatContext";
 
 const STORAGE_KEY = "catalyst:aiPanelOpen";
 
@@ -41,14 +42,8 @@ export default function AIPanel() {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
   const stt = useSpeechToText({ text: input, onText: setInput, maxLength: 4000 });
-  // Classes and files for the quick actions, loaded once the panel opens.
-  const [classes, setClasses] = useState<ChatClass[]>([]);
-  useEffect(() => {
-    if (!isOpen || !user?.uid || !user.email || classes.length) return;
-    buildChatContext(user.uid, user.email)
-      .then((c) => setClasses(c.classes))
-      .catch(() => {});
-  }, [isOpen, user?.uid, user?.email, classes.length]);
+  // Classes and files for the quick actions; watched live while the panel is open.
+  const classes: ChatClass[] = useChatContext(isOpen ? user?.uid : undefined, user?.email)?.classes ?? [];
   const courseMatch = /^\/courses\/([^/]+)/.exec(pathname ?? "");
 
   useEffect(() => {

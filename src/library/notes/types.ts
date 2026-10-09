@@ -64,8 +64,12 @@ export interface Notebook {
 
 export type InkTool = "pencil" | "highlighter";
 /** "ink" renders in the theme's text color, so pencil writing is always
- *  visible in light and dark mode. Highlighter colors are fixed. */
-export type InkColor = "ink" | "yellow" | "green" | "pink";
+ *  visible in light and dark mode. The other colors are fixed. A stroke's
+ *  `tool` says which palette a name belongs to ("green" pen vs. "green"
+ *  highlighter), which keeps strokes saved before the palettes grew valid. */
+export type PenColor = "ink" | "red" | "blue" | "green" | "purple" | "orange";
+export type HighlighterColor = "yellow" | "green" | "pink" | "orange" | "blue";
+export type InkColor = PenColor | HighlighterColor;
 
 export interface InkStroke {
   id: string;
@@ -87,7 +91,10 @@ export interface StickerAnnotation {
   id: string;
   x: number;
   y: number;
+  /** An emoji, or "badge:LABEL:color" for a text-label sticker. */
   emoji: string;
+  /** Edge length in page pixels; stickers saved before resizing have none. */
+  size?: number;
 }
 
 export interface PageAnnotations {

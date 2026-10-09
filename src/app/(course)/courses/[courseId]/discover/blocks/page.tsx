@@ -9,7 +9,7 @@ import PageTutorial from "@/src/components/tutorial/PageTutorial";
 import courseBlocksSteps from "@/src/library/tutorials/steps/course-blocks";
 import BlocksGame from "@/src/components/discover/blocks/BlocksGame";
 import BlocksGameOver from "@/src/components/discover/blocks/BlocksGameOver";
-import { buildChatContext, type ChatContext } from "@/src/library/chatContext";
+import { useChatContext } from "@/src/hooks/useChatContext";
 import ContextualAiPanel, { CatalystLauncher } from "@/src/components/aiAssistant/ContextualAiPanel";
 import { buildPageTextSuggestions, type PageTextPageContext } from "@/src/library/Contextual_AI/contextualAi";
 
@@ -34,19 +34,13 @@ export default function BlocksPage() {
 
   const [catalystOpen, setCatalystOpen] = useState(false);
   const catalystBtnRef = useRef<HTMLButtonElement | null>(null);
-  const [catalystChatContext, setCatalystChatContext] = useState<ChatContext | null>(null);
-
+  
   useEffect(() => {
     if (authLoading) return;
     if (!user) router.push("/login");
   }, [authLoading, user, router]);
 
-  useEffect(() => {
-    if (!user?.email) return;
-    buildChatContext(user.uid, user.email)
-      .then(setCatalystChatContext)
-      .catch(() => setCatalystChatContext(null));
-  }, [user]);
+  const catalystChatContext = useChatContext(user?.uid, user?.email);
 
   if (authLoading || !user) {
     return (

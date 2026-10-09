@@ -26,6 +26,8 @@ interface UploadFileProps {
   classDocId: string; // Course ID string from the URL route
   file: File;
   category: string;
+  /** false skips the background indexing (and so the automatic OCR of photos). */
+  index?: boolean;
 }
 
 const OCR_IMAGE_TYPES = ["png", "jpg", "jpeg", "webp"];
@@ -86,6 +88,24 @@ async function queueOcrDocument(userId: string, courseId: string, resourceId: st
   if (!response.ok) throw new Error(`Failed to queue OCR document (${response.status}).`);
 }
 
+async function uploadOcrOriginal(userId: string, courseId: string, resourceId: string, file: File) {
+  const storagePath = `users/${userId}/classes/${courseId}/ocr-originals/${resourceId}/${Date.now()}_${file.name}`;
+  const response = await fetch("/api/upload", {
+    method: "POST",
+    headers: { "Content-Type": file.type || "application/octet-stream", "x-storage-path": storagePath },
+    body: await file.arrayBuffer(),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || `Failed to upload "${file.name}".`);
+  }
+  return {
+    ocrSourceUrl: `/api/download?key=${encodeURIComponent(storagePath)}`,
+    ocrSourceName: file.name,
+    ocrSourceFileType: fileExtensionFor(file),
+  };
+}
+
 export async function uploadOcrDocument({
   userId,
   classDocId,
@@ -93,6 +113,7 @@ export async function uploadOcrDocument({
   category,
   name,
   pageNames,
+  original,
 }: {
   userId: string;
   classDocId: string;
@@ -100,6 +121,9 @@ export async function uploadOcrDocument({
   category: string;
   name: string;
   pageNames?: string[];
+  /** The file the pages came from (e.g. the PDF they were rendered from),
+   *  kept so the viewer can show it next to the transcription. */
+  original?: File;
 }) {
   if (files.length === 0) throw new Error("Choose at least one image.");
   if (!files.every((file) => OCR_IMAGE_TYPES.includes(fileExtensionFor(file)))) {
@@ -121,11 +145,20 @@ export async function uploadOcrDocument({
     manualTranscript: false,
   });
 
-  await Promise.all(files.map((file, index) =>
-    uploadOcrPage(userId, classDocId, resource.id, file, index, pageNames?.[index])
-  ));
-  await updateDoc(resource, { pageCount: files.length, ocrStatus: "queued", indexStatus: "queued" });
-  await queueOcrDocument(userId, classDocId, resource.id);
+  try {
+    const originalFields = original ? await uploadOcrOriginal(userId, classDocId, resource.id, original) : {};
+    await Promise.all(files.map((file, index) =>
+      uploadOcrPage(userId, classDocId, resource.id, file, index, pageNames?.[index])
+    ));
+    await updateDoc(resource, { ...originalFields, pageCount: files.length, ocrStatus: "queued", indexStatus: "queued" });
+    await queueOcrDocument(userId, classDocId, resource.id);
+  } catch (error) {
+    // Don't leave a half-built document behind for the course screen to show.
+    const pages = await getDocs(collection(resource, "pages")).catch(() => null);
+    await Promise.all(pages?.docs.map((page) => deleteDoc(page.ref).catch(() => undefined)) ?? []);
+    await deleteDoc(resource).catch(() => undefined);
+    throw error;
+  }
   return { success: true, id: resource.id };
 }
 
@@ -163,7 +196,7 @@ export async function addOcrDocumentPages({
 }
 
 // ─── FUNCTION 1: UPLOAD A FILE ───
-export const uploadUserResource = async ({ userId, classDocId, file, category }: UploadFileProps) => {
+export const uploadUserResource = async ({ userId, classDocId, file, category, index = true }: UploadFileProps) => {
   if (file.size > MAX_FILE_SIZE_BYTES) {
     throw new Error(`"${file.name}" is too large (${(file.size / 1024 / 1024).toFixed(1)}MB) — the limit is 20MB.`);
   }
@@ -198,7 +231,8 @@ export const uploadUserResource = async ({ userId, classDocId, file, category }:
       fileType: fileExtension,
       category: category,
       uploadedAt: serverTimestamp(),
-      lastViewedAt: serverTimestamp()
+      lastViewedAt: serverTimestamp(),
+      ...(index ? {} : { indexSkipped: true }),
     });
 
     // Fire-and-forget: index the document for semantic search.
@@ -207,7 +241,7 @@ export const uploadUserResource = async ({ userId, classDocId, file, category }:
     // request the moment the user navigates away (e.g. to view the
     // document they just uploaded), which is almost immediate after an
     // upload — so indexing was silently never completing.
-    if (INDEXABLE_FILE_TYPES.includes(fileExtension)) {
+    if (index && INDEXABLE_FILE_TYPES.includes(fileExtension)) {
       fetch("/api/embed-document", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
