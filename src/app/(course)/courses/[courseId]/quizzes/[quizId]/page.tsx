@@ -863,7 +863,7 @@ export default function QuizTakingPage() {
       onClick={handleNewQuestions}
       disabled={regenerating}
       title="Make a new quiz from the same file, with different questions"
-      className="inline-flex items-center gap-2 rounded-xl border border-border-light px-5 py-2.5 text-sm font-semibold text-[#1a1a2e] transition-colors hover:bg-bg-warm disabled:cursor-wait disabled:opacity-60"
+      className="inline-flex items-center gap-2 rounded-xl border border-border-light px-5 py-2.5 text-sm font-semibold text-text-main transition-colors hover:bg-bg-warm disabled:cursor-wait disabled:opacity-60"
     >
       {regenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
       {regenerating ? 'Writing new questions…' : 'New questions'}
@@ -931,7 +931,7 @@ export default function QuizTakingPage() {
 
   if (authLoading || !user) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#FAFAF8]">
+      <div className="flex min-h-screen items-center justify-center bg-bg-main">
         <Loader2 size={32} className="animate-spin text-[#8B6914]" />
       </div>
     );
@@ -939,7 +939,7 @@ export default function QuizTakingPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[#FAFAF8]">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-bg-main">
         <Loader2 size={32} className="animate-spin text-[#8B6914]" />
         <p className="text-sm text-text-muted">Loading your quiz...</p>
       </div>
@@ -948,14 +948,14 @@ export default function QuizTakingPage() {
 
   if (notFound) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#FAFAF8] px-4">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-bg-main px-4">
         <AlertCircle size={36} className="text-red-400" />
         <p className="max-w-md text-center text-sm text-text-main">
           Quiz not found. It may have been deleted.
         </p>
         <button
           onClick={() => router.push(`/courses/${courseId}/learning`)}
-          className="mt-2 rounded-lg border border-[#8B6914] px-4 py-2 text-sm text-[#8B6914] transition-colors hover:bg-[#F5F0EB]"
+          className="mt-2 rounded-lg border border-[#8B6914] px-4 py-2 text-sm text-[#8B6914] transition-colors hover:bg-bg-warm"
         >
           Back to Learning
         </button>
@@ -965,14 +965,14 @@ export default function QuizTakingPage() {
 
   if (attemptNotFound) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#FAFAF8] px-4">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-bg-main px-4">
         <AlertCircle size={36} className="text-red-400" />
         <p className="max-w-md text-center text-sm text-text-main">
           Attempt not found. It may have been deleted.
         </p>
         <button
           onClick={() => router.push(`/courses/${courseId}/quizzes/${quizId}`)}
-          className="mt-2 rounded-lg border border-[#8B6914] px-4 py-2 text-sm text-[#8B6914] transition-colors hover:bg-[#F5F0EB]"
+          className="mt-2 rounded-lg border border-[#8B6914] px-4 py-2 text-sm text-[#8B6914] transition-colors hover:bg-bg-warm"
         >
           Back to quiz
         </button>
@@ -982,7 +982,7 @@ export default function QuizTakingPage() {
 
   if (!modeResolved) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#FAFAF8]">
+      <div className="flex min-h-screen items-center justify-center bg-bg-main">
         <Loader2 size={32} className="animate-spin text-[#8B6914]" />
       </div>
     );
@@ -997,7 +997,7 @@ export default function QuizTakingPage() {
       courseDocuments,
     );
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#FAFAF8] px-4">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-bg-main px-4">
         <AlertCircle size={36} className="text-red-400" />
         <p className="max-w-md text-center text-sm text-text-main">
           This practice quiz is unavailable.
@@ -1005,13 +1005,13 @@ export default function QuizTakingPage() {
         <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
           <Link
             href="/learning"
-            className="rounded-lg border border-[#8B6914] px-4 py-2 text-sm text-[#8B6914] transition-colors hover:bg-[#F5F0EB]"
+            className="rounded-lg border border-[#8B6914] px-4 py-2 text-sm text-[#8B6914] transition-colors hover:bg-bg-warm"
           >
             Back to Learning
           </Link>
           <Link
             href={courseHref(courseId, resourceId)}
-            className="rounded-lg border border-[#8B6914] px-4 py-2 text-sm text-[#8B6914] transition-colors hover:bg-[#F5F0EB]"
+            className="rounded-lg border border-[#8B6914] px-4 py-2 text-sm text-[#8B6914] transition-colors hover:bg-bg-warm"
           >
             {resourceId ? 'Open source document' : 'Back to course'}
           </Link>
@@ -1021,14 +1021,14 @@ export default function QuizTakingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FAFAF8]">
+    <div className="min-h-screen bg-bg-main">
       <PageTutorial id="course-quiz" steps={courseQuizSteps} />
       {/* Header */}
       <div className="relative flex h-[60px] items-center border-b border-border-light px-6 md:px-14">
         <div className="relative z-10 flex min-w-0 items-center gap-3">
           <button
             onClick={() => router.push(`/courses/${courseId}/learning`)}
-            className="shrink-0 rounded-md p-1.5 transition-colors hover:bg-[#F5F0EB]"
+            className="shrink-0 rounded-md p-1.5 transition-colors hover:bg-bg-warm"
           >
             <ArrowLeft size={20} className="text-text-main" />
           </button>
@@ -1036,7 +1036,7 @@ export default function QuizTakingPage() {
         <div className="pointer-events-none absolute inset-x-16 min-w-0 text-center md:inset-x-28" data-tutorial="course-quiz-heading">
           <p className="truncate text-xs text-text-muted">{courseDisplayName}</p>
           <div className="flex min-w-0 items-center justify-center gap-2">
-            <h1 className="min-w-0 truncate text-xl font-bold text-[#1a1a2e]">{quizName}</h1>
+            <h1 className="min-w-0 truncate text-xl font-bold text-text-main">{quizName}</h1>
             {quizDifficulty && (
               <span className="shrink-0 rounded-full border border-border-light px-2 py-0.5 text-[11px] font-medium text-text-muted">
                 {difficultyLabel(quizDifficulty)}
@@ -1052,14 +1052,14 @@ export default function QuizTakingPage() {
             <div className="flex flex-wrap items-center gap-3" data-tutorial="course-quiz-actions">
               <button
                 onClick={handleResetToFullQuiz}
-                className="rounded-xl bg-[#1a1a2e] px-8 py-4 text-base font-semibold text-text-inverse transition-colors hover:bg-[#2a2a3e]"
+                className="rounded-xl bg-[#1a1a2e] px-8 py-4 text-base font-semibold text-white transition-colors hover:bg-[#2a2a3e]"
               >
                 Take again
               </button>
               {pastAttempts.length > 0 && (
                 <button
                   onClick={handleViewLastResult}
-                  className="rounded-xl border border-border-light px-6 py-3.5 text-sm font-semibold text-[#1a1a2e] transition-colors hover:bg-bg-warm"
+                  className="rounded-xl border border-border-light px-6 py-3.5 text-sm font-semibold text-text-main transition-colors hover:bg-bg-warm"
                 >
                   View last result
                 </button>
@@ -1070,7 +1070,7 @@ export default function QuizTakingPage() {
 
             {pastAttempts.length > 0 ? (
               <div>
-                <h2 className="mb-3 text-sm font-bold text-[#1a1a2e]">Past Attempts</h2>
+                <h2 className="mb-3 text-sm font-bold text-text-main">Past Attempts</h2>
                 <div className="flex flex-col divide-y divide-border-light rounded-2xl border border-border-light bg-bg-container">
                   {pastAttempts.map((attempt) => (
                     <button
@@ -1078,10 +1078,10 @@ export default function QuizTakingPage() {
                       onClick={() =>
                         router.push(`/courses/${courseId}/quizzes/${quizId}?attemptId=${attempt.id}`)
                       }
-                      className="flex items-center justify-between px-5 py-3.5 text-left transition-colors hover:bg-[#F5F0EB]"
+                      className="flex items-center justify-between px-5 py-3.5 text-left transition-colors hover:bg-bg-warm"
                     >
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-[#1a1a2e]">
+                        <p className="text-sm font-semibold text-text-main">
                           {attempt.score} out of {attempt.total} correct
                         </p>
                         <p className="text-xs text-text-muted">{formatAttemptDate(attempt.completedAt)}</p>
@@ -1152,7 +1152,7 @@ export default function QuizTakingPage() {
                 <button
                   onClick={handleSubmit}
                   disabled={!allAnswered || submitting}
-                  className="flex items-center gap-2 rounded-xl bg-[#1a1a2e] px-6 py-3 text-sm font-semibold text-text-inverse transition-colors hover:bg-[#2a2a3e] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex items-center gap-2 rounded-xl bg-[#1a1a2e] px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#2a2a3e] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {submitting ? (
                     <>
@@ -1171,13 +1171,13 @@ export default function QuizTakingPage() {
                 <button
                   onClick={handleRetestMissed}
                   disabled={missedCount === 0}
-                  className="rounded-xl border border-border-light px-5 py-2.5 text-sm font-semibold text-[#1a1a2e] transition-colors hover:bg-bg-warm disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-xl border border-border-light px-5 py-2.5 text-sm font-semibold text-text-main transition-colors hover:bg-bg-warm disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Retest missed terms
                 </button>
                 <button
                   onClick={handleResetToFullQuiz}
-                  className="rounded-xl bg-[#1a1a2e] px-5 py-2.5 text-sm font-semibold text-text-inverse transition-colors hover:bg-[#2a2a3e]"
+                  className="rounded-xl bg-[#1a1a2e] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#2a2a3e]"
                 >
                   Do it again
                 </button>

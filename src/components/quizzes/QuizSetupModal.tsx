@@ -43,7 +43,7 @@ function ToggleSwitch({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
-        disabled ? "bg-border-light cursor-not-allowed" : checked ? "bg-[#1a1a2e]" : "bg-border-hover"
+        disabled ? "bg-border-light cursor-not-allowed" : checked ? "bg-[#1a1a2e] dark:bg-primary" : "bg-border-hover"
       }`}
     >
       <span
@@ -99,7 +99,7 @@ export default function QuizSetupModal({
         <div className="flex items-start justify-between mb-1">
           <div className="flex min-w-0 items-center gap-2">
             <FileText size={18} className="shrink-0 text-[#8B6914]" />
-            <h2 className="truncate text-base font-bold text-[#1a1a2e]">{documentName}</h2>
+            <h2 className="truncate text-base font-bold text-text-main">{documentName}</h2>
           </div>
           <button
             onClick={onClose}
@@ -157,7 +157,7 @@ export default function QuizSetupModal({
           <div
             role="radiogroup"
             aria-label="Quiz level"
-            className="grid grid-cols-3 gap-1 rounded-xl border border-border-light bg-bg-warm/40 p-1"
+            className="grid grid-cols-3 gap-1 rounded-xl border border-border-light bg-bg-warm p-1"
           >
             {QUIZ_DIFFICULTY_OPTIONS.map((option) => {
               const selected = difficulty === option.value;

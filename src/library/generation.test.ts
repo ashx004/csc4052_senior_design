@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { generateQuizWithValidation } from "./quizGeneration";
+import { buildBloomPlan } from "./quizDifficulty";
 import { generateFlashcardsWithRetry } from "./flashcardGeneration";
 import { structuredGeneration, normalizedQuestion } from "./structuredGeneration";
 
@@ -24,7 +25,7 @@ describe("quiz generation contract", () => {
     expect((await quiz()).questions).toHaveLength(3);
     expect(request).toHaveBeenCalledTimes(1);
     expect(body(0)).toMatchObject({ model: "resident-model", options: { num_ctx: 32768, temperature: 0 }, think: false });
-    // JSON mode, not a JSON schema: schema + think:false crashes qwen3.6 (ollama/ollama#17434).
+    // JSON mode is kept because it is tested working; re-test a schema `format` before switching back.
     expect(body(0).format).toBe("json");
     const content = body(0).messages[1].content as string;
     expect(content).toContain('"type": "multiple_choice"');
@@ -114,6 +115,21 @@ describe("quiz levels and question quality", () => {
     request.mockResolvedValueOnce(reply([mc(1), mc(2), mc(3), extra]));
     const result = await quiz();
     expect(result.questions.map((q) => q.question)).toEqual(["Question 1?", "Question 2?", "Question 3?"]);
+  });
+  it("keeps the other questions when one item is malformed (missing options, bad type)", async () => {
+    const { options: _omit, ...noOptions } = mc(2);
+    request.mockResolvedValueOnce(reply([mc(1), noOptions, { ...mc(3), type: "multiple choice" }, mc(4)]));
+    const result = await quiz(2);
+    expect(result.questions.map((q) => q.question)).toEqual(["Question 1?", "Question 4?"]);
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+  it("New questions keeps the intended level mix: the first N plan lines equal buildBloomPlan(d, N)", async () => {
+    request.mockResolvedValue(reply([]));
+    await expect(generateQuizWithValidation("Source text", 10, { multipleChoice: true }, "http://ai", undefined, ["Old question about something else entirely?"], "challenge")).rejects.toThrow();
+    const lines = [...prompt(0).matchAll(/^(\d+)\. (\w+)$/gm)].map((m) => m[2]);
+    expect(lines.length).toBe(13);
+    expect(lines.slice(0, 10)).toEqual(buildBloomPlan("challenge", 10));
+    expect(lines.slice(0, 10)).toContain("evaluate");
   });
   it("shuffles multiple-choice options but keeps the correct answer", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);

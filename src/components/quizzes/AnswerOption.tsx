@@ -26,7 +26,7 @@ export default function AnswerOption({
         onClick={onClick}
         className={`flex items-center justify-center rounded-xl border px-4 py-3 text-center text-sm font-medium transition-colors ${
           isSelected
-            ? "border-[#1a1a2e] bg-[#1a1a2e]/5 text-[#1a1a2e]"
+            ? "border-[#1a1a2e] bg-[#1a1a2e]/5 text-text-main dark:border-primary dark:bg-bg-warm"
             : "border-border-light text-text-muted hover:border-border-hover hover:bg-bg-warm"
         }`}
       >
