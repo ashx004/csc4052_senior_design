@@ -141,12 +141,12 @@ export default function TransferCreditForm({
   }
 
   return (
-    <div className="rounded-lg border border-amber-300 bg-amber-50 p-4">
-      <h3 className="font-semibold text-amber-900">
+    <div className="rounded-lg border border-border-light bg-bg-warm p-4">
+      <h3 className="font-semibold text-text-main">
         {heading}
       </h3>
 
-      <p className="mt-1 text-sm text-amber-800">
+      <p className="mt-1 text-sm text-text-muted">
         {description ?? (
           <>
             Some transfer courses on your transcript were missing course codes
@@ -172,14 +172,14 @@ export default function TransferCreditForm({
         {rows.map((row, index) => (
           <div
             key={index}
-            className="grid grid-cols-1 gap-2 rounded-md border border-amber-200 bg-white p-3 sm:grid-cols-[1.2fr_2fr_0.8fr_0.6fr_auto]"
+            className="grid grid-cols-1 gap-2 rounded-md border border-border-light bg-bg-container p-3 sm:grid-cols-[1.2fr_2fr_0.8fr_0.6fr_auto]"
           >
             <input
               type="text"
               placeholder="Course code (e.g. ENGL 1013)"
               value={row.courseCode}
               onChange={(e) => updateRow(index, "courseCode", e.target.value)}
-              className="rounded border border-gray-300 px-2 py-1.5 text-sm"
+              className="w-full min-w-0 rounded border border-border-light bg-bg-main px-2 py-1.5 text-sm text-text-main placeholder:text-text-muted focus:border-border-hover focus:outline-none"
               required
             />
 
@@ -188,7 +188,7 @@ export default function TransferCreditForm({
               placeholder="Course title (optional)"
               value={row.courseTitle}
               onChange={(e) => updateRow(index, "courseTitle", e.target.value)}
-              className="rounded border border-gray-300 px-2 py-1.5 text-sm"
+              className="w-full min-w-0 rounded border border-border-light bg-bg-main px-2 py-1.5 text-sm text-text-main placeholder:text-text-muted focus:border-border-hover focus:outline-none"
             />
 
             <input
@@ -199,7 +199,7 @@ export default function TransferCreditForm({
               placeholder="Credits"
               value={row.creditHours}
               onChange={(e) => updateRow(index, "creditHours", e.target.value)}
-              className="rounded border border-gray-300 px-2 py-1.5 text-sm"
+              className="w-full min-w-0 rounded border border-border-light bg-bg-main px-2 py-1.5 text-sm text-text-main placeholder:text-text-muted focus:border-border-hover focus:outline-none"
             />
 
             <input
@@ -207,7 +207,7 @@ export default function TransferCreditForm({
               placeholder="Grade"
               value={row.grade}
               onChange={(e) => updateRow(index, "grade", e.target.value)}
-              className="rounded border border-gray-300 px-2 py-1.5 text-sm"
+              className="w-full min-w-0 rounded border border-border-light bg-bg-main px-2 py-1.5 text-sm text-text-main placeholder:text-text-muted focus:border-border-hover focus:outline-none"
               maxLength={3}
             />
 
@@ -215,7 +215,7 @@ export default function TransferCreditForm({
               type="button"
               onClick={() => removeRow(index)}
               disabled={rows.length === 1}
-              className="rounded px-2 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded px-2 py-1.5 text-sm text-alert-error hover:bg-alert-error-bg disabled:cursor-not-allowed disabled:opacity-40"
               aria-label="Remove row"
             >
               Remove
@@ -226,19 +226,19 @@ export default function TransferCreditForm({
         <button
           type="button"
           onClick={addRow}
-          className="text-sm font-medium text-amber-800 hover:underline"
+          className="text-sm font-medium text-primary hover:text-primary-hover hover:underline"
         >
           + Add another course
         </button>
 
-        {error ? <p className="text-sm text-red-600">{error}</p> : null}
-        {successMessage ? <p className="text-sm text-green-700">{successMessage}</p> : null}
+        {error ? <p className="text-sm text-alert-error">{error}</p> : null}
+        {successMessage ? <p className="text-sm text-alert-success">{successMessage}</p> : null}
 
         <div className="flex gap-3 pt-2">
           <button
             type="submit"
             disabled={submitting}
-            className="rounded bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded bg-primary px-4 py-2 text-sm font-medium text-text-inverse hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? "Saving..." : "Save transfer credit"}
           </button>
@@ -247,7 +247,7 @@ export default function TransferCreditForm({
             <button
               type="button"
               onClick={onDismiss}
-              className="rounded px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
+              className="rounded px-4 py-2 text-sm font-medium text-primary hover:bg-bg-container"
             >
               {dismissLabel}
             </button>

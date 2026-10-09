@@ -121,6 +121,11 @@ export interface StudyTask {
   completedAt: Timestamp | null;
   activityTarget?: ActivityTarget;
   sourceSuggestionId?: string | null;
+  scheduledStart?: string | null;
+  scheduledEnd?: string | null;
+  scheduleRemoved?: boolean | null;
+  googleEventId?: string | null;
+  generatedPracticeQuizId?: string | null;
 }
 
 // --- Session ---

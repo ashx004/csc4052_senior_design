@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import EventPill from "@/src/components/calendar/EventPill";
 import TimedEvent from "@/src/components/calendar/TimedEvent";
 import {
@@ -6,24 +6,24 @@ import {
   buildTimeSlots,
   getWeekStart,
   getWeekDates,
-  getEventsForDay,
   getTimedEventsForDay,
   getAllDayEvents,
   getEventPosition,
 } from "@/src/library/calendarHelpers";
 import type { CalendarEvent } from "@/src/components/calendar/calendarTypes";
+import { dropStartFromPointer } from "@/src/library/studyPlan/studySchedule";
 
 // Keep weekly view consistent with monthly view and include every scheduled
 // class meeting, including early morning and evening sections.
 const START_HOUR = 0;
 const END_HOUR = 24;
-const HOUR_HEIGHT = 64; // px — matches h-16 in the grid rows
 
 type WeekViewProps = {
   events: CalendarEvent[];
   selectedDate: Date;
   onSelectDate: (date: Date) => void;
   onEventClick?: (event: CalendarEvent) => void;
+  onStudyBlockMove?: (event: CalendarEvent, newStart: Date) => void;
 };
 
 export default function WeekView({
@@ -31,7 +31,10 @@ export default function WeekView({
   selectedDate,
   onSelectDate,
   onEventClick,
+  onStudyBlockMove,
 }: WeekViewProps) {
+  const [dragged, setDragged] = useState<CalendarEvent | null>(null);
+  const [grabOffsetY, setGrabOffsetY] = useState(0);
   const weekStart = useMemo(() => getWeekStart(selectedDate), [selectedDate]);
   const weekDays = useMemo(
     () => buildWeekDays(weekStart, selectedDate),
@@ -122,9 +125,20 @@ export default function WeekView({
                     <div
                       key={`${weekDays[dayIndex].label}-${time}`}
                       className="relative h-16 border-r border-b border-border-light last:border-r-0"
+                      onDragOver={(e) => { if (dragged) e.preventDefault(); }}
+                      onDrop={(e) => {
+                        if (!dragged) return;
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const start = dropStartFromPointer(date, hour, e.clientY - rect.top, rect.height, grabOffsetY);
+                        if (start.toDateString() === date.toDateString() && new Date(dragged.startTime).toDateString() === date.toDateString()) {
+                          onStudyBlockMove?.(dragged, start);
+                        }
+                        setDragged(null);
+                      }}
                     >
                       {timedEvts.map((ev) => {
                         const { topPx, heightPx } = getEventPosition(ev, hour);
+                        const movable = ev.source === "study" && !ev.done && Boolean(onStudyBlockMove);
                         return (
                           <TimedEvent
                             key={ev.id}
@@ -135,6 +149,10 @@ export default function WeekView({
                             style={{ top: `${topPx}px` }}
                             onClick={() => onEventClick?.(ev)}
                             hasConflict={Boolean(ev.conflictTitles?.length)}
+                            done={ev.source === "study" ? ev.done : undefined}
+                            draggable={movable}
+                            onDragStart={movable ? (e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", ev.id); setGrabOffsetY(e.clientY - e.currentTarget.getBoundingClientRect().top); setDragged(ev); } : undefined}
+                            onDragEnd={movable ? () => setDragged(null) : undefined}
                           />
                         );
                       })}
