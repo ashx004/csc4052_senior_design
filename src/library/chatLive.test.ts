@@ -12,7 +12,7 @@ describe("reduceActivity", () => {
 
   it("tracks a tool from running to done or failed", () => {
     let a = reduceActivity(EMPTY_ACTIVITY, { type: "tool", name: "search_documents", detail: "“mitosis”" });
-    expect(a.tools).toMatchObject([{ name: "search_documents", state: "running", detail: "“mitosis”" }]);
+    expect(a.tools).toMatchObject([{ name: "search_documents", state: "running", detail: "“mitosis”", label: "Searching your documents...", doneLabel: "Searched your documents" }]);
     a = reduceActivity(a, { type: "tool_done", name: "search_documents", ok: true });
     expect(a.tools[0].state).toBe("done");
     a = reduceActivity(a, { type: "tool", name: "read_document" });

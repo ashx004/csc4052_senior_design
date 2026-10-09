@@ -2830,6 +2830,8 @@ export async function POST(request: NextRequest) {
           }
         }
       } catch (error: any) {
+        // Reasoning still buffered goes out before the closing events, not after them.
+        thoughtRelay.end();
         if (error instanceof ChatStoppedError || stopSignal?.aborted) {
           // The student pressed Stop: keep what was written so far (it is saved
           // like any reply) and mark it, so they can re-word and ask again.
