@@ -35,7 +35,7 @@ export async function extractSyllabusInfo(
           { role: "system", content: SYLLABUS_SYSTEM_PROMPT },
           {
             role: "user",
-            content: `Course: ${course.classCode ?? ""} ${course.className ?? ""} (${course.term ?? ""})\n\nSYLLABUS:\n${text.slice(0, MAX_SYLLABUS_CHARS)}`,
+            content: `Course: ${course.classCode ?? ""} ${course.className ?? ""} (${course.term ?? ""})\nToday's date: ${new Date().toISOString().slice(0, 10)}\n\nSYLLABUS:\n${text.slice(0, MAX_SYLLABUS_CHARS)}`,
           },
         ],
         stream: false,
