@@ -126,14 +126,14 @@ export default function MatchingQuestionGroup({
                   transition-colors
                   focus-visible:outline-none
                   focus-visible:ring-2
-                  focus-visible:ring-[#1a1a2e]
+                  focus-visible:ring-[#1a1a2e] dark:focus-visible:ring-primary
                   focus-visible:ring-offset-2
                   disabled:cursor-default
                   ${stateClasses}
                 `}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-semibold text-[#1a1a2e]">
+                  <span className="font-semibold text-text-main">
                     {question.question}
                   </span>
 
@@ -197,7 +197,7 @@ export default function MatchingQuestionGroup({
                */
               stateClasses = `${getMatchColor(
                 assignedIndex
-              )} text-[#1a1a2e]`;
+              )} text-text-main`;
 
               if (isResults) {
                 stateClasses += isCorrectAssignment
@@ -219,7 +219,7 @@ export default function MatchingQuestionGroup({
                   transition-colors
                   focus-visible:outline-none
                   focus-visible:ring-2
-                  focus-visible:ring-[#1a1a2e]
+                  focus-visible:ring-[#1a1a2e] dark:focus-visible:ring-primary
                   focus-visible:ring-offset-2
                   disabled:cursor-default
                   ${stateClasses}

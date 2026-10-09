@@ -11,6 +11,7 @@ import { searchYoutube } from "@/src/library/youtubeSearch";
 import { generateAndUploadPdf, generateAndUploadPdfToCourse } from "@/src/library/pdfGenerate";
 import { generateFlashcardsWithRetry } from "@/src/library/flashcardGeneration";
 import { generateQuizWithValidation } from "@/src/library/quizGeneration";
+import { DEFAULT_QUIZ_DIFFICULTY } from "@/src/library/quizDifficulty";
 import { warnIfSlowGeneration } from "@/src/library/ollamaHealthCheck";
 import { getStudentProfile, maybeUpdateStudentProfile, StudentProfile } from "@/src/library/studentProfile";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
@@ -1082,6 +1083,7 @@ async function createQuizFromDocument(
       sourceDocKey: storageKeyFromDocUrl(readResult.doc.url),
       questions: generated.questions,
       questionTypes: { multipleChoice: true, trueFalse: true, matching: false },
+      difficulty: DEFAULT_QUIZ_DIFFICULTY,
       questionCount: generated.questions.length,
       pinned: true,
       visibility: "private",

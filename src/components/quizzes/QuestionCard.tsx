@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Lightbulb } from "lucide-react";
 import { isQuizOptionSelected } from "@/src/library/quizAnswerSelection";
 import AnswerOption from "./AnswerOption";
 
@@ -10,6 +11,7 @@ interface QuizQuestion {
   question: string;
   options: string[];
   correctAnswer: string;
+  explanation?: string;
 }
 
 interface QuestionCardProps {
@@ -42,7 +44,7 @@ export default function QuestionCard({
       <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
         Question {questionNumber}
       </p>
-      <h3 className="mb-4 text-base font-bold text-[#1a1a2e]">{question.question}</h3>
+      <h3 className="mb-4 text-base font-bold text-text-main">{question.question}</h3>
 
       {isResults && (
         <p
@@ -78,6 +80,16 @@ export default function QuestionCard({
           );
         })}
       </div>
+
+      {isResults && question.explanation?.trim() && (
+        <div className="mt-4 rounded-xl border border-border-light border-l-4 border-l-[#8B6914] bg-bg-warm px-4 py-3">
+          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-[#8B6914] dark:text-amber-300">
+            <Lightbulb size={14} className="shrink-0" aria-hidden="true" />
+            Why
+          </p>
+          <p className="mt-1.5 break-words text-sm leading-relaxed text-text-main">{question.explanation}</p>
+        </div>
+      )}
     </div>
   );
 }

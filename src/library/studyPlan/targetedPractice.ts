@@ -1,5 +1,6 @@
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { getEffectiveModelKey } from '@/src/library/chatMode';
+import { DEFAULT_QUIZ_DIFFICULTY, type QuizDifficulty } from '@/src/library/quizDifficulty';
 
 export const TARGETED_PRACTICE_QUESTION_COUNT = 10;
 export const TARGETED_PRACTICE_QUESTION_TYPES = {
@@ -38,6 +39,7 @@ export function buildTargetedPracticeRequest(input: {
   questionTypes: typeof TARGETED_PRACTICE_QUESTION_TYPES;
   modelKey: string;
   avoidQuestions: string[];
+  difficulty: QuizDifficulty;
 } {
   const docName = input.sourceDocKey.split('/').pop()?.replace(/^\d+[-_]/, '') || 'document';
   return {
@@ -47,6 +49,7 @@ export function buildTargetedPracticeRequest(input: {
     questionTypes: TARGETED_PRACTICE_QUESTION_TYPES,
     modelKey: input.modelKey,
     avoidQuestions: [...input.avoidQuestions],
+    difficulty: DEFAULT_QUIZ_DIFFICULTY,
   };
 }
 
@@ -87,6 +90,7 @@ export async function generateTargetedPracticeQuiz(input: {
       sourceDocKey: input.sourceDocKey,
       questions: data.questions,
       questionTypes: TARGETED_PRACTICE_QUESTION_TYPES,
+      difficulty: DEFAULT_QUIZ_DIFFICULTY,
       questionCount: data.questions.length,
       pinned: true,
       visibility: 'private',
