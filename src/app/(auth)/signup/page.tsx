@@ -22,7 +22,6 @@ export default function Signup() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
-  const [role, setRole] = useState("");
   const [college, setCollege] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -68,7 +67,6 @@ export default function Signup() {
           await setDoc(doc(db, "users", user.uid), {
             name: name,
             email: email,
-            role: role,
             college: college,
             joinedAt: serverTimestamp(),
           });
@@ -145,9 +143,11 @@ export default function Signup() {
 
   return (
     <div className="flex min-h-screen items-center justify-center
-                    bg-bg-main">
+                    bg-bg-main px-4 py-10">
+      {/* w-full max-w-md: full width on phones, capped on larger screens.
+          Without a real width the card shrink-wraps to its widest child. */}
       <div className="bg-bg-container rounded items-center shadow-md flex
-                      flex-col w-100 h-100 p-6">
+                      flex-col w-full max-w-md px-6 py-10 sm:px-10">
 
         <AppLogo className="w-[168px] h-[168px]" />
 
@@ -164,7 +164,7 @@ export default function Signup() {
           <input
             type="name"
             placeholder="name"
-            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded mt-8 font-mono text-sm"
+            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded font-mono text-sm"
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
@@ -172,7 +172,7 @@ export default function Signup() {
           <input
             type="email"
             placeholder="email"
-            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded mt-2 font-mono text-sm"
+            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded font-mono text-sm"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
@@ -180,23 +180,15 @@ export default function Signup() {
           <input
             type="password"
             placeholder="password"
-            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded mt-2 font-mono text-sm"
+            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded font-mono text-sm"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
 
           <input
-            type="role"
-            placeholder="role"
-            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded mt-2 font-mono text-sm"
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-          />
-
-          <input
             type="text"
             placeholder="college / university (optional)"
-            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded mt-2 font-mono text-sm"
+            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded font-mono text-sm"
             value={college}
             onChange={(e) => setCollege(e.target.value)}
           />
@@ -204,7 +196,7 @@ export default function Signup() {
           <button
             onClick={handleSignup}
             disabled={isSubmitting}
-            className="bg-primary text-text-inverse py-1 px-4 rounded
+            className="bg-primary text-text-inverse py-1.5 px-4 rounded
                       hover:bg-primary-hover disabled:opacity-50" >
             Create account
           </button>

@@ -91,11 +91,11 @@ export default function TransferCreditForm({
     }
 
     const invalidCreditRow = cleanedRows.find(
-      (row) => row.creditHours !== null && (Number.isNaN(row.creditHours) || row.creditHours < 0)
+      (row) => row.creditHours !== null && (!Number.isInteger(row.creditHours) || row.creditHours < 0)
     );
 
     if (invalidCreditRow) {
-      setError(`"${invalidCreditRow.courseCode}" has an invalid credit hours value.`);
+      setError(`"${invalidCreditRow.courseCode}" needs a whole number of credit hours (like 1, 2, or 3).`);
       return;
     }
 
@@ -195,7 +195,7 @@ export default function TransferCreditForm({
               type="number"
               min={0}
               max={20}
-              step={0.5}
+              step={1}
               placeholder="Credits"
               value={row.creditHours}
               onChange={(e) => updateRow(index, "creditHours", e.target.value)}

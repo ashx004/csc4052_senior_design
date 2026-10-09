@@ -15,7 +15,6 @@ export async function ensureUserProfile(user: User): Promise<void> {
   await setDoc(userDoc, {
     name: user.displayName ?? "",
     email: user.email ?? "",
-    role: "",
     college: "",
     joinedAt: serverTimestamp(),
   });
