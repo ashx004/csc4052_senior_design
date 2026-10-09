@@ -1,9 +1,20 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  ReactNode,
+} from "react";
+import { setAnalyticsUser } from "@/src/library/analytics";
 import { auth } from "@/src/library/firebase";
 import { onIdTokenChanged, User, signOut } from "firebase/auth";
-import { clearRememberCookie, hasRememberCookie, touchRememberCookie } from "@/src/library/session";
+import {
+  clearRememberCookie,
+  hasRememberCookie,
+  touchRememberCookie,
+} from "@/src/library/session";
 
 interface AuthContextType {
   user: User | null;
@@ -30,7 +41,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // onIdTokenChanged (not onAuthStateChanged) so the cookie also refreshes
     // when Firebase silently rotates the token — middleware reads this
     // cookie to decide whether a page request is authenticated.
+    let latestAuthUpdate = 0;
     const unsubscribe = onIdTokenChanged(auth, async (currentUser) => {
+      const authUpdate = ++latestAuthUpdate;
+      setAnalyticsUser(currentUser?.uid ?? null);
       // Cookie is written BEFORE user/loading state updates, not after —
       // otherwise a consumer reacting to `user` becoming truthy (e.g. the
       // login page's already-signed-in redirect) can navigate to a
@@ -47,7 +61,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // don't silently keep it alive forever; require a real sign-in to
         // start a fresh window.
         if (!hasRememberCookie()) {
+          setAnalyticsUser(null);
           await signOut(auth);
+          if (authUpdate !== latestAuthUpdate) return;
           document.cookie = `${SESSION_COOKIE}=; path=/; max-age=0`;
           setUser(null);
           setLoading(false);
@@ -58,6 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const token = await currentUser.getIdToken();
         // This claim controls navigation; the server separately enforces access.
         const tokenResult = await currentUser.getIdTokenResult();
+        if (authUpdate !== latestAuthUpdate) return;
         setIsAdmin(tokenResult.claims.admin === true);
         document.cookie = `${SESSION_COOKIE}=${token}; path=/; max-age=3600; SameSite=Lax`;
       } else {
@@ -68,7 +85,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(currentUser);
       setLoading(false);
     });
-    return unsubscribe;
+    return () => {
+      latestAuthUpdate += 1;
+      unsubscribe();
+      setAnalyticsUser(null);
+    };
   }, []);
 
   const logout = () => signOut(auth);

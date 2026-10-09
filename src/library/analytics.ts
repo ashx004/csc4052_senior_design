@@ -9,39 +9,23 @@ import {
   type EventProperties,
 } from "./analyticsContract";
 
-export const ANALYTICS_PREFERENCE_KEY = "catalyst-analytics-consent-v1";
-
-const PREFERENCE_CHANGED_EVENT = "catalyst-analytics-consent";
 const ANALYTICS_APP_NAME = "catalyst-analytics";
 const MAX_REMEMBERED_EVENTS = 2000;
 let analyticsInstance: Analytics | undefined;
 let analyticsSdk: typeof import("firebase/analytics") | undefined;
 let initializationPromise: Promise<Analytics | null> | undefined;
-let currentTabPreference: boolean | undefined;
-
+let activeUserId: string | null = null;
+let activeSession = 0;
+let collectionEnabled = false;
 let consentChangeCount = 0;
 const sentEventKeys = new Set<string>();
 
 export function analyticsEnabled(): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-  if (currentTabPreference !== undefined) {
-    return currentTabPreference;
-  }
-
-  try {
-    const savedPreference = localStorage.getItem(ANALYTICS_PREFERENCE_KEY);
-    return savedPreference === "enabled";
-  } catch {
-    return false;
-  }
+  return typeof window !== "undefined" && collectionEnabled;
 }
 
 function syncCollectionWithConsent() {
-  if (!analyticsInstance || !analyticsSdk) {
-    return;
-  }
+  if (!analyticsInstance || !analyticsSdk) return;
 
   const enabled = analyticsEnabled();
   analyticsSdk.setAnalyticsCollectionEnabled(analyticsInstance, enabled);
@@ -53,52 +37,25 @@ function syncCollectionWithConsent() {
   });
 }
 
-export function subscribeAnalyticsPreference(onPreferenceChanged: () => void) {
-  function handleStorageChange(event: StorageEvent) {
-    const isPreferenceChange = event.key === ANALYTICS_PREFERENCE_KEY;
-    const isStorageCleared = event.key === null;
-    if (!isPreferenceChange && !isStorageCleared) {
-      return;
-    }
-
-    currentTabPreference = undefined;
-    consentChangeCount = consentChangeCount + 1;
-    try {
-      syncCollectionWithConsent();
-    } catch {
-      // The local consent check still blocks events if the SDK fails to update.
-    }
-    onPreferenceChanged();
-  }
-
-  window.addEventListener(PREFERENCE_CHANGED_EVENT, onPreferenceChanged);
-  window.addEventListener("storage", handleStorageChange);
-
-  return () => {
-    window.removeEventListener(PREFERENCE_CHANGED_EVENT, onPreferenceChanged);
-    window.removeEventListener("storage", handleStorageChange);
-  };
-}
-
-export function setAnalyticsEnabled(enabled: boolean) {
-  currentTabPreference = enabled;
-  consentChangeCount = consentChangeCount + 1;
-
-  try {
-    localStorage.setItem(
-      ANALYTICS_PREFERENCE_KEY,
-      enabled ? "enabled" : "disabled",
-    );
-  } catch {
-    // The current-tab preference still works when storage is unavailable.
-  }
-
+export function setAnalyticsEnabled(enabled: boolean, session = activeSession) {
+  if (session !== activeSession) return;
+  collectionEnabled = enabled;
+  consentChangeCount += 1;
   try {
     syncCollectionWithConsent();
   } catch {
-    // A failed SDK update must not prevent the preference from changing.
+    // The local consent check still blocks events when the SDK is unavailable.
   }
-  window.dispatchEvent(new Event(PREFERENCE_CHANGED_EVENT));
+}
+
+export function setAnalyticsUser(userId: string | null): number {
+  if (userId !== activeUserId) {
+    activeUserId = userId;
+    activeSession += 1;
+    setAnalyticsEnabled(false);
+    sentEventKeys.clear();
+  }
+  return activeSession;
 }
 
 function getAnalyticsConfiguration(): FirebaseOptions | null {

@@ -129,3 +129,25 @@ describe("consent and event delivery", () => {
     ).resolves.toBeUndefined();
   });
 });
+
+it("stops on account changes and rejects consent from the previous session", async () => {
+  const { track, setAnalyticsUser, setAnalyticsEnabled } =
+    await import("./analytics");
+  const aliceSession = setAnalyticsUser("alice");
+  setAnalyticsEnabled(true, aliceSession);
+  await track("page_view", { page_name: "/dashboard" });
+  setAnalyticsUser("bob");
+  setAnalyticsEnabled(true, aliceSession);
+  await track("page_view", { page_name: "/classes" });
+  expect(analyticsSdkMock.logEvent).toHaveBeenCalledTimes(1);
+  expect(
+    analyticsSdkMock.setAnalyticsCollectionEnabled,
+  ).toHaveBeenLastCalledWith({}, false);
+});
+
+it("does not restore collection just because local browser consent was enabled", async () => {
+  localStorage.setItem("catalyst-analytics-consent-v1", "enabled");
+  const { track } = await import("./analytics");
+  await track("page_view", { page_name: "/signup" });
+  expect(analyticsSdkMock.initializeAnalytics).not.toHaveBeenCalled();
+});

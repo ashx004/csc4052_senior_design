@@ -1,3 +1,4 @@
+import { getReportingPropertyId } from "@/src/library/analyticsReportingConfig";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import AnalyticsDashboard from "@/src/components/analytics/AnalyticsDashboard";
@@ -47,5 +48,12 @@ export default async function AnalyticsPage() {
     );
   }
 
-  return <AnalyticsDashboard />;
+  let analyticsUrl: string | undefined;
+  try {
+    const propertyId = getReportingPropertyId();
+    analyticsUrl = `https://analytics.google.com/analytics/web/#/p${propertyId}/reports/intelligenthome`;
+  } catch {
+    analyticsUrl = undefined;
+  }
+  return <AnalyticsDashboard analyticsUrl={analyticsUrl} />;
 }

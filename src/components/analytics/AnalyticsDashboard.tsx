@@ -46,7 +46,10 @@ function ActivityCountsTable({
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={row.label} className="border-b border-border-light last:border-0">
+                <tr
+                  key={row.label}
+                  className="border-b border-border-light last:border-0"
+                >
                   <td className="break-all py-3 pr-4">{row.label}</td>
                   <td className="py-3 text-right font-medium tabular-nums">
                     {row.count.toLocaleString()}
@@ -94,7 +97,10 @@ function DailyActivityChart({
             const barWidth = (row.count / largestCount) * 100;
 
             return (
-              <div key={row.label} className="flex items-center gap-3 text-xs sm:text-sm">
+              <div
+                key={row.label}
+                className="flex items-center gap-3 text-xs sm:text-sm"
+              >
                 <span className="w-20 shrink-0 text-text-muted sm:w-24">
                   {dateLabel}
                 </span>
@@ -162,10 +168,12 @@ function ReportResults({ report }: { report: AnalyticsReport }) {
   return (
     <>
       <div className="space-y-1 text-xs leading-relaxed text-text-muted sm:text-sm">
-        <p>{report.startDate} – {report.endDate} · {report.timeZone}</p>
         <p>
-          Report retrieved {new Date(report.retrievedAt).toLocaleString()}.
-          This is the retrieval time, not the latest event time.
+          {report.startDate} – {report.endDate} · {report.timeZone}
+        </p>
+        <p>
+          Report retrieved {new Date(report.retrievedAt).toLocaleString()}. This
+          is the retrieval time, not the latest event time.
         </p>
       </div>
       {report.limited && (
@@ -208,7 +216,11 @@ function ReportResults({ report }: { report: AnalyticsReport }) {
   );
 }
 
-export default function AnalyticsDashboard() {
+export default function AnalyticsDashboard({
+  analyticsUrl,
+}: {
+  analyticsUrl?: string;
+}) {
   const [datePreset, setDatePreset] = useState("7days");
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
@@ -287,6 +299,16 @@ export default function AnalyticsDashboard() {
             Activity shared by users who enabled analytics. Blocked collection
             and processing delays can affect these reports.
           </p>
+          {analyticsUrl && (
+            <a
+              href={analyticsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-4 inline-flex rounded-lg border border-border-light bg-bg-container px-4 py-2 text-sm font-medium hover:bg-bg-warm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              Open Google Analytics
+            </a>
+          )}
         </header>
         <form
           className="flex flex-wrap items-end gap-3 rounded-2xl border border-border-light bg-bg-container p-5 shadow-sm sm:p-6"

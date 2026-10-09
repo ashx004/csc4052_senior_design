@@ -1,23 +1,13 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
-import {
-  analyticsEnabled,
-  setAnalyticsEnabled,
-  subscribeAnalyticsPreference,
-  track,
-} from "@/src/library/analytics";
-
-function analyticsDisabledDuringServerRendering() {
-  return false;
-}
+import { useContext } from "react";
+import { AnalyticsContext } from "@/src/context/analyticsPreferenceContext";
+import { track } from "@/src/library/analytics";
 
 export function useAnalytics() {
-  const enabled = useSyncExternalStore(
-    subscribeAnalyticsPreference,
-    analyticsEnabled,
-    analyticsDisabledDuringServerRendering,
-  );
-
-  return { enabled, setEnabled: setAnalyticsEnabled, track };
+  const preference = useContext(AnalyticsContext);
+  if (!preference) {
+    throw new Error("Analytics preferences require AnalyticsProvider.");
+  }
+  return { ...preference, track };
 }
