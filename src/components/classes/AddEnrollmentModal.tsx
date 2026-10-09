@@ -7,7 +7,7 @@ import { addDoc, collection } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
 import { Minus } from "lucide-react";
 import { Term, parseCourseCode, getCurrentTerm } from '@/src/library/academicTerm';
-import { randomClassColor } from '@/src/library/classColors';
+import { DEFAULT_CLASS_COLOR } from '@/src/library/classColors';
 import { CLASS_MEETING_DAYS, type ClassMeetingDay } from '@/src/library/classSchedule';
 import CourseCatalogView from '@/src/components/advising/CourseCatalogView';
 
@@ -77,6 +77,7 @@ export default function AddEnrollmentModal({
   const [meetingTimeZone, setMeetingTimeZone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
   const [termStartDate, setTermStartDate] = useState("");
   const [termEndDate, setTermEndDate] = useState("");
+  const [createCalendarEvents, setCreateCalendarEvents] = useState(false);
   // Former standalone Advising page, now reachable only from here - see
   // "See course catalog" link at the bottom of the form below.
   const [catalogOpen, setCatalogOpen] = useState(false);
@@ -142,6 +143,7 @@ export default function AddEnrollmentModal({
     setMeetingTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
     setTermStartDate("");
     setTermEndDate("");
+    setCreateCalendarEvents(false);
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -182,10 +184,10 @@ export default function AddEnrollmentModal({
       term: `${termSeason} ${termYear}`,
       termSeason,
       termYear,
-      color: randomClassColor(),
+      color: DEFAULT_CLASS_COLOR,
       ...(parsedCode ? { subject: parsedCode.subject, courseNumber: parsedCode.number } : {}),
       ...(Number.isFinite(parsedCreditHours) ? { creditHours: parsedCreditHours } : {}),
-      ...(hasMeetingDetails ? { meetingDays, meetingStartTime, meetingEndTime, meetingTimeZone } : {}),
+      ...(hasMeetingDetails ? { meetingDays, meetingStartTime, meetingEndTime, meetingTimeZone, createCalendarEvents } : {}),
       ...(termStartDate ? { termStartDate } : {}),
       ...(termEndDate ? { termEndDate } : {}),
     };
@@ -212,7 +214,7 @@ export default function AddEnrollmentModal({
         <>
           <button
             onClick={() => setIsOpen(true)}
-            className="absolute top-4 right-4 flex h-8 w-8 items-center justify-center rounded-md bg-green-500 text-text-inverse shadow hover:bg-green-600"
+            className="absolute right-4 top-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-text-inverse shadow-sm transition hover:bg-primary-hover"
             aria-label="Add class"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -222,7 +224,7 @@ export default function AddEnrollmentModal({
           <button
             onClick={onToggleDeleteMode}
             className={`absolute top-4 right-16 flex h-8 w-8 items-center justify-center rounded-md shadow transition-colors ${
-                deleteMode ? "bg-red-500 text-text-inverse" : "bg-bg-container text-text-muted hover:bg-bg-warm"
+                deleteMode ? "bg-alert-error text-text-inverse" : "border border-border-light bg-bg-container text-text-muted hover:bg-bg-warm"
             }`}
             aria-label="Toggle delete mode"
         >
@@ -234,18 +236,28 @@ export default function AddEnrollmentModal({
       { /* render the modal iff isOpen is true */}
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
-          <div className="w-full max-w-lg rounded-lg bg-bg-container p-6 shadow-xl transition-all max-h-[90vh] overflow-y-auto">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-border-light bg-bg-container shadow-xl">
             {/* Top label */}
-            <div className="flex items-center justify-between border-b pb-3 mb-4">
-              <h3 className="text-xl font-semibold text-text-main">Add New Class</h3>
+            <div className="flex items-start justify-between gap-4 border-b border-border-light px-6 py-5">
+              <div>
+                <h3 className="text-xl font-semibold text-text-main">Add a class</h3>
+                <p className="mt-1 text-sm text-text-muted">Add the details you want available in your course space.</p>
+              </div>
               {/* close modal button -- top right */}
-              <button onClick={handleClose} className="text-text-muted hover:text-text-main">✕</button>
+              <button
+                type="button"
+                onClick={handleClose}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition hover:bg-bg-warm hover:text-text-main focus:outline-none focus:ring-2 focus:ring-primary/30"
+                aria-label="Close add class dialog"
+              >
+                ✕
+              </button>
             </div>
             
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-6 p-6">
               {/* Required Section */}
-              <div className="border-b pb-2">
-                <span className="text-xs font-bold uppercase text-red-500">Required Information</span>
+              <div className="border-b border-border-light pb-3">
+                <span className="text-xs font-semibold uppercase tracking-wide text-primary">Required information</span>
               </div>
               
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -322,36 +334,14 @@ export default function AddEnrollmentModal({
               </div>
 
               {/* --- Optional Section --- */}
-              <div className="border-b pb-2 pt-2">
-                <span className="text-xs font-bold uppercase text-text-muted">Optional Schedule & Faculty Info</span>
+              <div className="border-b border-border-light pb-3 pt-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">Optional schedule and faculty info</span>
               </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="block text-sm font-medium text-text-muted">Time</label>
-                  <input
-                    type="text"
-                    name="time"
-                    value={formData.time}
-                    onChange={handleChange}
-                    className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-green-500 focus:outline-none"
-                    placeholder="e.g. 10:00 AM - 11:30 AM"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-text-muted">Class Schedule</label>
-                  <input
-                    type="text"
-                    name="classSchedule"
-                    value={formData.classSchedule}
-                    onChange={handleChange}
-                    className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-green-500 focus:outline-none"
-                    placeholder="e.g. Mon / Wed"
-                  />
-                </div>
-                <div className="sm:col-span-2 rounded-lg border border-border-light bg-bg-main p-3">
-                  <p className="text-sm font-medium text-text-main">Structured meeting schedule</p>
-                  <p className="mt-1 text-xs text-text-muted">Optional. This is used for calendar-connected class meetings; the free-text fields above remain for display.</p>
+                <div className="sm:col-span-2 rounded-2xl border border-border-light bg-bg-main p-4">
+                  <p className="text-sm font-medium text-text-main">Class meeting time</p>
+                  <p className="mt-1 text-xs text-text-muted">Optional. Add the days and time your class meets.</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {CLASS_MEETING_DAYS.map((day) => {
                       const selected = meetingDays.includes(day);
@@ -387,6 +377,18 @@ export default function AddEnrollmentModal({
                       <input type="date" value={termEndDate} onChange={(e) => setTermEndDate(e.target.value)} className="mt-1 w-full rounded-md border border-border-light bg-bg-container px-2 py-1.5 text-sm text-text-main" />
                     </label>
                   </div>
+                  <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-border-light bg-bg-container p-3 text-sm text-text-main transition hover:bg-bg-warm">
+                    <input
+                      type="checkbox"
+                      checked={createCalendarEvents}
+                      onChange={(event) => setCreateCalendarEvents(event.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-border-light text-primary focus:ring-primary"
+                    />
+                    <span>
+                      <span className="block font-medium">Add these meetings to Calendar automatically</span>
+                      <span className="mt-0.5 block text-xs leading-5 text-text-muted">Recurring class events will appear on your Calendar when you save this class.</span>
+                    </span>
+                  </label>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-text-muted">Credit Hours</label>
@@ -469,17 +471,17 @@ export default function AddEnrollmentModal({
               </div>
 
               {/* --- Actions --- */}
-              <div className="mt-6 flex justify-end gap-3 border-t pt-4">
+              <div className="mt-6 flex flex-col-reverse gap-3 border-t border-border-light pt-5 sm:flex-row sm:justify-end">
                 <button
                   type="button"
                   onClick={handleClose}
-                  className="rounded-md border border-border-light px-4 py-2 text-sm font-medium text-text-muted hover:bg-bg-warm"
+                  className="rounded-lg border border-border-light px-4 py-2 text-sm font-medium text-text-main transition hover:bg-bg-warm"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="rounded-md bg-green-500 px-4 py-2 text-sm font-medium text-text-inverse hover:bg-green-600 shadow-sm"
+                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-text-inverse shadow-sm transition hover:bg-primary-hover"
                 >
                   Save Class
                 </button>
@@ -489,7 +491,7 @@ export default function AddEnrollmentModal({
             {/* Not sure of your exact class code/title yet? The old
                 Advising page's course-offering browser lives here now
                 instead of its own sidebar entry. */}
-            <p className="mt-4 text-center text-xs text-text-muted">
+            <p className="px-6 pb-6 text-center text-xs text-text-muted">
               Not sure what to search for?{" "}
               <button
                 type="button"

@@ -2,8 +2,10 @@
 // creation (AddEnrollmentModal) and the choices offered in ClassCard's
 // color-edit popup — one shared list means a class's random starting color
 // is always something the student could also have picked by hand.
+export const DEFAULT_CLASS_COLOR = "#b08957";
+
 export const CLASS_COLOR_PALETTE: string[] = [
-  "#b08957", // gold
+  DEFAULT_CLASS_COLOR, // primary brown
   "#6b8f5e", // sage
   "#c2685a", // coral
   "#5a7ca8", // slate blue
