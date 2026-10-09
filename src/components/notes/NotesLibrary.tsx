@@ -49,11 +49,9 @@ import {
 } from "@/src/library/notes/notesStore";
 import { matchesSearch, notebookInCourse, sortNotes, type NoteSort } from "@/src/library/notes/noteText";
 import { MAX_NOTES_PER_NOTEBOOK, type ClassOption, type Note, type Notebook } from "@/src/library/notes/types";
-import AddNoteChoiceModal from "./AddNoteChoiceModal";
+import AddModal from "./AddModal";
 import { classLabel } from "./ClassSelect";
-import CreateNoteModal from "./CreateNoteModal";
 import GenerateFromNotebookModal from "./GenerateFromNotebookModal";
-import NotesUploadModal from "./NotesUploadModal";
 import Dropdown from "./Dropdown";
 import { NotePreview, NoteTypeIcon, noteTypeLabel } from "./noteVisuals";
 import { downloadNotebookArchive } from "@/src/library/notes/notebookArchive";
@@ -147,7 +145,7 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectMode, setSelectMode] = useState(false);
   const [message, setMessage] = useState<{ kind: "error" | "info"; text: string } | null>(null);
-  const [modal, setModal] = useState<null | "choice" | "typed" | "upload" | "flashcards" | "quiz" | "deleteNotes" | "deleteNotebook" | "newNotebook">(null);
+  const [modal, setModal] = useState<null | "add" | "flashcards" | "quiz" | "deleteNotes" | "deleteNotebook" | "newNotebook">(null);
   const [newNotebookName, setNewNotebookName] = useState<string | null>(null);
   const [newNotebookMoveIds, setNewNotebookMoveIds] = useState<string[]>([]);
   const [shareTarget, setShareTarget] = useState<{ type: "note" | "notebook"; id: string } | null>(null);
@@ -346,11 +344,12 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
             <div className="flex shrink-0 items-center gap-2">
               <button
                 type="button"
-                onClick={() => setModal("choice")}
+                onClick={() => setModal("add")}
                 className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-text-inverse shadow-sm hover:bg-primary-hover"
                 data-tutorial="notes-upload"
+                title="Add files or take notes"
               >
-                <Plus size={17} /> Add notes
+                <Plus size={17} /> Add
               </button>
             </div>
           </div>
@@ -709,7 +708,6 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
         )}
       </DragOverlay>
 
-      {modal === "choice" && <AddNoteChoiceModal onClose={() => setModal(null)} onChoose={(c) => setModal(c === "ocr" ? "upload" : "typed")} />}
       {modal === "newNotebook" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setModal(null)}>
           <form onSubmit={(event) => { event.preventDefault(); void addNotebook(); }} className="w-full max-w-sm rounded-2xl bg-bg-container p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
@@ -720,30 +718,21 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
           </form>
         </div>
       )}
-      {modal === "typed" && (
-        <CreateNoteModal
+      {modal === "add" && (
+        <AddModal
           uid={uid}
           classes={classes}
           notebooks={notebooks}
           notes={allNotes}
           defaultCourseId={scope || null}
           defaultNotebookId={activeNotebook?.id ?? null}
-          lockCourse={courseTab}
           onClose={() => setModal(null)}
-          onCreated={(id) => openNote(id)}
-        />
-      )}
-      {modal === "upload" && (
-        <NotesUploadModal
-          uid={uid}
-          classes={classes}
-          defaultCourseId={scope || null}
-          lockCourse={courseTab}
-          onClose={() => setModal(null)}
+          onNoteCreated={(id) => openNote(id)}
+          onPartial={syncNow}
           onUploaded={() => {
             setModal(null);
             syncNow(); // the upload has finished writing - pick up the new files
-            setMessage({ kind: "info", text: "Uploaded. Files tagged Notes appear here once they're saved; scanned pages are read in the background." });
+            setMessage({ kind: "info", text: "Added. Files tagged Notes appear here once they're saved; scanned pages are read in the background." });
           }}
         />
       )}

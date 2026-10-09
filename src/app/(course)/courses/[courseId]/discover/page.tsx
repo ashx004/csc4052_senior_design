@@ -15,7 +15,7 @@ import { buildLearnQuestionsSession } from '@/src/library/discover/learnQuestion
 import type { LearnQuestion } from '@/src/library/discover/types';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
 import { buildLearnQuestionSuggestions, type LearnQuestionsPageContext } from '@/src/library/Contextual_AI/contextualAi';
-import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
+import { useChatContext } from '@/src/hooks/useChatContext';
 import PageTutorial from '@/src/components/tutorial/PageTutorial';
 import courseDiscoverSteps from '@/src/library/tutorials/steps/course-discover';
 
@@ -42,8 +42,7 @@ export default function DiscoverPage() {
   const [learnQuestions, setLearnQuestions] = useState<LearnQuestion[]>([]);
 
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
-  const [chatContext, setChatContext] = useState<ChatContext | null>(null);
-  const [learnQuestionsState, setLearnQuestionsState] = useState<{
+    const [learnQuestionsState, setLearnQuestionsState] = useState<{
     currentQuestion: LearnQuestion;
     currentIndex: number;
     totalQuestions: number;
@@ -63,16 +62,7 @@ export default function DiscoverPage() {
   // Build the same ChatContext shape the full AI Assistant uses, so the
   // Catalyst sidebar can fall back to read_document/search_documents for
   // this course's materials.
-  useEffect(() => {
-    if (!user?.email) return;
-
-    buildChatContext(user.uid, user.email)
-      .then(setChatContext)
-      .catch((err) => {
-        console.error('Error building Catalyst chat context:', err);
-        setChatContext(null);
-      });
-  }, [user]);
+  const chatContext = useChatContext(user?.uid, user?.email);
 
   useEffect(() => {
     if (!user) return;

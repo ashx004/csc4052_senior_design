@@ -2,67 +2,93 @@
 // notes library. No Firebase or DOM here, so all of it is unit-tested.
 import type { ClassOption, Note, Notebook } from "./types";
 
-type Mark = { type: string };
+type Mark = { type: string; attrs?: Record<string, unknown> };
 type Node = { type?: string; text?: string; marks?: Mark[]; attrs?: Record<string, unknown>; content?: Node[] };
 
-function inlineMarkdown(nodes: Node[] = []): string {
+// `bare` renders what search and previews read: no markup characters at all.
+function inlineMarkdown(nodes: Node[] = [], bare = false): string {
   return nodes
     .map((n) => {
       if (n.type === "hardBreak") return "\n";
+      if (n.type === "mathInline") {
+        const latex = String(n.attrs?.latex ?? "").trim();
+        return bare ? latex : `$${latex}$`;
+      }
       let text = n.text ?? "";
-      const marks = new Set((n.marks ?? []).map((m) => m.type));
+      if (bare) return text;
+      const marks = new Map((n.marks ?? []).map((m) => [m.type, m]));
       if (marks.has("code")) text = `\`${text}\``;
       if (marks.has("bold")) text = `**${text}**`;
       if (marks.has("italic")) text = `*${text}*`;
+      if (marks.has("underline")) text = `<u>${text}</u>`;
+      if (marks.has("highlight")) text = `==${text}==`;
       if (marks.has("strike")) text = `~~${text}~~`;
+      const href = marks.get("link")?.attrs?.href;
+      if (typeof href === "string" && href) text = `[${text}](${href})`;
       return text;
     })
     .join("");
 }
 
-function blockMarkdown(node: Node, listPrefix = ""): string {
+function blockMarkdown(node: Node, listPrefix = "", bare = false): string {
   switch (node.type) {
     case "heading":
-      return `${"#".repeat(Number(node.attrs?.level) || 1)} ${inlineMarkdown(node.content)}`;
+      return `${bare ? "" : `${"#".repeat(Number(node.attrs?.level) || 1)} `}${inlineMarkdown(node.content, bare)}`;
     case "paragraph":
-      return `${listPrefix}${inlineMarkdown(node.content)}`;
-    case "bulletList":
-      return (node.content ?? []).map((item) => listItem(item, "- ")).join("\n");
+      return `${listPrefix}${inlineMarkdown(node.content, bare)}`;
+    case "bulletList": {
+      const prefix = bare ? "" : node.attrs?.marker === "dot" ? "* " : "- ";
+      return (node.content ?? []).map((item) => listItem(item, prefix, bare)).join("\n");
+    }
     case "orderedList":
-      return (node.content ?? []).map((item, i) => listItem(item, `${i + 1}. `)).join("\n");
+      return (node.content ?? []).map((item, i) => listItem(item, bare ? "" : `${i + 1}. `, bare)).join("\n");
+    case "taskList":
+      return (node.content ?? [])
+        .map((item) => listItem(item, bare ? "" : item.attrs?.checked ? "- [x] " : "- [ ] ", bare))
+        .join("\n");
     case "blockquote":
-      return (node.content ?? []).map((c) => `> ${blockMarkdown(c)}`).join("\n");
-    case "codeBlock":
-      return `\`\`\`\n${(node.content ?? []).map((c) => c.text ?? "").join("")}\n\`\`\``;
+      return (node.content ?? []).map((c) => `${bare ? "" : "> "}${blockMarkdown(c, "", bare)}`).join("\n");
+    case "codeBlock": {
+      const code = (node.content ?? []).map((c) => c.text ?? "").join("");
+      return bare ? code : `\`\`\`\n${code}\n\`\`\``;
+    }
+    case "mathBlock": {
+      const latex = String(node.attrs?.latex ?? "").trim();
+      return bare ? latex : `$$\n${latex}\n$$`;
+    }
+    case "noteImage": {
+      const alt = String(node.attrs?.alt ?? "");
+      return bare ? alt : `![${alt}](${String(node.attrs?.src ?? "")})`;
+    }
     case "horizontalRule":
-      return "---";
+      return bare ? "" : "---";
     default:
-      return inlineMarkdown(node.content);
+      return inlineMarkdown(node.content, bare);
   }
 }
 
-function listItem(item: Node, prefix: string): string {
+function listItem(item: Node, prefix: string, bare: boolean): string {
   const [first, ...rest] = item.content ?? [];
-  const head = first ? blockMarkdown(first, prefix) : prefix.trimEnd();
-  const tail = rest.map((c) => blockMarkdown(c).replace(/^/gm, "  "));
+  const head = first ? blockMarkdown(first, prefix, bare) : prefix.trimEnd();
+  const tail = rest.map((c) => blockMarkdown(c, "", bare).replace(/^/gm, "  "));
   return [head, ...tail].join("\n");
+}
+
+function render(doc: unknown, bare: boolean): string {
+  const root = doc as Node | null;
+  if (!root || !Array.isArray(root.content)) return "";
+  const blocks = root.content.map((n) => blockMarkdown(n, "", bare));
+  return (bare ? blocks.filter((b) => b.trim()) : blocks).join("\n\n").trim();
 }
 
 /** TipTap document JSON -> Markdown (what the AI generators read). */
 export function noteToMarkdown(doc: unknown): string {
-  const root = doc as Node | null;
-  if (!root || !Array.isArray(root.content)) return "";
-  return root.content.map((n) => blockMarkdown(n)).join("\n\n").trim();
+  return render(doc, false);
 }
 
 /** TipTap document JSON -> plain text (what search reads). */
 export function noteToPlainText(doc: unknown): string {
-  return noteToMarkdown(doc)
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/[*_~`]/g, "")
-    .replace(/^>\s?/gm, "")
-    .replace(/^[ \t]*(-|\d+\.)[ \t]+/gm, "") // [ \t] not \s: \s would also eat the blank line before a list
-    .trim();
+  return render(doc, true);
 }
 
 /** Headings in document order - the chapter list. */
@@ -70,7 +96,7 @@ export function noteHeadings(doc: unknown): { level: number; text: string }[] {
   const root = doc as Node | null;
   return (root?.content ?? [])
     .filter((n) => n.type === "heading")
-    .map((n) => ({ level: Number(n.attrs?.level) || 1, text: inlineMarkdown(n.content).replace(/[*_~`]/g, "").trim() }))
+    .map((n) => ({ level: Number(n.attrs?.level) || 1, text: inlineMarkdown(n.content, true).trim() }))
     .filter((h) => h.text);
 }
 

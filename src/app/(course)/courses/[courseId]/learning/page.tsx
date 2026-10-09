@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
-import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
+import { useChatContext } from '@/src/hooks/useChatContext';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
 import { buildPageTextSuggestions, type PageTextPageContext } from '@/src/library/Contextual_AI/contextualAi';
 import { getCourseResources } from '@/src/components/resourceManagement/fileUploadService';
@@ -110,14 +110,8 @@ export default function CourseLearningPage() {
   // result to model either.
   const [catalystOpen, setCatalystOpen] = useState(false);
   const catalystBtnRef = useRef<HTMLButtonElement | null>(null);
-  const [catalystChatContext, setCatalystChatContext] = useState<ChatContext | null>(null);
-
-  useEffect(() => {
-    if (!user?.email) return;
-    buildChatContext(user.uid, user.email)
-      .then(setCatalystChatContext)
-      .catch(() => setCatalystChatContext(null));
-  }, [user]);
+  
+  const catalystChatContext = useChatContext(user?.uid, user?.email);
 
   useEffect(() => {
     if (authLoading) return;

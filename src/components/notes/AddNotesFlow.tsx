@@ -4,12 +4,10 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { listClasses, subscribeNotebooks, subscribeNotes } from "@/src/library/notes/notesStore";
 import type { ClassOption, Note, Notebook } from "@/src/library/notes/types";
-import AddNoteChoiceModal from "./AddNoteChoiceModal";
-import CreateNoteModal from "./CreateNoteModal";
-import NotesUploadModal from "./NotesUploadModal";
+import AddModal from "./AddModal";
 
-/** The + button's flow from a class: choose OCR or typed notes, then either
- *  the upload/scan popup or a titled new note that opens in the Notes tab. */
+/** The + button on a class page: the unified add window, tied to that class.
+ *  A new note opens in the Notes tab; uploads appear in the file list. */
 export default function AddNotesFlow({
   uid,
   courseId,
@@ -22,7 +20,6 @@ export default function AddNotesFlow({
   onUploaded: () => void;
 }) {
   const router = useRouter();
-  const [step, setStep] = useState<"choice" | "typed" | "ocr">("choice");
   const [classes, setClasses] = useState<ClassOption[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
@@ -37,25 +34,16 @@ export default function AddNotesFlow({
     };
   }, [uid]);
 
-  if (step === "choice") return <AddNoteChoiceModal onClose={onClose} onChoose={(c) => setStep(c === "typed" ? "typed" : "ocr")} />;
-  if (step === "typed")
-    return (
-      <CreateNoteModal
-        uid={uid}
-        classes={classes}
-        notebooks={notebooks}
-        notes={notes}
-        defaultCourseId={courseId}
-        onClose={onClose}
-        onCreated={(id) => router.push(`/notes/${id}?from=${courseId}`)}
-      />
-    );
   return (
-    <NotesUploadModal
+    <AddModal
       uid={uid}
       classes={classes}
+      notebooks={notebooks}
+      notes={notes}
       defaultCourseId={courseId}
       onClose={onClose}
+      onNoteCreated={(id) => router.push(`/notes/${id}?from=${courseId}`)}
+      onPartial={onUploaded}
       onUploaded={() => {
         onUploaded();
         onClose();

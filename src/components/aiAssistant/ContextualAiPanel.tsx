@@ -4,6 +4,7 @@
 // Reusable right-side Catalyst AI drawer for flashcards and quiz results.
 // Renders via portal into document.body so it floats above course layout.
 
+import ThinkingIndicator from "./ThinkingIndicator";
 import React, {
   useState,
   useRef,
@@ -12,7 +13,7 @@ import React, {
   type KeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Send, Sparkles, Loader2,Maximize2,Minimize2 } from "lucide-react";
+import { ChevronDown, Send, Sparkles, Maximize2,Minimize2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import type { PageContext, SuggestionItem } from "@/src/library/Contextual_AI/contextualAi";
 import { useSpeechToText } from "@/src/library/useSpeechToText";
@@ -521,12 +522,7 @@ export default function ContextualAiPanel({
                     <ReactMarkdown>{msg.content}</ReactMarkdown>
                   </div>
                 ) : msg.role === "assistant" && !msg.content && isStreaming && i === messages.length - 1 ? (
-                  <div className="flex items-center gap-2 text-text-muted">
-                    <Loader2 size={14} className="animate-spin" />
-                    <span className="text-xs">
-                      {toolStatus || "Thinking…"}
-                    </span>
-                  </div>
+                  <ThinkingIndicator status={toolStatus || null} compact />
                 ) : (
                   <span>{msg.content}</span>
                 )}
@@ -539,9 +535,8 @@ export default function ContextualAiPanel({
 
           {/* Tool status indicator (while assistant has partial content) */}
           {isStreaming && toolStatus && messages[messages.length - 1]?.content && (
-            <div className="flex items-center gap-2 text-xs text-text-muted pl-1">
-              <Loader2 size={12} className="animate-spin" />
-              {toolStatus}
+            <div className="pl-1">
+              <ThinkingIndicator status={toolStatus} compact />
             </div>
           )}
 

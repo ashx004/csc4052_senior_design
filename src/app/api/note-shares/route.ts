@@ -2,6 +2,7 @@ import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/src/library/firebaseAdmin";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
+import { mergeSharedEdit } from "@/src/library/notes/sharedEdit";
 
 const hashPassword = (password: string, salt: string) => scryptSync(password, salt, 32).toString("hex");
 const publicNote = (id: string, data: FirebaseFirestore.DocumentData) => ({ id, kind: data.kind, title: data.title, plainText: data.plainText ?? "", fileType: data.fileType ?? "", url: data.annotatedUrl || data.url || null, scan: data.scan === true });
@@ -18,14 +19,6 @@ type ShareRequest = {
 
 function hasShareAccess(request: NextRequest, shareId: string) {
   return request.cookies.get("note_share_access")?.value === shareId;
-}
-
-function textDocument(plainText: string) {
-  const lines = plainText.split("\n");
-  return {
-    type: "doc",
-    content: lines.length ? lines.map((line) => ({ type: "paragraph", content: line ? [{ type: "text", text: line }] : [] })) : [{ type: "paragraph" }],
-  };
 }
 
 export async function POST(request: NextRequest) {
@@ -65,9 +58,7 @@ export async function POST(request: NextRequest) {
     const sourceNote = await noteRef.get();
     if (!sourceNote.exists) return NextResponse.json({ error: "This note is no longer available." }, { status: 404 });
     const now = new Date();
-    const update = sharedNote.kind === "typed"
-      ? { plainText: body.plainText, content: textDocument(body.plainText), updatedAt: now }
-      : { plainText: body.plainText, updatedAt: now };
+    const update = { plainText: body.plainText, content: mergeSharedEdit(sourceNote.data()?.content, body.plainText), updatedAt: now };
     await noteRef.update(update);
     await shareRef.update({
       notes: notes.map((note) => note.id === body.noteId ? { ...note, plainText: body.plainText } : note),

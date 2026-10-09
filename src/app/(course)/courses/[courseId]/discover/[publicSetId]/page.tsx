@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
-import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
+import { useChatContext } from '@/src/hooks/useChatContext';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
 import { buildPageTextSuggestions, type PageTextPageContext } from '@/src/library/Contextual_AI/contextualAi';
 import {
@@ -66,19 +66,13 @@ export default function DiscoverSetPreviewPage() {
 
   const [catalystOpen, setCatalystOpen] = useState(false);
   const catalystBtnRef = useRef<HTMLButtonElement | null>(null);
-  const [catalystChatContext, setCatalystChatContext] = useState<ChatContext | null>(null);
-
+  
   useEffect(() => {
     if (authLoading) return;
     if (!user) router.push('/login');
   }, [authLoading, user, router]);
 
-  useEffect(() => {
-    if (!user?.email) return;
-    buildChatContext(user.uid, user.email)
-      .then(setCatalystChatContext)
-      .catch(() => setCatalystChatContext(null));
-  }, [user]);
+  const catalystChatContext = useChatContext(user?.uid, user?.email);
 
   // Read-only load of the public set.
   useEffect(() => {

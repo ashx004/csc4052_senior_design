@@ -28,7 +28,7 @@ import QuizResults from '@/src/components/quizzes/QuizResults';
 import QuizPracticeSuggestion from '@/src/components/quizzes/QuizPracticeSuggestion';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
 import { buildQuizSuggestions, type QuizResultPageContext } from '@/src/library/Contextual_AI/contextualAi';
-import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
+import { useChatContext } from '@/src/hooks/useChatContext';
 import PageTutorial from '@/src/components/tutorial/PageTutorial';
 import courseQuizSteps from '@/src/library/tutorials/steps/course-quiz';
 import { resolveActivityTarget } from '@/src/library/studyPlan/activityTarget';
@@ -391,21 +391,11 @@ export default function QuizTakingPage() {
 
   const [catalystOpen, setCatalystOpen] = useState(false);
   const catalystBtnRef = useRef<HTMLButtonElement | null>(null);
-  const [catalystChatContext, setCatalystChatContext] = useState<ChatContext | null>(null);
-
+  
   // Build the same ChatContext shape the full AI Assistant uses, so the
   // Catalyst sidebar can fall back to read_document/search_documents for
   // this course's materials.
-  useEffect(() => {
-    if (!user?.email) return;
-
-    buildChatContext(user.uid, user.email)
-      .then(setCatalystChatContext)
-      .catch((err) => {
-        console.error('Error building Catalyst chat context:', err);
-        setCatalystChatContext(null);
-      });
-  }, [user]);
+  const catalystChatContext = useChatContext(user?.uid, user?.email);
 
   // Redirect to /login if unauthenticated, mirroring the course layout's own gate
   useEffect(() => {

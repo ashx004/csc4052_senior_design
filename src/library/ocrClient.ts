@@ -18,7 +18,19 @@ import { createTimeoutSignal } from "./withTimeout";
 // context, student profile, query clarification) — the image is attached on
 // the user message via Ollama's `images` array (base64), which vision models
 // accept on top of the ordinary text messages.
-const OCR_SYSTEM_PROMPT = `You are an OCR engine for college notes. Transcribe ALL handwritten and printed text in the image exactly as written, preserving line breaks and paragraph structure. Do not summarize, interpret, or add anything that is not in the image. Output ONLY the raw transcription — no commentary, no markdown, no explanations.`;
+const OCR_SYSTEM_PROMPT = `You are an OCR engine for college notes. Transcribe ALL handwritten and printed text in the image exactly as written. Never summarize, interpret, correct, or add anything that is not in the image.
+
+Format the transcription as Markdown so it reads like the page:
+- Titles and section headings become # / ## / ### headings.
+- Bulleted or dashed lists become "- " items (indent nested items by two spaces); numbered lists keep their numbers; checkboxes become "- [ ]" / "- [x]".
+- Tables become Markdown tables.
+- Math becomes LaTeX: $...$ inline and $$...$$ for display equations on their own line.
+- Underlined or circled emphasis becomes **bold**.
+- Keep each handwritten line on its own line and separate paragraphs with a blank line.
+- Describe a diagram, graph, or drawing in one line as [diagram: ...] and do not try to redraw it.
+- Write [illegible] for words you cannot read instead of guessing.
+
+Output ONLY the transcription. No preface, no commentary, no code fences around the whole answer.`;
 
 // Neither this function nor its only caller (documentExtract.ts's
 // extractDocumentText, itself called from embed-document/route.ts before

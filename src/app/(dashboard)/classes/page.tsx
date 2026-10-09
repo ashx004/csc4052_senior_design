@@ -1,303 +1,300 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { BookOpen, Minus, Plus, Trash2 } from "lucide-react";
-import { collection, deleteDoc, doc, getDocs, updateDoc } from "firebase/firestore";
+import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "@/src/context/AuthContext";
 import { useSetPageContext } from "@/src/context/AIPageContext";
-import AddEnrollmentModal from "@/src/components/classes/AddEnrollmentModal";
-import ClassCard, { ClassCardProps } from "@/src/components/classes/ClassCard";
-import EditClassScheduleModal from "@/src/components/classes/EditClassScheduleModal";
-import PageTutorial from "@/src/components/tutorial/PageTutorial";
-import { db } from "@/src/library/firebase";
+import ClassCard, { ClassCardProps } from '@/src/components/classes/ClassCard';
+import AddEnrollmentModal from '@/src/components/classes/AddEnrollmentModal';
+import EditClassScheduleModal from '@/src/components/classes/EditClassScheduleModal';
+import PageTutorial from '@/src/components/tutorial/PageTutorial';
+import classesSteps from '@/src/library/tutorials/steps/classes';
+import { doc, getDoc, collection, getDocs, deleteDoc, updateDoc } from 'firebase/firestore';
+import { db } from '@/src/library/firebase';
+import { Minus } from "lucide-react";
 import { Term } from "@/src/library/academicTerm";
 import { EnrollmentStatus, getEnrollmentStatus } from "@/src/library/enrollmentStatus";
 import { formatClassMeetingSchedule, type StructuredClassSchedule } from "@/src/library/classSchedule";
-import classesSteps from "@/src/library/tutorials/steps/classes";
 
-// Only className, classCode, and term are required. The remaining fields are
-// deliberately additive so older enrollment documents remain valid.
+// database fields that a class should have (YOU MUST FOLLOW THIS STRUCTURE IF YOU INSERT A CLASS!!!!)
+// note that only className, classCode, and term are required, the rest are optional
 export interface EnrollmentFields extends StructuredClassSchedule {
-  className: string;
-  classCode: string;
-  term: string;
-  time: string;
-  facultyPhoneNumber: string;
-  facultyOfficeNumber: string;
-  facultyEmail: string;
-  facultyName: string;
-  classSchedule: string;
-  classRoom?: string;
-  classDescription?: string;
-  termSeason?: Term;
-  termYear?: number;
-  subject?: string;
-  courseNumber?: string;
-  status?: EnrollmentStatus;
-  creditHours?: number;
-  prerequisites?: string;
-  color?: string;
-  courseSummary?: string;
-  courseSummaryUpdatedAt?: unknown;
+    className: string;
+    classCode: string;
+    term: string;
+    time: string;
+    facultyPhoneNumber: string;
+    facultyOfficeNumber: string;
+    facultyEmail: string;
+    facultyName: string;
+    classSchedule: string;
+    classRoom?: string;
+    classDescription?: string;
+    // Structured mirrors of classCode/term, added alongside the original
+    // free-text fields so nothing existing breaks. Populated for new
+    // enrollments via AddEnrollmentModal; absent on older docs, which fall
+    // back to parseTermString/parseCourseCode (src/library/academicTerm.ts)
+    // wherever structured data is needed.
+    termSeason?: Term;
+    termYear?: number;
+    subject?: string;
+    courseNumber?: string;
+    // Curriculum-progress tracking, additive — docs without it are treated
+    // as "in-progress" via getEnrollmentStatus (src/library/enrollmentStatus.ts).
+    status?: EnrollmentStatus;
+    // Self-reported — no external source has credit-hour/prerequisite data
+    // for arbitrary courses (confirmed during the Advising work: the
+    // scraped course-offering source only has offering history, not a full
+    // catalog). Used for a simple "credits completed" tally on Advising;
+    // prerequisites is free text since there's no structured course list to
+    // validate against.
+    creditHours?: number;
+    prerequisites?: string;
+    // Random on creation (AddEnrollmentModal), editable afterward via the
+    // pencil icon on the class card — see src/library/classColors.ts.
+    color?: string;
+    // AI-generated from the course's uploaded documents, regenerated on
+    // every upload — see src/library/courseSummary.ts. Empty/absent until
+    // at least one supported document has been uploaded and indexed.
+    courseSummary?: string;
+    courseSummaryUpdatedAt?: unknown;
+    // Facts read from the syllabus the student chose (see SyllabusModal).
+    syllabus?: import("@/src/components/course/SyllabusModal").StoredSyllabus;
 }
 
-function formatEnrollmentSchedule(data: StructuredClassSchedule & Record<string, unknown>): string | undefined {
-  const structuredSchedule = formatClassMeetingSchedule(data);
-  if (structuredSchedule) return structuredSchedule;
+async function getEnrollment(
+    userId: string,
+    enrollmentId: string
+): Promise<EnrollmentFields | null> {
+    const docRef = doc(db, "users", userId, "enrollment", enrollmentId);
+    const docSnap = await getDoc(docRef);
 
-  const legacyValues = [data.classSchedule, data.time]
-    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-    .map((value) => value.trim());
+    if (!docSnap.exists()) {
+        console.log("No such document!");
+        return null;
+    }
 
-  const uniqueValues = [...new Set(legacyValues)];
-  return uniqueValues.length ? uniqueValues.join(" · ") : undefined;
+    const data = docSnap.data();
+
+    return {
+        className: data.className,
+        classCode: data.classCode,
+        term: data.term,
+        time: data.time,
+        facultyPhoneNumber: data.facultyPhoneNumber,
+        facultyOfficeNumber: data.facultyOfficeNumber,
+        facultyEmail: data.facultyEmail,
+        facultyName: data.facultyName,
+        classSchedule: data.classSchedule
+    }
 }
 
 async function getAllEnrollments(userId: string): Promise<ClassCardProps[]> {
-  const enrollmentRef = collection(db, "users", userId, "enrollment");
-  const querySnapshot = await getDocs(enrollmentRef);
+    const enrollmentRef = collection(db, "users", userId, "enrollment");
+    const querySnapshot = await getDocs(enrollmentRef);
+    let enrollments: ClassCardProps[] = [];
 
-  return querySnapshot.docs.map((enrollmentDocument) => {
-    const data = enrollmentDocument.data();
-    return {
-      classId: enrollmentDocument.id,
-      className: data.className,
-      classCode: data.classCode,
-      term: data.term,
-      color: data.color,
-      scheduleLabel: formatEnrollmentSchedule(data),
-      status: getEnrollmentStatus(data),
-    };
-  });
+    querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        enrollments.push({
+            classId: doc.id,
+            className: data.className,
+            classCode: data.classCode,
+            term: data.term,
+            color: data.color,
+            scheduleLabel: formatClassMeetingSchedule(data) ?? undefined,
+            status: getEnrollmentStatus(data),
+        });
+    });
+
+    return enrollments;
 }
 
 function buildClassesSummary(activeClasses: ClassCardProps[]): string {
-  if (activeClasses.length === 0) return "The student has no active classes added yet.";
-  const list = activeClasses.map((course) => `${course.classCode} — ${course.className} (${course.term})`).join(", ");
-  return `The student's active classes on this page: ${list}.`;
+    if (activeClasses.length === 0) {
+        return "The student has no active classes added yet.";
+    }
+    const list = activeClasses.map((c) => `${c.classCode} — ${c.className} (${c.term})`).join(", ");
+    return `The student's active classes on this page: ${list}.`;
 }
 
 export default function Classes() {
-  const { user, loading } = useAuth();
-  const [enrollments, setEnrollments] = useState<ClassCardProps[]>([]);
-  const [addClassOpen, setAddClassOpen] = useState(false);
-  const [deleteMode, setDeleteMode] = useState(false);
-  const [scheduleClassId, setScheduleClassId] = useState<string | null>(null);
-  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+    const { user, loading } = useAuth();
+    const [enrollments, setEnrollments] = useState<ClassCardProps[]>([]);
+    const [deleteMode, setDeleteMode] = useState(false);
+    const [scheduleClassId, setScheduleClassId] = useState<string | null>(null);
+    // Holds the class being asked about — offers "mark completed" as a real
+    // alternative to permanent deletion, instead of just a plain confirm.
+    const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
-  useEffect(() => {
-    const requestedClassId = new URLSearchParams(window.location.search).get("editSchedule");
-    if (requestedClassId) setScheduleClassId(requestedClassId);
-  }, []);
+    useEffect(() => {
+        const requestedClassId = new URLSearchParams(window.location.search).get("editSchedule");
+        if (requestedClassId) setScheduleClassId(requestedClassId);
+    }, []);
 
-  const refreshEnrollments = () => {
-    if (!user) return;
+    // Define the data re-fetch function cleanly
+    const refreshEnrollments = () => {
+        if (!user) return;
 
-    getAllEnrollments(user.uid)
-      .then(setEnrollments)
-      .catch((error) => {
-        console.error("Error refreshing enrollments:", error);
-        setEnrollments([]);
-      });
-  };
+        getAllEnrollments(user.uid)
+            .then(setEnrollments)
+            .catch((error) => {
+                console.error("Error refreshing enrollments: ", error);
+                setEnrollments([]);
+            });
+    };
 
-  useEffect(() => {
-    refreshEnrollments();
-  }, [user]);
+    const handlePermanentDelete = async (classId: string) => {
+        if (!user) return;
 
-  const activeEnrollments = useMemo(
-    () => enrollments.filter((enrollment) => enrollment.status !== "completed"),
-    [enrollments]
-  );
+        try {
+            const docRef = doc(db, "users", user.uid, "enrollment", classId);
+            await deleteDoc(docRef);
+            refreshEnrollments();
+        } catch (error) {
+            console.error("Error deleting class document from database: ", error);
+            alert("Failed to delete the class. Please try again.");
+        } finally {
+            setConfirmingDeleteId(null);
+        }
+    };
 
-  useSetPageContext(
-    { page: "classes", label: "Classes", summary: buildClassesSummary(activeEnrollments) },
-    [activeEnrollments]
-  );
+    const handleColorChange = async (classId: string, color: string) => {
+        if (!user) return;
 
-  const confirmingClass = enrollments.find((enrollment) => enrollment.classId === confirmingDeleteId);
+        try {
+            const docRef = doc(db, "users", user.uid, "enrollment", classId);
+            await updateDoc(docRef, { color });
+            setEnrollments((prev) => prev.map((e) => (e.classId === classId ? { ...e, color } : e)));
+        } catch (error) {
+            console.error("Error updating class color: ", error);
+        }
+    };
 
-  const handlePermanentDelete = async (classId: string) => {
-    if (!user) return;
+    const handleMarkCompletedOnDelete = async (classId: string) => {
+        if (!user) return;
 
-    try {
-      await deleteDoc(doc(db, "users", user.uid, "enrollment", classId));
-      refreshEnrollments();
-    } catch (error) {
-      console.error("Error deleting class document from database:", error);
-      alert("Failed to delete the class. Please try again.");
-    } finally {
-      setConfirmingDeleteId(null);
-    }
-  };
+        try {
+            const docRef = doc(db, "users", user.uid, "enrollment", classId);
+            await updateDoc(docRef, { status: "completed" });
+            refreshEnrollments();
+        } catch (error) {
+            console.error("Error marking class completed: ", error);
+            alert("Failed to update the class. Please try again.");
+        } finally {
+            setConfirmingDeleteId(null);
+        }
+    };
 
-  const handleColorChange = async (classId: string, color: string) => {
-    if (!user) return;
+    // Trigger state fetch when the authentic user context resolves
+    useEffect(() => {
+        refreshEnrollments();
+    }, [user]);
 
-    try {
-      await updateDoc(doc(db, "users", user.uid, "enrollment", classId), { color });
-      setEnrollments((current) => current.map((enrollment) => (
-        enrollment.classId === classId ? { ...enrollment, color } : enrollment
-      )));
-    } catch (error) {
-      console.error("Error updating class color:", error);
-    }
-  };
-
-  const handleMarkCompletedOnDelete = async (classId: string) => {
-    if (!user) return;
-
-    try {
-      await updateDoc(doc(db, "users", user.uid, "enrollment", classId), { status: "completed" });
-      refreshEnrollments();
-    } catch (error) {
-      console.error("Error marking class completed:", error);
-      alert("Failed to update the class. Please try again.");
-    } finally {
-      setConfirmingDeleteId(null);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-bg-main">
-        <p className="text-sm text-text-muted">Loading classes...</p>
-      </div>
+    // Completed classes move to Advising's "Completed courses" section
+    // instead of cluttering the active list here.
+    const activeEnrollments = useMemo(
+        () => enrollments.filter((e) => e.status !== "completed"),
+        [enrollments]
     );
-  }
 
-  return (
-    <section className="min-h-screen bg-bg-main px-4 py-8 text-text-main sm:px-8">
-      <PageTutorial id="classes" steps={classesSteps} />
-      <div className="mx-auto max-w-7xl">
-        <header className="mb-7 flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <div className="mb-2 mt-9 flex items-center gap-2 text-xs text-text-muted">
-              <BookOpen size={15} strokeWidth={1.8} />
-              <span>Dashboard</span>
-              <span>/</span>
-              <span className="font-medium text-text-main">Classes</span>
+    useSetPageContext(
+        { page: "classes", label: "Classes", summary: buildClassesSummary(activeEnrollments) },
+        [activeEnrollments]
+    );
+
+    const confirmingClass = enrollments.find((e) => e.classId === confirmingDeleteId);
+
+    // Combined/Cleaned condition checks (No duplicates)
+    if (loading) {
+        return (
+            <div className="relative flex min-h-screen items-center justify-center bg-bg-main">
+                <p className="text-lg text-text-muted">Loading...</p>
             </div>
-            <h1 className="text-3xl font-semibold tracking-tight text-text-main" data-tutorial="classes-heading">
-              Classes
-            </h1>
-            <p className="mt-2 text-sm text-text-muted">All your classes in one place. Click a card to go to that class.</p>
-          </div>
+        );
+    }
 
-          <div className="flex flex-wrap items-center gap-3">
-            {activeEnrollments.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setDeleteMode((current) => !current)}
-                className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium shadow-sm transition focus:outline-none focus:ring-2 focus:ring-primary/30 ${
-                  deleteMode
-                    ? "border-alert-error bg-alert-error text-text-inverse hover:bg-alert-error-hover"
-                    : "border-border-light bg-bg-container text-text-main hover:bg-bg-warm"
-                }`}
-              >
-                <Trash2 size={16} strokeWidth={1.8} />
-                {deleteMode ? "Done managing" : "Manage classes"}
-              </button>
+    return (
+        <div className="relative flex min-h-screen items-center justify-center bg-bg-main">
+            <PageTutorial id="classes" steps={classesSteps} />
+            <AddEnrollmentModal
+                onEnrollmentAdded={refreshEnrollments}
+                deleteMode={deleteMode}
+                onToggleDeleteMode={() => setDeleteMode((d) => !d)}
+            />
+
+            {scheduleClassId && (
+                <EditClassScheduleModal
+                    classId={scheduleClassId}
+                    onClose={() => setScheduleClassId(null)}
+                    onSaved={refreshEnrollments}
+                />
             )}
-            <button
-              type="button"
-              data-tutorial="classes-add"
-              onClick={() => setAddClassOpen(true)}
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-text-inverse shadow-sm transition hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-primary/30"
-            >
-              <Plus size={16} strokeWidth={2} />
-              Add Class
-            </button>
-          </div>
-        </header>
 
-        {activeEnrollments.length === 0 ? (
-          <div className="flex min-h-[360px] flex-col items-center justify-center rounded-3xl border border-border-light bg-bg-container px-6 py-12 text-center shadow-sm">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-bg-warm text-primary">
-              <BookOpen size={25} strokeWidth={1.8} />
-            </div>
-            <h2 className="mt-5 text-xl font-semibold text-text-main">Build your class list</h2>
-            <p className="mt-2 max-w-sm text-sm leading-6 text-text-muted">Add a class to organize its course space and optionally keep its meeting time handy.</p>
-            <button
-              type="button"
-              onClick={() => setAddClassOpen(true)}
-              className="mt-6 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-text-inverse shadow-sm transition hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-primary/30"
-            >
-              <Plus size={16} strokeWidth={2} />
-              Add your first class
-            </button>
-          </div>
-        ) : (
-          <div className="rounded-3xl border border-border-light bg-bg-container p-4 shadow-sm sm:p-6">
-            <div className="mb-5 flex items-center justify-between gap-4 border-b border-border-light pb-4">
-              <div>
-                <h2 className="text-lg font-semibold text-text-main">Current classes</h2>
-                <p className="mt-1 text-sm text-text-muted">{activeEnrollments.length} active {activeEnrollments.length === 1 ? "class" : "classes"}</p>
-              </div>
-              {deleteMode && <p className="text-xs font-medium text-alert-error">Choose a class to remove or complete.</p>}
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3" data-tutorial="classes-grid">
-              {activeEnrollments.map((enrollment) => (
-                <div key={enrollment.classId} className="relative">
-                  <ClassCard
-                    {...enrollment}
-                    onColorChange={(color) => enrollment.classId && handleColorChange(enrollment.classId, color)}
-                    onScheduleEdit={() => enrollment.classId && setScheduleClassId(enrollment.classId)}
-                  />
-                  {deleteMode && (
-                    <button
-                      type="button"
-                      onClick={() => enrollment.classId && setConfirmingDeleteId(enrollment.classId)}
-                      className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-lg bg-alert-error text-text-inverse shadow-sm transition hover:bg-alert-error-hover focus:outline-none focus:ring-2 focus:ring-alert-error"
-                      aria-label={`Remove ${enrollment.className}`}
-                    >
-                      <Minus size={16} />
-                    </button>
-                  )}
+            {confirmingClass && confirmingClass.classId && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+                    <div className="w-full max-w-sm rounded-lg bg-bg-container p-6 shadow-xl">
+                        <h3 className="text-lg font-semibold text-text-main">Remove {confirmingClass.className}?</h3>
+                        <p className="mt-2 text-sm text-text-muted">
+                            If you've finished this class, mark it completed to keep it in your course history —
+                            it'll show up under Advising's completed courses. Otherwise, delete it permanently.
+                        </p>
+                        <div className="mt-5 flex flex-col gap-2">
+                            <button
+                                type="button"
+                                onClick={() => confirmingClass.classId && handleMarkCompletedOnDelete(confirmingClass.classId)}
+                                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-text-inverse hover:bg-primary-hover"
+                            >
+                                Mark as completed
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => confirmingClass.classId && handlePermanentDelete(confirmingClass.classId)}
+                                className="rounded-md bg-alert-error px-4 py-2 text-sm font-medium text-text-inverse hover:bg-alert-error-hover"
+                            >
+                                Delete permanently
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setConfirmingDeleteId(null)}
+                                className="rounded-md border border-border-light px-4 py-2 text-sm font-medium text-text-muted hover:bg-bg-warm"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+            )}
 
-      <AddEnrollmentModal
-        open={addClassOpen}
-        onOpenChange={setAddClassOpen}
-        hideOwnTrigger
-        onEnrollmentAdded={refreshEnrollments}
-      />
-
-      {scheduleClassId && (
-        <EditClassScheduleModal
-          classId={scheduleClassId}
-          onClose={() => setScheduleClassId(null)}
-          onSaved={refreshEnrollments}
-        />
-      )}
-
-      {confirmingClass?.classId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-border-light bg-bg-container p-6 shadow-xl">
-            <h2 className="text-lg font-semibold text-text-main">Remove {confirmingClass.className}?</h2>
-            <p className="mt-2 text-sm leading-6 text-text-muted">
-              Finished this course? Mark it completed to retain it in Advising. Otherwise, remove it permanently.
-            </p>
-            <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
-              <button type="button" onClick={() => handleMarkCompletedOnDelete(confirmingClass.classId!)} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-text-inverse transition hover:bg-primary-hover">
-                Mark completed
-              </button>
-              <button type="button" onClick={() => handlePermanentDelete(confirmingClass.classId!)} className="rounded-lg bg-alert-error px-4 py-2 text-sm font-medium text-text-inverse transition hover:bg-alert-error-hover">
-                Delete permanently
-              </button>
-              <button type="button" onClick={() => setConfirmingDeleteId(null)} className="rounded-lg border border-border-light px-4 py-2 text-sm font-medium text-text-main transition hover:bg-bg-warm">
-                Cancel
-              </button>
-            </div>
-          </div>
+            {activeEnrollments.length === 0 ? (
+                <div className="flex flex-col items-center justify-center min-h-screen py-2">
+                    <h1 className="text-4xl font-bold mb-8" data-tutorial="classes-heading">Classes</h1>
+                    <p className="text-lg text-text-muted">No classes found. Please add a new class.</p>
+                </div>
+            ) : (
+                <div className="flex flex-col items-center justify-center min-h-screen py-2 mx-10">
+                    <h1 className="text-4xl font-bold mb-8" data-tutorial="classes-heading">Classes</h1>
+                    <div className="flex flex-wrap justify-center gap-8" data-tutorial="classes-grid">
+                        {activeEnrollments.map((enrollment) => (
+                            <div key={enrollment.classId} className="relative">
+                                <ClassCard
+                                    {...enrollment}
+                                    onColorChange={(color) => enrollment.classId && handleColorChange(enrollment.classId, color)}
+                                    onScheduleEdit={() => enrollment.classId && setScheduleClassId(enrollment.classId)}
+                                />
+                                {deleteMode && (
+                                    <button
+                                        onClick={() => enrollment.classId && setConfirmingDeleteId(enrollment.classId)}
+                                        className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-alert-error text-text-inverse shadow-md hover:bg-alert-error-hover"
+                                        aria-label={`Remove ${enrollment.className}`}
+                                    >
+                                        <Minus size={14} />
+                                    </button>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
-      )}
-    </section>
-  );
+    );
 }
