@@ -55,7 +55,8 @@ Reply with a single JSON object and nothing else, with exactly these keys:
   "grading": "grade breakdown, one line, e.g. Exams 40%, Homework 30%, Project 30%",
   "dates": [{"date": "YYYY-MM-DD or the syllabus's own wording", "title": "what is due or happening", "kind": "exam | assignment | holiday | other"}]
 }
-List dates in chronological order, at most 40 of them; include exams, quizzes, project and assignment deadlines, and no-class days.`;
+List dates in chronological order, at most 40 of them; include exams, quizzes, project and assignment deadlines, and no-class days.
+Write each date as YYYY-MM-DD whenever the syllabus names a specific day, working out the year from the course term and today's date (a fall term's January dates belong to the next year). Only if the syllabus gives no specific day ("Week 5", "finals week", "TBA") use its own wording. A final exam given only as a time slot inside a published exam week still counts as an exam.`;
 
 const asText = (value: unknown, max: number): string => {
   if (typeof value === "string") return value.replace(/\s+/g, " ").trim().slice(0, max);
