@@ -35,6 +35,7 @@ dist-ssr
 # Local Codex/Superpowers artifacts
 .superpowers/
 docs/superpowers/
+.specs/
 
 # chat eval run reports (scripts/chatEval.mjs)
 scripts/*.report-*.json
