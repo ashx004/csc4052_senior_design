@@ -9,7 +9,7 @@ export const GENERATION_DEADLINE_MS = 120_000;
 export async function structuredGeneration(options: {
   baseUrl: string;
   modelKey?: string;
-  feature: "quiz" | "flashcards";
+  feature: "quiz" | "flashcards" | "practice";
   messages: { role: string; content: string }[];
   schema: unknown;
   deadline: number;
@@ -21,13 +21,14 @@ export async function structuredGeneration(options: {
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
-      "X-Catalyst-Feature": options.feature === "quiz" ? "quiz-generation" : "flashcard-generation",
+      "X-Catalyst-Feature": options.feature === "quiz" ? "quiz-generation" : options.feature === "practice" ? "practice-generation" : "flashcard-generation",
     },
     body: JSON.stringify({
       model: resolveModelFromKey(options.modelKey),
       messages: options.messages,
       stream: false,
-      ...thinkField(options.feature),
+      // Practice sets are generated the same way as quizzes, so they share its think setting.
+      ...thinkField(options.feature === "practice" ? "quiz" : options.feature),
       format: options.schema,
       keep_alive: FAST_MODEL_KEEP_ALIVE,
       options: { temperature: 0, ...mainModelContextOption() },

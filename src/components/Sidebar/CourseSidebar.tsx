@@ -169,6 +169,18 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
             <span>Notes</span>
           </Link>
 
+          {/* Practice - fill in the blank, word problems and timed drag-and-drop */}
+          <Link
+            href={`${base}/practice`}
+            className={`flex items-center gap-3 text-sm font-semibold px-3 py-3 mt-1 rounded-xl transition-colors ${
+              pathname.startsWith(`${base}/practice`)
+                ? "bg-white/15 text-white"
+                : "text-white/65 hover:bg-white/10 hover:text-white"
+            }`}
+          >
+            <span>Practice</span>
+          </Link>
+
           {/* Learning — plain button, no dropdown */}
           <button
             onClick={() => router.push(`${base}/learning`)}
