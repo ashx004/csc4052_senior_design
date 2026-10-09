@@ -1,5 +1,6 @@
 import "server-only";
 
+import { getReportingConfiguration } from "./analyticsReportingConfig";
 import { auth as googleAuth } from "googleapis/build/src/apis/analyticsdata";
 import { analyticsdata_v1beta } from "googleapis/build/src/apis/analyticsdata/v1beta";
 import {
@@ -24,24 +25,8 @@ type CachedReport = {
   report: AnalyticsReport;
 };
 const reportCache = new Map<string, CachedReport>();
-
-function getReportingConfiguration() {
-  const propertyId = process.env.GA4_PROPERTY_ID;
-  const timeZone = process.env.GA4_PROPERTY_TIMEZONE;
-  const clientEmail = process.env.GA4_CLIENT_EMAIL;
-  const privateKey = process.env.GA4_PRIVATE_KEY?.replace(/\\\\n/g, "\\n");
-
-  const hasValidPropertyId =
-    typeof propertyId === "string" && /^\d+$/.test(propertyId);
-  if (!hasValidPropertyId || !timeZone || !clientEmail || !privateKey) {
-    throw new ReportError(
-      503,
-      "Analytics reporting is not configured. Follow docs/analytics.md to connect a GA4 property and reporting account.",
-    );
-  }
-
-  return { propertyId, timeZone, clientEmail, privateKey };
-}
+const pendingReports = new Map<string, Promise<AnalyticsReport>>();
+const MAX_PENDING_REPORTS = 10;
 
 function resolveDateRange(
   startDate: string,
@@ -92,6 +77,12 @@ function readReportRows(report: GoogleReport): ReportRow[] {
       }
     }
 
+    if (!Number.isSafeInteger(count) || count < 0) {
+      throw new ReportError(
+        502,
+        "Analytics returned an invalid event count. Try again.",
+      );
+    }
     result.push({ label, count });
   }
   return result;
@@ -174,7 +165,8 @@ function reportingError(error: unknown): ReportError {
     return error;
   }
 
-  const status = (error as { response?: { status?: number } }).response?.status;
+  const status = (error as { response?: { status?: number } } | null)?.response
+    ?.status;
   if (status === 401 || status === 403) {
     return new ReportError(
       503,
@@ -212,6 +204,38 @@ export async function getAnalyticsReport(
     return cached.report;
   }
 
+  const pendingReport = pendingReports.get(cacheKey);
+  if (pendingReport) return pendingReport;
+  if (pendingReports.size >= MAX_PENDING_REPORTS) {
+    throw new ReportError(429, "Analytics is busy. Please try again shortly.");
+  }
+
+  const request = fetchAnalyticsReport(
+    propertyId,
+    timeZone,
+    clientEmail,
+    privateKey,
+    startDate,
+    endDate,
+  );
+  pendingReports.set(cacheKey, request);
+  try {
+    const report = await request;
+    cacheReport(cacheKey, report);
+    return report;
+  } finally {
+    pendingReports.delete(cacheKey);
+  }
+}
+
+async function fetchAnalyticsReport(
+  propertyId: string,
+  timeZone: string,
+  clientEmail: string,
+  privateKey: string,
+  startDate: string,
+  endDate: string,
+): Promise<AnalyticsReport> {
   const auth = new googleAuth.GoogleAuth({
     credentials: { client_email: clientEmail, private_key: privateKey },
     scopes: [READ_ONLY_ANALYTICS_SCOPE],
@@ -232,7 +256,6 @@ export async function getAnalyticsReport(
       endDate,
       timeZone,
     );
-    cacheReport(cacheKey, report);
     return report;
   } catch (error) {
     throw reportingError(error);

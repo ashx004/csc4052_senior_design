@@ -1,7 +1,8 @@
+import { AnalyticsProvider } from "@/src/context/AnalyticsContext";
 import PageTracker from "@/src/components/analytics/PageTracker";
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
-import './global.css';
+import "./global.css";
 import { AuthProvider } from "@/src/context/AuthContext";
 import { StudyPlanProvider } from "@/src/context/StudyPlanContext";
 import { TutorialProvider } from "@/src/context/TutorialContext";
@@ -35,23 +36,25 @@ export default function RootLayout({
         "
       >
         <ThemeInitializer />
-        <PageTracker />
 
         <AuthProvider>
-          {/* Study sessions outlive any single route group — the focus card
+          <AnalyticsProvider>
+            <PageTracker />
+            {/* Study sessions outlive any single route group — the focus card
               lives here so it stays visible on the course pages a started
               task navigates to, not just the dashboard. */}
-          <StudyPlanProvider>
-            <FocusCard />
-            {/* Here rather than in the dashboard layout so notifications
+            <StudyPlanProvider>
+              <FocusCard />
+              {/* Here rather than in the dashboard layout so notifications
                 (e.g. an advising upload or schedule finishing in the
                 background) pop up on every page, course pages included. */}
-            <NotificationToast />
-            {/* Mounted once at the root (not per-layout) so a user's
+              <NotificationToast />
+              {/* Mounted once at the root (not per-layout) so a user's
                 tutorial progress survives navigating between the dashboard
                 and course route groups without refetching. */}
-            <TutorialProvider>{children}</TutorialProvider>
-          </StudyPlanProvider>
+              <TutorialProvider>{children}</TutorialProvider>
+            </StudyPlanProvider>
+          </AnalyticsProvider>
         </AuthProvider>
       </body>
     </html>

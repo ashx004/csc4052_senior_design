@@ -17,7 +17,9 @@
     "worker:ocr": "tsx scripts/ocrWorker.ts",
     "worker:reminders": "tsx scripts/reminderWorker.ts",
     "worker:advising": "tsx scripts/advisingWorker.ts",
-    "eval:chat": "node --env-file=.env scripts/chatEval.mjs"
+    "eval:chat": "node --env-file=.env scripts/chatEval.mjs",
+    "admin:access": "tsx scripts/setAdmin.ts",
+    "analytics:check": "node --conditions=react-server --import tsx scripts/checkAnalytics.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1079.0",

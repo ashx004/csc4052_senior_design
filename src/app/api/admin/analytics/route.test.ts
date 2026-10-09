@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 vi.mock("server-only", () => ({}));
 const reportingMocks = vi.hoisted(() => ({
   requireAdmin: vi.fn(),
+  checkRateLimit: vi.fn(),
   getAnalyticsReport: vi.fn(),
 }));
 vi.mock("@/src/library/adminAuth", async (importOriginal) => ({
@@ -12,10 +13,14 @@ vi.mock("@/src/library/adminAuth", async (importOriginal) => ({
 vi.mock("@/src/library/analyticsReports", () => ({
   getAnalyticsReport: reportingMocks.getAnalyticsReport,
 }));
+vi.mock("@/src/library/rateLimit", () => ({
+  checkRateLimit: reportingMocks.checkRateLimit,
+}));
 import { AdminAccessError } from "@/src/library/adminAuth";
 import { GET } from "./route";
 beforeEach(() => {
   vi.clearAllMocks();
+  reportingMocks.checkRateLimit.mockReturnValue({ allowed: true });
   reportingMocks.requireAdmin.mockResolvedValue({ uid: "admin" });
   reportingMocks.getAnalyticsReport.mockResolvedValue({ events: [] });
 });
@@ -42,4 +47,40 @@ it("rejects arbitrary property and query parameters", async () => {
   );
   expect(response.status).toBe(400);
   expect(reportingMocks.getAnalyticsReport).not.toHaveBeenCalled();
+});
+
+it("rejects duplicate query parameters", async () => {
+  const response = await GET(
+    new NextRequest(
+      "https://catalyst.test/api/admin/analytics?start=7days&start=30days",
+    ),
+  );
+  expect(response.status).toBe(400);
+  expect(reportingMocks.getAnalyticsReport).not.toHaveBeenCalled();
+});
+
+it("limits requests after authentication and returns a retry delay", async () => {
+  reportingMocks.checkRateLimit.mockReturnValue({
+    allowed: false,
+    retryAfterSeconds: 45,
+  });
+  const response = await GET(
+    new NextRequest("https://catalyst.test/api/admin/analytics"),
+  );
+  expect(response.status).toBe(429);
+  expect(response.headers.get("Retry-After")).toBe("45");
+  expect(reportingMocks.getAnalyticsReport).not.toHaveBeenCalled();
+});
+
+it("never leaks unexpected backend errors", async () => {
+  reportingMocks.getAnalyticsReport.mockRejectedValueOnce(
+    new Error("secret credentials"),
+  );
+  const response = await GET(
+    new NextRequest("https://catalyst.test/api/admin/analytics"),
+  );
+  expect(response.status).toBe(503);
+  expect(JSON.stringify(await response.json())).not.toContain(
+    "secret credentials",
+  );
 });

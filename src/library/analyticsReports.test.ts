@@ -1,5 +1,17 @@
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
+vi.mock("./analyticsReportingConfig", () => ({
+  getReportingConfiguration: () => {
+    if (!process.env.GA4_PROPERTY_ID)
+      throw Object.assign(new Error("Not configured"), { status: 503 });
+    return {
+      propertyId: process.env.GA4_PROPERTY_ID,
+      timeZone: "America/Chicago",
+      clientEmail: "test",
+      privateKey: "test",
+    };
+  },
+}));
 const reportingMocks = vi.hoisted(() => ({ batchRunReports: vi.fn() }));
 vi.mock("googleapis/build/src/apis/analyticsdata", () => ({
   auth: { GoogleAuth: class {} },
@@ -70,4 +82,63 @@ it("rejects timezone mismatches instead of displaying misleading dates", async (
   await expect(
     getAnalyticsReport("2026-01-01", "2026-01-05"),
   ).rejects.toMatchObject({ status: 503 });
+});
+
+it("shares concurrent identical report requests", async () => {
+  const { getAnalyticsReport } = await import("./analyticsReports");
+  await Promise.all(
+    Array.from({ length: 8 }, () =>
+      getAnalyticsReport("2026-01-01", "2026-01-05"),
+    ),
+  );
+  expect(reportingMocks.batchRunReports).toHaveBeenCalledTimes(1);
+});
+
+it("bounds distinct in-flight reports and frees capacity after completion", async () => {
+  const { getAnalyticsReport } = await import("./analyticsReports");
+  let finish!: (response: unknown) => void;
+  reportingMocks.batchRunReports.mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const pending = Array.from({ length: 10 }, (_, index) => {
+    const day = String(index + 1).padStart(2, "0");
+    return getAnalyticsReport(`2026-01-${day}`, "2026-01-20");
+  });
+  await expect(
+    getAnalyticsReport("2026-01-11", "2026-01-20"),
+  ).rejects.toMatchObject({ status: 429 });
+  expect(reportingMocks.batchRunReports).toHaveBeenCalledTimes(10);
+  finish({ data: { reports: [{}, {}, {}] } });
+  await Promise.all(pending);
+  await expect(
+    getAnalyticsReport("2026-01-11", "2026-01-20"),
+  ).resolves.toMatchObject({ events: [] });
+});
+
+it("rejects invalid counts instead of displaying corrupted totals", async () => {
+  const { getAnalyticsReport } = await import("./analyticsReports");
+  reportingMocks.batchRunReports.mockResolvedValueOnce({
+    data: {
+      reports: [{ rows: [{ metricValues: [{ value: "NaN" }] }] }, {}, {}],
+    },
+  });
+  await expect(
+    getAnalyticsReport("2026-01-01", "2026-01-05"),
+  ).rejects.toMatchObject({ status: 502 });
+});
+
+it("rejects reversed, future, and oversized date ranges before Google is called", async () => {
+  const { getAnalyticsReport } = await import("./analyticsReports");
+  for (const [start, end] of [
+    ["2026-01-05", "2026-01-01"],
+    ["2026-01-01", "2099-01-01"],
+    ["2024-01-01", "2026-01-01"],
+  ]) {
+    await expect(getAnalyticsReport(start, end)).rejects.toMatchObject({
+      status: 400,
+    });
+  }
+  expect(reportingMocks.batchRunReports).not.toHaveBeenCalled();
 });

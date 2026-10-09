@@ -1,13 +1,25 @@
-// Run with: node --env-file=.env.local --import tsx scripts/setAdmin.ts grant|revoke FIREBASE_UID
+import "./loadEnvironment";
+
 async function main() {
   const [action, userId] = process.argv.slice(2);
-  const hasValidAction = action === "grant" || action === "revoke";
+  const hasValidAction = ["grant", "revoke", "status"].includes(action);
   if (!hasValidAction || !userId || process.argv.length !== 4) {
-    throw new Error("Usage: setAdmin.ts grant|revoke FIREBASE_UID");
+    throw new Error(
+      "Usage: npm run admin:access -- grant|revoke|status FIREBASE_UID",
+    );
   }
 
   const { adminAuth } = await import("../src/library/firebaseAdmin");
   const account = await adminAuth.getUser(userId);
+  if (action === "status") {
+    console.log(
+      `Administrator access: ${account.customClaims?.admin === true && !account.disabled ? "enabled" : "disabled"}.`,
+    );
+    return;
+  }
+  if (action === "grant" && account.disabled) {
+    throw new Error("Cannot grant administrator access to a disabled account.");
+  }
 
   const updatedClaims = { ...account.customClaims };
   if (action === "grant") {
@@ -16,25 +28,18 @@ async function main() {
     delete updatedClaims.admin;
   }
   await adminAuth.setCustomUserClaims(userId, updatedClaims);
+  if (action === "revoke") await adminAuth.revokeRefreshTokens(userId);
 
-  if (action === "revoke") {
-    await adminAuth.revokeRefreshTokens(userId);
-  }
-
-  if (action === "grant") {
-    console.log(
-      "Administrator access granted. Sign out and back in to refresh the token.",
-    );
-  } else {
-    console.log(
-      "Administrator access revoked. Existing sessions were revoked.",
-    );
-  }
+  console.log(
+    action === "grant"
+      ? "Administrator access granted. Sign out and back in to refresh the token."
+      : "Administrator access revoked. Existing sessions were revoked.",
+  );
 }
 
 main().catch(() => {
   console.error(
-    "Could not update administrator access. Check arguments, server credentials, and the existing Firebase UID.",
+    "Could not update administrator access. Use grant, revoke, or status with an existing Firebase UID and configured server credentials.",
   );
   process.exitCode = 1;
 });
