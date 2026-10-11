@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+// Grades a student can pick when adding a course by hand (TransferCreditForm).
+// Limited to what the planner understands: letter grades A-F, P (pass),
+// IP (in progress), W (withdrawn) and CR (credit, e.g. AP/exam credit).
+export const MANUAL_GRADE_OPTIONS = ["A", "B", "C", "D", "F", "P", "IP", "W", "CR"] as const;
+
 // gemini's response's structure for advising
 
 export const extractedCourseSchema = z.object({
