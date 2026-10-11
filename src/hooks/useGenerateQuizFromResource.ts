@@ -49,9 +49,10 @@ export function useGenerateQuizFromResource(courseId: string) {
     setError(null);
   }, []);
 
-  const start = useCallback(
-    async (config: QuizGenerationConfig) => {
-      if (!user || !resource) return;
+  const generate = useCallback(
+    async (target: QuizResourceContext, config: QuizGenerationConfig) => {
+      if (!user) return;
+      setResource(target);
       setLoading(true);
       setError(null);
 
@@ -60,8 +61,8 @@ export function useGenerateQuizFromResource(courseId: string) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            docUrl: resource.url,
-            docName: resource.name,
+            docUrl: target.url,
+            docName: target.name,
             questionCount: config.questionCount,
             questionTypes: config.questionTypes,
             difficulty: config.difficulty,
@@ -77,7 +78,7 @@ export function useGenerateQuizFromResource(courseId: string) {
         const setsRef = collection(db, "users", user.uid, "enrollment", courseId, "quizSets");
         const newDoc = await addDoc(setsRef, {
           name: data.topicName,
-          sourceDocKey: resource.sourceDocKey,
+          sourceDocKey: target.sourceDocKey,
           questions: data.questions,
           questionTypes: config.questionTypes,
           difficulty: parseQuizDifficulty(data.difficulty),
@@ -115,7 +116,15 @@ export function useGenerateQuizFromResource(courseId: string) {
         setLoading(false);
       }
     },
-    [user, resource, courseId, courseCode, router],
+    [user, courseId, courseCode, router],
+  );
+
+  const start = useCallback(
+    async (config: QuizGenerationConfig) => {
+      if (!resource) return;
+      await generate(resource, config);
+    },
+    [resource, generate],
   );
 
   return {
@@ -126,5 +135,6 @@ export function useGenerateQuizFromResource(courseId: string) {
     begin,
     close,
     start,
+    generate,
   };
 }
