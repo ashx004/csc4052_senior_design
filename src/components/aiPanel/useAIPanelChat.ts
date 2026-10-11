@@ -5,6 +5,7 @@ import { buildChatContext, PageAIContext } from "@/src/library/chatContext";
 import { readChatStream } from "@/src/library/chatStream";
 import { toolRunningLabel } from "@/src/library/toolActivity";
 import { useChatActivity } from "@/src/hooks/useChatActivity";
+import { stoppedReplyText } from "@/src/library/stoppedReplies";
 import { useChatRun } from "@/src/hooks/useChatRun";
 import { useChatStatus } from "@/src/library/useChatStatus";
 import { getEffectiveModelKey } from "@/src/library/chatMode";
@@ -45,6 +46,12 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
     liveActivity.reset();
     const { runId, signal } = chatRun.begin();
     let stopped = false;
+    let discarded = false;
+    let sawText = false;
+
+    // Stop pressed before anything was written: drop the question and the empty
+    // reply, and let the caller hand the question back to be re-worded.
+    const dropStoppedTurn = () => setMessages((prev) => prev.filter((m) => m.id !== userMessage.id && m.id !== assistantId));
 
     function updateAssistant(patch: Partial<PanelMessage>) {
       setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, ...patch } : m)));
@@ -95,7 +102,9 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
         liveActivity.handle(event);
         if (event.type === "stopped") {
           stopped = true;
+          discarded = Boolean(event.discarded);
         } else if (event.type === "delta") {
+          sawText = true;
           fullText += event.text;
           chatStatus.clear();
           updateAssistant({ text: fullText });
@@ -112,16 +121,20 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
         }
       }
 
-      if (stopped) {
-        updateAssistant({ text: fullText ? `${fullText}\n\n_(Stopped)_` : "_(Stopped before the assistant answered.)_" });
+      if (stopped && discarded && !fullText) {
+        dropStoppedTurn();
+      } else if (stopped) {
+        updateAssistant({ text: stoppedReplyText(fullText) });
       } else if (!fullText) {
         throw new Error(streamError || "The assistant didn't generate a response. Please try again.");
       }
       if (streamError) setErrorText(streamError);
     } catch (error) {
       if (chatRun.wasStopped()) {
-        // The connection was cut right after Stop: keep whatever was written.
-        setMessages((prev) => prev.filter((m) => !(m.id === assistantId && m.text === "")));
+        // The connection was cut right after Stop: with nothing written drop the
+        // turn, otherwise keep whatever was written.
+        if (!sawText) dropStoppedTurn();
+        else setMessages((prev) => prev.filter((m) => !(m.id === assistantId && m.text === "")));
         return { stopped: true };
       }
       console.error("AI panel request failed:", error);

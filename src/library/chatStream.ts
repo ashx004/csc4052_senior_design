@@ -19,8 +19,12 @@ export type ChatStreamEvent =
   | { type: "thinking"; text: string }
   /** A short plain-language summary of the reasoning so far. */
   | { type: "thought_summary"; text: string }
-  /** The student pressed Stop; a "done" event with the partial reply follows. */
-  | { type: "stopped" }
+  /**
+   * The student pressed Stop; a "done" event with the partial reply follows.
+   * `discarded` means nothing had been written yet, so the server removed the
+   * whole turn from the saved chat and the client should drop the question too.
+   */
+  | { type: "stopped"; discarded?: boolean }
   | { type: "status"; label: string }
   | {
       type: "done";

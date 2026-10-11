@@ -1,4 +1,4 @@
-import { collection, getDocs, query, where, type Firestore } from "firebase/firestore";
+import { collection, doc, getDocs, query, updateDoc, where, type Firestore } from "firebase/firestore";
 import {
   defaultEmailReminderPreferences,
   getEmailReminderPreferences,
@@ -9,7 +9,8 @@ import type { PlannedSyllabusEvent } from "./syllabusCalendar";
 
 // Saves a syllabus's calendar events for one course and removes the ones from
 // an earlier import that are no longer wanted, so importing again (or editing
-// the syllabus details) never leaves duplicates behind.
+// the syllabus details) never leaves duplicates behind. Events that are already
+// on the calendar are left as the student has them (see the loop below).
 
 export interface SyllabusSyncResult {
   added: number;
@@ -17,7 +18,7 @@ export interface SyllabusSyncResult {
   removed: number;
 }
 
-export async function listSyllabusEventIds(db: Firestore, uid: string, courseId: string): Promise<string[]> {
+async function listSyllabusEvents(db: Firestore, uid: string, courseId: string): Promise<{ id: string; endTime: unknown }[]> {
   const snapshot = await getDocs(
     query(
       collection(db, "users", uid, "events"),
@@ -25,7 +26,11 @@ export async function listSyllabusEventIds(db: Firestore, uid: string, courseId:
       where("classId", "==", courseId)
     )
   );
-  return snapshot.docs.map((d) => d.id);
+  return snapshot.docs.map((d) => ({ id: d.id, endTime: d.data().endTime }));
+}
+
+export async function listSyllabusEventIds(db: Firestore, uid: string, courseId: string): Promise<string[]> {
+  return (await listSyllabusEvents(db, uid, courseId)).map((event) => event.id);
 }
 
 export async function syncSyllabusEvents(
@@ -40,12 +45,25 @@ export async function syncSyllabusEvents(
     defaultEmailReminderPreferences(timeZone)
   );
 
-  const existing = new Set(await listSyllabusEventIds(db, uid, courseId));
+  const existingEvents = new Map((await listSyllabusEvents(db, uid, courseId)).map((event) => [event.id, event]));
+  const existing = new Set(existingEvents.keys());
   const wanted = new Set(planned.map((event) => event.id));
   let added = 0;
   let updated = 0;
 
   for (const event of planned) {
+    const already = existingEvents.get(event.id);
+    if (already) {
+      // The student may have renamed, recoloured or re-timed this event on the
+      // calendar since the last import; saving the syllabus again must not undo
+      // that. Only the last day (a range edited in the review) is brought up to date.
+      const endTime = event.data.endTime;
+      if (typeof endTime === "string" && already.endTime !== endTime) {
+        await updateDoc(doc(db, "users", uid, "events", event.id), { endTime });
+        updated += 1;
+      }
+      continue;
+    }
     const kind = event.kind;
     const eligible = isEmailReminderEligible({ kind });
     const dueAt = eligible ? resolveEventDueAt({ kind, startTime: event.date, allDay: true }) : null;
@@ -67,8 +85,7 @@ export async function syncSyllabusEvents(
         emailReminderOffsets,
       },
     });
-    if (existing.has(event.id)) updated += 1;
-    else added += 1;
+    added += 1;
   }
 
   let removed = 0;

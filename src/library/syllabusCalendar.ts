@@ -76,6 +76,54 @@ export function resolveSyllabusDate(text: string, term = "", now: Date = new Dat
   return null;
 }
 
+const RANGE_WORD = "(?:-|to|through|thru|until)";
+
+/**
+ * Like resolveSyllabusDate, but understands a span of days: "Nov 25-27",
+ * "November 25 - November 27, 2026", "11/25-11/27". `end` is null for a single day
+ * (or a range that doesn't make sense, such as one that ends before it starts).
+ */
+export function resolveSyllabusRange(text: string, term = "", now: Date = new Date()): { start: string; end: string | null } | null {
+  const value = text.trim().replace(/[\u2012-\u2015\u2212]/g, "-");
+  const cleaned = value.replace(/(\d)(st|nd|rd|th)\b/gi, "$1");
+
+  let start: string | null = null;
+  let end: string | null = null;
+
+  // "Nov 25-27" / "Nov 25 - 27, 2026"
+  const sameMonth = cleaned.match(new RegExp(`\\b(${MONTH_NAMES})\\.?\\s+(\\d{1,2})\\s*${RANGE_WORD}\\s*(\\d{1,2})\\b(?:\\s*,?\\s*(\\d{4}))?`, "i"));
+  // "Nov 25 - Dec 2"
+  const twoMonths = cleaned.match(new RegExp(`\\b(${MONTH_NAMES})\\.?\\s+(\\d{1,2})\\s*${RANGE_WORD}\\s*(${MONTH_NAMES})\\.?\\s+(\\d{1,2})\\b(?:\\s*,?\\s*(\\d{4}))?`, "i"));
+  // "11/25 - 11/27"
+  const numeric = cleaned.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s*-\s*(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+
+  const yearFor = (explicit: string | undefined, month: number) => {
+    if (!explicit) return impliedYear(month, term, now);
+    return explicit.length === 2 ? 2000 + Number(explicit) : Number(explicit);
+  };
+
+  if (twoMonths) {
+    const m1 = MONTHS[twoMonths[1].toLowerCase()];
+    const m2 = MONTHS[twoMonths[3].toLowerCase()];
+    start = toIso(yearFor(twoMonths[5], m1), m1, Number(twoMonths[2]));
+    end = toIso(yearFor(twoMonths[5], m2), m2, Number(twoMonths[4]));
+  } else if (sameMonth) {
+    const m = MONTHS[sameMonth[1].toLowerCase()];
+    const year = yearFor(sameMonth[4], m);
+    start = toIso(year, m, Number(sameMonth[2]));
+    end = toIso(year, m, Number(sameMonth[3]));
+  } else if (numeric) {
+    const m1 = Number(numeric[1]);
+    const m2 = Number(numeric[4]);
+    start = toIso(yearFor(numeric[3] ?? numeric[6], m1), m1, Number(numeric[2]));
+    end = toIso(yearFor(numeric[6] ?? numeric[3], m2), m2, Number(numeric[5]));
+  }
+
+  if (start) return { start, end: end && end > start ? end : null };
+  const single = resolveSyllabusDate(text, term, now);
+  return single ? { start: single, end: null } : null;
+}
+
 /** The calendar day after `date` (YYYY-MM-DD) - all-day events end on the next day. */
 export function nextDay(date: string): string {
   const match = date.match(ISO_DATE);
@@ -88,6 +136,8 @@ export function nextDay(date: string): string {
 export interface ReviewedSyllabusDate extends SyllabusDate {
   /** YYYY-MM-DD, or "" when the syllabus's wording couldn't be placed on a day. */
   iso: string;
+  /** YYYY-MM-DD last day for something spanning several days, or "" for a single day. */
+  endIso: string;
   /** Whether the student wants this on their calendar. */
   addToCalendar: boolean;
 }
@@ -97,10 +147,18 @@ export function defaultAddToCalendar(kind: SyllabusDateKind, iso: string): boole
   return kind === "exam" && !!iso;
 }
 
+/** An end date only counts when it is a real day after the start. */
+function validEnd(start: string, end: string | undefined): string {
+  return start && end && ISO_DATE.test(end) && isRealDate(Number(end.slice(0, 4)), Number(end.slice(5, 7)), Number(end.slice(8, 10))) && end > start ? end : "";
+}
+
 export function reviewSyllabusDates(dates: SyllabusDate[], term = "", now: Date = new Date()): ReviewedSyllabusDate[] {
   return dates.map((entry) => {
-    const iso = resolveSyllabusDate(entry.date, term, now) ?? "";
-    return { ...entry, iso, addToCalendar: defaultAddToCalendar(entry.kind, iso) };
+    const range = resolveSyllabusRange(entry.date, term, now);
+    const iso = range?.start ?? "";
+    // A saved or model-given end date wins over one read from the wording.
+    const endIso = validEnd(iso, entry.endDate) || range?.end || "";
+    return { ...entry, iso, endIso, addToCalendar: defaultAddToCalendar(entry.kind, iso) };
   });
 }
 
@@ -108,7 +166,11 @@ export function reviewSyllabusDates(dates: SyllabusDate[], term = "", now: Date 
 export function storedSyllabusDates(dates: ReviewedSyllabusDate[]): SyllabusDate[] {
   return dates
     .filter((entry) => entry.title.trim())
-    .map((entry) => ({ date: (entry.iso || entry.date).trim(), title: entry.title.trim(), kind: entry.kind }));
+    .map((entry) => {
+      const date = (entry.iso || entry.date).trim();
+      const endDate = validEnd(entry.iso, entry.endIso);
+      return { date, ...(endDate ? { endDate } : {}), title: entry.title.trim(), kind: entry.kind };
+    });
 }
 
 // FNV-1a: a stable, dependency-free 32-bit hash. Only used to make event IDs
@@ -159,7 +221,8 @@ export function planSyllabusEvents(
       data: {
         title: label ? `${label}: ${entry.title.trim()}` : entry.title.trim(),
         startTime: entry.iso,
-        endTime: nextDay(entry.iso),
+        // All-day events end on the day after their last day.
+        endTime: nextDay(validEnd(entry.iso, entry.endIso) || entry.iso),
         allDay: true,
         timeZone: null,
         location: null,

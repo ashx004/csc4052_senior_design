@@ -47,7 +47,8 @@ export default function ThinkingIndicator({
   compact?: boolean;
   fallback?: string;
 }) {
-  const startedAt = useRef(Date.now());
+  // When this indicator appeared; fixed for its lifetime.
+  const [startedAt] = useState(() => Date.now());
   const [now, setNow] = useState(() => Date.now());
   const [steps, setSteps] = useState<ThinkingStep[]>([]);
   const [open, setOpen] = useState(false);
@@ -60,8 +61,11 @@ export default function ThinkingIndicator({
   }, []);
 
   useEffect(() => {
-    setSteps((previous) => recordStep(previous, status, Date.now() - startedAt.current));
-  }, [status]);
+    // A log of each status the indicator has shown and when it appeared: it has
+    // to be written when `status` changes, which is exactly when this effect runs.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSteps((previous) => recordStep(previous, status, Date.now() - startedAt));
+  }, [status, startedAt]);
 
   const thoughts = activity?.thoughts ?? "";
   useEffect(() => {
@@ -69,7 +73,7 @@ export default function ThinkingIndicator({
     if (showThoughts && thoughtBox.current) thoughtBox.current.scrollTop = thoughtBox.current.scrollHeight;
   }, [thoughts, showThoughts]);
 
-  const elapsed = now - startedAt.current;
+  const elapsed = now - startedAt;
   const tools = activity?.tools ?? [];
   const running = tools.find((t) => t.state === "running");
   // The most specific thing known right now: a tool in use, else what the model

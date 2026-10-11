@@ -9,6 +9,8 @@
 // Kept on globalThis because Next.js can load this module separately for the
 // chat route and the stop route.
 
+import { AsyncLocalStorage } from "node:async_hooks";
+
 export class ChatStoppedError extends Error {
   constructor() {
     super("Stopped by the student");
@@ -50,4 +52,45 @@ export function stopChatRun(uid: string, runId: string): boolean {
   if (!run || run.controller.signal.aborted) return false;
   run.controller.abort();
   return true;
+}
+
+// ── Reaching tools that are already running ──────────────────────────────
+// A chat reply can be in the middle of a slow tool (writing a quiz, searching
+// the web) when Stop is pressed. Passing the signal down through every tool
+// would touch dozens of call sites, so the chat route puts it in an
+// AsyncLocalStorage scope instead: anything awaited from that point on can ask
+// for it (structuredGeneration does, so a half-written quiz stops being
+// generated and is never saved).
+
+function stopStorage(): AsyncLocalStorage<AbortSignal | undefined> {
+  const g = globalThis as typeof globalThis & { __catalystChatStopScope?: AsyncLocalStorage<AbortSignal | undefined> };
+  return (g.__catalystChatStopScope ??= new AsyncLocalStorage());
+}
+
+/** Makes `signal` the stop signal for everything the current async flow does from here on. */
+export function enterChatStopScope(signal: AbortSignal | undefined): void {
+  stopStorage().enterWith(signal);
+}
+
+/** The signal of the chat reply this code is running for, if any (undefined outside a chat reply). */
+export function currentChatStopSignal(): AbortSignal | undefined {
+  return stopStorage().getStore();
+}
+
+/**
+ * Waits for `work`, but gives up with ChatStoppedError the moment Stop is
+ * pressed. For read-only work that can't be cancelled itself (the work keeps
+ * running unseen, which is harmless).
+ */
+export function untilStopped<T>(work: Promise<T>, signal: AbortSignal | undefined = currentChatStopSignal()): Promise<T> {
+  if (!signal) return work;
+  if (signal.aborted) {
+    work.catch(() => {});
+    return Promise.reject(new ChatStoppedError());
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new ChatStoppedError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }

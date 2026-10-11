@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveOllamaBaseUrl } from "@/src/library/ollamaClient";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
+import { acquireSlot } from "@/src/library/concurrencyLimit";
 import { getDocumentText } from "@/src/library/documentTextCache";
 import { generatePractice, MAX_PRACTICE_ITEMS } from "@/src/library/practice/generation";
 import { PRACTICE_KINDS, type DragDropMode, type PracticeDifficulty, type PracticeKind } from "@/src/library/practice/types";
@@ -13,6 +14,10 @@ import { PRACTICE_KINDS, type DragDropMode, type PracticeDifficulty, type Practi
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX = 10;
 const MAX_DOCUMENT_CHARS = 50_000;
+// A practice set can hold a model slot for up to two minutes; the same few
+// slots serve everyone's chat, so only so many may generate at once.
+const MAX_PER_STUDENT = 1;
+const MAX_SITE_WIDE = Number(process.env.PRACTICE_MAX_CONCURRENT) > 0 ? Number(process.env.PRACTICE_MAX_CONCURRENT) : 3;
 const DIFFICULTIES: PracticeDifficulty[] = ["review", "exam", "challenge"];
 const MODES: DragDropMode[] = ["match", "categorize", "sequence"];
 
@@ -73,8 +78,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Couldn't find enough text in this document to build practice from." }, { status: 400 });
     }
 
-    const baseUrl = await resolveOllamaBaseUrl(process.env.OLLAMA_PRIMARY_URL || "", process.env.OLLAMA_PRIMARY_FALLBACK_URL);
+    const slot = acquireSlot("practice-generation", auth.uid, { perKey: MAX_PER_STUDENT, total: MAX_SITE_WIDE });
+    if (!slot.ok) {
+      return NextResponse.json(
+        {
+          error:
+            slot.reason === "per-user"
+              ? "You already have a practice set being generated. Please wait for it to finish."
+              : "Lots of practice sets are being built right now. Please try again in a minute.",
+        },
+        { status: 429, headers: { "Retry-After": "20" } }
+      );
+    }
     try {
+      const baseUrl = await resolveOllamaBaseUrl(process.env.OLLAMA_PRIMARY_URL || "", process.env.OLLAMA_PRIMARY_FALLBACK_URL);
       const result = await generatePractice({
         kind: kind as PracticeKind,
         text,
@@ -92,6 +109,8 @@ export async function POST(request: NextRequest) {
         { error: error instanceof Error && error.message.startsWith("Couldn't build") ? error.message : "The assistant returned an unexpected response. Please try again." },
         { status: 502 }
       );
+    } finally {
+      slot.release();
     }
   } catch (error) {
     console.error("Practice generation error:", error);

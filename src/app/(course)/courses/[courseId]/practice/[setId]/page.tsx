@@ -1,9 +1,8 @@
 'use client';
 
-import { use, useCallback, useEffect, useState } from 'react';
+import { use, useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  addDoc,
   collection,
   doc,
   getDoc,
@@ -11,8 +10,8 @@ import {
   increment,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
-  updateDoc,
   type Timestamp,
 } from 'firebase/firestore';
 import { ArrowLeft, Clock, Loader2, Play, Trophy } from 'lucide-react';
@@ -61,6 +60,8 @@ interface PastAttempt {
   completedAt: Timestamp | null;
 }
 
+type SaveState = 'idle' | 'saving' | 'saved' | 'failed';
+
 type View = { name: 'landing' } | { name: 'playing'; run: number } | { name: 'results'; attempt: PastAttempt; fresh: boolean };
 
 function extractStorageKey(url: string): string {
@@ -94,6 +95,9 @@ export default function PracticeSetPage({ params }: { params: Promise<{ courseId
   const [view, setView] = useState<View>({ name: 'landing' });
   const [startedAt, setStartedAt] = useState(0);
   const [source, setSource] = useState<PracticeSource | null>(null);
+  const [saveState, setSaveState] = useState<SaveState>('idle');
+  // The finished run waiting to be saved, so a failed save can be retried as-is.
+  const unsaved = useRef<{ attemptId: string; percent: number; payload: Record<string, unknown> } | null>(null);
 
   const loadAttempts = useCallback(async () => {
     if (!user) return;
@@ -159,38 +163,52 @@ export default function PracticeSetPage({ params }: { params: Promise<{ courseId
     };
   }, [user, authLoading, courseId, setId, router, loadAttempts]);
 
+  // Saves the finished run and updates the set's best score in one transaction,
+  // so the best score is checked against what is stored now (not what this page
+  // loaded earlier, which another tab may have beaten) and the attempt and the
+  // set can never get out of step. The attempt has a fixed ID, so saving again
+  // after a failure can't record the run twice.
+  const saveAttempt = useCallback(async () => {
+    const pending = unsaved.current;
+    if (!user || !pending) return;
+    setSaveState('saving');
+    try {
+      const setRef = doc(db, 'users', user.uid, 'enrollment', courseId, 'practiceSets', setId);
+      const attemptRef = doc(setRef, 'attempts', pending.attemptId);
+      let best = pending.percent;
+      await runTransaction(db, async (tx) => {
+        const current = await tx.get(setRef);
+        const stored = current.exists() && typeof current.data().bestPercent === 'number' ? (current.data().bestPercent as number) : 0;
+        best = Math.max(stored, pending.percent);
+        tx.set(attemptRef, { ...pending.payload, completedAt: serverTimestamp() });
+        tx.update(setRef, { attempts: increment(1), bestPercent: best, lastPlayedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      });
+      unsaved.current = null;
+      setSet((current) => (current ? { ...current, bestPercent: best } : current));
+      setSaveState('saved');
+      void loadAttempts();
+    } catch (error) {
+      console.error('Error saving practice attempt:', error);
+      setSaveState('failed');
+    }
+  }, [user, courseId, setId, loadAttempts]);
+
   const finish = useCallback(
-    async (results: (ItemResult & { points?: number })[]) => {
+    (results: (ItemResult & { points?: number })[]) => {
       if (!user || !set) return;
       const { score, total, percent } = totalScore(results);
       const durationMs = Date.now() - startedAt;
       const points = set.kind === 'drag_drop' ? results.reduce((sum, r) => sum + (r.points ?? 0), 0) : null;
       const attempt: PastAttempt = { id: 'new', percent, score, total, durationMs, points, results: results.map(storable), completedAt: null };
       setView({ name: 'results', attempt, fresh: true });
-      try {
-        await addDoc(collection(db, 'users', user.uid, 'enrollment', courseId, 'practiceSets', setId, 'attempts'), {
-          score,
-          total,
-          percent,
-          durationMs,
-          points,
-          results: attempt.results,
-          completedAt: serverTimestamp(),
-        });
-        const best = Math.max(set.bestPercent ?? 0, percent);
-        await updateDoc(doc(db, 'users', user.uid, 'enrollment', courseId, 'practiceSets', setId), {
-          attempts: increment(1),
-          bestPercent: best,
-          lastPlayedAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-        setSet((current) => (current ? { ...current, bestPercent: best } : current));
-        void loadAttempts();
-      } catch (error) {
-        console.error('Error saving practice attempt:', error);
-      }
+      unsaved.current = {
+        attemptId: crypto.randomUUID(),
+        percent,
+        payload: { score, total, percent, durationMs, points, results: attempt.results },
+      };
+      void saveAttempt();
     },
-    [user, set, startedAt, courseId, setId, loadAttempts],
+    [user, set, startedAt, saveAttempt],
   );
 
   async function newQuestions() {
@@ -202,6 +220,7 @@ export default function PracticeSetPage({ params }: { params: Promise<{ courseId
 
   function start() {
     setStartedAt(Date.now());
+    setSaveState('idle');
     setView({ name: 'playing', run: Date.now() });
   }
 
@@ -280,15 +299,24 @@ export default function PracticeSetPage({ params }: { params: Promise<{ courseId
           </div>
         )}
 
-        {view.name === 'playing' && set.kind === 'fill_blank' && <FillBlankRunner key={view.run} items={set.items as FillBlankItem[]} onFinish={(r) => void finish(r)} />}
+        {view.name === 'playing' && set.kind === 'fill_blank' && <FillBlankRunner key={view.run} items={set.items as FillBlankItem[]} onFinish={finish} />}
         {view.name === 'playing' && set.kind === 'word_problem' && (
-          <WordProblemRunner key={view.run} courseId={courseId} setId={setId} items={set.items as WordProblemItem[]} onFinish={(r) => void finish(r)} />
+          <WordProblemRunner key={view.run} courseId={courseId} setId={setId} items={set.items as WordProblemItem[]} onFinish={finish} />
         )}
-        {view.name === 'playing' && isDrag && <DragDropRunner key={view.run} items={set.items as DragDropItem[]} onFinish={(r) => void finish(r)} />}
+        {view.name === 'playing' && isDrag && <DragDropRunner key={view.run} items={set.items as DragDropItem[]} onFinish={finish} />}
 
         {view.name === 'results' && (
           <div className="space-y-4">
             {generation.error && <p className="rounded-lg border border-alert-error bg-alert-error-bg p-3 text-sm text-alert-error">{generation.error}</p>}
+            {view.fresh && saveState === 'failed' && (
+              <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border border-alert-error bg-alert-error-bg p-3 text-sm text-alert-error">
+                <span className="flex-1">This try wasn&apos;t saved, so it won&apos;t show in your history or best score yet.</span>
+                <button type="button" onClick={() => void saveAttempt()} className="rounded-md border border-alert-error px-3 py-1 text-xs font-semibold hover:bg-bg-container">
+                  Try saving again
+                </button>
+              </div>
+            )}
+            {view.fresh && saveState === 'saving' && <p className="text-center text-xs text-text-muted">Saving your result...</p>}
             <PracticeResults
               kind={set.kind}
               items={set.items}

@@ -359,7 +359,7 @@ export default function SyllabusModal({
                   <p className="flex-1 text-xs font-medium text-text-muted">Important dates ({dates.length})</p>
                   <button
                     type="button"
-                    onClick={() => setDates((all) => [...all, { date: "", iso: "", title: "", kind: "exam", addToCalendar: false }])}
+                    onClick={() => setDates((all) => [...all, { date: "", iso: "", endIso: "", title: "", kind: "exam", addToCalendar: false }])}
                     className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-bg-warm"
                   >
                     <Plus size={12} /> Add a date
@@ -376,7 +376,14 @@ export default function SyllabusModal({
                             type="date"
                             aria-label="Date"
                             value={d.iso}
-                            onChange={(e) => updateDate(i, { iso: e.target.value, addToCalendar: e.target.value ? d.addToCalendar || (d.kind === "exam" && !d.iso) : false })}
+                            onChange={(e) =>
+                              updateDate(i, {
+                                iso: e.target.value,
+                                // A last day on or before the new first day no longer makes sense.
+                                endIso: d.endIso && d.endIso > e.target.value ? d.endIso : "",
+                                addToCalendar: e.target.value ? d.addToCalendar || (d.kind === "exam" && !d.iso) : false,
+                              })
+                            }
                             className={`${input} !w-40 shrink-0 !py-1.5`}
                           />
                           <input
@@ -404,6 +411,18 @@ export default function SyllabusModal({
                               <option key={k.value} value={k.value}>{k.label}</option>
                             ))}
                           </select>
+                          <label className={`flex items-center gap-1.5 text-xs ${d.iso ? "text-text-main" : "text-text-muted opacity-60"}`}>
+                            through
+                            <input
+                              type="date"
+                              aria-label="Last day (optional)"
+                              disabled={!d.iso}
+                              min={d.iso || undefined}
+                              value={d.endIso}
+                              onChange={(e) => updateDate(i, { endIso: e.target.value && e.target.value > d.iso ? e.target.value : "" })}
+                              className="rounded-md border border-border-light bg-bg-container px-2 py-1 text-xs text-text-main"
+                            />
+                          </label>
                           <label className={`ml-auto flex items-center gap-1.5 text-xs ${d.iso && d.title.trim() ? "text-text-main" : "text-text-muted opacity-60"}`}>
                             <input
                               type="checkbox"

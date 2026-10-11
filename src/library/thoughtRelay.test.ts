@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createThoughtRelay } from "./thoughtRelay";
+import { createGuardedThoughtRelay, createThoughtRelay } from "./thoughtRelay";
+import { OutputGuard } from "./outputGuard";
 
 function setup(overrides: Partial<Parameters<typeof createThoughtRelay>[0]> = {}) {
   const sent: { type: string; text: string }[] = [];
@@ -93,5 +94,60 @@ describe("createThoughtRelay", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(late.sent.some((e) => e.type === "thought_summary")).toBe(false);
+  });
+});
+
+describe("createGuardedThoughtRelay", () => {
+  const ID = "k3j9Qx7LmN2pR8vT4wZa";
+  function guarded() {
+    const sent: { type: string; text: string }[] = [];
+    const guard = new OutputGuard({ urls: [], emails: [], ids: new Map([[ID, "your class"]]) });
+    const relay = createGuardedThoughtRelay({ send: (e) => sent.push(e), flushChars: 1 }, guard);
+    return { sent, relay };
+  }
+  const shown = (sent: { type: string; text: string }[]) => sent.filter((e) => e.type === "thinking").map((e) => e.text).join("");
+
+  it("hides an internal ID even when it arrives split across pieces", () => {
+    const { sent, relay } = guarded();
+    relay.push(`The class has the id ${ID.slice(0, 9)}`);
+    relay.push(`${ID.slice(9)} so I should look at it.`);
+    relay.end();
+    expect(shown(sent)).not.toContain(ID);
+    expect(shown(sent)).not.toContain(ID.slice(0, 9));
+  });
+
+  it("swaps tool function names for plain words and drops unverified links and emails", () => {
+    const { sent, relay } = guarded();
+    relay.push("I will call get_course_details, then cite https://made-up.example/page and mail fake@somewhere.io now.");
+    relay.end();
+    const text = shown(sent);
+    expect(text).not.toContain("get_course_details");
+    expect(text).not.toContain("made-up.example");
+    expect(text).not.toContain("fake@somewhere.io");
+  });
+
+  it("still delivers ordinary reasoning in full once flushed", () => {
+    const { sent, relay } = guarded();
+    relay.push("Comparing the two midterm dates to see which comes first.");
+    relay.flush();
+    expect(shown(sent)).toBe("Comparing the two midterm dates to see which comes first.");
+  });
+
+  it("cleans summaries too", () => {
+    const sent: { type: string; text: string }[] = [];
+    const guard = new OutputGuard({ urls: [], emails: [], ids: new Map([[ID, "your class"]]) });
+    const relay = createGuardedThoughtRelay(
+      { send: (e) => sent.push(e), summarize: async () => `Opening ${ID} now`, summaryMinNewChars: 1, summaryMinIntervalMs: 0 },
+      guard
+    );
+    relay.push("x");
+    return new Promise<void>((resolve) =>
+      setTimeout(() => {
+        const summary = sent.find((e) => e.type === "thought_summary");
+        expect(summary?.text).toBe("Opening your class now");
+        relay.end();
+        resolve();
+      }, 10)
+    );
   });
 });
