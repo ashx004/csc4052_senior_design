@@ -257,8 +257,48 @@ a:hover {
 .note-sheet .ProseMirror h3 { font-size: 19px; line-height: 28px; font-weight: 600; margin: 14px 0 6px; }
 .note-sheet .ProseMirror > :first-child { margin-top: 0; }
 .note-sheet .ProseMirror ul { list-style: disc; padding-left: 24px; margin: 0 0 12px; }
-.note-sheet .ProseMirror ol { list-style: decimal; padding-left: 24px; margin: 0 0 12px; }
+.note-sheet .ProseMirror ul[data-marker="dash"] { list-style: none; padding-left: 22px; }
+.note-sheet .ProseMirror ul[data-marker="dash"] > li { position: relative; }
+.note-sheet .ProseMirror ul[data-marker="dash"] > li::before {
+  content: "\2013";
+  position: absolute;
+  left: -18px;
+  color: var(--color-text-muted);
+}
+.note-sheet .ProseMirror ul ul[data-marker="dot"] { list-style: circle; }
+.note-sheet .ProseMirror ol { list-style: decimal; padding-left: 26px; margin: 0 0 12px; }
 .note-sheet .ProseMirror li p { margin: 0 0 4px; }
+.note-sheet .ProseMirror li > ul,
+.note-sheet .ProseMirror li > ol { margin: 0; }
+.note-sheet .ProseMirror ul[data-type="taskList"] { list-style: none; padding-left: 4px; }
+.note-sheet .ProseMirror ul[data-type="taskList"] > li { display: flex; align-items: flex-start; gap: 8px; }
+.note-sheet .ProseMirror ul[data-type="taskList"] > li::before { content: none; }
+.note-sheet .ProseMirror ul[data-type="taskList"] > li > label { flex: none; margin-top: 6px; user-select: none; }
+.note-sheet .ProseMirror ul[data-type="taskList"] > li > label input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--color-primary); }
+.note-sheet .ProseMirror ul[data-type="taskList"] > li > div { flex: 1; min-width: 0; }
+.note-sheet .ProseMirror ul[data-type="taskList"] > li[data-checked="true"] > div { color: var(--color-text-muted); text-decoration: line-through; }
+.note-sheet .ProseMirror mark { color: inherit; border-radius: 3px; padding: 0 1px; background: rgba(250, 204, 21, 0.45); }
+.note-sheet .ProseMirror mark[data-color="green"] { background: rgba(74, 222, 128, 0.45); }
+.note-sheet .ProseMirror mark[data-color="pink"] { background: rgba(244, 114, 182, 0.4); }
+.note-sheet .ProseMirror mark[data-color="orange"] { background: rgba(251, 146, 60, 0.45); }
+.note-sheet .ProseMirror mark[data-color="blue"] { background: rgba(96, 165, 250, 0.45); }
+.note-sheet .ProseMirror a { color: var(--color-primary); text-decoration: underline; cursor: pointer; }
+.note-sheet .ProseMirror u { text-underline-offset: 3px; }
+.note-sheet .ProseMirror .note-math { display: inline-block; position: relative; cursor: pointer; border-radius: 4px; vertical-align: baseline; }
+.note-sheet .ProseMirror .note-math:hover,
+.note-sheet .ProseMirror .note-math-selected { background: var(--color-bg-warm); }
+.note-sheet .ProseMirror .note-math-block { display: block; text-align: center; margin: 0 0 12px; padding: 6px 0; overflow-x: auto; }
+.note-sheet .ProseMirror .note-math-editor { position: absolute; left: 0; top: 100%; z-index: 30; display: flex; flex-direction: column; gap: 4px; min-width: 260px; padding: 8px; text-align: left; background: var(--color-bg-container); border: 1px solid var(--color-border-light); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18); }
+.note-sheet .ProseMirror .note-math-editor textarea { width: 100%; font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--color-text-main); background: var(--color-bg-main); border: 1px solid var(--color-border-light); border-radius: 6px; padding: 6px 8px; resize: vertical; }
+.note-sheet .ProseMirror .note-math-editor small { color: var(--color-text-muted); font-size: 11px; line-height: 14px; }
+.note-sheet .ProseMirror .note-image { margin: 0 0 12px; display: block; }
+.note-sheet .ProseMirror .note-image-frame { position: relative; max-width: 100%; }
+.note-sheet .ProseMirror .note-image img { display: block; width: 100%; height: auto; border-radius: 6px; }
+.note-sheet .ProseMirror .note-image-selected .note-image-frame { outline: 2px solid var(--color-primary); outline-offset: 2px; border-radius: 6px; }
+.note-sheet .ProseMirror .note-image-controls { position: absolute; top: 6px; right: 6px; display: flex; gap: 2px; padding: 3px; background: var(--color-bg-container); border: 1px solid var(--color-border-light); border-radius: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2); }
+.note-sheet .ProseMirror .note-image-controls button { min-width: 26px; height: 26px; padding: 0 6px; border-radius: 6px; font-size: 12px; line-height: 1; color: var(--color-text-main); display: inline-flex; align-items: center; justify-content: center; }
+.note-sheet .ProseMirror .note-image-controls button:hover { background: var(--color-bg-warm); }
+.note-sheet .ProseMirror .note-image-controls button[aria-pressed="true"] { background: var(--color-primary); color: var(--color-text-inverse); }
 .note-sheet .ProseMirror blockquote { border-left: 3px solid var(--color-border-hover); padding-left: 14px; color: var(--color-text-muted); margin: 0 0 12px; }
 .note-sheet .ProseMirror code { background: var(--color-bg-warm); border-radius: 4px; padding: 1px 5px; font-size: 14px; }
 .note-sheet .ProseMirror pre { background: var(--color-bg-warm); border-radius: 8px; padding: 12px 14px; margin: 0 0 12px; overflow-x: auto; }
@@ -274,6 +314,8 @@ a:hover {
 }
 
 /* Read-only Office previews in the Notes workspace. */
+.office-file-view .docx,
+.office-file-view .docx-render { margin-top: 0 !important; margin-bottom: 0 !important; }
 .office-file-view .docx-render p { margin: 0 0 8px; }
 .office-file-view .docx-render table,
 .office-file-view .sheet-render table { border-collapse: collapse; }

@@ -16,7 +16,7 @@ const IMAGE = ["png", "jpg", "jpeg", "webp", "gif", "heic"];
 
 // Tints stay quiet next to the site's earthy palette; each has a dark-mode pair.
 const STYLE: Record<Family, { Icon: LucideIcon; tone: string; label: string }> = {
-  typed: { Icon: NotebookText, tone: "bg-bg-warm text-primary", label: "Custom note" },
+  typed: { Icon: NotebookText, tone: "bg-bg-warm text-primary", label: "Take Notes" },
   scan: { Icon: ScanText, tone: "bg-teal-50 text-teal-700 dark:bg-teal-400/10 dark:text-teal-300", label: "Scan" },
   pdf: { Icon: FileText, tone: "bg-rose-50 text-rose-700 dark:bg-rose-400/10 dark:text-rose-300", label: "PDF" },
   image: { Icon: FileImage, tone: "bg-violet-50 text-violet-700 dark:bg-violet-400/10 dark:text-violet-300", label: "Image" },
