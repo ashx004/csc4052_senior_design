@@ -9,8 +9,6 @@ import { // import symbols
     List,
     LayoutGrid,
     GalleryHorizontal,
-    Upload,
-    UploadCloud,
     CheckSquare,
     Square,
     Download,
@@ -34,7 +32,7 @@ import { // import symbols
 } from "lucide-react";
 import Link from "next/link";
 import AddNotesFlow from "@/src/components/notes/AddNotesFlow";
-import { addResourceToNotes, documentNoteId, isResourceInNotes } from "@/src/library/notes/notesStore";
+import { addResourceToNotes, documentNoteId, isResourceInNotes, subscribeNotes } from "@/src/library/notes/notesStore";
 // PrismLight + explicit per-language registration instead of the default
 // `react-syntax-highlighter` import, which bundles all ~300 Prism language
 // grammars (~400KB) even though this app only ever highlights ~20 of them —
@@ -72,19 +70,17 @@ import nasm from "react-syntax-highlighter/dist/esm/languages/prism/nasm";
 import { renderAsync } from "docx-preview";
 import { collection, getDocs, onSnapshot, orderBy, query } from "firebase/firestore";
 import CircleIconButton from "./CircleIconButton";
-import { addOcrDocumentPages, uploadUserResource, getCourseResources, deleteUserResource, MAX_FILE_SIZE_BYTES, INDEXABLE_FILE_TYPES } from "./fileUploadService";
+import { addOcrDocumentPages, getCourseResources, deleteUserResource, INDEXABLE_FILE_TYPES } from "./fileUploadService";
 import { db } from "@/src/library/firebase";
 import { useLearningProgress } from "@/src/hooks/useLearningProgress";
 import { documentTargetForResource, findResourceForSourceDocKey } from "@/src/library/studyPlan/recommendationEngine";
 import { resolveFlashcardNextStep, type FlashcardNextStep, type FlashcardSetRef } from "@/src/library/studyPlan/nextStudyActivity";
 import NextStepGuidance from "@/src/components/studyPlan/NextStepGuidance";
 
-const MAX_FILES_PER_BATCH = 5;
-
 export type Category = "classDoc" | "notes" | "assignments";
 type OcrStatus = "queued" | "processing" | "complete" | "failed";
 type IndexStatus = "queued" | "processing" | "complete" | "failed";
-type OcrPage = { id: string; name: string; order: number };
+type OcrPage = { id: string; name: string; order: number; url: string };
 
 // Code language syntax highlighting support
 const CODE_TYPES = {
@@ -145,14 +141,6 @@ const VALID_FILE_TYPES: FileType[] = [
     "image",
 ];
 
-// The `image` FileType maps to several real extensions, so the picker's
-// accept attribute can't just prefix VALID_FILE_TYPES with dots.
-const ACCEPT_ATTR = [
-    ...VALID_FILE_TYPES.filter((t) => t !== "image"),
-    ...IMAGE_EXTENSIONS,
-]
-    .map((t) => `.${t}`)
-    .join(",");
 const PAGE_SIZE = 9;
 
 export interface Resource {
@@ -170,8 +158,16 @@ export interface Resource {
     ocrError?: string;
     indexStatus?: IndexStatus;
     indexError?: string;
-    resourceKind?: "ocr_document";
+    resourceKind?: "ocr_document" | "typed_note";
     pageCount?: number;
+    // The file the transcript came from (a scanned PDF or a photo).
+    ocrSourceUrl?: string;
+    ocrSourceName?: string;
+    ocrSourceFileType?: string;
+    indexSkipped?: boolean;
+    // Typed notes shown alongside the course's files.
+    noteId?: string;
+    snippet?: string;
     manualTranscript?: boolean;
     sourceDocKey?: string;
     storageKey?: string;
@@ -191,6 +187,15 @@ function OcrScannedBadge() {
         >
             <ScanText size={11} strokeWidth={2.25} />
             OCR
+        </span>
+    );
+}
+
+function TypedNoteBadge() {
+    return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-bg-warm px-2 py-0.5 text-[10px] font-medium text-primary">
+            <NotebookPen size={11} strokeWidth={2.25} />
+            Note
         </span>
     );
 }
@@ -282,6 +287,10 @@ function toResource(raw: any): Resource | null {
         indexStatus: isIndexStatus(raw.indexStatus) ? raw.indexStatus : undefined,
         indexError: typeof raw.indexError === "string" ? raw.indexError : undefined,
         resourceKind: raw.resourceKind === "ocr_document" ? "ocr_document" : undefined,
+        ocrSourceUrl: typeof raw.ocrSourceUrl === "string" ? raw.ocrSourceUrl : undefined,
+        ocrSourceName: typeof raw.ocrSourceName === "string" ? raw.ocrSourceName : undefined,
+        ocrSourceFileType: typeof raw.ocrSourceFileType === "string" ? raw.ocrSourceFileType.toLowerCase() : undefined,
+        indexSkipped: raw.indexSkipped === true,
         pageCount: typeof raw.pageCount === "number" ? raw.pageCount : undefined,
         manualTranscript: raw.manualTranscript === true,
         sourceDocKey: typeof raw.sourceDocKey === "string" ? raw.sourceDocKey : undefined,
@@ -513,15 +522,11 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
-    const [showAddModal, setShowAddModal] = useState(false);
     const [showNotesFlow, setShowNotesFlow] = useState(false);
+    const [typedNotes, setTypedNotes] = useState<Resource[]>([]);
+    const [viewOriginal, setViewOriginal] = useState(false);
     // Whether the file being previewed is in the Notes tab ("Add to Notes").
     const [notesState, setNotesState] = useState<"unknown" | "out" | "adding" | "in">("unknown");
-    const [selectedFiles, setSelectedFiles] = useState<File[]>([]);    
-    const [isDragging, setIsDragging] = useState(false);
-    const [newCategory, setNewCategory] = useState<Category>("classDoc");
-    const [isUploading, setIsUploading] = useState(false);
-    const [uploadError, setUploadError] = useState<string | null>(null);
     const pageUploadRef = useRef<HTMLInputElement | null>(null);
     const [addingPages, setAddingPages] = useState(false);
     const [editingTranscript, setEditingTranscript] = useState(false);
@@ -584,7 +589,7 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
     }
 
     useEffect(() => {
-        if (!previewResource) {
+        if (!previewResource || previewResource.resourceKind === "typed_note") {
             setNotesState("unknown");
             return;
         }
@@ -620,7 +625,7 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
             // resources — fire-and-forget, same pattern as the upload
             // flow's own indexing call, so it never blocks or slows down
             // just viewing the list.
-            raw.filter((r: any) => INDEXABLE_FILE_TYPES.includes((r.name as string).split(".").pop()?.toLowerCase() ?? "") && r.vectorIndexed !== true)
+            raw.filter((r: any) => INDEXABLE_FILE_TYPES.includes((r.name as string).split(".").pop()?.toLowerCase() ?? "") && r.vectorIndexed !== true && r.indexSkipped !== true)
                 .forEach((r: any) => {
                     fetch("/api/embed-document", {
                         method: "POST",
@@ -660,10 +665,39 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
     }, [userId, courseId]);
 
     useEffect(() => {
-        setPreviewResource((current) =>
-            current ? resources.find((resource) => resource.id === current.id) ?? current : null
+        return subscribeNotes(
+            userId,
+            (notes) => setTypedNotes(
+                notes
+                    .filter((note) => note.kind === "typed" && note.courseId === courseId && !note.hidden)
+                    .map((note): Resource => ({
+                        id: `note:${note.id}`,
+                        name: note.title || "Untitled note",
+                        url: "",
+                        fileType: "txt",
+                        category: "notes",
+                        uploadedAt: note.createdAt,
+                        lastViewedAt: note.updatedAt,
+                        resourceKind: "typed_note",
+                        noteId: note.id,
+                        snippet: (note.plainText ?? "").trim(),
+                    }))
+            ),
+            (error) => console.error("Couldn't load typed notes for this course:", error)
         );
-    }, [resources]);
+    }, [userId, courseId]);
+
+    const allResources = [...resources, ...typedNotes];
+
+    useEffect(() => {
+        setPreviewResource((current) =>
+            current ? [...resources, ...typedNotes].find((resource) => resource.id === current.id) ?? current : null
+        );
+    }, [resources, typedNotes]);
+
+    useEffect(() => {
+        setViewOriginal(false);
+    }, [previewResource?.id]);
 
     const openedResourceId = useRef<string | null>(null);
     useEffect(() => {
@@ -745,6 +779,7 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
                 id: page.id,
                 name: typeof page.data().name === "string" ? page.data().name : "Untitled image",
                 order: typeof page.data().order === "number" ? page.data().order : 0,
+                url: typeof page.data().url === "string" ? page.data().url : "",
             }))),
             (error) => {
                 console.error("Couldn't load OCR source images:", error);
@@ -753,9 +788,9 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
         );
     }, [previewResource?.id, previewResource?.resourceKind, userId, courseId]);
 
-    const presentFileTypes = Array.from(new Set(resources.map((r) => r.fileType)));
+    const presentFileTypes = Array.from(new Set(allResources.map((r) => r.fileType)));
 
-    const filteredResources = resources.filter((r) => {
+    const filteredResources = allResources.filter((r) => {
         const matchesCategory = categoryFilter === "all" || r.category === categoryFilter;
         const matchesFileType = fileTypeFilters.has(r.fileType);
         const matchesSearch = r.name.toLowerCase().includes(searchQuery.trim().toLowerCase());
@@ -789,6 +824,7 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
         toGenerate.forEach((resource) => {
             if (thumbnails[resource.id] || thumbnailInFlight.current.has(resource.id)) return;
             if (DOWNLOAD_ONLY_TYPES.includes(resource.fileType)) return;
+            if (resource.resourceKind === "typed_note") return;
 
             thumbnailInFlight.current.add(resource.id);
             const sourceKey = thumbnailCacheKey(resource);
@@ -807,16 +843,13 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
     }, [viewMode, toGenerateKey]);
 
     useEffect(() => {
-        if (!previewResource && !showAddModal) return;
+        if (!previewResource) return;
         const onKeyDown = (e: KeyboardEvent) => {
-            if (e.key === "Escape") {
-                setPreviewResource(null);
-                setShowAddModal(false);
-            }
+            if (e.key === "Escape") setPreviewResource(null);
         };
         window.addEventListener("keydown", onKeyDown);
         return () => window.removeEventListener("keydown", onKeyDown);
-    }, [previewResource, showAddModal]);
+    }, [previewResource]);
 
     useEffect(() => {
         setActiveIndex(0);
@@ -850,7 +883,13 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
 
         const type = previewResource.fileType;
 
-        if (type === "pdf" || DOWNLOAD_ONLY_TYPES.includes(type) || type === "image") {
+        if (
+            previewResource.resourceKind === "typed_note" ||
+            (previewResource.resourceKind === "ocr_document" && !previewResource.url) ||
+            type === "pdf" || DOWNLOAD_ONLY_TYPES.includes(type) || type === "image"
+        ) {
+            setPreviewText(null);
+            setExcelHtml(null);
             setPreviewLoading(false);
             setPreviewError(null);
             return;
@@ -938,7 +977,7 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
     }
 
     function selectAll() {
-        setSelectedIds(new Set(sortedResources.map((r) => r.id)));
+        setSelectedIds(new Set(sortedResources.filter((r) => r.resourceKind !== "typed_note").map((r) => r.id)));
     }
 
     function handleRetryOcr(resource: Resource) {
@@ -1012,38 +1051,6 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
         await loadResources();
         setSelectedIds(new Set());
         setConfirmDeleteOpen(false);
-    }
-
-    async function handleUpload() {
-        if (selectedFiles.length === 0) return;
-
-        // Validate that every single chosen file is supported
-        const allValid = selectedFiles.every((file) => getFileType(file.name));
-        if (!allValid) {
-            setUploadError("One or more selected file types aren't supported yet.");
-            return;
-        }
-
-        setIsUploading(true);
-        setUploadError(null);
-        
-        try {
-            await Promise.all(selectedFiles.map((file) =>
-                uploadUserResource({ userId, classDocId: courseId, file, category: newCategory })
-            ));
-
-            // Refresh the course UI data view list 
-            await loadResources();
-
-            // Clear selection state array and close the dialog modal window
-            setSelectedFiles([]);
-            setShowAddModal(false);
-        } catch (err: any) {
-            console.error("Batch upload transaction encountered failures:", err);
-            setUploadError(err.message || "Upload failed. Please try again.");
-        } finally {
-            setIsUploading(false);
-        }
     }
 
     async function handleAddPages(files: File[]) {
@@ -1134,31 +1141,15 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
         }
     }
 
-    const applyFileSelection = (files: File[]) => {
-        if (files.length > MAX_FILES_PER_BATCH) {
-            setUploadError(`You can upload up to ${MAX_FILES_PER_BATCH} files at once — only the first ${MAX_FILES_PER_BATCH} were kept.`);
-            files = files.slice(0, MAX_FILES_PER_BATCH);
-        } else {
-            setUploadError(null);
-        }
+    function openOrSelect(resource: Resource) {
+        if (!selectMode) setPreviewResource(resource);
+        else if (resource.resourceKind !== "typed_note") toggleSelected(resource.id);
+    }
 
-        const oversized = files.filter((f) => f.size > MAX_FILE_SIZE_BYTES);
-        if (oversized.length > 0) {
-            setUploadError(`Skipped (over 20MB): ${oversized.map((f) => f.name).join(", ")}`);
-            files = files.filter((f) => f.size <= MAX_FILE_SIZE_BYTES);
-        }
-
-        setSelectedFiles(files);
-    };
-
-    const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-        e.preventDefault();
-        setIsDragging(false);
-
-        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            applyFileSelection(Array.from(e.dataTransfer.files));
-        }
-    };
+    function thumbnailFor(resource: Resource): ThumbnailData | undefined {
+        if (resource.resourceKind === "typed_note") return { kind: "text", content: (resource.snippet || "Empty note").slice(0, 240) };
+        return thumbnails[resource.id];
+    }
 
     const activeResource = sortedResources[activeIndex];
     const isFilterActive = fileTypeFilters.size < VALID_FILE_TYPES.length || sortBy !== "name";
@@ -1270,14 +1261,8 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
                         onClick={cycleViewMode}
                     />
                     <CircleIconButton
-                        icon={<Upload size={15} />}
-                        ariaLabel="Upload document"
-                        size="sm"
-                        onClick={() => setShowAddModal(true)}
-                    />
-                    <CircleIconButton
                         icon={<Plus size={15} />}
-                        ariaLabel="Add notes (scan or type)"
+                        ariaLabel="Add files or notes"
                         size="sm"
                         variant="accent"
                         onClick={() => setShowNotesFlow(true)}
@@ -1291,7 +1276,7 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
                             setSelectMode((s) => !s);
                             setSelectedIds(new Set());
                         }}
-                        disabled={resources.length === 0}
+                        disabled={allResources.length === 0}
                     />
                 </div>
             </div>
@@ -1353,8 +1338,8 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
 
             {sortedResources.length === 0 ? (
                 <p className="py-8 text-center text-sm text-text-muted">
-                    {resources.length === 0
-                        ? "No resources yet. Use the upload button to add one."
+                    {allResources.length === 0
+                        ? "No resources yet. Use the + button to add files or take notes."
                         : "No files match your search or filters."}
                 </p>
             ) : viewMode === "tile" ? ( // Tile View
@@ -1366,15 +1351,13 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
                         {visibleResources.map((resource) => (
                             <div key={resource.id} className="group relative">
                                 <button
-                                    onClick={() =>
-                                        selectMode ? toggleSelected(resource.id) : setPreviewResource(resource)
-                                    }
+                                    onClick={() => openOrSelect(resource)}
                                     className="w-full overflow-hidden rounded-lg text-left ring-1 ring-border-light transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                                 >
                                     <div className="w-full" style={{ height: `${tileImgHeight}px` }}>
                                         <FileThumbnail
                                             fileType={resource.fileType}
-                                            preview={thumbnails[resource.id]}
+                                            preview={thumbnailFor(resource)}
                                             fontSizePx={tileSnippetFontSize}
                                         />
                                     </div>
@@ -1387,11 +1370,13 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
                                                 {CATEGORY_LABELS[resource.category]}
                                             </span>
                                             {resource.ocrStatus ? <OcrStatusBadge status={resource.ocrStatus} /> : resource.ocrScanned && <OcrScannedBadge />}
+                                            {resource.resourceKind === "typed_note" && <TypedNoteBadge />}
                                             {resource.indexStatus && <IndexStatusBadge status={resource.indexStatus} />}
                                         </div>
                                         <p className="mt-1 text-[10px] text-text-muted">
-                                            Uploaded {formatRelativeDate(resource.uploadedAt)} &middot; Viewed{" "}
-                                            {formatRelativeDate(resource.lastViewedAt)}
+                                            {resource.resourceKind === "typed_note"
+                                                ? `Edited ${formatRelativeDate(resource.lastViewedAt)}`
+                                                : <>Uploaded {formatRelativeDate(resource.uploadedAt)} &middot; Viewed{" "}{formatRelativeDate(resource.lastViewedAt)}</>}
                                         </p>
                                     </div>
                                 </button>
@@ -1429,9 +1414,7 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
                                 className="group flex items-center gap-4 px-3 py-2.5 transition-colors hover:bg-bg-main"
                             >
                                 <button
-                                    onClick={() =>
-                                        selectMode ? toggleSelected(resource.id) : setPreviewResource(resource)
-                                    }
+                                    onClick={() => openOrSelect(resource)}
                                     className="flex flex-1 items-center gap-4 text-left focus:outline-none"
                                 >
                                     {selectMode && (
@@ -1451,16 +1434,23 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
                                             {resource.name}
                                         </p>
                                         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
-                                            <p className="text-xs text-text-muted">
-                                                Uploaded {formatRelativeDate(resource.uploadedAt)}
-                                            </p>
-                                            <p className="text-xs text-text-muted">
-                                                Last viewed {formatRelativeDate(resource.lastViewedAt)}
-                                            </p>
+                                            {resource.resourceKind === "typed_note" ? (
+                                                <p className="text-xs text-text-muted">Edited {formatRelativeDate(resource.lastViewedAt)}</p>
+                                            ) : (
+                                                <>
+                                                    <p className="text-xs text-text-muted">
+                                                        Uploaded {formatRelativeDate(resource.uploadedAt)}
+                                                    </p>
+                                                    <p className="text-xs text-text-muted">
+                                                        Last viewed {formatRelativeDate(resource.lastViewedAt)}
+                                                    </p>
+                                                </>
+                                            )}
                                             <span className="rounded-full bg-bg-warm px-2 py-0.5 text-[10px] font-medium text-primary">
                                                 {CATEGORY_LABELS[resource.category]}
                                             </span>
                                             {resource.ocrStatus ? <OcrStatusBadge status={resource.ocrStatus} /> : resource.ocrScanned && <OcrScannedBadge />}
+                                            {resource.resourceKind === "typed_note" && <TypedNoteBadge />}
                                             {resource.indexStatus && <IndexStatusBadge status={resource.indexStatus} />}
                                         </div>
                                     </div>
@@ -1519,10 +1509,8 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
                                     onClick={() => {
                                         if (distance !== 0) {
                                             setActiveIndex(index);
-                                        } else if (selectMode) {
-                                            toggleSelected(resource.id);
                                         } else {
-                                            setPreviewResource(resource);
+                                            openOrSelect(resource);
                                         }
                                     }}
                                     style={{
@@ -1540,7 +1528,7 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
                                 >
                                     <FileThumbnail
                                         fileType={resource.fileType}
-                                        preview={thumbnails[resource.id]}
+                                        preview={thumbnailFor(resource)}
                                         fontSizePx={closeupSnippetFontSize}
                                     />
                                     {selectMode && distance === 0 && (
@@ -1567,12 +1555,14 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
                             </span>
                         )}
                         {activeResource?.ocrStatus ? <OcrStatusBadge status={activeResource.ocrStatus} /> : activeResource?.ocrScanned && <OcrScannedBadge />}
+                        {activeResource?.resourceKind === "typed_note" && <TypedNoteBadge />}
                         {activeResource?.indexStatus && <IndexStatusBadge status={activeResource.indexStatus} />}
                     </div>
                     {activeResource && (
                         <p className="mt-1 text-center text-xs text-text-muted">
-                            Uploaded {formatRelativeDate(activeResource.uploadedAt)} &middot; Last viewed{" "}
-                            {formatRelativeDate(activeResource.lastViewedAt)}
+                            {activeResource.resourceKind === "typed_note"
+                                ? `Edited ${formatRelativeDate(activeResource.lastViewedAt)}`
+                                : <>Uploaded {formatRelativeDate(activeResource.uploadedAt)} &middot; Last viewed{" "}{formatRelativeDate(activeResource.lastViewedAt)}</>}
                         </p>
                     )}
                     <p className="mt-1 text-center text-xs text-text-muted">
@@ -1634,7 +1624,14 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
                                         )}
                                     </>
                                 )}
-                                {notesState === "in" ? (
+                                {previewResource.resourceKind === "typed_note" ? (
+                                    <Link
+                                        href={`/notes/${previewResource.noteId}?from=${courseId}`}
+                                        className="flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-text-inverse hover:opacity-90"
+                                    >
+                                        <NotebookPen size={13} /> Open in Notes
+                                    </Link>
+                                ) : notesState === "in" ? (
                                     <Link
                                         href={`/notes/${documentNoteId(courseId, previewResource.id)}?from=${courseId}`}
                                         className="flex items-center gap-1 rounded-md border border-border-light px-2 py-1 text-xs font-medium text-primary hover:bg-bg-main"
@@ -1651,7 +1648,7 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
                                                     name: previewResource.name,
                                                     fileType: previewResource.fileType,
                                                     url: previewResource.url,
-                                                    resourceKind: previewResource.resourceKind,
+                                                    resourceKind: previewResource.resourceKind === "ocr_document" ? "ocr_document" : undefined,
                                                 });
                                                 setNotesState("in");
                                             } catch (error) {
@@ -1698,25 +1695,92 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
                         )}
 
                         <div className="relative flex-1 overflow-auto bg-bg-container">
-                            {previewResource.resourceKind === "ocr_document" && showOcrPages && (
+                            {previewResource.resourceKind === "ocr_document" && (previewResource.ocrStatus === "queued" || previewResource.ocrStatus === "processing") && (
+                                <div className="flex items-center gap-2 border-b border-border-light bg-bg-warm px-4 py-3 text-sm text-text-muted" role="status">
+                                    <Loader2 size={16} className="animate-spin" />
+                                    {previewResource.ocrStatus === "queued" ? "Transcription queued…" : "Transcribing your pages…"} This will update automatically when it is ready.
+                                </div>
+                            )}
+                            {previewResource.resourceKind === "ocr_document" && previewResource.ocrStatus === "failed" && (
+                                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-alert-error bg-alert-error-bg px-4 py-3 text-sm text-alert-error">
+                                    <p>{previewResource.ocrError || "Transcription failed. You can try again."}</p>
+                                    <button
+                                        onClick={() => handleRetryOcr(previewResource)}
+                                        disabled={retryingOcrIds.has(previewResource.id)}
+                                        className="flex items-center gap-1.5 rounded-md border border-alert-error px-3 py-1.5 text-xs font-medium transition hover:bg-bg-container disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                        {retryingOcrIds.has(previewResource.id) ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
+                                        Retry OCR
+                                    </button>
+                                </div>
+                            )}
+                            {previewResource.ocrSourceUrl && (
+                                <div className="flex items-center gap-2 border-b border-border-light bg-bg-main px-4 py-2">
+                                    <div className="inline-flex rounded-md border border-border-light bg-bg-container p-0.5 text-xs font-medium" role="tablist" aria-label="Transcription or original file">
+                                        <button
+                                            role="tab"
+                                            aria-selected={!viewOriginal}
+                                            onClick={() => setViewOriginal(false)}
+                                            className={`rounded px-3 py-1 ${!viewOriginal ? "bg-primary text-text-inverse" : "text-text-muted hover:text-text-main"}`}
+                                        >
+                                            Transcription
+                                        </button>
+                                        <button
+                                            role="tab"
+                                            aria-selected={viewOriginal}
+                                            onClick={() => setViewOriginal(true)}
+                                            className={`rounded px-3 py-1 ${viewOriginal ? "bg-primary text-text-inverse" : "text-text-muted hover:text-text-main"}`}
+                                        >
+                                            Original
+                                        </button>
+                                    </div>
+                                    {previewResource.ocrSourceName && (
+                                        <span className="min-w-0 truncate text-xs text-text-muted">{previewResource.ocrSourceName.replace(/^\d+_/, "")}</span>
+                                    )}
+                                </div>
+                            )}
+                            {previewResource.resourceKind === "ocr_document" && showOcrPages && !viewOriginal && (
                                 <div className="border-b border-border-light bg-bg-main p-4">
-                                    <p className="text-xs text-text-muted">These labels become the page headings in the combined transcript.</p>
-                                    <div className="mt-2 space-y-2">
+                                    <p className="text-xs text-text-muted">Your original photos, in order. The labels become the page headings in the transcript.</p>
+                                    <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
                                         {ocrPages.map((page) => (
-                                            <div key={page.id} className="flex items-center justify-between gap-3 rounded-md border border-border-light bg-bg-container px-3 py-2">
-                                                <span className="min-w-0 truncate text-sm text-text-main">{page.order + 1}. {page.name}</span>
-                                                <button
-                                                    onClick={() => void renameOcrPage(page).catch((error) => setPreviewError(error.message))}
-                                                    className="shrink-0 text-xs font-medium text-primary hover:underline"
-                                                >
-                                                    Rename
-                                                </button>
+                                            <div key={page.id} className="overflow-hidden rounded-md border border-border-light bg-bg-container">
+                                                <a href={page.url} target="_blank" rel="noopener noreferrer" className="block aspect-[4/3] bg-bg-main" title="Open full size">
+                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                    <img src={page.url} alt={page.name} loading="lazy" className="h-full w-full bg-white object-contain" />
+                                                </a>
+                                                <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+                                                    <span className="min-w-0 truncate text-xs text-text-main">{page.order + 1}. {page.name}</span>
+                                                    <button
+                                                        onClick={() => void renameOcrPage(page).catch((error) => setPreviewError(error.message))}
+                                                        className="shrink-0 text-xs font-medium text-primary hover:underline"
+                                                    >
+                                                        Rename
+                                                    </button>
+                                                </div>
                                             </div>
                                         ))}
                                     </div>
                                 </div>
                             )}
-                            {previewResource.fileType === "pdf" ? (
+                            {previewResource.resourceKind === "typed_note" ? (
+                                <div className="mx-auto max-w-2xl p-6">
+                                    {previewResource.snippet ? (
+                                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-text-main">{previewResource.snippet}</p>
+                                    ) : (
+                                        <p className="text-sm text-text-muted">This note is empty. Open it in Notes to start writing.</p>
+                                    )}
+                                </div>
+                            ) : previewResource.ocrSourceUrl && viewOriginal ? (
+                                previewResource.ocrSourceFileType === "pdf" ? (
+                                    <iframe src={previewResource.ocrSourceUrl} title={previewResource.ocrSourceName ?? "Original file"} className="h-full w-full" />
+                                ) : (
+                                    <div className="flex h-full items-center justify-center bg-bg-main p-6">
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={previewResource.ocrSourceUrl} alt={previewResource.ocrSourceName ?? "Original file"} className="max-h-full max-w-full rounded-lg object-contain shadow-sm" />
+                                    </div>
+                                )
+                            ) :                             previewResource.fileType === "pdf" ? (
                                 <iframe src={previewResource.url} title={previewResource.name} className="h-full w-full" />
                             ) : previewResource.fileType === "image" ? (
                                 <div className="flex h-full flex-col gap-4 bg-bg-main p-6">
@@ -1952,100 +2016,6 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
                     onClose={() => setShowNotesFlow(false)}
                     onUploaded={() => void loadResources()}
                 />
-            )}
-
-            {/* Upload document modal */}
-            {showAddModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => !isUploading && setShowAddModal(false)}>
-                    <div className="w-full max-w-sm rounded-xl bg-bg-container p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-                        <div className="mb-4 flex items-center justify-between">
-                            <h3 className="text-sm font-semibold text-text-main">Upload document</h3>
-                            <CircleIconButton
-                                icon={<X size={16} />}
-                                ariaLabel="Close"
-                                size="sm"
-                                onClick={() => setShowAddModal(false)}
-                                disabled={isUploading}
-                            />
-                        </div>
-
-                        <div
-                            onDragOver={(e) => {
-                                e.preventDefault();
-                                setIsDragging(true);
-                            }}
-                            onDragLeave={() => setIsDragging(false)}
-                            onDrop={handleDrop}
-                            className={`mb-1 flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-6 text-center transition-colors ${
-                                isDragging ? "border-primary bg-bg-warm" : "border-border-light bg-bg-container"
-                            }`}
-                        >
-                            <UploadCloud size={24} className={isDragging ? "text-primary" : "text-text-muted"} />
-                            <p className="truncate text-xs text-text-muted">
-                                {selectedFiles.length > 0 
-                                    ? `${selectedFiles.length} file(s) selected` 
-                                    : "Drag files here, or"
-                                }
-                            </p>
-                            <label className="cursor-pointer text-xs font-medium text-primary underline">
-                                Browse files
-                                <input
-                                    type="file"
-                                    accept={ACCEPT_ATTR}
-                                    multiple={true} // 🎯 Allows selecting multiple files via Ctrl/Shift click
-                                    onChange={(e) => {
-                                        if (e.target.files) {
-                                            applyFileSelection(Array.from(e.target.files));
-                                        }
-                                    }}
-                                    disabled={isUploading}
-                                    className="hidden"
-                                />
-                            </label>
-                        </div>
-                        {selectedFiles.length > 0 && !selectedFiles.every((f) => getFileType(f.name)) && (
-                            <p className="mb-2 text-xs text-alert-error">One or more file types aren&apos;t supported yet.</p>
-                        )}
-
-                        <label className="mb-2 mt-4 block text-xs font-medium text-text-muted">Tag</label>
-                        <div className="mb-6 flex gap-2">
-                            {(Object.keys(CATEGORY_LABELS) as Category[]).map((cat) => (
-                                <button
-                                    key={cat}
-                                    onClick={() => setNewCategory(cat)}
-                                    disabled={isUploading}
-                                    className={`flex-1 rounded-md border px-2 py-2 text-xs font-medium transition-colors ${
-                                        newCategory === cat
-                                            ? "border-primary bg-bg-warm text-primary"
-                                            : "border-border-light text-text-muted hover:border-border-hover"
-                                    }`}
-                                >
-                                    {CATEGORY_LABELS[cat]}
-                                </button>
-                            ))}
-                        </div>
-
-                        {uploadError && <p className="mb-4 text-xs text-alert-error">{uploadError}</p>}
-
-                        <button
-                            onClick={handleUpload}
-                            disabled={
-                                selectedFiles.length === 0 || 
-                                !selectedFiles.every((f) => getFileType(f.name)) || 
-                                isUploading
-                            }
-                            className="flex w-full items-center justify-center gap-2 rounded-md bg-primary py-2 text-sm font-medium text-text-inverse transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                            {isUploading ? (
-                                <>
-                                    <Loader2 size={14} className="animate-spin" /> Uploading...
-                                </>
-                            ) : (
-                                "Upload"
-                            )}
-                        </button>
-                    </div>
-                </div>
             )}
 
         </div>

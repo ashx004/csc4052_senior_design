@@ -9,8 +9,8 @@ const notesSteps: TutorialStep[] = [
   },
   {
     target: '[data-tutorial="notes-upload"]',
-    title: "Add notes",
-    body: "Type a new note, or scan and upload handwritten notes - your camera works too. Files tagged Notes in a class show up here automatically.",
+    title: "Add files or notes",
+    body: "One button for everything: take notes, or add files and photos - tick OCR to have handwriting read, or use your camera. Files tagged Notes in a class show up here automatically.",
     placement: "bottom",
   },
   {

@@ -3,18 +3,20 @@
 import { useEffect, useState, useRef, use } from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
-import { Pencil, Loader2, X, Sparkles } from 'lucide-react';
+import { Pencil, Loader2, X, Sparkles, FileText, CalendarDays } from 'lucide-react';
 import CircleIconButton from '@/src/components/resourceManagement/CircleIconButton';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { deleteField, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
 import { EnrollmentFields } from '@/src/app/(dashboard)/classes/page';
 import { useAuth } from '@/src/context/AuthContext';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
 import { buildPageTextSuggestions, type PageTextPageContext } from '@/src/library/Contextual_AI/contextualAi';
-import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
+import { useChatContext } from '@/src/hooks/useChatContext';
 import PageTutorial from '@/src/components/tutorial/PageTutorial';
 import courseSteps from '@/src/library/tutorials/steps/course';
-import { DATA_CHANGED_EVENT } from '@/src/library/dataChanged';
+import { DATA_CHANGED_EVENT, notifyDataChanged } from '@/src/library/dataChanged';
+import { buildCourseIdentityUpdate, MAX_COURSE_CODE_LENGTH, MAX_COURSE_NAME_LENGTH } from '@/src/library/courseIdentity';
+import SyllabusModal from '@/src/components/course/SyllabusModal';
 
 // Lazy-loaded: pulls in docx-preview, pdfjs-dist, xlsx, and syntax
 // highlighting — heavy, and not needed until this section actually renders.
@@ -50,6 +52,7 @@ async function getEnrollment(
         classRoom: data.classRoom,
         classDescription: data.classDescription,
         courseSummary: data.courseSummary,
+        syllabus: data.syllabus,
     };
 }
 
@@ -60,13 +63,18 @@ function formatPhoneNumber(phone?: string): string {
     return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
 }
 
-type EditSection = "details" | "instructor" | null;
+type EditSection = "details" | "instructor" | "course" | null;
 
 const DETAIL_FIELDS: { key: keyof EnrollmentFields; label: string; multiline?: boolean }[] = [
     { key: "classSchedule", label: "Schedule" },
     { key: "time", label: "Time" },
     { key: "classRoom", label: "Classroom" },
     { key: "classDescription", label: "Description", multiline: true },
+];
+
+const COURSE_FIELDS: { key: keyof EnrollmentFields; label: string; multiline?: boolean }[] = [
+    { key: "classCode", label: "Course code" },
+    { key: "className", label: "Course title" },
 ];
 
 const INSTRUCTOR_FIELDS: { key: keyof EnrollmentFields; label: string; multiline?: boolean }[] = [
@@ -93,6 +101,8 @@ export default function CourseOverview({
     const [editingSection, setEditingSection] = useState<EditSection>(null);
     const [editValues, setEditValues] = useState<Record<string, string>>({});
     const [savingEdit, setSavingEdit] = useState(false);
+    const [editError, setEditError] = useState<string | null>(null);
+    const [syllabusOpen, setSyllabusOpen] = useState(false);
 
     // "Ask Catalyst" floating panel — same pattern as the flashcards/quiz
     // pages, briefed with a plain-text summary of this course page (see
@@ -100,14 +110,8 @@ export default function CourseOverview({
     // nothing here as structured as a flashcard/quiz result to model.
     const [catalystOpen, setCatalystOpen] = useState(false);
     const catalystBtnRef = useRef<HTMLButtonElement | null>(null);
-    const [catalystChatContext, setCatalystChatContext] = useState<ChatContext | null>(null);
-
-    useEffect(() => {
-        if (!user?.email) return;
-        buildChatContext(user.uid, user.email)
-            .then(setCatalystChatContext)
-            .catch(() => setCatalystChatContext(null));
-    }, [user]);
+    
+    const catalystChatContext = useChatContext(user?.uid, user?.email);
 
     useEffect(() => {
         // Halt processing if the context session payload is still resolving
@@ -135,9 +139,14 @@ export default function CourseOverview({
         return () => window.removeEventListener(DATA_CHANGED_EVENT, fetchCourseData);
     }, [courseId, user, authLoading]);
 
-    function openEdit(section: "details" | "instructor") {
+    function fieldsFor(section: Exclude<EditSection, null>) {
+        return section === "details" ? DETAIL_FIELDS : section === "course" ? COURSE_FIELDS : INSTRUCTOR_FIELDS;
+    }
+
+    function openEdit(section: "details" | "instructor" | "course") {
         if (!enrollment) return;
-        const fields = section === "details" ? DETAIL_FIELDS : INSTRUCTOR_FIELDS;
+        setEditError(null);
+        const fields = fieldsFor(section);
         const initial: Record<string, string> = {};
         fields.forEach(({ key }) => {
             initial[key] = (enrollment[key] as string) || "";
@@ -152,12 +161,32 @@ export default function CourseOverview({
         try {
             // Updated to route updates back to the authentic user space
             const docRef = doc(db, "users", user.uid, "enrollment", courseId);
-            await updateDoc(docRef, editValues);
-            setEnrollment((prev) => (prev ? ({ ...prev, ...editValues } as EnrollmentFields) : prev));
+            if (editingSection === "course") {
+                const result = buildCourseIdentityUpdate({
+                    classCode: editValues.classCode ?? "",
+                    className: editValues.className ?? "",
+                });
+                if (!result.ok) {
+                    setEditError(result.error);
+                    return;
+                }
+                await updateDoc(docRef, {
+                    classCode: result.classCode,
+                    className: result.className,
+                    subject: result.subject ?? deleteField(),
+                    courseNumber: result.courseNumber ?? deleteField(),
+                });
+                setEnrollment((prev) => (prev ? { ...prev, classCode: result.classCode, className: result.className } : prev));
+                // The sidebar and other open pages show the old name until told.
+                notifyDataChanged();
+            } else {
+                await updateDoc(docRef, editValues);
+                setEnrollment((prev) => (prev ? ({ ...prev, ...editValues } as EnrollmentFields) : prev));
+            }
             setEditingSection(null);
         } catch (err) {
             console.error("Error saving edit:", err);
-            alert("Couldn't save changes. Please try again.");
+            setEditError("Couldn't save changes. Please try again.");
         } finally {
             setSavingEdit(false);
         }
@@ -246,9 +275,25 @@ export default function CourseOverview({
                         <span>&middot;</span>
                         <span>{enrollment.term}</span>
                     </div>
-                    <h1 className="mt-1 text-3xl font-semibold tracking-tight text-text-main">
-                        {enrollment.className}
-                    </h1>
+                    <div className="mt-1 flex items-start gap-2">
+                        <h1 className="min-w-0 flex-1 break-words text-3xl font-semibold tracking-tight text-text-main">
+                            {enrollment.className}
+                        </h1>
+                        <CircleIconButton
+                            icon={<Pencil size={14} />}
+                            ariaLabel="Edit course code and title"
+                            size="sm"
+                            onClick={() => openEdit("course")}
+                        />
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setSyllabusOpen(true)}
+                        className="mt-4 inline-flex items-center gap-2 rounded-lg border border-border-light bg-bg-container px-3.5 py-2 text-sm font-medium text-text-main shadow-sm transition hover:bg-bg-warm"
+                    >
+                        <FileText size={15} className="text-primary" />
+                        {enrollment.syllabus ? "Update course info from syllabus" : "Course info from syllabus"}
+                    </button>
                 </div>
 
                 {/* Course Summary — AI-generated from uploaded documents, see
@@ -262,6 +307,41 @@ export default function CourseOverview({
                             <span className="text-xs text-text-muted">Generated by Catalyst AI</span>
                         </div>
                         <p className="mt-3 text-sm leading-relaxed text-text-main">{enrollment.courseSummary}</p>
+                    </div>
+                )}
+
+                {enrollment.syllabus && (
+                    <div className="mb-6 rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light" data-tutorial="course-syllabus">
+                        <div className="flex items-center gap-2">
+                            <CalendarDays size={16} className="text-primary" />
+                            <h2 className="text-sm font-semibold text-text-main">Schedule &amp; key dates</h2>
+                            <span className="min-w-0 truncate text-xs text-text-muted">from {enrollment.syllabus.name}</span>
+                        </div>
+                        <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                            {([
+                                ["Office hours", enrollment.syllabus.officeHours],
+                                ["Textbooks", enrollment.syllabus.textbooks],
+                                ["Grading", enrollment.syllabus.grading],
+                            ] as const).filter(([, value]) => value).map(([label, value]) => (
+                                <div key={label} className={label === "Grading" ? "sm:col-span-2" : ""}>
+                                    <dt className="text-xs text-text-muted">{label}</dt>
+                                    <dd className="mt-0.5 text-text-main">{value}</dd>
+                                </div>
+                            ))}
+                        </dl>
+                        {enrollment.syllabus.dates?.length > 0 && (
+                            <ul className="mt-4 divide-y divide-border-light rounded-lg border border-border-light">
+                                {enrollment.syllabus.dates.map((d, i) => (
+                                    <li key={`${d.date}-${i}`} className="flex items-center gap-3 px-3 py-2 text-sm">
+                                        <span className="w-28 shrink-0 text-xs tabular-nums text-text-muted">{d.date}</span>
+                                        <span className="min-w-0 flex-1 text-text-main">{d.title}</span>
+                                        {d.kind !== "other" && (
+                                            <span className="shrink-0 rounded bg-bg-warm px-1.5 py-0.5 text-[10px] font-medium capitalize text-text-muted">{d.kind}</span>
+                                        )}
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
                     </div>
                 )}
 
@@ -372,7 +452,20 @@ export default function CourseOverview({
                 </>
             )}
 
-            {/* Edit modal — shared between Class Details and Instructor */}
+            {syllabusOpen && user && (
+                <SyllabusModal
+                    uid={user.uid}
+                    courseId={courseId}
+                    current={enrollment}
+                    onClose={() => setSyllabusOpen(false)}
+                    onApplied={(fields) => {
+                        setEnrollment((prev) => (prev ? ({ ...prev, ...fields } as EnrollmentFields) : prev));
+                        notifyDataChanged();
+                    }}
+                />
+            )}
+
+            {/* Edit modal — shared by Class Details, Instructor and course name */}
             {editingSection && (
                 <div
                     className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
@@ -381,7 +474,7 @@ export default function CourseOverview({
                     <div className="w-full max-w-sm rounded-xl bg-bg-container p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
                         <div className="mb-4 flex items-center justify-between">
                             <h3 className="text-sm font-semibold text-text-main">
-                                Edit {editingSection === "details" ? "class details" : "instructor info"}
+                                Edit {editingSection === "details" ? "class details" : editingSection === "course" ? "course name" : "instructor info"}
                             </h3>
                             <CircleIconButton
                                 icon={<X size={16} />}
@@ -393,7 +486,7 @@ export default function CourseOverview({
                         </div>
 
                         <div className="space-y-3">
-                            {(editingSection === "details" ? DETAIL_FIELDS : INSTRUCTOR_FIELDS).map(
+                            {fieldsFor(editingSection).map(
                                 ({ key, label, multiline }) => (
                                     <div key={key}>
                                         <label className="mb-1 block text-xs font-medium text-text-muted">{label}</label>
@@ -414,6 +507,7 @@ export default function CourseOverview({
                                                     setEditValues((prev) => ({ ...prev, [key]: e.target.value }))
                                                 }
                                                 disabled={savingEdit}
+                                                maxLength={editingSection === "course" ? (key === "classCode" ? MAX_COURSE_CODE_LENGTH : MAX_COURSE_NAME_LENGTH) : undefined}
                                                 className="w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main outline-none focus:border-primary"
                                             />
                                         )}
@@ -421,6 +515,8 @@ export default function CourseOverview({
                                 )
                             )}
                         </div>
+
+                        {editError && <p className="mt-4 text-xs text-alert-error">{editError}</p>}
 
                         <button
                             onClick={handleSaveEdit}

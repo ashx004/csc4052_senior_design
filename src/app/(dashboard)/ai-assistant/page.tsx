@@ -3,7 +3,7 @@
 import { FormEvent, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { FileDown, History, Loader2, Paperclip, BookOpen, ListChecks, NotebookText, Wrench, Volume2, Square } from "lucide-react";
+import { FileDown, History, Paperclip, BookOpen, ListChecks, NotebookText, Wrench, Volume2, Square } from "lucide-react";
 import { isSpeechSupported, speak, stopSpeaking } from "@/src/library/tts";
 import { useSpeechToText } from "@/src/library/useSpeechToText";
 import MicButton from "@/src/components/aiAssistant/MicButton";
@@ -30,6 +30,7 @@ import { getEffectiveModelKey } from "@/src/library/chatMode";
 import PageTutorial from "@/src/components/tutorial/PageTutorial";
 import aiAssistantSteps from "@/src/library/tutorials/steps/ai-assistant";
 import QuickActions from "@/src/components/aiAssistant/QuickActions";
+import ThinkingIndicator from "@/src/components/aiAssistant/ThinkingIndicator";
 import ConfirmActionCard from "@/src/components/aiAssistant/ConfirmActionCard";
 import { useStickToBottom } from "@/src/hooks/useStickToBottom";
 
@@ -65,19 +66,8 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
           {message.text}
         </div>
       ) : isPending ? (
-        <div className="flex items-center gap-2 rounded-2xl bg-bg-container px-5 py-4 shadow-sm ring-1 ring-border-light">
-          {toolStatus ? (
-            <>
-              <Loader2 size={14} className="shrink-0 animate-spin text-text-muted" />
-              <span className="text-sm text-text-muted">{toolStatus}</span>
-            </>
-          ) : (
-            <>
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-muted [animation-delay:-0.3s]" />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-muted [animation-delay:-0.15s]" />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-muted" />
-            </>
-          )}
+        <div className="min-w-0 max-w-xl rounded-2xl bg-bg-container px-5 py-4 shadow-sm ring-1 ring-border-light">
+          <ThinkingIndicator status={toolStatus} />
         </div>
       ) : (
         <div className="group flex max-w-2xl flex-col items-start gap-1.5">

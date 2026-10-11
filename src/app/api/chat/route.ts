@@ -4,7 +4,8 @@ import { extractDocumentText, SUPPORTED_DOCUMENT_TYPES } from "@/src/library/doc
 import { embedTexts, cosineSimilarity } from "@/src/library/ollamaEmbeddings";
 import { searchChunks } from "@/src/library/vectorStore";
 import { resolveOllamaBaseUrl, resolveModelFromKey, FAST_MODEL_KEEP_ALIVE, mainModelContextOption, secondaryContextOption } from "@/src/library/ollamaClient";
-import { thinkField, mayLeakThinking } from "@/src/library/thinkMode";
+import { resolveChatThinking, mayLeakThinking, type ChatThinking } from "@/src/library/thinkMode";
+import { classifyThinkingNeed } from "@/src/library/thinkRouter";
 import { clarifyUserQuery } from "@/src/library/queryClarifier";
 import { searchWeb } from "@/src/library/webSearch";
 import { searchYoutube } from "@/src/library/youtubeSearch";
@@ -1567,11 +1568,28 @@ async function callOllama(
 // chunks; tool-call decisions arrive whole in the final `done:true` chunk
 // with `content` staying empty the entire round — so it's always safe to
 // call onDelta unconditionally, tool-call rounds just never produce a delta.
+// A reasoning budget only works when it rides on the student's own message.
+// Measured on qwen3:30b-a3b with the real chat prompt: as a system message
+// (anywhere) it changed nothing, as a suffix on the question a lookup went
+// from ~7.5s to ~2.5s. The copy is for this request only, never persisted.
+function withEffortHint(messages: unknown[], hint?: string): unknown[] {
+  if (!hint) return messages;
+  const copy = [...messages] as any[];
+  for (let i = copy.length - 1; i >= 0; i--) {
+    if (copy[i]?.role === "user" && typeof copy[i].content === "string") {
+      copy[i] = { ...copy[i], content: `${copy[i].content}\n\n${hint}` };
+      break;
+    }
+  }
+  return copy;
+}
+
 async function streamOllamaRound(
   messages: unknown[],
   tools: unknown[],
   temperature: number,
   target: OllamaTarget,
+  thinking: ChatThinking,
   onDelta: (text: string) => void
 ): Promise<{ content: string; toolCalls: any[] | null; rawMessage: any }> {
   const controller = new AbortController();
@@ -1587,14 +1605,15 @@ async function streamOllamaRound(
       },
       body: JSON.stringify({
         model: target.model,
-        messages,
+        messages: withEffortHint(messages, thinking.effortHint),
         tools,
         stream: true,
-        // Per-feature, from OLLAMA_THINK_CHAT (see thinkMode.ts). With it
-        // on, reasoning streams in message.thinking, which is never
-        // forwarded below; with it off, see deltaHandlerForModel for the
-        // safety net against models that reason inline anyway.
-        ...thinkField("chat"),
+        // Chosen per turn by the thinking router (see thinkRouter.ts and
+        // resolveChatThinking). With think on, reasoning streams in
+        // message.thinking, which is never forwarded below; with it off, see
+        // deltaHandlerForModel for the safety net against models that
+        // reason inline anyway.
+        ...(thinking.think === undefined ? {} : { think: thinking.think }),
         options: { temperature, ...(target.numCtx ? { num_ctx: target.numCtx } : {}) },
         ...(target.keepAlive !== undefined ? { keep_alive: target.keepAlive } : {}),
       }),
@@ -2205,6 +2224,23 @@ export async function POST(request: NextRequest) {
 
         const summary = incomingSummary ?? "";
         const summarizedCount = incomingSummarizedCount ?? 0;
+        // Spend reasoning only when the question earns it: a lookup gets a
+        // one-sentence budget, a proof walk-through gets the full think.
+        const thinkDecision = classifyThinkingNeed(messages);
+        let thinking = resolveChatThinking(thinkDecision.tier, primaryTarget.model);
+        // Message text is left out on purpose; tier + reason + length is enough
+        // to find the phrasings the router gets wrong.
+        const latestUser = [...messages].reverse().find((m: { role?: string; content?: unknown }) => m.role === "user");
+        console.info(
+          "[chat-think]",
+          JSON.stringify({
+            tier: thinkDecision.tier,
+            reason: thinkDecision.reason,
+            words: typeof latestUser?.content === "string" ? latestUser.content.trim().split(/\s+/).filter(Boolean).length : 0,
+            think: thinking.think ?? null,
+            model: primaryTarget.model,
+          }),
+        );
         const conversation: any[] = [
           { role: "system", content: buildSystemPrompt(context, studentProfile.summary, false, clarifiedIntent, confidenceSnapshot) },
           ...(summary ? [{ role: "system", content: `Summary of earlier conversation:\n${summary}` }] : []),
@@ -2312,6 +2348,7 @@ export async function POST(request: NextRequest) {
             currentTools(),
             CHAT_TEMPERATURE,
             primaryTarget,
+            thinking,
             handleDelta
           );
 
@@ -2534,6 +2571,10 @@ export async function POST(request: NextRequest) {
           if (!strippedContent) {
             if (emptyRoundRetries < 2) {
               emptyRoundRetries++;
+              // A trimmed reasoning budget may be why nothing came back;
+              // retry with the full think.
+              thinking = resolveChatThinking("deep", primaryTarget.model);
+              console.info("[chat-think]", JSON.stringify({ escalated: "deep", after: thinkDecision.tier, reason: "empty reply" }));
               // A blind identical retry tends to come back empty again
               // (confirmed live on "I feel shaky on CSC 325, maybe a 2 out of
               // 5"); say what went wrong so the next round answers.
@@ -2701,6 +2742,7 @@ export async function POST(request: NextRequest) {
             [],
             CHAT_TEMPERATURE,
             primaryTarget,
+            thinking,
             finalRoundHandler.handleDelta
           );
           finalRoundHandler.flush();
