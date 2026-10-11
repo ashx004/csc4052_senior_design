@@ -9,6 +9,8 @@
 // The summary is optional: with no summarizer (or when it is slow or fails)
 // the client falls back to the last sentence of the raw reasoning.
 
+import { StreamingGuard, type OutputGuard } from "./outputGuard";
+
 export interface ThoughtRelayOptions {
   send: (event: { type: "thinking" | "thought_summary"; text: string }) => void;
   /** Turns recent reasoning into one short status line. Null or a throw means "no summary this time". */
@@ -96,6 +98,40 @@ export function createThoughtRelay(options: ThoughtRelayOptions): ThoughtRelay {
     end() {
       flush();
       ended = true;
+    },
+  };
+}
+
+/**
+ * A thought relay whose output passes through the same OutputGuard as the
+ * reply itself. The model's reasoning quotes tool results, internal IDs and
+ * tool names freely, none of which a student should see; the guard hides IDs,
+ * unverified links and emails, and swaps tool function names for plain words.
+ * Reasoning arrives in pieces, so it goes through a StreamingGuard (an ID can
+ * be split across two pieces).
+ */
+export function createGuardedThoughtRelay(options: ThoughtRelayOptions, guard: OutputGuard): ThoughtRelay {
+  const thinking = new StreamingGuard(guard, (text) => options.send({ type: "thinking", text }));
+  const relay = createThoughtRelay({
+    ...options,
+    send(event) {
+      if (event.type === "thinking") {
+        thinking.push(event.text);
+        return;
+      }
+      const clean = guard.clean(event.text).trim();
+      if (clean) options.send({ type: "thought_summary", text: clean });
+    },
+  });
+  return {
+    push: (text) => relay.push(text),
+    flush() {
+      relay.flush();
+      thinking.flush();
+    },
+    end() {
+      relay.end();
+      thinking.flush();
     },
   };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuth } from "@/src/context/AuthContext";
 import { useSetPageContext } from "@/src/context/AIPageContext";
 import ClassCard, { ClassCardProps } from '@/src/components/classes/ClassCard';
@@ -8,11 +8,12 @@ import AddEnrollmentModal from '@/src/components/classes/AddEnrollmentModal';
 import EditClassScheduleModal from '@/src/components/classes/EditClassScheduleModal';
 import PageTutorial from '@/src/components/tutorial/PageTutorial';
 import classesSteps from '@/src/library/tutorials/steps/classes';
-import { doc, getDoc, collection, getDocs, deleteDoc, updateDoc } from 'firebase/firestore';
+import { doc, collection, getDocs, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
 import { Minus } from "lucide-react";
 import { Term } from "@/src/library/academicTerm";
 import { EnrollmentStatus, getEnrollmentStatus } from "@/src/library/enrollmentStatus";
+import { syncSyllabusEvents } from "@/src/library/syllabusCalendarSync";
 import { formatClassMeetingSchedule, type StructuredClassSchedule } from "@/src/library/classSchedule";
 
 // database fields that a class should have (YOU MUST FOLLOW THIS STRUCTURE IF YOU INSERT A CLASS!!!!)
@@ -61,37 +62,10 @@ export interface EnrollmentFields extends StructuredClassSchedule {
     syllabus?: import("@/src/components/course/SyllabusModal").StoredSyllabus;
 }
 
-async function getEnrollment(
-    userId: string,
-    enrollmentId: string
-): Promise<EnrollmentFields | null> {
-    const docRef = doc(db, "users", userId, "enrollment", enrollmentId);
-    const docSnap = await getDoc(docRef);
-
-    if (!docSnap.exists()) {
-        console.log("No such document!");
-        return null;
-    }
-
-    const data = docSnap.data();
-
-    return {
-        className: data.className,
-        classCode: data.classCode,
-        term: data.term,
-        time: data.time,
-        facultyPhoneNumber: data.facultyPhoneNumber,
-        facultyOfficeNumber: data.facultyOfficeNumber,
-        facultyEmail: data.facultyEmail,
-        facultyName: data.facultyName,
-        classSchedule: data.classSchedule
-    }
-}
-
 async function getAllEnrollments(userId: string): Promise<ClassCardProps[]> {
     const enrollmentRef = collection(db, "users", userId, "enrollment");
     const querySnapshot = await getDocs(enrollmentRef);
-    let enrollments: ClassCardProps[] = [];
+    const enrollments: ClassCardProps[] = [];
 
     querySnapshot.forEach((doc) => {
         const data = doc.data();
@@ -127,12 +101,15 @@ export default function Classes() {
     const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
     useEffect(() => {
+        // Read from the address bar after mounting, not while rendering, so the
+        // server-rendered page and the first browser render match.
         const requestedClassId = new URLSearchParams(window.location.search).get("editSchedule");
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         if (requestedClassId) setScheduleClassId(requestedClassId);
     }, []);
 
     // Define the data re-fetch function cleanly
-    const refreshEnrollments = () => {
+    const refreshEnrollments = useCallback(() => {
         if (!user) return;
 
         getAllEnrollments(user.uid)
@@ -141,13 +118,17 @@ export default function Classes() {
                 console.error("Error refreshing enrollments: ", error);
                 setEnrollments([]);
             });
-    };
+    }, [user]);
 
     const handlePermanentDelete = async (classId: string) => {
         if (!user) return;
 
         try {
             const docRef = doc(db, "users", user.uid, "enrollment", classId);
+            // Dates a syllabus put on the calendar (and their email reminders) belong to this class.
+            await syncSyllabusEvents(db, user.uid, classId, []).catch((error) =>
+                console.error("Couldn't remove this class's syllabus events:", error)
+            );
             await deleteDoc(docRef);
             refreshEnrollments();
         } catch (error) {
@@ -188,7 +169,7 @@ export default function Classes() {
     // Trigger state fetch when the authentic user context resolves
     useEffect(() => {
         refreshEnrollments();
-    }, [user]);
+    }, [refreshEnrollments]);
 
     // Completed classes move to Advising's "Completed courses" section
     // instead of cluttering the active list here.

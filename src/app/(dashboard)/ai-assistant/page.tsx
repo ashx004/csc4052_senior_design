@@ -28,6 +28,7 @@ import { readChatStream } from "@/src/library/chatStream";
 import { toolRunningLabel } from "@/src/library/toolActivity";
 import type { LiveActivity } from "@/src/library/chatLive";
 import { useChatActivity } from "@/src/hooks/useChatActivity";
+import { stoppedReplyText } from "@/src/library/stoppedReplies";
 import { useChatRun } from "@/src/hooks/useChatRun";
 import { useChatStatus } from "@/src/library/useChatStatus";
 import { getEffectiveModelKey } from "@/src/library/chatMode";
@@ -400,7 +401,7 @@ function AIAssistantPageContent() {
   // "show earlier" button below must not yank the student back down away
   // from the history they just asked to see.
   // Follows new text only while the student is at the bottom (see useStickToBottom).
-  const scroller = useStickToBottom<HTMLDivElement>([messages]);
+  const { attach: scrollRef, onScroll: onChatScroll, stick: stickToBottom } = useStickToBottom<HTMLDivElement>([messages]);
 
   async function loadSession(id: string) {
     if (!user || id === sessionId.current) {
@@ -499,10 +500,31 @@ function AIAssistantPageContent() {
 
     const assistantId = nextId.current++;
     const assistantMessage: ChatMessage = { id: assistantId, role: "assistant", text: "" };
+    // Whether this send started the chat (the server creates its saved session on the first turn).
+    const startedNewSession = !sessionId.current;
+    const isFirstTurn = messages.length === 0;
+    let sawText = false;
+
+    // Stop pressed before anything was written: the server has taken the turn
+    // out of the saved chat, so take it off the screen too and hand the
+    // question back to be re-worded, rather than leaving a stranded copy.
+    function dropStoppedTurn() {
+      setMessages(nextMessages.slice(0, -1));
+      setInput((current) => current || trimmed);
+      if (startedNewSession) {
+        // That chat held only this turn; the server deleted it.
+        sessionId.current = null;
+        setActiveSessionId(null);
+        titleRef.current = "";
+        document.title = "Catalyst";
+        updateSessionUrl(null);
+        if (isFirstTurn) setHasStarted(false);
+      }
+    }
 
     setMessages([...nextMessages, assistantMessage]);
     setHasStarted(true);
-    scroller.stick();
+    stickToBottom();
     setInput("");
     setErrorText(null);
     setIsSending(true);
@@ -548,6 +570,7 @@ function AIAssistantPageContent() {
       chatStatus.streaming();
       let text = "";
       let stopped = false;
+      let discarded = false;
       let streamError: string | null = null;
       let documentsRead: string[] | undefined;
       let generatedFiles: { name: string; url: string }[] | undefined;
@@ -557,6 +580,7 @@ function AIAssistantPageContent() {
       for await (const event of readChatStream(response)) {
         liveActivity.handle(event);
         if (event.type === "delta") {
+          sawText = true;
           text += event.text;
           chatStatus.clear();
           updateAssistant({ text });
@@ -564,6 +588,7 @@ function AIAssistantPageContent() {
           chatStatus.tool(toolRunningLabel(event.name));
         } else if (event.type === "stopped") {
           stopped = true;
+          discarded = Boolean(event.discarded);
         } else if (event.type === "status") {
           chatStatus.progress(event.label);
         } else if (event.type === "session") {
@@ -585,6 +610,11 @@ function AIAssistantPageContent() {
         }
       }
 
+      if (stopped && discarded && !text) {
+        dropStoppedTurn();
+        return;
+      }
+
       if (!text && !stopped) {
         // No content ever arrived — whether from an explicit error event or
         // a stream that ended early (e.g. a dropped connection) without one.
@@ -595,7 +625,7 @@ function AIAssistantPageContent() {
       // The server already persisted the finished reply (see the route's
       // finally block) — this just reflects it locally for whoever's still
       // watching this tab.
-      const finalMessage: ChatMessage = { id: assistantId, role: "assistant", text: stopped ? (text ? `${text}\n\n_(Stopped)_` : "_(Stopped before the assistant answered.)_") : text };
+      const finalMessage: ChatMessage = { id: assistantId, role: "assistant", text: stopped ? stoppedReplyText(text) : text };
       if (documentsRead) finalMessage.documentsRead = documentsRead;
       if (generatedFiles) finalMessage.generatedFiles = generatedFiles;
       if (generatedStudySets) finalMessage.generatedStudySets = generatedStudySets;
@@ -606,7 +636,12 @@ function AIAssistantPageContent() {
       if (streamError) setErrorText(streamError);
     } catch (error) {
       if (chatRun.wasStopped()) {
-        // The connection was cut right after Stop: keep whatever was written.
+        // The connection was cut right after Stop. With nothing written the
+        // server discards the turn, so do the same here; otherwise keep what was written.
+        if (!sawText) {
+          dropStoppedTurn();
+          return;
+        }
         setMessages((prev) => prev.filter((m) => !(m.id === assistantId && m.text === "")));
         setInput((current) => current || trimmed);
         return;
@@ -747,7 +782,7 @@ function AIAssistantPageContent() {
       </header>
 
       <main className="relative flex min-h-0 flex-1 flex-col">
-        <div ref={scroller.ref} onScroll={scroller.onScroll} className="flex-1 overflow-y-auto px-6 pb-48 pt-10">
+        <div ref={scrollRef} onScroll={onChatScroll} className="flex-1 overflow-y-auto px-6 pb-48 pt-10">
           {!hasStarted ? (
             <div className="mx-auto flex min-h-[55vh] max-w-3xl flex-col items-center justify-center text-center">
               <div className="mb-8 flex h-16 w-16 items-center justify-center rounded-3xl border border-border-light bg-bg-container shadow-sm">

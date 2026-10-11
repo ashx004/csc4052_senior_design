@@ -11,6 +11,23 @@ import { NextRequest } from "next/server";
 
 vi.mock("@/src/library/verifyAuth", () => ({ verifyRequestAuth: async () => ({ uid: "test-user" }) }));
 
+// The student's learning profile is also read from Firestore; give it an empty one.
+vi.mock("@/src/library/studentProfile", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/src/library/studentProfile")>()),
+  getStudentProfile: async () => ({ summary: "", messageCount: 0 }),
+  maybeUpdateStudentProfile: async () => {},
+}));
+
+// Saved chats live in Firestore; record what the route writes instead of calling it.
+const fs = vi.hoisted(() => ({ create: vi.fn(), get: vi.fn(), update: vi.fn(), del: vi.fn() }));
+vi.mock("@/src/library/firestoreRest", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/src/library/firestoreRest")>()),
+  firestoreCreate: fs.create,
+  firestoreGet: fs.get,
+  firestoreUpdate: fs.update,
+  firestoreDelete: fs.del,
+}));
+
 type Script = (req: IncomingMessage, res: ServerResponse, call: number) => void;
 
 let server: Server;
@@ -54,6 +71,10 @@ afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
 beforeEach(() => {
   chatCalls = 0;
   script = () => {};
+  fs.create.mockReset().mockResolvedValue("sess-new");
+  fs.get.mockReset().mockResolvedValue(null);
+  fs.update.mockReset().mockResolvedValue(true);
+  fs.del.mockReset().mockResolvedValue(true);
 });
 
 function chatRequest(runId: string | undefined, text = "Which classes am I taking?") {
@@ -220,5 +241,99 @@ describe("POST /api/chat Stop", () => {
     const controller = registerChatRun("someone-else", "run-theirs-0001");
     expect(stopChatRun("test-user", "run-theirs-0001")).toBe(false);
     expect(controller.signal.aborted).toBe(false);
+  });
+});
+
+// A saved (non-ephemeral) chat: the route writes the question and an empty reply
+// up front, and a stopped turn with nothing written is taken back out again.
+function savedChatRequest(runId: string, extra: Record<string, unknown> = {}) {
+  return new NextRequest("http://localhost/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer test-token" },
+    body: JSON.stringify({
+      messages: [{ role: "user", content: "Explain mitosis" }],
+      context: { userId: "test-user", email: "t@example.com", classes: [] },
+      runId,
+      ...extra,
+    }),
+  });
+}
+
+/** A model that reasons for a long while without ever writing an answer. */
+const onlyThinking: Script = (_req, res) => {
+  res.setHeader("Content-Type", "application/x-ndjson");
+  line(res, { message: { role: "assistant", thinking: "Let me think about this. " } });
+  const timer = setInterval(() => line(res, { message: { role: "assistant", thinking: "Still thinking. " } }), 20);
+  res.on("close", () => clearInterval(timer));
+};
+
+async function stopOnceThinking(response: Response, runId: string): Promise<Event[]> {
+  const { stopChatRun } = await import("@/src/library/chatRuns");
+  const seen: Event[] = [];
+  let pressed = false;
+  for await (const e of events(response)) {
+    seen.push(e);
+    if (!pressed && e.type === "thinking") {
+      pressed = true;
+      expect(stopChatRun("test-user", runId)).toBe(true);
+    }
+  }
+  return seen;
+}
+
+describe("POST /api/chat Stop before any answer", () => {
+  it("removes the turn from a brand-new chat, deleting the chat that held only it", async () => {
+    script = onlyThinking;
+    const { POST } = await import("./route");
+    const seen = await stopOnceThinking(await POST(savedChatRequest("run-discard-01")), "run-discard-01");
+
+    expect(seen.find((e) => e.type === "stopped")).toMatchObject({ type: "stopped", discarded: true });
+    expect(seen.map((e) => e.type)).not.toContain("error");
+    expect(fs.create).toHaveBeenCalledTimes(1); // the chat was created when the question arrived...
+    await vi.waitFor(() => expect(fs.del).toHaveBeenCalledWith("test-token", "users/test-user/chatSessions", "sess-new")); // ...and is gone again
+    // The "(Stopped before the assistant answered.)" placeholder is never saved.
+    expect(JSON.stringify(fs.update.mock.calls)).not.toContain("Stopped before");
+  });
+
+  it("removes just the stopped question and empty reply from an existing chat", async () => {
+    fs.get.mockResolvedValue({
+      messages: [
+        { id: 1, role: "user", text: "Earlier question" },
+        { id: 2, role: "assistant", text: "Earlier answer" },
+      ],
+    });
+    script = onlyThinking;
+    const { POST } = await import("./route");
+    const seen = await stopOnceThinking(await POST(savedChatRequest("run-discard-02", { currentSessionId: "sess-9" })), "run-discard-02");
+
+    expect(seen.find((e) => e.type === "stopped")).toMatchObject({ discarded: true });
+    await vi.waitFor(() => {
+      const last = fs.update.mock.calls.at(-1);
+      expect(last?.[3]).toMatchObject({ generating: false });
+      expect((last?.[3] as { messages: { text: string }[] }).messages.map((m) => m.text)).toEqual(["Earlier question", "Earlier answer"]);
+    });
+    expect(fs.del).not.toHaveBeenCalled();
+  });
+
+  it("keeps a partial reply: the question stays and the reply is saved with its Stopped marker", async () => {
+    script = (_req, res) => {
+      res.setHeader("Content-Type", "application/x-ndjson");
+      const timer = setInterval(() => line(res, { message: { role: "assistant", content: "Mitosis has four phases. " } }), 20);
+      res.on("close", () => clearInterval(timer));
+    };
+    const { stopChatRun } = await import("@/src/library/chatRuns");
+    const { POST } = await import("./route");
+    const seen: Event[] = [];
+    let pressed = false;
+    for await (const e of events(await POST(savedChatRequest("run-keep-0001")))) {
+      seen.push(e);
+      if (!pressed && seen.filter((x) => x.type === "delta").length >= 3) {
+        pressed = true;
+        stopChatRun("test-user", "run-keep-0001");
+      }
+    }
+    expect(seen.find((e) => e.type === "stopped")).toMatchObject({ discarded: false });
+    await vi.waitFor(() => expect(JSON.stringify(fs.update.mock.calls.at(-1))).toContain("_(Stopped)_"));
+    expect(fs.del).not.toHaveBeenCalled();
   });
 });

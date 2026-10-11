@@ -3,7 +3,7 @@
 import { use, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { collection, deleteDoc, doc, onSnapshot, orderBy, query, type Timestamp } from 'firebase/firestore';
+import { collection, onSnapshot, orderBy, query, type Timestamp } from 'firebase/firestore';
 import { ArrowLeft, Clock, Loader2, PenLine, Puzzle, Trash2, Trophy, Variable } from 'lucide-react';
 import { db } from '@/src/library/firebase';
 import { useAuth } from '@/src/context/AuthContext';
@@ -12,6 +12,7 @@ import { usePracticeGeneration } from '@/src/hooks/usePracticeGeneration';
 import { getCourseResources, INDEXABLE_FILE_TYPES } from '@/src/components/resourceManagement/fileUploadService';
 import ConfirmDeleteModal from '@/src/components/learning/ConfirmDeleteModal';
 import PracticeSetup, { type SetupResource } from '@/src/components/practice/PracticeSetup';
+import { deletePracticeSet } from '@/src/library/practice/deleteSet';
 import { KIND_LABELS, PRACTICE_KINDS, type PracticeKind } from '@/src/library/practice/types';
 
 interface SetSummary {
@@ -99,7 +100,7 @@ export default function PracticeHubPage({ params }: { params: Promise<{ courseId
     if (!user || !deleteId) return;
     setDeleting(true);
     try {
-      await deleteDoc(doc(db, 'users', user.uid, 'enrollment', courseId, 'practiceSets', deleteId));
+      await deletePracticeSet(db, user.uid, courseId, deleteId);
     } catch (error) {
       console.error('Error deleting practice set:', error);
     } finally {

@@ -39,7 +39,7 @@ export default function AIPanel() {
   const pageContext = useAIPageContext();
   const { messages, isSending, toolStatus, activity, errorText, sendMessage, stop } = useAIPanelChat(user?.uid, user?.email ?? undefined);
   // Follows new text and Confirm cards unless the student has scrolled up.
-  const scroller = useStickToBottom<HTMLDivElement>([messages, toolStatus, activity, errorText]);
+  const { attach: scrollRef, onScroll: onChatScroll, stick: stickToBottom } = useStickToBottom<HTMLDivElement>([messages, toolStatus, activity, errorText]);
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
   const stt = useSpeechToText({ text: input, onText: setInput, maxLength: 4000 });
@@ -50,7 +50,10 @@ export default function AIPanel() {
   useEffect(() => {
     // On phones the panel covers the whole page, so it never reopens on its
     // own there - only when the student taps the chat button.
+    // This is browser-only state (screen size, a saved preference), so it is read
+    // after mounting: reading it while rendering would differ from the server's HTML.
     const phone = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsOpen(!phone && typeof window !== "undefined" && window.localStorage.getItem(STORAGE_KEY) === "true");
   }, []);
 
@@ -69,7 +72,7 @@ export default function AIPanel() {
     stt.stop();
     const text = input;
     setInput("");
-    scroller.stick();
+    stickToBottom();
     // Stopped replies hand the question back so it can be re-worded.
     void sendMessage(text, pageContext).then((result) => {
       if (result.stopped) setInput((current) => current || text);
@@ -107,7 +110,7 @@ export default function AIPanel() {
             </button>
           </div>
 
-          <div ref={scroller.ref} onScroll={scroller.onScroll} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+          <div ref={scrollRef} onScroll={onChatScroll} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
             <div className="rounded-2xl bg-bg-container px-4 py-3 text-sm leading-relaxed text-text-main shadow-sm ring-1 ring-border-light">
               <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
                 {buildGreeting()}
@@ -151,7 +154,7 @@ export default function AIPanel() {
               disabled={isSending}
               compact
               onSend={(prompt) => {
-                scroller.stick();
+                stickToBottom();
                 void sendMessage(prompt, pageContext);
               }}
             />

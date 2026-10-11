@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { User } from "firebase/auth";
 
 type AdvisingDocument = {
@@ -40,6 +40,10 @@ export default function AdvisingDocumentsViewer({ user }: AdvisingDocumentsViewe
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState<boolean>(false);
   const [previewError, setPreviewError] = useState<string>("");
+  // Counts opens (and closes), so a slow download that finishes after the
+  // student has clicked the other document - or closed the preview - is
+  // dropped instead of showing the wrong PDF under the wrong heading.
+  const openCount = useRef(0);
 
   // Retrieve the list of uploaded advising documents from storage.
   useEffect(() => {
@@ -82,6 +86,8 @@ export default function AdvisingDocumentsViewer({ user }: AdvisingDocumentsViewe
   }, [previewUrl]);
 
   const openDocument = useCallback(async (document: AdvisingDocument) => {
+    const thisOpen = ++openCount.current;
+    const isCurrent = () => openCount.current === thisOpen;
     setSelectedType(document.type);
     setPreviewUrl(null);
     setPreviewError("");
@@ -110,11 +116,12 @@ export default function AdvisingDocumentsViewer({ user }: AdvisingDocumentsViewe
       }
 
       const blob = await response.blob();
+      if (!isCurrent()) return;
       setPreviewUrl(URL.createObjectURL(new Blob([blob], { type: "application/pdf" })));
     } catch (error) {
-      setPreviewError(error instanceof Error ? error.message : "This document could not be opened.");
+      if (isCurrent()) setPreviewError(error instanceof Error ? error.message : "This document could not be opened.");
     } finally {
-      setIsLoadingPreview(false);
+      if (isCurrent()) setIsLoadingPreview(false);
     }
   }, [user]);
 
@@ -192,6 +199,8 @@ export default function AdvisingDocumentsViewer({ user }: AdvisingDocumentsViewe
               <button
                 type="button"
                 onClick={() => {
+                  openCount.current += 1;
+                  setIsLoadingPreview(false);
                   setSelectedType(null);
                   setPreviewUrl(null);
                   setPreviewError("");

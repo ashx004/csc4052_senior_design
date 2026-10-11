@@ -5,6 +5,8 @@ export type SyllabusDateKind = "exam" | "assignment" | "holiday" | "other";
 export interface SyllabusDate {
   /** ISO date (YYYY-MM-DD) when the syllabus gives an exact day, otherwise the text it uses ("Week 3"). */
   date: string;
+  /** ISO last day, only for something that spans several days (a break, a project week). */
+  endDate?: string;
   title: string;
   kind: SyllabusDateKind;
 }
@@ -53,7 +55,7 @@ Reply with a single JSON object and nothing else, with exactly these keys:
   "officeHours": "office hours, e.g. Tue 2-4 PM",
   "textbooks": "required texts, one line",
   "grading": "grade breakdown, one line, e.g. Exams 40%, Homework 30%, Project 30%",
-  "dates": [{"date": "YYYY-MM-DD or the syllabus's own wording", "title": "what is due or happening", "kind": "exam | assignment | holiday | other"}]
+  "dates": [{"date": "YYYY-MM-DD or the syllabus's own wording", "endDate": "YYYY-MM-DD last day, only when it spans several days (e.g. a break from Nov 25-27), otherwise an empty string", "title": "what is due or happening", "kind": "exam | assignment | holiday | other"}]
 }
 List dates in chronological order, at most 40 of them; include exams, quizzes, project and assignment deadlines, and no-class days.
 Write each date as YYYY-MM-DD whenever the syllabus names a specific day, working out the year from the course term and today's date (a fall term's January dates belong to the next year). Only if the syllabus gives no specific day ("Week 5", "finals week", "TBA") use its own wording. A final exam given only as a time slot inside a published exam week still counts as an exam.`;
@@ -118,7 +120,9 @@ export function parseSyllabusResponse(raw: string): SyllabusInfo {
       const title = asText(e.title, 140);
       if (!date || !title) continue;
       const kind = KINDS.includes(e.kind as SyllabusDateKind) ? (e.kind as SyllabusDateKind) : "other";
-      info.dates.push({ date, title, kind });
+      const endDate = asText(e.endDate, 40);
+      const spansDays = /^\d{4}-\d{2}-\d{2}$/.test(date) && /^\d{4}-\d{2}-\d{2}$/.test(endDate) && endDate > date;
+      info.dates.push({ date, ...(spansDays ? { endDate } : {}), title, kind });
       if (info.dates.length >= 40) break;
     }
   }
