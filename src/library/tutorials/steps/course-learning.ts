@@ -10,7 +10,7 @@ const courseLearningSteps: TutorialStep[] = [
   {
     target: '[data-tutorial="course-learning-grid"]',
     title: "Start with a quiz or flashcards",
-    body: "Choose an activity first, then pick the course document you want to study. You can also browse documents below the cards.",
+    body: "Choose a quiz or flashcards, then pick the course sources you want to study. You can also start from a document below the cards.",
     placement: "bottom",
   },
   {
