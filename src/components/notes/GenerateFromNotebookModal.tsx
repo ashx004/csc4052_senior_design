@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import { db } from "@/src/library/firebase";
 import { useAuth } from "@/src/context/AuthContext";
 import { getEffectiveModelKey } from "@/src/library/chatMode";
+import { DEFAULT_QUIZ_DIFFICULTY } from "@/src/library/quizDifficulty";
 import { noteToMarkdown } from "@/src/library/notes/noteText";
 import type { ClassOption, Note, Notebook } from "@/src/library/notes/types";
 import ClassSelect from "./ClassSelect";
@@ -84,6 +85,7 @@ export default function GenerateFromNotebookModal({
           sourceNotebookId: notebook.id,
           questions: data.questions,
           questionTypes: types,
+          difficulty: DEFAULT_QUIZ_DIFFICULTY,
           questionCount: data.questions.length,
           pinned: true,
           visibility: "private",

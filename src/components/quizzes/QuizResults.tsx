@@ -10,7 +10,7 @@ export default function QuizResults({ score, total }: QuizResultsProps) {
 
   return (
     <div className="rounded-2xl border border-border-light bg-bg-container p-6 text-center shadow-sm">
-      <p className="text-2xl font-bold text-[#1a1a2e]">
+      <p className="text-2xl font-bold text-text-main">
         {score} out of {total} correct
       </p>
       <p className="mt-1 text-sm text-text-muted">{percentage}% score</p>
