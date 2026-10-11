@@ -68,7 +68,7 @@
 }
 
 .launchButton:hover { background: #3d3833; transform: translateY(-2px); }
-.launchButton:focus-visible { outline: 3px solid #7b5cd6; outline-offset: 3px; }
+.launchButton:focus-visible { outline: none; background: #3d3833; text-decoration: underline; text-underline-offset: 3px; }
 
 .launchIllustration {
   position: absolute;

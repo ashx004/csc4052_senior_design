@@ -1,0 +1,69 @@
+.card {
+  position: relative;
+  display: flex;
+  min-height: 204px;
+  width: 100%;
+  flex-direction: column;
+  border: 0;
+  border-radius: 19px;
+  padding: 24px;
+  color: #fff;
+  text-align: left;
+  background: #302f38;
+  box-shadow: 0 -8px 0 -2px #4a4850, 0 -15px 0 -4px #66636b;
+}
+
+.purple { background: #6b5fdf; box-shadow: 0 -8px 0 -2px #8e80ee, 0 -15px 0 -4px #b0a4f5; }
+.orange { background: #eb704c; box-shadow: 0 -8px 0 -2px #f38b68, 0 -15px 0 -4px #f8a888; }
+.blue { background: #398beb; box-shadow: 0 -8px 0 -2px #69a8f4, 0 -15px 0 -4px #8cbcf6; }
+
+.card:hover, .card:focus-visible {
+  filter: brightness(1.06);
+  outline: none;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.title {
+  margin: 0;
+  max-width: 260px;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.tag {
+  width: max-content;
+  margin-top: 15px;
+  border-radius: 5px;
+  background: #ffffff2b;
+  color: #fff;
+  padding: 4px 7px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.meta {
+  display: flex;
+  gap: 17px;
+  margin-top: auto;
+  color: #f3f1f9;
+  font-size: 13px;
+}
+
+.add {
+  display: grid;
+  min-height: 204px;
+  place-items: center;
+  border: 0;
+  border-radius: 19px;
+  background: #efedf6;
+  color: #514c5c;
+  box-shadow: none;
+  font-weight: 700;
+}
+
+.add:hover, .add:focus-visible { background: #e3def2; outline: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .card, .add { transition: none; }
+}
