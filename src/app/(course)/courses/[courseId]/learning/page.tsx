@@ -19,12 +19,13 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
-import { ArrowLeft, FileEdit, BookOpen, Loader2 } from 'lucide-react';
-import PdfThumbnail from '@/src/components/learning/PdfThumbnail';
+import { ArrowLeft, ArrowRight, BookOpen, Layers3, Loader2, Sparkles } from 'lucide-react';
+import Image from 'next/image';
 import { useCourseInfo } from '@/src/hooks/useCourseInfo';
 import RecentItemRow, { RecentItem } from '@/src/components/learning/RecentItemRow';
 import SortDropdown, { SortOption } from '@/src/components/learning/SortDropdown';
 import LectureChoiceModal from '@/src/components/learning/LectureChoiceModal';
+import StudySourcePicker from '@/src/components/learning/StudySourcePicker';
 import ConfirmDeleteModal from '@/src/components/learning/ConfirmDeleteModal';
 import QuizSetupModal from '@/src/components/quizzes/QuizSetupModal';
 import { useGenerateQuizFromResource } from '@/src/hooks/useGenerateQuizFromResource';
@@ -33,6 +34,7 @@ import { unpublishStudySet } from '@/src/library/discover/unpublishStudySet';
 import type { StudySetVisibility } from '@/src/library/discover/types';
 import PageTutorial from '@/src/components/tutorial/PageTutorial';
 import courseLearningSteps from '@/src/library/tutorials/steps/course-learning';
+import styles from './studySets.module.css';
 
 interface Resource {
   id: string;
@@ -80,6 +82,8 @@ export default function CourseLearningPage() {
   const [quizSort, setQuizSort] = useState<SortOption>('recent');
 
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
+  const [sourcePickerKind, setSourcePickerKind] = useState<'quiz' | 'flashcard' | null>(null);
+  const [showDocumentShortcuts, setShowDocumentShortcuts] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -171,7 +175,7 @@ export default function CourseLearningPage() {
     return () => unsubscribe();
   }, [user, courseId]);
 
-  // Recent quizzes — the quizSets collection does not exist yet, so this stays empty
+  // Recent quizzes — every set for this course, regardless of pinned status
   useEffect(() => {
     if (!user) {
       setQuizSets([]);
@@ -232,6 +236,22 @@ export default function CourseLearningPage() {
       url: selectedResource.url,
     });
     setSelectedResource(null);
+  };
+
+  const handlePickSource = (id: string) => {
+    const resource = resources.find((item) => item.id === id);
+    if (!resource || !sourcePickerKind) return;
+    if (sourcePickerKind === 'quiz') {
+      quizFromResource.begin({
+        sourceDocKey: extractStorageKey(resource.url),
+        resourceId: resource.id,
+        name: resource.name,
+        url: resource.url,
+      });
+    } else {
+      router.push(`/courses/${courseId}/flashcards?docId=${resource.id}&docName=${encodeURIComponent(resource.name)}`);
+    }
+    setSourcePickerKind(null);
   };
 
   // Toggles a quiz or flashcard set between Public and Private after
@@ -312,80 +332,68 @@ export default function CourseLearningPage() {
 
   if (authLoading || loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-[#FAFAF8]">
-        <Loader2 size={32} className="animate-spin text-[#8B6914]" />
+      <div className="flex items-center justify-center min-h-screen bg-bg-main">
+        <Loader2 size={32} className="animate-spin text-primary" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#FAFAF8]">
+    <div className="min-h-screen bg-bg-main">
       <PageTutorial id="course-learning" steps={courseLearningSteps} />
       {/* Header */}
-      <div className="flex h-[60px] items-center justify-between border-b border-border-light px-14">
-        <div className="ml-4 flex translate-y-3 items-center gap-3">
+      <div className="flex min-h-[68px] items-center justify-between border-b border-border-light px-5 sm:px-8 lg:px-14">
+        <div className="flex items-center gap-3">
           <button
             onClick={() => router.back()}
-            className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors"
+            aria-label="Go back"
+            className="p-1.5 rounded-md hover:bg-bg-warm transition-colors"
           >
             <ArrowLeft size={20} className="text-text-main" />
           </button>
-          <h1 className="ml-1 text-xl font-bold text-[#1a1a2e]">
+          <h1 className="ml-1 text-xl font-bold text-text-main">
             {courseInfoLoading ? 'Loading...' : courseDisplayName}
           </h1>
         </div>
       </div>
 
-      <div className="px-14 py-6">
-        {/* Page header */}
-        <h2 className="text-left text-lg font-bold text-[#1a1a2e] mb-6" data-tutorial="course-learning-heading">
-          Choose A Lecture And Make Your Own Flashcard Or Quizzes
-        </h2>
+      <div className="mx-auto max-w-[1500px] px-5 py-8 sm:px-8 lg:px-14 lg:py-11">
+        <div className="mb-7 max-w-2xl" data-tutorial="course-learning-heading">
+          <p className="mb-2 flex items-center gap-2 text-sm font-medium text-text-muted"><Sparkles size={16} /> Your study space</p>
+          <h2 className="text-3xl font-bold tracking-tight text-text-main sm:text-4xl">What would you like to study?</h2>
+          <p className="mt-3 text-base text-text-muted">Turn your course material into a quick check or a set of cards.</p>
+        </div>
 
-        {/* Document grid */}
-        {resources.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-text-muted" data-tutorial="course-learning-grid">
-            <BookOpen size={48} className="mb-4" />
-            <p className="text-lg font-medium">No documents yet</p>
-            <p className="text-sm mt-1">Upload resources to your course to start learning</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5" data-tutorial="course-learning-grid">
-            {resources.map((resource, index) => (
-              <button
-                key={resource.id}
-                onClick={() => setSelectedResource(resource)}
-                className="text-left rounded-xl overflow-hidden border border-border-light
-                           hover:shadow-md transition-shadow bg-bg-container group"
-              >
-                {/* Document preview */}
-                {resource.name?.toLowerCase().endsWith('.pdf') ? (
-                  <PdfThumbnail url={resource.url} className="h-36" />
-                ) : (
-                  <div className="h-36 bg-[#E8E3DA] flex items-center justify-center">
-                    <FileEdit
-                      size={36}
-                      className="text-[#8B7B5E] opacity-50 group-hover:opacity-75 transition-opacity"
-                    />
-                  </div>
-                )}
+        <div className="grid gap-5 lg:grid-cols-2" data-tutorial="course-learning-grid">
+          <article className={`${styles.launchCard} ${styles.quizCard}`}>
+            <div className={styles.launchCopy}>
+              <span className={styles.cardIcon}><BookOpen size={20} /></span>
+              <h3>Ready for a <span className={styles.marked}>quick quiz?</span></h3>
+              <p>See what you remember. Choose a document and make a quiz that fits your study session.</p>
+              <button type="button" onClick={() => setSourcePickerKind('quiz')} className={styles.launchButton}>Make a quiz <ArrowRight size={19} /></button>
+            </div>
+            <Image src="/illustrations/study/quiz-reader.png" alt="Student reading a book with hand-drawn stars" width={420} height={420} className={styles.launchIllustration} priority />
+          </article>
+          <article className={`${styles.launchCard} ${styles.flashcardCard}`}>
+            <div className={styles.launchCopy}>
+              <span className={styles.cardIcon}><Layers3 size={20} /></span>
+              <h3>Make it stick with <span className={styles.marked}>flashcards.</span></h3>
+              <p>Break a topic into cards you can review whenever you have a few minutes.</p>
+              <button type="button" onClick={() => setSourcePickerKind('flashcard')} className={styles.launchButton}>Make flashcards <ArrowRight size={19} /></button>
+            </div>
+            <Image src="/illustrations/study/flashcard-student.png" alt="Student holding colorful flashcards" width={420} height={420} className={styles.launchIllustration} priority />
+          </article>
+        </div>
 
-                {/* Card info */}
-                <div className="bg-[#F0EBE1] px-4 py-3">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <FileEdit size={14} className="text-[#8B7B5E]" />
-                    <span className="text-[10px] font-semibold tracking-wider text-[#8B7B5E] uppercase">
-                      NOTE {index + 1}
-                    </span>
-                  </div>
-                  <h3 className="text-sm font-semibold text-[#1a1a2e] leading-snug truncate">
-                    {resource.name}
-                  </h3>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
+        <section className="mt-8 rounded-2xl border border-border-light bg-bg-container px-5 py-4 sm:px-6">
+          <button type="button" onClick={() => setShowDocumentShortcuts((value) => !value)} aria-expanded={showDocumentShortcuts} className="flex w-full items-center justify-between gap-4 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary">
+            <span><span className="block font-semibold text-text-main">Already have a document in mind?</span><span className="mt-0.5 block text-sm text-text-muted">Pick it first, then choose quiz or flashcards.</span></span>
+            <span className="shrink-0 text-sm font-semibold text-text-main">{showDocumentShortcuts ? 'Hide' : 'Browse documents'}</span>
+          </button>
+          {showDocumentShortcuts && <div className="mt-5 grid gap-2 border-t border-border-light pt-5 sm:grid-cols-2 lg:grid-cols-3">
+            {resources.length === 0 ? <p className="text-sm text-text-muted">No documents in this course yet.</p> : resources.map((resource) => <button key={resource.id} type="button" onClick={() => setSelectedResource(resource)} className="flex min-w-0 items-center gap-3 rounded-xl border border-border-light bg-bg-main p-3 text-left text-sm font-medium text-text-main hover:bg-bg-warm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"><BookOpen size={18} className="shrink-0 text-text-muted" /><span className="truncate">{resource.name}</span></button>)}
+          </div>}
+        </section>
 
         {/* Recent Flashcard */}
         <div className="mt-12" data-tutorial="course-learning-recent">
@@ -464,6 +472,14 @@ export default function CourseLearningPage() {
         onClose={() => setSelectedResource(null)}
         onSelectFlashcard={handleSelectFlashcard}
         onSelectQuiz={handleSelectQuiz}
+      />
+
+      <StudySourcePicker
+        open={sourcePickerKind !== null}
+        kind={sourcePickerKind ?? 'quiz'}
+        resources={resources}
+        onClose={() => setSourcePickerKind(null)}
+        onSelect={handlePickSource}
       />
 
       <QuizSetupModal
