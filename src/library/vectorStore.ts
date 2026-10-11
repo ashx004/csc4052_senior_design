@@ -128,6 +128,15 @@ function headers(): HeadersInit {
 
 export async function upsertChunks(points: ChunkPoint[]): Promise<void> {
   if (points.length === 0) return;
+  // A document worker can have started before the account guard was written.
+  // Check immediately before the external write so it cannot resurrect a
+  // vector after account deletion has already verified Qdrant is empty.
+  // Keep Firebase Admin out of this module's import path: list/search/delete
+  // are also used by temporary non-Firebase data export mode.
+  const { isAccountDeletionInProgress } = await import("./accountDeletionGuard");
+  if (await isAccountDeletionInProgress(points[0].payload.userId)) {
+    throw new Error("This account is being deleted.");
+  }
 
   const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS, "Qdrant upsert");
   try {
@@ -208,5 +217,35 @@ export async function deleteChunksForResource(userId: string, resourceId: string
     }
   } finally {
     cancel();
+  }
+}
+
+/** Removes every derived search vector for a user. This is intentionally
+ * separate from resource deletion: an account purge must also remove orphaned
+ * points whose source Firestore resource no longer exists. */
+export async function deleteChunksForUser(userId: string): Promise<void> {
+  const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS, "Qdrant account delete");
+  try {
+    const response = await fetch(`${await baseUrl()}/collections/${COLLECTION}/points/delete?wait=true`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({
+        filter: { must: [{ key: "userId", match: { value: userId } }] },
+      }),
+      signal,
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Qdrant account delete failed (${response.status}): ${text}`);
+    }
+  } finally {
+    cancel();
+  }
+
+  // `wait=true` makes this normally immediate; the read-back makes a silent
+  // asynchronous/partial delete a hard failure rather than claiming success.
+  if ((await listChunksForUser(userId)).length > 0) {
+    throw new Error("Qdrant account delete did not remove all indexed context.");
   }
 }
