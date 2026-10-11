@@ -4,6 +4,7 @@ import { resolveOllamaBaseUrl } from '@/src/library/ollamaClient';
 import { verifyRequestAuth } from '@/src/library/verifyAuth';
 import { checkRateLimit } from '@/src/library/rateLimit';
 import { generateQuizWithValidation, type QuestionTypes } from '@/src/library/quizGeneration';
+import { parseQuizDifficulty } from '@/src/library/quizDifficulty';
 import { getDocumentText } from '@/src/library/documentTextCache';
 
 // Same GPU/LLM-cost-bearing rationale as api/chat and api/embed-document's
@@ -51,11 +52,14 @@ export async function POST(request: NextRequest) {
       questionTypes,
       modelKey,
       avoidQuestions,
+      difficulty,
     } = await request.json();
     // "New questions" on a quiz sends the old ones so they aren't repeated.
     const avoid = Array.isArray(avoidQuestions)
       ? avoidQuestions.filter((q: unknown): q is string => typeof q === 'string' && q.trim().length > 0).slice(0, 60).map((q: string) => q.slice(0, 500))
       : [];
+    // Unknown or missing level → Exam-style (older callers send none).
+    const level = parseQuizDifficulty(difficulty);
 
     if (typeof docUrl !== 'string' || !docUrl) {
       return NextResponse.json(
@@ -147,7 +151,7 @@ export async function POST(request: NextRequest) {
 
     let result;
     try {
-      result = await generateQuizWithValidation(extractedText, questionCount, types, baseUrl, modelKey, avoid);
+      result = await generateQuizWithValidation(extractedText, questionCount, types, baseUrl, modelKey, avoid, level);
     } catch (error) {
       console.error('Quiz generation failed:', error);
       return NextResponse.json(
@@ -159,6 +163,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       topicName: result.topicName,
       questions: result.questions,
+      difficulty: level,
     });
   } catch (error) {
     console.error('Quiz generation error:', error);

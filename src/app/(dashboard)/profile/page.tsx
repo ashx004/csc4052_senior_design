@@ -40,7 +40,6 @@ function faviconUrl(domain: string): string {
 interface UserProfile {
   email: string;
   name: string;
-  role: string;
   studentId: string;
   major: string;
   expectedGraduation: string;
@@ -136,7 +135,6 @@ export default function Profile() {
   const [profile, setProfile] = useState<UserProfile>({
     email: "",
     name: "",
-    role: "",
     studentId: "",
     major: "",
     expectedGraduation: "",
@@ -227,7 +225,6 @@ export default function Profile() {
         setProfile({
           email: data.email ?? user.email ?? "",
           name: data.name ?? "",
-          role: data.role ?? "",
           studentId: data.studentId ?? "",
           major: data.major ?? "",
           expectedGraduation: data.expectedGraduation ?? "",
@@ -611,11 +608,6 @@ export default function Profile() {
               <div>
                 <p className="text-xs font-medium text-text-muted">Email</p>
                 <p className="mt-1 text-sm">{profile.email || "N/A"}</p>
-              </div>
-
-              <div>
-                <p className="text-xs font-medium text-text-muted">Role</p>
-                <p className="mt-1 text-sm">{profile.role || "N/A"}</p>
               </div>
 
               {/* Editable fields */}
