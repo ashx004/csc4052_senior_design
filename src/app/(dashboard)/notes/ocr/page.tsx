@@ -6,7 +6,6 @@ export const dynamic = "force-dynamic";
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import {
-  Notebook,
   Upload,
   UploadCloud,
   FileText,
@@ -777,15 +776,10 @@ function NotesContent() {
     }
   }
 
-  if (authLoading || classesLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-bg-main">
-        <Loader2 size={32} className="animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  if (!user) return null;
+  // The page frame (title and tabs) draws straight away, in the same place as
+  // on the Notes tab; only the body below waits for the student and their classes.
+  if (!authLoading && !user) return null;
+  const ready = !authLoading && !classesLoading && !!user;
 
   const classById = (id: string) => classes.find((c) => c.id === id);
   const visibleNotes =
@@ -796,32 +790,29 @@ function NotesContent() {
     : null;
 
   return (
-    <section className="min-h-screen bg-bg-main px-8 py-8 text-text-main">
+    <section className="text-text-main">
       <PageTutorial id="notes" steps={notesSteps} />
-      <div className="mx-auto max-w-7xl">
-        {/* ── Page header ── */}
-        <header className="mb-7 flex items-start justify-between gap-6" data-tutorial="notes-heading">
-          <div>
-            <div className="mb-2 mt-9 flex items-center gap-2 text-xs text-text-muted">
-              <Notebook size={15} strokeWidth={1.8} />
-              <span>Dashboard</span>
-              <span>/</span>
-              <span className="font-medium text-text-main">Notes</span>
-            </div>
+      {/* Same frame as NotesLibrary (width, padding, title, tab bar) so switching
+          between the Notes and OCR tabs doesn't move anything. */}
+      <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 md:py-8">
+        {/* md:pl-12 clears the site's fixed menu button (Sidebar.tsx) when the sidebar is collapsed. */}
+        <header className="mb-6 md:pl-12" data-tutorial="notes-heading">
+          <div className="flex items-center justify-between gap-4">
             <h1 className="text-3xl font-semibold tracking-tight text-text-main">Notes</h1>
-            <p className="mt-1.5 max-w-xl text-sm text-text-muted">
-              Upload documents to have them scanned in, and come back here to review everything
-              you&apos;ve already scanned. Each upload is tied to a class, so it also shows up in
-              that class&apos;s resources.
-            </p>
           </div>
+          <nav className="mt-4 flex gap-1 border-b border-border-light" aria-label="Notes sections">
+            <Link href={requestedCourseId ? `/courses/${requestedCourseId}/notes` : "/notes"} className="border-b-2 border-transparent px-3 py-2 text-sm text-text-muted hover:text-text-main">Notes</Link>
+            <Link href={requestedCourseId ? `/notes/ocr?courseId=${requestedCourseId}` : "/notes/ocr"} className="border-b-2 border-primary px-3 py-2 text-sm font-medium text-primary" aria-current="page">OCR</Link>
+          </nav>
+          <p className="mt-1.5 max-w-xl text-sm text-text-muted">
+            Upload documents to have them scanned in, and come back here to review everything
+            you&apos;ve already scanned. Each upload is tied to a class, so it also shows up in
+            that class&apos;s resources.
+          </p>
         </header>
 
-        <nav className="mb-6 flex gap-1 border-b border-border-light" aria-label="Notes sections">
-          <Link href={requestedCourseId ? `/courses/${requestedCourseId}/notes` : "/notes"} className="border-b-2 border-transparent px-3 py-2 text-sm text-text-muted hover:text-text-main">Notes</Link>
-          <Link href={requestedCourseId ? `/notes/ocr?courseId=${requestedCourseId}` : "/notes/ocr"} className="border-b-2 border-primary px-3 py-2 text-sm font-medium text-primary">OCR</Link>
-        </nav>
-
+        {user && ready ? (
+        <>
         {/* ── Upload area ── */}
         {classes.length === 0 ? (
           <div className="rounded-3xl border border-border-light bg-bg-container p-10 text-center shadow-sm">
@@ -1155,9 +1146,15 @@ function NotesContent() {
             </ul>
           )}
         </div>
+        </>
+        ) : (
+          <div className="flex justify-center py-16" role="status" aria-label="Loading">
+            <Loader2 size={28} className="animate-spin text-primary" />
+          </div>
+        )}
       </div>
 
-      {syncedPreviewDoc && (
+      {user && syncedPreviewDoc && (
         <DocumentPreviewModal
           doc={syncedPreviewDoc}
           userId={user.uid}
@@ -1208,7 +1205,7 @@ function NotesContent() {
 
 export default function Notes() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-bg-main" />}>
+    <Suspense fallback={null}>
       <NotesContent />
     </Suspense>
   );
