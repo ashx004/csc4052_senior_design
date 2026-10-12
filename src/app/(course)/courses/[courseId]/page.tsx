@@ -102,7 +102,7 @@ export default function CourseOverview({
     const [editValues, setEditValues] = useState<Record<string, string>>({});
     const [savingEdit, setSavingEdit] = useState(false);
     const [editError, setEditError] = useState<string | null>(null);
-    const [syllabusOpen, setSyllabusOpen] = useState(false);
+    const [syllabusOpen, setSyllabusOpen] = useState<false | 'import' | 'edit'>(false);
 
     // "Ask Catalyst" floating panel — same pattern as the flashcards/quiz
     // pages, briefed with a plain-text summary of this course page (see
@@ -286,14 +286,26 @@ export default function CourseOverview({
                             onClick={() => openEdit("course")}
                         />
                     </div>
-                    <button
-                        type="button"
-                        onClick={() => setSyllabusOpen(true)}
-                        className="mt-4 inline-flex items-center gap-2 rounded-lg border border-border-light bg-bg-container px-3.5 py-2 text-sm font-medium text-text-main shadow-sm transition hover:bg-bg-warm"
-                    >
-                        <FileText size={15} className="text-primary" />
-                        {enrollment.syllabus ? "Update course info from syllabus" : "Course info from syllabus"}
-                    </button>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setSyllabusOpen('import')}
+                            className="inline-flex items-center gap-2 rounded-lg border border-border-light bg-bg-container px-3.5 py-2 text-sm font-medium text-text-main shadow-sm transition hover:bg-bg-warm"
+                        >
+                            <FileText size={15} className="text-primary" />
+                            {enrollment.syllabus ? "Update course info from syllabus" : "Course info from syllabus"}
+                        </button>
+                        {enrollment.syllabus && (
+                            <button
+                                type="button"
+                                onClick={() => setSyllabusOpen('edit')}
+                                className="inline-flex items-center gap-2 rounded-lg border border-border-light bg-bg-container px-3.5 py-2 text-sm font-medium text-text-main shadow-sm transition hover:bg-bg-warm"
+                            >
+                                <Pencil size={15} className="text-primary" />
+                                Edit syllabus details
+                            </button>
+                        )}
+                    </div>
                 </div>
 
                 {/* Course Summary — AI-generated from uploaded documents, see
@@ -457,6 +469,7 @@ export default function CourseOverview({
                     uid={user.uid}
                     courseId={courseId}
                     current={enrollment}
+                    mode={syllabusOpen}
                     onClose={() => setSyllabusOpen(false)}
                     onApplied={(fields) => {
                         setEnrollment((prev) => (prev ? ({ ...prev, ...fields } as EnrollmentFields) : prev));
