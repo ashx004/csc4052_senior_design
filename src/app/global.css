@@ -320,6 +320,18 @@ a:hover {
 .note-sheet .ProseMirror .note-math-editor { position: absolute; left: 0; top: 100%; z-index: 30; display: flex; flex-direction: column; gap: 4px; min-width: 260px; padding: 8px; text-align: left; background: var(--color-bg-container); border: 1px solid var(--color-border-light); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18); }
 .note-sheet .ProseMirror .note-math-editor textarea { width: 100%; font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--color-text-main); background: var(--color-bg-main); border: 1px solid var(--color-border-light); border-radius: 6px; padding: 6px 8px; resize: vertical; }
 .note-sheet .ProseMirror .note-math-editor small { color: var(--color-text-muted); font-size: 11px; line-height: 14px; }
+.note-sheet .ProseMirror .note-math-editor { width: 340px; max-width: 80vw; }
+.note-sheet .ProseMirror .note-math-tabs { display: flex; flex-wrap: wrap; gap: 2px; }
+.note-sheet .ProseMirror .note-math-tabs button { padding: 2px 8px; font-size: 12px; line-height: 18px; color: var(--color-text-muted); background: transparent; border-radius: 6px; }
+.note-sheet .ProseMirror .note-math-tabs button:hover { background: var(--color-bg-warm); }
+.note-sheet .ProseMirror .note-math-tabs button[aria-selected="true"] { color: var(--color-text-inverse); background: var(--color-primary); }
+.note-sheet .ProseMirror .note-math-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(34px, 1fr)); gap: 3px; max-height: 150px; overflow-y: auto; padding: 2px; }
+.note-sheet .ProseMirror .note-math-grid button { display: flex; align-items: center; justify-content: center; min-height: 32px; padding: 2px; font-size: 13px; line-height: 1; overflow: hidden; color: var(--color-text-main); background: var(--color-bg-main); border: 1px solid var(--color-border-light); border-radius: 6px; cursor: pointer; }
+.note-sheet .ProseMirror .note-math-grid button:hover { background: var(--color-bg-warm); border-color: var(--color-border-hover); }
+.note-sheet .ProseMirror .note-math-palette { display: flex; flex-direction: column; gap: 4px; }
+.note-sheet .ProseMirror .note-math-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.note-sheet .ProseMirror .note-math-foot button { flex-shrink: 0; padding: 3px 12px; font-size: 12px; font-weight: 600; color: var(--color-text-inverse); background: var(--color-primary); border-radius: 6px; cursor: pointer; }
+.note-sheet .ProseMirror .note-math-foot button:hover { background: var(--color-primary-hover); }
 .note-sheet .ProseMirror .note-image { margin: 0 0 12px; display: block; }
 .note-sheet .ProseMirror .note-image-frame { position: relative; max-width: 100%; }
 .note-sheet .ProseMirror .note-image img { display: block; width: 100%; height: auto; border-radius: 6px; }
@@ -355,3 +367,4 @@ a:hover {
 .office-file-view .docx-render ol { list-style: revert; margin: revert; padding-left: 1.5rem; }
 .office-file-view .sheet-render td { white-space: nowrap; font-size: 0.8rem; }
 .office-file-view .sheet-render tr:first-child td { background: #e8d2af; font-weight: 600; }
+.note-sheet .ProseMirror .note-math-grid .katex { font-size: 1em; }

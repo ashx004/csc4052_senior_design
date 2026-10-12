@@ -398,7 +398,7 @@ export default function NotesToolbar({
                     [
                       ["Strikethrough", "Strikethrough", format.strike, <Strikethrough key="i" size={16} />, () => act("strike")],
                       ["Inline code", "Inline code", format.code, <Code key="i" size={16} />, () => act("code")],
-                      ["Equation", "Equation (type $...$)", false, <Sigma key="i" size={16} />, () => act("math")],
+                      ["Equation", "Equation builder (or type $...$)", false, <Sigma key="i" size={16} />, () => act("math")],
                       ["Picture", "Insert picture", false, <ImagePlus key="i" size={16} />, () => act("image")],
                       ["Quote", "Quote", format.quote, <Quote key="i" size={16} />, () => act("quote")],
                       ["Divider line", "Divider line", false, <SeparatorHorizontal key="i" size={16} />, () => act("divider")],
