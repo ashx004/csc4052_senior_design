@@ -1,6 +1,7 @@
 /** Story 2 quiz-quality comparison. Run from the repository root:
  *   node --env-file=.env --import tsx scripts/quizQualityEval.ts generate [--models=a,b]
  *   node --env-file=.env --import tsx scripts/quizQualityEval.ts summarize <run-dir>/scoring.csv
+ *   node --env-file=.env --import tsx scripts/quizQualityEval.ts coverage <a.txt> <b.txt> [more.txt] [--count=10]
  *
  * generate: every document × every level × every model, 5 multiple-choice
  * questions per quiz, new prompt only. Documents: scripts/fixtures/queue-lab.txt
@@ -16,6 +17,9 @@ import path from "node:path";
 import { resolveOllamaBaseUrl } from "../src/library/ollamaClient";
 import { generateQuizWithValidation } from "../src/library/quizGeneration";
 import { QUIZ_DIFFICULTIES, buildBloomPlan } from "../src/library/quizDifficulty";
+import { generateAcrossSources } from "../src/library/generation/orchestrator";
+import { quoteIsGrounded, verifyGrounding } from "../src/library/generation/verify";
+import { PER_SOURCE_CHAR_BUDGET } from "../src/library/sources/resolveSources";
 import { SCORE_COLUMNS, copiedRatio, parseCsv, summarizeScores, toCsv } from "../src/library/quizEval";
 
 const QUESTIONS_PER_QUIZ = 5;
@@ -134,11 +138,79 @@ function summarize(csvPath: string | undefined) {
   console.log(`\nWrote ${out}`);
 }
 
+/**
+ * Multi-source coverage: one quiz from several fixtures through the same
+ * generateAcrossSources call the route makes. Prints requested vs produced
+ * per source and the share of questions whose sourceQuote is really in that
+ * source's text. Exits non-zero if any source produced no questions.
+ */
+async function coverage(args: string[]) {
+  const files = args.filter((a) => !a.startsWith("--"));
+  if (files.length < 2) throw new Error("Usage: coverage <fixture.txt> <fixture.txt> [more.txt] [--count=10]");
+  const countArg = args.find((a) => a.startsWith("--count="));
+  const count = countArg ? Number(countArg.slice("--count=".length)) : 10;
+  if (!Number.isInteger(count) || count < 1) throw new Error(`Bad --count: ${countArg}`);
+
+  const sources = files.map((file) => ({
+    title: path.basename(file),
+    resourceId: null,
+    sourceKey: null,
+    text: readFileSync(file, "utf8").trim().slice(0, PER_SOURCE_CHAR_BUDGET),
+    pages: [],
+    viaRetrieval: false,
+  }));
+  const baseUrl = await resolveOllamaBaseUrl(process.env.OLLAMA_PRIMARY_URL || "", process.env.OLLAMA_PRIMARY_FALLBACK_URL);
+
+  // Counted inside the generate callback, keyed by the source being generated,
+  // so nothing depends on the order or shuffling of the final item list.
+  // Backfill makes several calls per source; the counts add up.
+  const stats = new Map<unknown, { raw: number; rejected: number; leaks: number }>();
+
+  const started = Date.now();
+  const result = await generateAcrossSources({
+    sources,
+    count,
+    // Keep in sync with api/generate-quiz/route.ts. Mirrored: shuffle:false (source order kept). NOT mirrored: the
+    // route passes the caller's difficulty (parseQuizDifficulty, default only when absent), modelKey and avoid
+    // questions; this eval passes undefined / none.
+    shuffle: false,
+    generate: async (source, quota, alreadyAsked) => {
+      const quiz = await generateQuizWithValidation(source.text, quota, { multipleChoice: true }, baseUrl, undefined, alreadyAsked, undefined);
+      const { kept } = verifyGrounding(quiz.questions, source.text);
+      // A quote that also appears in ANOTHER source (overlapping fixtures)
+      // could be credited to the wrong document.
+      const leaks = kept.filter((q) => sources.some((other) => other !== source && quoteIsGrounded(q.sourceQuote ?? "", other.text))).length;
+      const entry = stats.get(source) ?? { raw: 0, rejected: 0, leaks: 0 };
+      entry.raw += quiz.questions.length;
+      entry.rejected += quiz.questions.length - kept.length;
+      entry.leaks += leaks;
+      stats.set(source, entry);
+      return { topicName: quiz.topicName, items: quiz.questions };
+    },
+  });
+  const seconds = (Date.now() - started) / 1000;
+
+  const lines = [`Multi-source coverage: ${sources.length} sources, ${count} questions requested, ${result.items.length} produced, ${seconds.toFixed(1)}s`, ""];
+  const empty: string[] = [];
+  result.audit.forEach((entry, i) => {
+    const s = stats.get(sources[i]) ?? { raw: 0, rejected: 0, leaks: 0 };
+    lines.push(`${entry.title}: requested ${entry.requested}, produced ${entry.produced} | valid after schema+dedupe ${s.raw}, grounding rejected ${s.rejected} | quote also found in another source ${s.leaks}`);
+    if (entry.produced === 0) empty.push(entry.title);
+  });
+  console.log(lines.join("\n"));
+
+  if (empty.length > 0) {
+    console.error(`\nFAIL: no questions produced for: ${empty.join(", ")}`);
+    process.exit(1);
+  }
+}
+
 async function main() {
   const command = process.argv[2];
   if (command === "generate") await generate();
+  else if (command === "coverage") await coverage(process.argv.slice(3));
   else if (command === "summarize") summarize(process.argv[3]);
-  else console.log('Usage: scripts/quizQualityEval.ts generate [--models=a,b] | summarize <scoring.csv>');
+  else console.log('Usage: scripts/quizQualityEval.ts generate [--models=a,b] | summarize <scoring.csv> | coverage <a.txt> <b.txt> [--count=N]');
 }
 
 main().catch((error) => {
