@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyRequestAuth, isInternalRequest } from "@/src/library/verifyAuth";
 import { extractPdfTextFromUrl, resolveInternalUrl, } from "@/src/library/pdfExtract";
 import { EXTRACTION_JOBS, enqueueAdvisingJob, readAdvisingJob } from "@/src/library/advisingJobs";
+import { JOB_STATUS } from "@/src/library/jobStatus";
 import { extractTranscriptWithOllama, extractCurriculumWithOllama, } from "@/src/library/advisingOllama";
 import { FieldValue, } from "firebase-admin/firestore";
 import { adminDb, } from "@/src/library/firebaseAdmin";
@@ -47,7 +48,7 @@ async function enqueueExtraction(request: NextRequest) {
     unreadableTransferInfo: null,
   });
 
-  return NextResponse.json({ queued: true, status: "queued" }, { status: 202 });
+  return NextResponse.json({ queued: true, status: JOB_STATUS.pending }, { status: 202 });
 }
 
 // Browser-facing: polled by the frontend until the job completes or fails,
