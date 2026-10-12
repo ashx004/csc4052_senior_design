@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { addDoc, collection, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc } from 'firebase/firestore';
 import { ArrowRight, BookOpen, Layers3, Loader2, Sparkles } from 'lucide-react';
 import { getCourseResources } from '@/src/components/resourceManagement/fileUploadService';
 import LectureChoiceModal from '@/src/components/learning/LectureChoiceModal';
@@ -15,6 +15,11 @@ import { useCourseInfo } from '@/src/hooks/useCourseInfo';
 import { db } from '@/src/library/firebase';
 import { getEffectiveModelKey } from '@/src/library/chatMode';
 import { publishStudySet } from '@/src/library/discover/publishStudySet';
+import { buildSourcesPayload, completeSourceKeys } from '@/src/library/studySets/buildSourcesPayload';
+import { liveDeps } from '@/src/library/studySets/persistDepsLive';
+import { persistStudySet } from '@/src/library/studySets/persistStudySet';
+import { auditSummary } from '@/src/library/studySets/auditSummary';
+import type { SourceAudit } from '@/src/library/generation/orchestrator';
 import { subscribeNotes } from '@/src/library/notes/notesStore';
 import { DEFAULT_QUIZ_DIFFICULTY } from '@/src/library/quizDifficulty';
 import { eligibleSourceIds, validSourceSelection, normalizeSourceOptions, sourceStatusLabel } from '@/src/library/studySets/sourceOptions';
@@ -53,17 +58,13 @@ const DEFAULT_CONFIG = (kind: StudyKind): StudyConfig => ({
   difficulty: DEFAULT_QUIZ_DIFFICULTY,
 });
 
-function storageKey(url: string): string {
-  return decodeURIComponent(url.split('key=')[1] ?? '');
-}
-
 export default function StudyLaunch({ courseId, variant, initialKind, preselectedIds = NO_PRESELECTION, children }: StudyLaunchProps) {
   const router = useRouter();
   const { user } = useAuth();
   const { courseCode } = useCourseInfo(courseId);
   const quizFromResource = useGenerateQuizFromResource(courseId);
   const [resources, setResources] = useState<CourseResource[]>([]);
-  const [notes, setNotes] = useState<Array<{ id: string; title: string; kind: string; courseId: string | null; resourceId?: string; hidden?: boolean }>>([]);
+  const [notes, setNotes] = useState<Array<{ id: string; title: string; kind: string; courseId: string | null; resourceId?: string; url?: string; fileType?: string; plainText?: string; hidden?: boolean }>>([]);
   const [kind, setKind] = useState<StudyKind>(initialKind ?? 'quiz');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [query, setQuery] = useState('');
@@ -72,6 +73,9 @@ export default function StudyLaunch({ courseId, variant, initialKind, preselecte
   const [config, setConfig] = useState<StudyConfig>(DEFAULT_CONFIG(initialKind ?? 'quiz'));
   const [flashcardError, setFlashcardError] = useState<string | null>(null);
   const [creatingCards, setCreatingCards] = useState(false);
+  const [lastAudit, setLastAudit] = useState<SourceAudit[]>([]);
+  const [lastSkipped, setLastSkipped] = useState<Array<{ title: string; reason: string }>>([]);
+  const [pendingRoute, setPendingRoute] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -89,6 +93,9 @@ export default function StudyLaunch({ courseId, variant, initialKind, preselecte
           kind: note.kind,
           courseId: note.courseId,
           resourceId: note.resourceId,
+          url: note.url,
+          fileType: note.fileType,
+          plainText: note.plainText,
         })));
       }
     });
@@ -110,11 +117,8 @@ export default function StudyLaunch({ courseId, variant, initialKind, preselecte
 
   const selected = options.filter((option) => selectedIds.includes(option.id));
   const validation = validateStudyConfig(kind, selectedIds.length, config);
-  const noteOnly = selected.length > 0 && selected.every((option) => option.kind === 'note');
   const sourcesValid = validSourceSelection(selectedIds, options);
-  const blockedMessage = !sourcesValid ? 'Choose available course sources to continue.' : noteOnly
-    ? 'Choose a course document. Notes can be included once multi-source generation is connected.'
-    : liveGeneratorBlock(kind, selectedIds.length, config);
+  const blockedMessage = !sourcesValid ? 'Choose available course sources to continue.' : liveGeneratorBlock(kind, selectedIds.length, config);
   const loading = quizFromResource.loading || creatingCards;
   const canCreate = canCreateStudySet(selectedIds, validation, loading, MULTI_SOURCE_GENERATION_READY) && sourcesValid && !blockedMessage;
 
@@ -123,51 +127,60 @@ export default function StudyLaunch({ courseId, variant, initialKind, preselecte
     setConfig(DEFAULT_CONFIG(next));
     setQuery('');
     setFlashcardError(null);
+    setLastAudit([]);
+    setLastSkipped([]);
+    setPendingRoute(null);
     setStep('sources');
   };
 
-  const createFlashcards = async (resource: CourseResource) => {
+  const createFlashcards = async () => {
     if (!user) return;
     setCreatingCards(true);
     setFlashcardError(null);
     try {
+      const sources = buildSourcesPayload(selected, resources, notes);
+      if (sources.length === 0) {
+        setFlashcardError('Choose at least one course document or note.');
+        return;
+      }
       const response = await fetch('/api/generate-flashcards', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          docUrl: resource.url,
-          docName: resource.name,
-          modelKey: getEffectiveModelKey('flashcards'),
-        }),
+        body: JSON.stringify({ sources, courseId, count: config.count, modelKey: getEffectiveModelKey('flashcards') }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to generate flashcards.');
       const cards = Array.isArray(data.questions) ? data.questions : [];
-      const saved = await addDoc(collection(db, 'users', user.uid, 'enrollment', courseId, 'flashcardSets'), {
-        name: data.topicName || resource.name,
-        sourceDocKey: storageKey(resource.url),
-        cards,
-        pinned: true,
-        visibility: config.visibility,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+      const sourceKeys = completeSourceKeys(Array.isArray(data.sourceKeys) ? data.sourceKeys : [], selected, notes);
+      const name: string = data.topicName || selected[0]?.title || 'Flashcards';
+      const { setId } = await persistStudySet(liveDeps(db, user.uid, courseId), {
+        kind: 'flashcards', sourceKeys, name, items: cards, visibility: config.visibility,
       });
       if (config.visibility === 'public' && courseCode) {
         try {
           const publicSetId = await publishStudySet({
             type: 'flashcard',
-            setData: { name: data.topicName || resource.name, cards },
+            setData: { name, cards },
             courseCode,
             ownerUid: user.uid,
-            originalPath: `users/${user.uid}/enrollment/${courseId}/flashcardSets/${saved.id}`,
+            originalPath: `users/${user.uid}/enrollment/${courseId}/flashcardSets/${setId}`,
           });
-          await updateDoc(doc(db, 'users', user.uid, 'enrollment', courseId, 'flashcardSets', saved.id), { publicSetId });
+          await updateDoc(doc(db, 'users', user.uid, 'enrollment', courseId, 'flashcardSets', setId), { publicSetId });
         } catch (publishError) {
           console.error('Error publishing flashcard set:', publishError);
         }
       }
-      setStep('closed');
-      router.push(`/courses/${courseId}/flashcards?setId=${saved.id}`);
+      const audit: SourceAudit[] = Array.isArray(data.audit) ? data.audit : [];
+      const skipped = Array.isArray(data.skipped) ? data.skipped : [];
+      const route = `/courses/${courseId}/flashcards/${setId}`;
+      if (auditSummary(audit, skipped).message) {
+        setLastAudit(audit);
+        setLastSkipped(skipped);
+        setPendingRoute(route);
+      } else {
+        setStep('closed');
+        router.push(route);
+      }
     } catch (error) {
       setFlashcardError(error instanceof Error ? error.message : 'Something went wrong. Please try again.');
     } finally {
@@ -177,35 +190,38 @@ export default function StudyLaunch({ courseId, variant, initialKind, preselecte
 
   const create = async () => {
     if (!canCreate || loading || !validSourceSelection(selectedIds, options)) return;
-    const option = selected[0];
-    const resource = resources.find((item) => item.id === option?.id);
-    if (!option || option.kind !== 'document' || !resource?.url) {
-      setFlashcardError('Choose one course document to create this set.');
-      return;
-    }
     if (kind === 'quiz') {
-      await quizFromResource.generate(
-        {
-          sourceDocKey: storageKey(resource.url),
-          resourceId: resource.id,
-          name: resource.name,
-          url: resource.url,
-        },
-        {
-          questionCount: config.count,
-          questionTypes: config.questionTypes ?? { multipleChoice: true, trueFalse: false, matching: false },
-          difficulty: config.difficulty ?? DEFAULT_QUIZ_DIFFICULTY,
-          visibility: config.visibility,
-        },
-      );
+      const sources = buildSourcesPayload(selected, resources, notes);
+      if (sources.length === 0) {
+        setFlashcardError('Choose at least one course document or note.');
+        return;
+      }
+      const result = await quizFromResource.generateFromSources(sources, selected, {
+        questionCount: config.count,
+        questionTypes: config.questionTypes ?? { multipleChoice: true, trueFalse: false, matching: false },
+        difficulty: config.difficulty ?? DEFAULT_QUIZ_DIFFICULTY,
+        visibility: config.visibility,
+      }, notes);
+      if (result) {
+        if (auditSummary(result.audit, result.skipped).message) {
+          setLastAudit(result.audit);
+          setLastSkipped(result.skipped);
+          setPendingRoute(result.route);
+        } else {
+          setStep('closed');
+          router.push(result.route);
+        }
+      }
       return;
     }
-    await createFlashcards(resource);
+    await createFlashcards();
   };
 
   const preselectedTitle = options.find((option) => option.id === preselectedIds[0])?.title
     ?? resources.find((resource) => resource.id === preselectedIds[0])?.name
     ?? 'this document';
+
+  const auditMessage = auditSummary(lastAudit, lastSkipped).message;
 
   return (
     <>
@@ -301,6 +317,12 @@ export default function StudyLaunch({ courseId, variant, initialKind, preselecte
               onChange={setConfig}
               onRaiseCount={() => setConfig((current) => ({ ...current, count: validation.minimum }))}
             />
+            {auditMessage && <p className={pickerStyles.sub} role="status">{auditMessage}</p>}
+            {pendingRoute && (
+              <button type="button" className={pickerStyles.pill} onClick={() => { setStep('closed'); router.push(pendingRoute); }}>
+                Continue to your set
+              </button>
+            )}
           </div>
           <div className={pickerStyles.foot}>
             <button type="button" className={pickerStyles.all} onClick={() => setStep('sources')}>Back</button>
