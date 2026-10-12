@@ -56,3 +56,12 @@ describe("primaryKeyOf", () => {
     expect(() => primaryKeyOf([])).toThrow("at least one source");
   });
 });
+
+describe('primaryKeyOf with synthetic keys', () => {
+  it('prefers a real storage key over note: and resource: keys', () => {
+    expect(primaryKeyOf(['note:n2', 'users/u/doc.pdf', 'resource:d1'])).toBe('users/u/doc.pdf');
+  });
+  it('still returns something when only synthetic keys exist', () => {
+    expect(primaryKeyOf(['note:b', 'note:a'])).toBe('note:a');
+  });
+});

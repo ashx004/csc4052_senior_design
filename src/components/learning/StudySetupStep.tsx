@@ -110,9 +110,6 @@ export default function StudySetupStep({
         onChange={(visibility) => onChange({ ...config, visibility })}
       />
       {'note' in preview ? <p className={styles.note}>{preview.note}</p> : <p className={styles.note}>{preview.message}</p>}
-      {kind === 'flashcards' && (
-        <p className={styles.note}>The current flashcard generator chooses the card count. This number is the target for when multi-source generation is connected.</p>
-      )}
       {blockedMessage && <p className={styles.error}>{blockedMessage}</p>}
       {error && <p className={styles.error} role="alert">{error}</p>}
     </div>

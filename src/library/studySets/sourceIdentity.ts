@@ -31,5 +31,9 @@ export function sameSourceSet(a: string[], b: string[]): boolean {
  */
 export function primaryKeyOf(keys: string[]): string {
   if (keys.length === 0) throw new Error("A study set needs at least one source.");
-  return [...keys].sort()[0];
+  // note: and resource: keys are synthetic (typed notes, documents with no
+  // storage key). sourceDocKey feeds per-document queries, so a real storage
+  // key wins whenever there is one.
+  const real = keys.filter((key) => !key.startsWith("note:") && !key.startsWith("resource:"));
+  return [...(real.length ? real : keys)].sort()[0];
 }
