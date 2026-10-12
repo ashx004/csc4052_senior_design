@@ -5,6 +5,7 @@ import AdvisingPermissionModal from "@/src/components/advising/AdvisingPermissio
 import AdvisingUploadModal from "@/src/components/advising/AdvisingUploadModal";
 import ExistingDocumentsModal from "@/src/components/advising/ExistingDocumentsModal";
 import TransferCreditForm from "@/src/components/advising/TransferCreditForm";
+import AdvisingDocumentsViewer from "@/src/components/advising/AdvisingDocumentsViewer";
 import { useAuth } from "@/src/context/AuthContext";
 import PageTutorial from "@/src/components/tutorial/PageTutorial";
 import advisingNewSteps from "@/src/library/tutorials/steps/advising_new";
@@ -235,7 +236,7 @@ export default function AdvisingPage() {
   if (documentsReady) {
   return (
     <main
-      className="min-h-screen bg-bg-main px-6 py-12 text-text-main" >
+      className="min-h-screen bg-bg-main px-6 pt-4 pb-12 text-text-main" >
       <PageTutorial id="advising_new" steps={advisingNewSteps} />
       <div className="mx-auto w-full max-w-4xl py-8">
 
@@ -324,6 +325,9 @@ export default function AdvisingPage() {
             </button>
           </section>
         )}
+
+        {/* Uploaded documents list + PDF preview */}
+        {user && <AdvisingDocumentsViewer user={user} />}
 
         {/* Previous Schedule Section */}
         <section 

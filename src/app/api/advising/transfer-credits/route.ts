@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/src/library/firebaseAdmin";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
-import { extractedCourseSchema } from "@/src/library/advisingSchemas";
+import { extractedCourseSchema, MANUAL_GRADE_OPTIONS } from "@/src/library/advisingSchemas";
 import { z } from "zod";
 
 // The student enters these manually, so every course here is by
@@ -14,6 +14,7 @@ const manualTransferCourseSchema = extractedCourseSchema
   .extend({
     courseCode: z.string().trim().min(1, "Course code is required."),
     creditHours: z.number().min(0).max(20).nullable(),
+    grade: z.enum(MANUAL_GRADE_OPTIONS).nullable(),
   });
 
 const requestBodySchema = z.object({

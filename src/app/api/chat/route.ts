@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveInternalUrl } from "@/src/library/pdfExtract";
-import { extractDocumentText, SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
+import { SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
 import { embedTexts, cosineSimilarity } from "@/src/library/ollamaEmbeddings";
 import { searchChunks } from "@/src/library/vectorStore";
 import { resolveOllamaBaseUrl, resolveModelFromKey, FAST_MODEL_KEEP_ALIVE, mainModelContextOption, secondaryContextOption } from "@/src/library/ollamaClient";
@@ -47,6 +47,11 @@ import { getIdToken, firestoreCreate, firestoreGet, firestoreUpdate, firestoreDe
 import { deriveChatTitle } from "@/src/library/chatTitle";
 import type { StoredChatMessage } from "@/src/library/chatMemory";
 import { THINK_CLOSE_TAG, stripThinkLeak } from "@/src/library/stripThinkLeak";
+import { stoppedReplyText, withoutStopMarkers } from "@/src/library/stoppedReplies";
+import { ChatStoppedError, enterChatStopScope, registerChatRun, releaseChatRun, untilStopped } from "@/src/library/chatRuns";
+import { createGuardedThoughtRelay } from "@/src/library/thoughtRelay";
+import { thoughtSummarizerFromEnv } from "@/src/library/thoughtSummary";
+import { toolDetail } from "@/src/library/toolActivity";
 
 const CHAT_RATE_LIMIT_WINDOW_MS = 60_000;
 const CHAT_RATE_LIMIT_MAX = 15; // per user per window — generous for real use, catches runaway/abusive callers
@@ -925,7 +930,7 @@ async function recallPastChatTool(
         // are still searchable, not just long compacted ones.
         const fallbackText = messages
           .slice(0, PAST_CHAT_FALLBACK_MESSAGE_COUNT)
-          .map((m: any) => m.text)
+          .map((m: { text?: string }) => m.text)
           .join(" ");
         const searchableText = (summary || fallbackText).trim();
 
@@ -1574,7 +1579,7 @@ async function callOllama(
 // from ~7.5s to ~2.5s. The copy is for this request only, never persisted.
 function withEffortHint(messages: unknown[], hint?: string): unknown[] {
   if (!hint) return messages;
-  const copy = [...messages] as any[];
+  const copy = [...messages] as { role?: string; content?: unknown }[];
   for (let i = copy.length - 1; i >= 0; i--) {
     if (copy[i]?.role === "user" && typeof copy[i].content === "string") {
       copy[i] = { ...copy[i], content: `${copy[i].content}\n\n${hint}` };
@@ -1584,16 +1589,35 @@ function withEffortHint(messages: unknown[], hint?: string): unknown[] {
   return copy;
 }
 
+/** One tool call as Ollama reports it. */
+type OllamaToolCall = { id?: string; function?: { name?: string; arguments?: unknown } };
+/** A message in the conversation sent to Ollama, or returned by it. */
+type OllamaChatMessage = { role: string; content?: string; thinking?: string; tool_calls?: OllamaToolCall[]; tool_call_id?: string };
+/** One line of Ollama's streamed reply. */
+type OllamaChunk = { message?: OllamaChatMessage; done?: boolean; eval_count?: number; eval_duration?: number };
+
 async function streamOllamaRound(
   messages: unknown[],
   tools: unknown[],
   temperature: number,
   target: OllamaTarget,
   thinking: ChatThinking,
-  onDelta: (text: string) => void
-): Promise<{ content: string; toolCalls: any[] | null; rawMessage: any }> {
+  onDelta: (text: string) => void,
+  live?: {
+    /** Aborted when the student presses Stop; cancels the request to the model. */
+    signal?: AbortSignal;
+    /** The model's reasoning (Ollama's message.thinking), as it is written. */
+    onThinking?: (text: string) => void;
+  }
+): Promise<{ content: string; toolCalls: OllamaToolCall[] | null; rawMessage: OllamaChatMessage }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
+  const stopListener = () => controller.abort();
+  if (live?.signal?.aborted) {
+    clearTimeout(timeout);
+    throw new ChatStoppedError();
+  }
+  live?.signal?.addEventListener("abort", stopListener, { once: true });
 
   try {
     const response = await fetch(`${target.baseUrl}/api/chat`, {
@@ -1629,8 +1653,8 @@ async function streamOllamaRound(
     const decoder = new TextDecoder();
     let buffer = "";
     let contentAccum = "";
-    let toolCalls: any[] | null = null;
-    let rawMessage: any = null;
+    let toolCalls: OllamaToolCall[] | null = null;
+    let rawMessage: OllamaChatMessage | null = null;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -1644,12 +1668,15 @@ async function streamOllamaRound(
         const trimmed = line.trim();
         if (!trimmed) continue;
 
-        let chunk: any;
+        let chunk: OllamaChunk;
         try {
           chunk = JSON.parse(trimmed);
         } catch {
           continue; // skip a malformed line rather than aborting the whole stream
         }
+
+        const thought = chunk?.message?.thinking;
+        if (typeof thought === "string" && thought.length > 0) live?.onThinking?.(thought);
 
         const delta = chunk?.message?.content;
         if (typeof delta === "string" && delta.length > 0) {
@@ -1673,8 +1700,13 @@ async function streamOllamaRound(
       toolCalls,
       rawMessage: rawMessage ?? { role: "assistant", content: contentAccum },
     };
+  } catch (error) {
+    // Pressing Stop aborts the fetch/read; that is not a failure.
+    if (live?.signal?.aborted) throw new ChatStoppedError();
+    throw error;
   } finally {
     clearTimeout(timeout);
+    live?.signal?.removeEventListener("abort", stopListener);
   }
 }
 
@@ -1878,6 +1910,23 @@ async function finishChatPersistence(
   }
 }
 
+// The student pressed Stop before any of the reply existed, so there is
+// nothing to keep: take this turn (their question and the empty reply) back out
+// of the saved chat, so that re-wording the question doesn't leave the old one
+// behind. A chat that held only this turn is deleted outright. Never throws.
+async function discardChatTurn(target: PersistTarget): Promise<void> {
+  try {
+    const messages = target.messages.slice(0, -2);
+    if (messages.length === 0 && target.isNewMainSession) {
+      await firestoreDelete(target.idToken, target.collectionPath, target.docId);
+      return;
+    }
+    await firestoreUpdate(target.idToken, target.collectionPath, target.docId, { messages, generating: false, updatedAt: new Date() });
+  } catch (error) {
+    console.error("Failed to discard a stopped chat turn:", error);
+  }
+}
+
 // Throttled mid-generation write of the placeholder's growing text, so
 // anyone watching this session live via subscribeToChatSession/
 // subscribeToPanelChatSession (e.g. reopened from the history panel mid-
@@ -1926,7 +1975,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid chat request", details: parsedBody.error.flatten() }, { status: 400 });
   }
   const {
-    messages,
+    messages: incomingMessages,
     context,
     summary: incomingSummary,
     summarizedCount: incomingSummarizedCount,
@@ -1934,9 +1983,9 @@ export async function POST(request: NextRequest) {
     pageContext,
     panelContextKey,
     modelKey,
-    extraTools,
     pendingActionIds,
     ephemeral,
+    runId,
   } = parsedBody.data as {
     messages?: ChatMessage[];
     context?: ChatContext;
@@ -1954,6 +2003,8 @@ export async function POST(request: NextRequest) {
     modelKey?: string;
     pendingActionIds?: string[];
     ephemeral?: boolean;
+    // Names this request so the Stop button can cancel it (see chatRuns.ts).
+    runId?: string;
     // Opt-in for tools that aren't always necessary (web/YouTube search) -
     // off by default. Fewer tools in the schema on every request means less
     // for the model to choose between (real tool-selection accuracy cost,
@@ -1962,9 +2013,11 @@ export async function POST(request: NextRequest) {
     extraTools?: boolean;
   };
 
-  if (!Array.isArray(messages) || messages.length === 0) {
+  if (!Array.isArray(incomingMessages) || incomingMessages.length === 0) {
     return NextResponse.json({ error: "messages is required" }, { status: 400 });
   }
+  // What the model reads of earlier turns: Stop markers rewritten (stoppedReplies.ts).
+  const messages = withoutStopMarkers(incomingMessages);
 
   // The client sends its own ChatContext (built client-side) rather than us
   // trusting a userId string alone — verify it actually matches who's
@@ -2052,8 +2105,12 @@ export async function POST(request: NextRequest) {
     keepAlive: FAST_MODEL_KEEP_ALIVE,
     numCtx: mainModelContextOption().num_ctx,
   };
+  // The Stop button's handle on this reply (chatRuns.ts).
+  const stopSignal = runId ? registerChatRun(auth.uid, runId).signal : undefined;
   const stream = new ReadableStream({
     async start(controller) {
+      // Lets Stop reach into slow tools too (chatRuns.ts).
+      enterChatStopScope(stopSignal);
       // Swallows enqueue failures (e.g. the client already disconnected) so
       // a dead connection doesn't abort generation partway through — the
       // model keeps producing tokens and finishChatPersistence below still
@@ -2065,7 +2122,6 @@ export async function POST(request: NextRequest) {
           // client gone — ignore, generation continues regardless
         }
       }
-
       let studentProfile: StudentProfile = { summary: "", messageCount: 0 };
       const documentsRead: string[] = [];
       const generatedFiles: { name: string; url: string }[] = [];
@@ -2130,6 +2186,11 @@ export async function POST(request: NextRequest) {
         send({ type: "delta", text: clean });
         recordDeltaForPersistence(clean);
       });
+      // The model's reasoning, forwarded live (and summarized by a small model
+      // when one is configured) so the student can see what it is working on.
+      // It goes through the output guard like the reply does: reasoning quotes
+      // IDs, tool names and tool results that must not reach the student.
+      const thoughtRelay = createGuardedThoughtRelay({ send, summarize: thoughtSummarizerFromEnv() }, outputGuard);
       // During a claimed-action correction round (see unbackedClaims below)
       // nothing streams live; the finished text is checked, then shown or not.
       let holdAllDeltas = false;
@@ -2138,6 +2199,8 @@ export async function POST(request: NextRequest) {
           if (!holdAllDeltas) guardedStream.push(delta);
         });
       let finalAnswerText: string | null = null;
+      // Stopped before any text was written: the turn is removed from the saved chat (discardChatTurn).
+      let discardStoppedTurn = false;
       // Persisted alongside the finished reply below; defaults to the raw
       // incoming values and is refreshed once compactionPromise resolves
       // (see the "done" sends below) so an error before that point still
@@ -2241,7 +2304,7 @@ export async function POST(request: NextRequest) {
             model: primaryTarget.model,
           }),
         );
-        const conversation: any[] = [
+        const conversation: OllamaChatMessage[] = [
           { role: "system", content: buildSystemPrompt(context, studentProfile.summary, false, clarifiedIntent, confidenceSnapshot) },
           ...(summary ? [{ role: "system", content: `Summary of earlier conversation:\n${summary}` }] : []),
           ...(validatedPageContext ? [{ role: "system", content: buildPageContextPrompt(validatedPageContext) }] : []),
@@ -2342,6 +2405,7 @@ export async function POST(request: NextRequest) {
         });
 
         for (let round = 0; round < MAX_TOOL_ROUNDS && !finished; round++) {
+          if (stopSignal?.aborted) throw new ChatStoppedError();
           const { handleDelta, flush, discard } = makeDeltaHandler();
           const { content, toolCalls, rawMessage } = await streamOllamaRound(
             conversation,
@@ -2349,8 +2413,10 @@ export async function POST(request: NextRequest) {
             CHAT_TEMPERATURE,
             primaryTarget,
             thinking,
-            handleDelta
+            handleDelta,
+            { signal: stopSignal, onThinking: (t) => thoughtRelay.push(t) }
           );
+          thoughtRelay.flush();
 
           if (toolCalls && toolCalls.length > 0) {
             // A tool-call round must never leave visible/persisted text
@@ -2374,7 +2440,8 @@ export async function POST(request: NextRequest) {
             conversation.push(rawMessage);
 
             for (const toolCall of toolCalls) {
-              const fnName = toolCall.function?.name;
+              if (stopSignal?.aborted) throw new ChatStoppedError();
+              const fnName = toolCall.function?.name ?? "";
               // Arguments are checked against the tool's own schema before it
               // runs (toolValidation.ts); a bad call becomes an error the
               // model can correct, and a tool that isn't loaded is refused.
@@ -2385,7 +2452,7 @@ export async function POST(request: NextRequest) {
               }
               // eslint-disable-next-line @typescript-eslint/no-explicit-any -- tool args are schema-validated above
               const args: any = validation.args;
-              send({ type: "tool", name: fnName });
+              send({ type: "tool", name: fnName, detail: toolDetail(fnName, args) });
               let result: string;
 
               // Exact repeat of an earlier call this same turn (identical
@@ -2444,7 +2511,7 @@ export async function POST(request: NextRequest) {
                   });
                 }
               } else if (fnName === "search_documents") {
-                result = await searchDocuments(request, context, args.query, args.courseId, documentsReadThisTurn);
+                result = await untilStopped(searchDocuments(request, context, args.query, args.courseId, documentsReadThisTurn));
               } else if (fnName === "web_search") {
                 // The scholarly filter limits results to arXiv/PubMed-style
                 // sites. Confirmed live: the model set it for "find the
@@ -2452,9 +2519,9 @@ export async function POST(request: NextRequest) {
                 // insisted Python 3.14 didn't exist. Only honour it when the
                 // student is actually asking about research.
                 const wantsResearch = SCHOLARLY_REQUEST.test(typeof latestMessage?.content === "string" ? latestMessage.content : "");
-                result = await webSearchTool(args.query, Boolean(args.scholarly) && wantsResearch);
+                result = await untilStopped(webSearchTool(args.query, Boolean(args.scholarly) && wantsResearch));
               } else if (fnName === "search_youtube") {
-                result = await youtubeSearchTool(args.query);
+                result = await untilStopped(youtubeSearchTool(args.query));
               } else if (fnName === "create_pdf") {
                 const pdfResult = await createPdfTool(request, context, args.title, args.markdown, args.courseId);
                 result = pdfResult.result;
@@ -2534,6 +2601,8 @@ export async function POST(request: NextRequest) {
                 result = `Error: unknown tool "${fnName}".`;
               }
 
+              // Stop pressed while the tool ran: don't record or report its (probably aborted) result.
+              if (stopSignal?.aborted) throw new ChatStoppedError();
               outputGuard.allowFrom(result);
               if (toolSucceeded(result)) succeededTools.add(fnName);
               // Only a delete that went through (or got its Confirm card)
@@ -2543,6 +2612,7 @@ export async function POST(request: NextRequest) {
               for (const id of result.match(/\[id: ([A-Za-z0-9]+)\]/g) ?? []) outputGuard.hideId(id.slice(5, -1));
               calledToolSignatures.set(toolSignature, result);
               conversation.push({ role: "tool", tool_call_id: toolCall.id, content: result });
+              send({ type: "tool_done", name: fnName, ok: toolSucceeded(result) });
             }
 
             send({ type: "status", label: "Reviewing what it found..." });
@@ -2743,8 +2813,10 @@ export async function POST(request: NextRequest) {
             CHAT_TEMPERATURE,
             primaryTarget,
             thinking,
-            finalRoundHandler.handleDelta
+            finalRoundHandler.handleDelta,
+            { signal: stopSignal, onThinking: (t) => thoughtRelay.push(t) }
           );
+          thoughtRelay.flush();
           finalRoundHandler.flush();
           // The forced last answer gets the same claim check as any other.
           let finalNote = "";
@@ -2792,11 +2864,26 @@ export async function POST(request: NextRequest) {
             send({ type: "error", error: finalAnswerText });
           }
         }
-      } catch (error: any) {
-        console.error("Chat route error:", error);
-        finalAnswerText = describeChatError(error);
-        send({ type: "error", error: finalAnswerText });
+      } catch (error: unknown) {
+        // Reasoning still buffered goes out before the closing events, not after them.
+        thoughtRelay.end();
+        if (error instanceof ChatStoppedError || stopSignal?.aborted) {
+          // The student pressed Stop: keep what was written so far (it is saved
+          // like any reply) and mark it, so they can re-word and ask again.
+          guardedStream.flush();
+          const partial = outputGuard.clean(liveReplyText).trim();
+          finalAnswerText = stoppedReplyText(partial);
+          discardStoppedTurn = !partial;
+          send({ type: "stopped", discarded: discardStoppedTurn });
+          send({ type: "done", documentsRead, generatedFiles, generatedStudySets, pendingActions, summary: persistedSummary, summarizedCount: persistedSummarizedCount });
+        } else {
+          console.error("Chat route error:", error);
+          finalAnswerText = describeChatError(error);
+          send({ type: "error", error: finalAnswerText });
+        }
       } finally {
+        thoughtRelay.end();
+        if (runId) releaseChatRun(auth.uid, runId);
         // Fire-and-forget — never awaited, must not add latency to a
         // response the student is already looking at. Errors are handled
         // entirely inside maybeUpdateStudentProfile itself.
@@ -2814,7 +2901,8 @@ export async function POST(request: NextRequest) {
         if (persistTarget) {
           finalizing = true;
           if (partialInFlight) await partialInFlight;
-          await finishChatPersistence(persistTarget, {
+          if (discardStoppedTurn) await discardChatTurn(persistTarget);
+          else await finishChatPersistence(persistTarget, {
             text: finalAnswerText ?? "Something went wrong generating this reply. Please try again.",
             documentsRead,
             generatedFiles,
