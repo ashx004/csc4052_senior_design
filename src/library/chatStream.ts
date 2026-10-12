@@ -1,4 +1,5 @@
 import { notifyDataChanged } from "./dataChanged";
+import { TOOL_LABELS } from "./toolActivity";
 
 // Shared client-side parser for the newline-delimited JSON stream produced
 // by POST /api/chat (see the response-protocol comment above the route
@@ -12,7 +13,18 @@ import { notifyDataChanged } from "./dataChanged";
 
 export type ChatStreamEvent =
   | { type: "delta"; text: string }
-  | { type: "tool"; name: string }
+  | { type: "tool"; name: string; /** What the tool is working on, e.g. a search query or document name. */ detail?: string }
+  | { type: "tool_done"; name: string; ok: boolean }
+  /** The model's reasoning, in small pieces, while it works out a reply. */
+  | { type: "thinking"; text: string }
+  /** A short plain-language summary of the reasoning so far. */
+  | { type: "thought_summary"; text: string }
+  /**
+   * The student pressed Stop; a "done" event with the partial reply follows.
+   * `discarded` means nothing had been written yet, so the server removed the
+   * whole turn from the saved chat and the client should drop the question too.
+   */
+  | { type: "stopped"; discarded?: boolean }
   | { type: "status"; label: string }
   | {
       type: "done";
@@ -31,20 +43,11 @@ export type ChatStreamEvent =
   // startChatPersistence in api/chat/route.ts).
   | { type: "session"; id: string };
 
-export const TOOL_STATUS_LABELS: Record<string, string> = {
-  search_documents: "Searching your documents...",
-  read_document: "Reading a document...",
-  web_search: "Searching the web...",
-  search_youtube: "Looking for videos...",
-  create_pdf: "Creating a PDF...",
-  create_flashcards: "Creating flashcards...",
-  create_quiz: "Creating a quiz...",
-  list_calendar_events: "Checking your calendar...",
-  create_calendar_event: "Adding to your calendar...",
-  update_calendar_event: "Updating your calendar...",
-  delete_calendar_event: "Removing from your calendar...",
-  recall_past_chat: "Checking past conversations...",
-};
+// Kept for the code that still looks labels up by tool name; the labels themselves
+// live in toolActivity.ts so the server and every chat surface describe tools the same way.
+export const TOOL_STATUS_LABELS: Record<string, string> = Object.fromEntries(
+  Object.entries(TOOL_LABELS).map(([name, labels]) => [name, labels.running])
+);
 
 // Tools that change data another page may be showing.
 const WRITE_TOOL = /^(create|update|delete|edit|organize|set)_/;

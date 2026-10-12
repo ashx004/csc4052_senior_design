@@ -2,15 +2,25 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { collection, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
-import { AlertCircle, ArrowLeft, FileText, Loader2, Upload, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, CalendarPlus, FileText, Loader2, Plus, Upload, X } from "lucide-react";
 import { db } from "@/src/library/firebase";
 import { INDEXABLE_FILE_TYPES, MAX_FILE_SIZE_BYTES, uploadUserResource } from "@/src/components/resourceManagement/fileUploadService";
 import {
   SYLLABUS_ENROLLMENT_FIELDS,
+  emptySyllabusInfo,
   type SyllabusDate,
+  type SyllabusDateKind,
   type SyllabusEnrollmentField,
   type SyllabusInfo,
 } from "@/src/library/syllabusInfo";
+import {
+  planSyllabusEvents,
+  reviewSyllabusDates,
+  storedSyllabusDates,
+  syllabusEventId,
+  type ReviewedSyllabusDate,
+} from "@/src/library/syllabusCalendar";
+import { listSyllabusEventIds, syncSyllabusEvents } from "@/src/library/syllabusCalendarSync";
 
 export interface StoredSyllabus {
   resourceId: string;
@@ -37,31 +47,83 @@ const ACCEPT = ".pdf,.docx,.txt,.png,.jpg,.jpeg,.webp";
 type Resource = { id: string; name: string; fileType: string };
 type Step = "choose" | "reading" | "review";
 
+const KIND_OPTIONS: { value: SyllabusDateKind; label: string }[] = [
+  { value: "exam", label: "Exam" },
+  { value: "assignment", label: "Assignment" },
+  { value: "holiday", label: "No class" },
+  { value: "other", label: "Other" },
+];
+
 export default function SyllabusModal({
   uid,
   courseId,
   current,
+  mode = "import",
   onClose,
   onApplied,
 }: {
   uid: string;
   courseId: string;
   /** What the course already has, so the review can show what would change. */
-  current: Partial<Record<SyllabusEnrollmentField, string | undefined>>;
+  current: Partial<Record<SyllabusEnrollmentField, string | undefined>> & {
+    classCode?: string;
+    className?: string;
+    term?: string;
+    syllabus?: StoredSyllabus;
+  };
+  /** "edit" opens the details already saved from a syllabus, for fixing what the AI got wrong. */
+  mode?: "import" | "edit";
   onClose: () => void;
   onApplied: (fields: Record<string, unknown>) => void;
 }) {
+  // Edit mode starts on the review step with what was saved, so none of this
+  // needs an effect to fill in.
+  const saved = mode === "edit" ? current.syllabus : undefined;
+  const term = current.term ?? "";
   const [resources, setResources] = useState<Resource[]>([]);
-  const [step, setStep] = useState<Step>("choose");
+  const [step, setStep] = useState<Step>(saved ? "review" : "choose");
   const [error, setError] = useState<string | null>(null);
-  const [picked, setPicked] = useState<Resource | null>(null);
-  const [info, setInfo] = useState<SyllabusInfo | null>(null);
-  const [use, setUse] = useState<Record<string, boolean>>({});
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [dates, setDates] = useState<SyllabusDate[]>([]);
+  const [picked, setPicked] = useState<Resource | null>(() => (saved ? { id: saved.resourceId, name: saved.name, fileType: "" } : null));
+  const [info, setInfo] = useState<SyllabusInfo | null>(() =>
+    saved ? { ...emptySyllabusInfo(), officeHours: saved.officeHours, textbooks: saved.textbooks, grading: saved.grading } : null
+  );
+  const [use, setUse] = useState<Record<string, boolean>>(() =>
+    saved ? Object.fromEntries(SYLLABUS_ENROLLMENT_FIELDS.map((key) => [key, true])) : {}
+  );
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    saved
+      ? {
+          ...Object.fromEntries(SYLLABUS_ENROLLMENT_FIELDS.map((key) => [key, current[key] ?? ""])),
+          officeHours: saved.officeHours ?? "",
+          textbooks: saved.textbooks ?? "",
+          grading: saved.grading ?? "",
+        }
+      : {}
+  );
+  // Dates from a saved syllabus start unticked; the effect below ticks the ones already on the calendar.
+  const [dates, setDates] = useState<ReviewedSyllabusDate[]>(() =>
+    saved ? reviewSyllabusDates(saved.dates ?? [], term).map((d) => ({ ...d, addToCalendar: false })) : []
+  );
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!saved) return;
+    let cancelled = false;
+    listSyllabusEventIds(db, uid, courseId)
+      .then((ids) => {
+        if (cancelled) return;
+        const onCalendar = new Set(ids);
+        setDates((all) => all.map((d) => ({ ...d, addToCalendar: !!d.iso && onCalendar.has(syllabusEventId(courseId, d.iso, d.title)) })));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // Runs once for the saved syllabus this modal was opened on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     return onSnapshot(
@@ -104,7 +166,7 @@ export default function SyllabusModal({
       setInfo(extracted);
       setValues({ ...nextValues, officeHours: extracted.officeHours, textbooks: extracted.textbooks, grading: extracted.grading });
       setUse(nextUse);
-      setDates(extracted.dates);
+      setDates(reviewSyllabusDates(extracted.dates, term));
       setStep("review");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't read that file.");
@@ -128,10 +190,17 @@ export default function SyllabusModal({
     }
   }
 
+  const calendarCount = dates.filter((d) => d.addToCalendar && d.iso && d.title.trim()).length;
+
+  function updateDate(index: number, patch: Partial<ReviewedSyllabusDate>) {
+    setDates((all) => all.map((d, i) => (i === index ? { ...d, ...patch } : d)));
+  }
+
   async function apply() {
     if (!info || !picked) return;
     setSaving(true);
     setError(null);
+    let saved = false;
     try {
       const fields: Record<string, unknown> = {};
       for (const key of SYLLABUS_ENROLLMENT_FIELDS) if (use[key]) fields[key] = (values[key] ?? "").trim();
@@ -141,14 +210,28 @@ export default function SyllabusModal({
         officeHours: (values.officeHours ?? "").trim(),
         textbooks: (values.textbooks ?? "").trim(),
         grading: (values.grading ?? "").trim(),
-        dates,
+        dates: storedSyllabusDates(dates),
       };
       await updateDoc(doc(db, "users", uid, "enrollment", courseId), { ...fields, syllabus: { ...syllabus, importedAt: serverTimestamp() } });
+      saved = true;
+      const planned = planSyllabusEvents(dates, {
+        courseId,
+        classCode: String(fields.classCode ?? current.classCode ?? ""),
+        className: current.className,
+      });
+      await syncSyllabusEvents(db, uid, courseId, planned);
       onApplied({ ...fields, syllabus });
       onClose();
     } catch (err) {
       console.error("Applying syllabus failed:", err);
-      setError("Couldn't save the course info. Please try again.");
+      if (saved) {
+        // The details are saved; only the calendar part failed, and saving
+        // again is safe (events are matched by date and title).
+        onApplied({ syllabus: { resourceId: picked.id, name: picked.name, officeHours: values.officeHours ?? "", textbooks: values.textbooks ?? "", grading: values.grading ?? "", dates: storedSyllabusDates(dates) } });
+        setError("Saved the course info, but couldn't update your calendar. Please try Save again.");
+      } else {
+        setError("Couldn't save the course info. Please try again.");
+      }
     } finally {
       setSaving(false);
     }
@@ -166,12 +249,12 @@ export default function SyllabusModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 border-b border-border-light px-5 py-3">
-          {step === "review" && (
+          {step === "review" && mode !== "edit" && (
             <button type="button" onClick={() => setStep("choose")} disabled={saving} aria-label="Back" className="rounded-md p-1 text-text-muted hover:bg-bg-warm">
               <ArrowLeft size={16} />
             </button>
           )}
-          <h3 className="flex-1 text-sm font-semibold text-text-main">Course info from syllabus</h3>
+          <h3 className="flex-1 text-sm font-semibold text-text-main">{mode === "edit" ? "Edit syllabus details" : "Course info from syllabus"}</h3>
           <button type="button" onClick={onClose} disabled={busy} aria-label="Close" className="rounded-md p-1 text-text-muted hover:bg-bg-warm disabled:opacity-40">
             <X size={16} />
           </button>
@@ -243,7 +326,11 @@ export default function SyllabusModal({
 
           {step === "review" && info && (
             <div className="space-y-4">
-              <p className="text-sm text-text-muted">Check what was found in <span className="font-medium text-text-main">{picked?.name}</span>. Untick anything you don't want to change.</p>
+              <p className="text-sm text-text-muted">
+                {mode === "edit" ? "Fix anything the AI read wrong in " : "Check what was found in "}
+                <span className="font-medium text-text-main">{picked?.name}</span>.{" "}
+                {mode === "edit" ? "Your changes replace what is saved." : "Untick anything you don't want to change."}
+              </p>
               {SYLLABUS_ENROLLMENT_FIELDS.map((key) => {
                 const existing = current[key] ?? "";
                 return (
@@ -268,18 +355,84 @@ export default function SyllabusModal({
                 </div>
               ))}
               <div>
-                <p className="mb-1 text-xs font-medium text-text-muted">Important dates ({dates.length})</p>
+                <div className="mb-1 flex items-center gap-2">
+                  <p className="flex-1 text-xs font-medium text-text-muted">Important dates ({dates.length})</p>
+                  <button
+                    type="button"
+                    onClick={() => setDates((all) => [...all, { date: "", iso: "", endIso: "", title: "", kind: "exam", addToCalendar: false }])}
+                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-bg-warm"
+                  >
+                    <Plus size={12} /> Add a date
+                  </button>
+                </div>
                 {dates.length === 0 ? (
-                  <p className="text-xs text-text-muted">No dates were found.</p>
+                  <p className="text-xs text-text-muted">No dates were found. Add one if the syllabus has exams or deadlines.</p>
                 ) : (
-                  <ul className="max-h-48 space-y-1 overflow-y-auto">
+                  <ul className="space-y-2">
                     {dates.map((d, i) => (
-                      <li key={`${d.date}-${i}`} className="flex items-center gap-2 rounded-md bg-bg-main px-3 py-1.5 text-sm text-text-main">
-                        <span className="w-24 shrink-0 text-xs tabular-nums text-text-muted">{d.date}</span>
-                        <span className="min-w-0 flex-1 truncate">{d.title}</span>
-                        <button type="button" aria-label={`Remove ${d.title}`} onClick={() => setDates((all) => all.filter((_, j) => j !== i))} className="text-text-muted hover:text-alert-error">
-                          <X size={14} />
-                        </button>
+                      <li key={i} className="rounded-lg border border-border-light bg-bg-main p-2.5">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="date"
+                            aria-label="Date"
+                            value={d.iso}
+                            onChange={(e) =>
+                              updateDate(i, {
+                                iso: e.target.value,
+                                // A last day on or before the new first day no longer makes sense.
+                                endIso: d.endIso && d.endIso > e.target.value ? d.endIso : "",
+                                addToCalendar: e.target.value ? d.addToCalendar || (d.kind === "exam" && !d.iso) : false,
+                              })
+                            }
+                            className={`${input} !w-40 shrink-0 !py-1.5`}
+                          />
+                          <input
+                            aria-label="Title"
+                            placeholder="What is happening"
+                            value={d.title}
+                            onChange={(e) => updateDate(i, { title: e.target.value })}
+                            className={`${input} min-w-0 flex-1 !py-1.5`}
+                          />
+                          <button type="button" aria-label={`Remove ${d.title || "date"}`} onClick={() => setDates((all) => all.filter((_, j) => j !== i))} className="shrink-0 text-text-muted hover:text-alert-error">
+                            <X size={14} />
+                          </button>
+                        </div>
+                        {!d.iso && d.date && (
+                          <p className="mt-1 text-xs text-amber-600 dark:text-amber-300">The syllabus says &ldquo;{d.date}&rdquo; &mdash; pick a day to put this on your calendar.</p>
+                        )}
+                        <div className="mt-2 flex items-center gap-3">
+                          <select
+                            aria-label="Type"
+                            value={d.kind}
+                            onChange={(e) => updateDate(i, { kind: e.target.value as SyllabusDateKind })}
+                            className="rounded-md border border-border-light bg-bg-container px-2 py-1 text-xs text-text-main"
+                          >
+                            {KIND_OPTIONS.map((k) => (
+                              <option key={k.value} value={k.value}>{k.label}</option>
+                            ))}
+                          </select>
+                          <label className={`flex items-center gap-1.5 text-xs ${d.iso ? "text-text-main" : "text-text-muted opacity-60"}`}>
+                            through
+                            <input
+                              type="date"
+                              aria-label="Last day (optional)"
+                              disabled={!d.iso}
+                              min={d.iso || undefined}
+                              value={d.endIso}
+                              onChange={(e) => updateDate(i, { endIso: e.target.value && e.target.value > d.iso ? e.target.value : "" })}
+                              className="rounded-md border border-border-light bg-bg-container px-2 py-1 text-xs text-text-main"
+                            />
+                          </label>
+                          <label className={`ml-auto flex items-center gap-1.5 text-xs ${d.iso && d.title.trim() ? "text-text-main" : "text-text-muted opacity-60"}`}>
+                            <input
+                              type="checkbox"
+                              disabled={!d.iso || !d.title.trim()}
+                              checked={d.addToCalendar && !!d.iso}
+                              onChange={(e) => updateDate(i, { addToCalendar: e.target.checked })}
+                            />
+                            <CalendarPlus size={12} /> On my calendar
+                          </label>
+                        </div>
                       </li>
                     ))}
                   </ul>
@@ -291,6 +444,11 @@ export default function SyllabusModal({
 
         {step === "review" && (
           <div className="border-t border-border-light px-5 py-3">
+            <p className="mb-2 text-center text-xs text-text-muted">
+              {calendarCount > 0
+                ? `${calendarCount} date${calendarCount === 1 ? "" : "s"} will be on your calendar${mode === "edit" ? "; unticked ones are removed" : ""}.`
+                : "Nothing will be added to your calendar."}
+            </p>
             <button
               type="button"
               onClick={() => void apply()}

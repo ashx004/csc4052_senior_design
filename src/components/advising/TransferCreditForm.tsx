@@ -2,6 +2,10 @@
 
 import { useState } from "react";
 import { useAuth } from "@/src/context/AuthContext";
+import { MANUAL_GRADE_OPTIONS } from "@/src/library/advisingSchemas";
+
+// "" (no grade) sits first, then the valid grades in order.
+const GRADE_STEPS = ["", ...MANUAL_GRADE_OPTIONS];
 
 type TransferCourseRow = {
   courseCode: string;
@@ -63,6 +67,19 @@ export default function TransferCreditForm({
     );
   }
 
+  // Moves a row's grade one step through GRADE_STEPS, stopping at either end
+  // the way the credits field's arrows stop at its min/max.
+  function stepGrade(index: number, direction: 1 | -1) {
+    setRows((prev) =>
+      prev.map((row, i) => {
+        if (i !== index) return row;
+        const current = Math.max(0, GRADE_STEPS.indexOf(row.grade));
+        const next = Math.min(GRADE_STEPS.length - 1, Math.max(0, current + direction));
+        return { ...row, grade: GRADE_STEPS[next] };
+      })
+    );
+  }
+
   function addRow() {
     setRows((prev) => [...prev, { ...EMPTY_ROW }]);
   }
@@ -81,7 +98,7 @@ export default function TransferCreditForm({
         courseCode: row.courseCode.trim(),
         courseTitle: row.courseTitle.trim() || null,
         creditHours: row.creditHours.trim() === "" ? null : Number(row.creditHours),
-        grade: row.grade.trim() || null,
+        grade: (row.grade || null) as (typeof MANUAL_GRADE_OPTIONS)[number] | null,
       }))
       .filter((row) => row.courseCode !== "");
 
@@ -202,14 +219,45 @@ export default function TransferCreditForm({
               className="w-full min-w-0 rounded border border-border-light bg-bg-main px-2 py-1.5 text-sm text-text-main placeholder:text-text-muted focus:border-border-hover focus:outline-none"
             />
 
-            <input
-              type="text"
-              placeholder="Grade"
-              value={row.grade}
-              onChange={(e) => updateRow(index, "grade", e.target.value)}
-              className="w-full min-w-0 rounded border border-border-light bg-bg-main px-2 py-1.5 text-sm text-text-main placeholder:text-text-muted focus:border-border-hover focus:outline-none"
-              maxLength={3}
-            />
+            {/* Read-only so only valid grades can be entered: the arrows
+                (or the up/down keys) step through GRADE_STEPS. */}
+            <div className="relative">
+              <input
+                type="text"
+                readOnly
+                placeholder="Grade"
+                value={row.grade}
+                aria-label="Grade"
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowUp") { e.preventDefault(); stepGrade(index, 1); }
+                  if (e.key === "ArrowDown") { e.preventDefault(); stepGrade(index, -1); }
+                  if (e.key === "Backspace" || e.key === "Delete") { updateRow(index, "grade", ""); }
+                }}
+                className="w-full min-w-0 cursor-default rounded border border-border-light bg-bg-main py-1.5 pl-2 pr-6 text-sm text-text-main placeholder:text-text-muted focus:border-border-hover focus:outline-none"
+              />
+              <div className="absolute inset-y-px right-px flex w-5 flex-col overflow-hidden rounded-r border-l border-border-light">
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => stepGrade(index, 1)}
+                  disabled={row.grade === GRADE_STEPS[GRADE_STEPS.length - 1]}
+                  aria-label="Next grade"
+                  className="flex flex-1 items-center justify-center text-[8px] leading-none text-text-muted hover:bg-bg-warm hover:text-text-main disabled:opacity-40"
+                >
+                  ▲
+                </button>
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => stepGrade(index, -1)}
+                  disabled={row.grade === ""}
+                  aria-label="Previous grade"
+                  className="flex flex-1 items-center justify-center border-t border-border-light text-[8px] leading-none text-text-muted hover:bg-bg-warm hover:text-text-main disabled:opacity-40"
+                >
+                  ▼
+                </button>
+              </div>
+            </div>
 
             <button
               type="button"
