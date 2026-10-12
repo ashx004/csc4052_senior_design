@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check, Loader2, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Plus, Share2 } from "lucide-react";
 import ShareNoteModal from "./ShareNoteModal";
+import { ExportSlotProvider, type ExportGetter } from "./noteExportSlot";
 import type { ClassOption, Note } from "@/src/library/notes/types";
 import { NoteTypeIcon } from "./noteVisuals";
 
@@ -47,6 +48,8 @@ export default function NoteWorkspace({
   const [railOpen, setRailOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [sharing, setSharing] = useState(false);
+  // The open editor registers here how to export it; the Share dialog calls it on demand.
+  const exportGetter = useRef<ExportGetter | null>(null);
   const course = classes.find((c) => c.id === note.courseId);
 
   useEffect(() => {
@@ -107,7 +110,7 @@ export default function NoteWorkspace({
             </>
           )}
         </span>
-        <button type="button" onClick={() => setSharing(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-text-main hover:bg-bg-warm" aria-label="Share note" title="Share note"><Share2 size={17} /></button>
+        <button type="button" onClick={() => setSharing(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-text-main hover:bg-bg-warm" aria-label="Share or export note" title="Share or export"><Share2 size={17} /></button>
         <button
           type="button"
           onClick={toggleFullscreen}
@@ -169,9 +172,19 @@ export default function NoteWorkspace({
             </Link>
           </aside>
         )}
-        <div className="min-w-0 flex-1">{children}</div>
+        <div className="min-w-0 flex-1">
+          <ExportSlotProvider value={exportGetter}>{children}</ExportSlotProvider>
+        </div>
       </div>
-      {sharing && <ShareNoteModal type="note" id={note.id} onClose={() => setSharing(false)} />}
+      {sharing && (
+        <ShareNoteModal
+          type="note"
+          id={note.id}
+          onClose={() => setSharing(false)}
+          exportSource={() => exportGetter.current?.() ?? null}
+          typedNote={note.kind === "typed"}
+        />
+      )}
     </div>
   );
 }
