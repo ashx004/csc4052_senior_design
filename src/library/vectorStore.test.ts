@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { chunkPointId, deleteChunksForResource, deleteChunksForUser, ensurePayloadIndexes, resetPayloadIndexCheck, upsertChunks } from "./vectorStore";
 
+// upsertChunks asks whether the account is being deleted (a Firestore read).
+// These tests are about Qdrant requests, so answer "no" without Firebase Admin.
+vi.mock("./accountDeletionGuard", () => ({ isAccountDeletionInProgress: async () => false }));
+
 const UUID_V5_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 describe("chunkPointId", () => {
@@ -76,18 +80,30 @@ describe("Qdrant payload indexes", () => {
 });
 
 describe("deleteChunksForUser", () => {
-  it("deletes everything a student owns with one filtered request", async () => {
-    const fetchMock = vi.fn().mockImplementation(async () => ok());
+  const scroll = (points: unknown[]) => new Response(JSON.stringify({ result: { points, next_page_offset: null } }));
+
+  it("deletes everything a student owns with one filtered request, then checks nothing is left", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => (String(url).endsWith("/points/scroll") ? scroll([]) : ok()));
     vi.stubGlobal("fetch", fetchMock);
     await deleteChunksForUser("student-1");
-    const del = calls(fetchMock).filter((c) => c.url.endsWith("/points/delete"));
+    const sent = calls(fetchMock);
+    const del = sent.filter((c) => c.url.includes("/points/delete"));
     expect(del).toHaveLength(1);
     expect(del[0].body).toEqual({ filter: { must: [{ key: "userId", match: { value: "student-1" } }] } });
+    // The read-back comes after the delete.
+    expect(sent.at(-1)?.url).toMatch(/\/points\/scroll$/);
   });
 
   it("reports a failed delete instead of pretending it worked", async () => {
-    const fetchMock = vi.fn().mockImplementation(async (url: string) => (String(url).endsWith("/points/delete") ? new Response("boom", { status: 500 }) : ok()));
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => (String(url).includes("/points/delete") ? new Response("boom", { status: 500 }) : ok()));
     vi.stubGlobal("fetch", fetchMock);
-    await expect(deleteChunksForUser("student-1")).rejects.toThrow("Qdrant user delete failed (500)");
+    await expect(deleteChunksForUser("student-1")).rejects.toThrow("Qdrant account delete failed (500)");
+  });
+
+  it("fails when Qdrant still holds the student's chunks after the delete", async () => {
+    const left = scroll([{ payload: { userId: "student-1", courseId: "c", resourceId: "r", chunkIndex: 0, text: "t" } }]);
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => (String(url).endsWith("/points/scroll") ? left.clone() : ok()));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(deleteChunksForUser("student-1")).rejects.toThrow("did not remove all indexed context");
   });
 });

@@ -4,6 +4,7 @@ import { checkRateLimit } from "@/src/library/rateLimit";
 import { resolveOllamaBaseUrl } from "@/src/library/ollamaClient";
 import { generateFlashcardsWithRetry } from "@/src/library/flashcardGeneration";
 import { generateQuizWithValidation, MAX_QUIZ_QUESTIONS, type QuestionTypes } from "@/src/library/quizGeneration";
+import { parseQuizDifficulty } from "@/src/library/quizDifficulty";
 import { generateAcrossSources } from "@/src/library/generation/orchestrator";
 import { sourcesFromBody } from "@/src/library/sources/requestSources";
 import { isSourceSelectionError } from "@/src/library/sources/errors";
@@ -54,6 +55,7 @@ export async function POST(request: NextRequest) {
       .slice(MAX_SOURCES)
       .map((note) => ({ title: note.title, reason: "over-source-limit" }));
 
+    const level = parseQuizDifficulty(body.difficulty);
     let count = DEFAULT_FLASHCARD_COUNT;
     let types: QuestionTypes = { multipleChoice: true };
     if (kind === "quiz") {
@@ -139,7 +141,8 @@ export async function POST(request: NextRequest) {
                   types,
                   baseUrl,
                   body.modelKey,
-                  alreadyAsked
+                  alreadyAsked,
+                  level
                 );
                 return { topicName: result.topicName, items: result.questions };
               },
@@ -166,7 +169,9 @@ export async function POST(request: NextRequest) {
       topicName: generated.topicName,
       questions: generated.items,
       audit: generated.audit,
+      difficulty: level,
       skipped: [...resolved.skipped, ...overflow],
+      sourceKeys: resolved.sources.map((s) => s.sourceKey).filter((k): k is string => !!k),
     });
   } catch (error) {
     console.error("Notebook generation error:", error);
