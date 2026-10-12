@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { verifyRequestAuth, isInternalRequest } from "@/src/library/verifyAuth";
 import { getMinioClient } from "@/src/library/minioClient";
+import { isAccountDeletionInProgress } from "@/src/library/accountDeletionGuard";
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +23,9 @@ export async function GET(req: NextRequest) {
         }
         if (!key.startsWith(`users/${auth.uid}/`)) {
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        }
+        if (await isAccountDeletionInProgress(auth.uid)) {
+            return NextResponse.json({ error: "This account is being deleted." }, { status: 410 });
         }
     }
 

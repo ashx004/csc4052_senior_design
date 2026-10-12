@@ -4,6 +4,7 @@ import { adminAuth, adminDb } from "@/src/library/firebaseAdmin";
 import { sendEmail } from "@/src/library/email/resend";
 import { dueReminderTemplate } from "@/src/library/email/templates";
 import { isInternalRequest } from "@/src/library/verifyAuth";
+import { isAccountDeletionInProgress } from "@/src/library/accountDeletionGuard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -176,6 +177,10 @@ async function markSkipped(job: ClaimedJob, reason: string): Promise<void> {
 
 async function deliverJob(job: ClaimedJob, now: Date): Promise<"sent" | "skipped" | "failed"> {
   try {
+    if (await isAccountDeletionInProgress(job.uid)) {
+      await markSkipped(job, "account-deletion-requested");
+      return "skipped";
+    }
     const eventId = stringValue(job.data.eventId);
     const [preferenceSnapshot, userRecord, eventSnapshot] = await Promise.all([
       adminDb.doc(`users/${job.uid}/settings/emailReminders`).get(),

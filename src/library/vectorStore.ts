@@ -67,6 +67,47 @@ export type ChunkSearchResult = {
   payload: ChunkPoint["payload"];
 };
 
+/** Every live vector stores user-supplied or derived document text in its
+ * payload. Account export/delete must operate by userId, not by resource,
+ * because resources can be removed before their orphaned points are cleaned. */
+export async function listChunksForUser(userId: string): Promise<ChunkPoint["payload"][]> {
+  const payloads: ChunkPoint["payload"][] = [];
+  let offset: string | number | undefined;
+
+  do {
+    const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS, "Qdrant export scroll");
+    try {
+      const response = await fetch(`${await baseUrl()}/collections/${COLLECTION}/points/scroll`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({
+          limit: 256,
+          with_payload: true,
+          with_vector: false,
+          ...(offset === undefined ? {} : { offset }),
+          filter: { must: [{ key: "userId", match: { value: userId } }] },
+        }),
+        signal,
+      });
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new Error(`Qdrant export scroll failed (${response.status}): ${text}`);
+      }
+      const result = await response.json() as {
+        result?: { points?: Array<{ payload?: ChunkPoint["payload"] }>; next_page_offset?: string | number | null };
+      };
+      for (const point of result.result?.points ?? []) {
+        if (point.payload?.userId === userId) payloads.push(point.payload);
+      }
+      offset = result.result?.next_page_offset ?? undefined;
+    } finally {
+      cancel();
+    }
+  } while (offset !== undefined);
+
+  return payloads;
+}
+
 // LAN-direct when reachable, falling back to the public tunneled URL
 // (QDRANT_FALLBACK_URL) for callers off the home/school LAN — same
 // primary/fallback pattern as ollamaClient.ts and minioClient.ts.
@@ -128,6 +169,15 @@ export function resetPayloadIndexCheck(): void {
 
 export async function upsertChunks(points: ChunkPoint[]): Promise<void> {
   if (points.length === 0) return;
+  // A document worker can have started before the account guard was written.
+  // Check immediately before the external write so it cannot resurrect a
+  // vector after account deletion has already verified Qdrant is empty.
+  // Keep Firebase Admin out of this module's import path: list/search/delete
+  // are also used by temporary non-Firebase data export mode.
+  const { isAccountDeletionInProgress } = await import("./accountDeletionGuard");
+  if (await isAccountDeletionInProgress(points[0].payload.userId)) {
+    throw new Error("This account is being deleted.");
+  }
 
   await ensurePayloadIndexes();
   // The reachability probes in baseUrl() can take a few seconds when the LAN
@@ -227,9 +277,9 @@ export async function deleteChunksForResource(userId: string, resourceId: string
 export async function deleteChunksForUser(userId: string): Promise<void> {
   await ensurePayloadIndexes();
   const base = await baseUrl();
-  const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS * 3, "Qdrant delete user chunks");
+  const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS * 3, "Qdrant account delete");
   try {
-    const response = await fetch(`${base}/collections/${COLLECTION}/points/delete`, {
+    const response = await fetch(`${base}/collections/${COLLECTION}/points/delete?wait=true`, {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({ filter: { must: [{ key: "userId", match: { value: userId } }] } }),
@@ -237,9 +287,15 @@ export async function deleteChunksForUser(userId: string): Promise<void> {
     });
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      throw new Error(`Qdrant user delete failed (${response.status}): ${text}`);
+      throw new Error(`Qdrant account delete failed (${response.status}): ${text}`);
     }
   } finally {
     cancel();
+  }
+
+  // `wait=true` makes this normally immediate; the read-back makes a silent
+  // asynchronous/partial delete a hard failure rather than claiming success.
+  if ((await listChunksForUser(userId)).length > 0) {
+    throw new Error("Qdrant account delete did not remove all indexed context.");
   }
 }

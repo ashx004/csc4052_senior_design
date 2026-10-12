@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import {
     EmailAuthProvider,
+    GoogleAuthProvider,
+    OAuthProvider,
     reauthenticateWithCredential,
+    reauthenticateWithPopup,
     updatePassword,
 } from "firebase/auth";
 import { signOut } from "firebase/auth";
@@ -37,6 +40,8 @@ import {
 } from "@/src/library/email/reminderPreferences";
 import { syncUpcomingReminderJobsForUser } from "@/src/library/email/reminderJobs";
 import { getSidebarAutoCollapse, setSidebarAutoCollapse } from "@/src/library/sidebarPreference";
+import { downloadDataExport, requestDataExport } from "@/src/library/dataExportDownload";
+import { ACCOUNT_DELETION_CONFIRMATION } from "@/src/library/accountDeletionConsent";
 
 const EMAIL_REMINDER_OFFSET_OPTIONS = [
     { minutes: 10_080, label: "1 week before" },
@@ -95,6 +100,18 @@ export default function Settings() {
     const [accountError, setAccountError] = useState<string>("");
     const [isUpdatingAccount, setIsUpdatingAccount] = useState<boolean>(false);
     const [isSendingVerification, setIsSendingVerification] = useState<boolean>(false);
+    const [isPreparingDataExport, setIsPreparingDataExport] = useState(false);
+    const [dataExportMessage, setDataExportMessage] = useState("");
+    const [dataExportError, setDataExportError] = useState("");
+    const [showDeletionDialog, setShowDeletionDialog] = useState(false);
+    const [deletionAcknowledged, setDeletionAcknowledged] = useState(false);
+    const [deletionConfirmation, setDeletionConfirmation] = useState("");
+    const [deletionPassword, setDeletionPassword] = useState("");
+    const [deletionError, setDeletionError] = useState("");
+    const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+    const deletionConfirmationRef = useRef<HTMLInputElement>(null);
+    const deletionDialogRef = useRef<HTMLFormElement>(null);
+    const deletionTriggerRef = useRef<HTMLButtonElement>(null);
 
     const router = useRouter();
     const [aiModels, setAiModels] = useState<{ main: string | null; ocr: string | null } | null>(null);
@@ -415,6 +432,134 @@ export default function Settings() {
         }
     }
 
+    async function handleDataExport(): Promise<void> {
+        if (!user) {
+            setDataExportError("You must be signed in to download your data.");
+            return;
+        }
+
+        setDataExportError("");
+        setDataExportMessage("");
+        setIsPreparingDataExport(true);
+        try {
+            const download = await requestDataExport(await user.getIdToken());
+            downloadDataExport(download);
+            setDataExportMessage("Your data export is ready and downloading now.");
+        } catch (error) {
+            setDataExportError(error instanceof Error ? error.message : "Unable to create a data export. Please try again.");
+        } finally {
+            setIsPreparingDataExport(false);
+        }
+    }
+
+    function closeDeletionDialog(): void {
+        if (isDeletingAccount) return;
+        setShowDeletionDialog(false);
+        setDeletionAcknowledged(false);
+        setDeletionConfirmation("");
+        setDeletionPassword("");
+        setDeletionError("");
+        window.setTimeout(() => deletionTriggerRef.current?.focus(), 0);
+    }
+
+    async function reauthenticateForDeletion(): Promise<void> {
+        const currentUser = auth.currentUser;
+        if (!currentUser) throw new Error("You must be signed in to delete your account.");
+
+        const providerIds = currentUser.providerData.map((provider) => provider.providerId);
+        if (providerIds.includes("password")) {
+            if (!currentUser.email || !deletionPassword) {
+                throw new Error("Enter your current password to continue.");
+            }
+            await reauthenticateWithCredential(
+                currentUser,
+                EmailAuthProvider.credential(currentUser.email, deletionPassword)
+            );
+            return;
+        }
+        if (providerIds.includes("google.com")) {
+            await reauthenticateWithPopup(currentUser, new GoogleAuthProvider());
+            return;
+        }
+        if (providerIds.includes("apple.com")) {
+            await reauthenticateWithPopup(currentUser, new OAuthProvider("apple.com"));
+            return;
+        }
+        throw new Error("For security, sign out and sign back in before deleting this account.");
+    }
+
+    async function handleAccountDeletion(event: React.FormEvent<HTMLFormElement>): Promise<void> {
+        event.preventDefault();
+        setDeletionError("");
+        if (!deletionAcknowledged || deletionConfirmation !== ACCOUNT_DELETION_CONFIRMATION) {
+            setDeletionError(`Check the acknowledgement and enter ${ACCOUNT_DELETION_CONFIRMATION} exactly.`);
+            return;
+        }
+
+        try {
+            setIsDeletingAccount(true);
+            await reauthenticateForDeletion();
+            const currentUser = auth.currentUser;
+            if (!currentUser) throw new Error("You must be signed in to delete your account.");
+            const response = await fetch("/api/account/delete", {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${await currentUser.getIdToken(true)}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    confirmation: ACCOUNT_DELETION_CONFIRMATION,
+                    acknowledged: true,
+                }),
+            });
+            const data = await response.json().catch(() => null);
+            if (!response.ok) throw new Error(data?.error || "Unable to delete your account right now.");
+
+            await signOut(auth);
+            router.replace("/login?accountDeleted=1");
+        } catch (error) {
+            if (error instanceof FirebaseError) {
+                if (error.code === "auth/wrong-password" || error.code === "auth/invalid-credential") {
+                    setDeletionError("Your current password is incorrect.");
+                } else if (error.code === "auth/popup-closed-by-user") {
+                    setDeletionError("Sign-in confirmation was cancelled.");
+                } else if (error.code === "auth/requires-recent-login") {
+                    setDeletionError("For security, sign out, sign back in, and try again.");
+                } else {
+                    setDeletionError(error.message || "Unable to verify your identity.");
+                }
+            } else {
+                setDeletionError(error instanceof Error ? error.message : "Unable to delete your account right now.");
+            }
+        } finally {
+            setIsDeletingAccount(false);
+        }
+    }
+
+    useEffect(() => {
+        if (!showDeletionDialog) return;
+        deletionConfirmationRef.current?.focus();
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === "Escape") closeDeletionDialog();
+            if (event.key !== "Tab") return;
+            const focusable = deletionDialogRef.current?.querySelectorAll<HTMLElement>(
+                'button:not([disabled]), input:not([disabled]), [href], select:not([disabled]), textarea:not([disabled])'
+            );
+            if (!focusable || focusable.length === 0) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [showDeletionDialog, isDeletingAccount]);
+
 
     function handleAccountError(error: unknown): void {
         console.error(error);
@@ -685,8 +830,6 @@ export default function Settings() {
                 {emailReminderError && <p role="alert" className="text-xs text-alert-error">{emailReminderError}</p>}
                 {emailReminderMessage && <p role="status" className="text-xs text-alert-success">{emailReminderMessage}</p>}
             </section>
-
-
 
             {/* Appearance */ }
             <header className="mt-5 relative flex w-3/4 self-center
@@ -1207,7 +1350,134 @@ export default function Settings() {
 
 
 
+            {/* Account data */}
+            <header className="mt-5 flex w-3/4 shrink-0 self-center border-b border-border-light px-6" />
+            <section className="mt-2 flex w-3/4 self-center flex-col gap-4 rounded-lg bg-bg-main px-3 py-4" aria-labelledby="account-data-heading">
+                <div className="flex flex-col gap-1">
+                    <h2 id="account-data-heading" className="text-sm font-medium text-text-main">Account data</h2>
+                    <p className="text-xs text-text-muted">
+                        Download a portable copy of your Catalyst information and uploaded files.
+                    </p>
+                </div>
+                <div className="rounded-md border border-border-light bg-bg-container p-3">
+                    <h3 className="text-sm font-medium text-text-main">Download my data</h3>
+                    <p className="mt-1 text-xs text-text-muted">
+                        Your export includes available account data, stored study content, uploaded documents, and indexed document context. It excludes passwords, sign-in tokens, and connected-service credentials.
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-xs text-text-muted">The download is created for your current signed-in account.</p>
+                        <button
+                            type="button"
+                            onClick={handleDataExport}
+                            disabled={!user || isPreparingDataExport}
+                            className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-text-inverse transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            {isPreparingDataExport ? "Preparing export..." : "Download my data"}
+                        </button>
+                    </div>
+                </div>
+                <div className="rounded-md border border-border-light bg-bg-container p-3">
+                    <h3 className="text-sm font-medium text-text-main">Delete account</h3>
+                    <p id="account-deletion-description" className="mt-1 text-xs text-text-muted">
+                        Permanently remove your Catalyst account, private study data, uploaded files, indexed document context, public shares, saved reminders, and connected-service credentials. This cannot be undone.
+                    </p>
+                    <div className="mt-3 flex justify-end">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setDeletionError("");
+                                setShowDeletionDialog(true);
+                            }}
+                            ref={deletionTriggerRef}
+                            disabled={!user}
+                            aria-describedby="account-deletion-description"
+                            className="rounded-md border border-alert-error px-3 py-1.5 text-xs font-medium text-alert-error transition hover:bg-alert-error-bg disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            Delete account
+                        </button>
+                    </div>
+                </div>
+                {dataExportError && <p role="alert" className="text-xs text-alert-error">{dataExportError}</p>}
+                {dataExportMessage && <p role="status" className="text-xs text-alert-success">{dataExportMessage}</p>}
+            </section>
 
+            {showDeletionDialog && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation">
+                    <form
+                        ref={deletionDialogRef}
+                        onSubmit={handleAccountDeletion}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="delete-account-title"
+                        aria-describedby="delete-account-description"
+                        className="w-full max-w-lg rounded-lg border border-border-light bg-bg-container p-5 shadow-xl"
+                    >
+                        <h2 id="delete-account-title" className="text-lg font-semibold text-text-main">Delete your Catalyst account?</h2>
+                        <p id="delete-account-description" className="mt-2 text-sm text-text-muted">
+                            This permanently removes your profile and sign-in account, private Catalyst records, uploads, derived indexed context, public shares, reminder jobs, and locally stored connected-service credentials. Calendar events already created in an external calendar are not deleted.
+                        </p>
+                        <p className="mt-2 text-sm text-text-muted">
+                            Download your data first if you may want a copy. You will be asked to confirm your sign-in again before deletion begins.
+                        </p>
+
+                        <label className="mt-4 flex items-start gap-2 text-sm text-text-main">
+                            <input
+                                type="checkbox"
+                                checked={deletionAcknowledged}
+                                onChange={(event) => setDeletionAcknowledged(event.target.checked)}
+                                disabled={isDeletingAccount}
+                                className="mt-1"
+                            />
+                            <span>I understand this is permanent and cannot be undone.</span>
+                        </label>
+
+                        <label className="mt-4 flex flex-col gap-1 text-sm text-text-main">
+                            Type <span className="font-semibold">{ACCOUNT_DELETION_CONFIRMATION}</span> to confirm
+                            <input
+                                ref={deletionConfirmationRef}
+                                value={deletionConfirmation}
+                                onChange={(event) => setDeletionConfirmation(event.target.value)}
+                                disabled={isDeletingAccount}
+                                autoComplete="off"
+                                className="rounded border border-border-light bg-bg-main px-3 py-2 text-text-main outline-none focus:border-alert-error disabled:opacity-50"
+                            />
+                        </label>
+
+                        {auth.currentUser?.providerData.some((provider) => provider.providerId === "password") && (
+                            <label className="mt-4 flex flex-col gap-1 text-sm text-text-main">
+                                Current password
+                                <input
+                                    type="password"
+                                    value={deletionPassword}
+                                    onChange={(event) => setDeletionPassword(event.target.value)}
+                                    disabled={isDeletingAccount}
+                                    autoComplete="current-password"
+                                    className="rounded border border-border-light bg-bg-main px-3 py-2 text-text-main outline-none focus:border-alert-error disabled:opacity-50"
+                                />
+                            </label>
+                        )}
+
+                        {deletionError && <p role="alert" className="mt-3 text-sm text-alert-error">{deletionError}</p>}
+                        <div className="mt-5 flex justify-end gap-3">
+                            <button
+                                type="button"
+                                onClick={closeDeletionDialog}
+                                disabled={isDeletingAccount}
+                                className="rounded-md px-3 py-2 text-sm text-text-muted hover:bg-bg-warm disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={isDeletingAccount || !deletionAcknowledged || deletionConfirmation !== ACCOUNT_DELETION_CONFIRMATION}
+                                className="rounded-md bg-alert-error px-3 py-2 text-sm font-medium text-text-inverse hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                {isDeletingAccount ? "Deleting account..." : "Permanently delete account"}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            )}
 
             {/* Sign Out */}
             <header className="mt-5 relative flex w-3/4 self-center
