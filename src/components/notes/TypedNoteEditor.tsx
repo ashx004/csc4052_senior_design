@@ -28,7 +28,7 @@ import { defaultToolState, type ToolState } from "./tools";
 import { NoteBulletList, TabIndent, TextHighlight, ToolbarItalic, indentLess, indentMore } from "./editor/basicExtensions";
 import { MathBlock, MathInline } from "./editor/MathExtension";
 import { NoteImage } from "./editor/ImageExtension";
-import { nearestTextPoint } from "./editor/clickTarget";
+import { clickedAnnotation, nearestTextPoint } from "./editor/clickTarget";
 
 const MARGIN_X = 80;
 const MARGIN_TOP = 72;
@@ -400,8 +400,9 @@ export default function TypedNoteEditor({
 
   function placeCursorOnPaper(event: React.MouseEvent<HTMLDivElement>) {
     if (!editor || tool.mode !== "type") return;
-    // Let TipTap handle ordinary clicks inside existing text.
-    if ((event.target as HTMLElement).closest(".ProseMirror")) return;
+    // Let TipTap handle ordinary clicks inside existing text, and leave stickers
+    // and text boxes alone: dragging one ends in a click that bubbles up here.
+    if ((event.target as HTMLElement).closest(".ProseMirror") || clickedAnnotation(event.target)) return;
     const content = sheetRef.current?.querySelector<HTMLElement>(".ProseMirror");
     if (!content) return;
     // A click on the paper beside or beyond the text goes to the nearest text:
