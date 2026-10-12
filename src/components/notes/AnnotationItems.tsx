@@ -239,6 +239,9 @@ export default function AnnotationItems({
               cursor: interactive ? "grab" : "default",
               touchAction: interactive ? "none" : "auto",
             }}
+            // A sticker holds no text, so pressing on it must not pull focus out of
+            // the editor (the cursor would vanish when one is dragged or dropped).
+            onMouseDown={(e) => e.preventDefault()}
             onPointerDown={(e) => startDrag(e, "sticker", s.id, s.x, s.y)}
             onPointerMove={moveDrag}
             onPointerUp={endDrag}

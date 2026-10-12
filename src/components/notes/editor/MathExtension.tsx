@@ -28,7 +28,7 @@ function paletteFace(latex: string): string {
  * mousedown is cancelled so the text box keeps focus (losing it would finish the
  * equation).
  */
-function EquationPalette({ onInsert }: { onInsert: (latex: string) => void }) {
+function EquationPalette({ onInsert }: { onInsert: (latex: string, select?: string) => void }) {
   const [group, setGroup] = useState(PALETTE[0].id);
   const current = PALETTE.find((g) => g.id === group) ?? PALETTE[0];
   return (
@@ -55,7 +55,7 @@ function EquationPalette({ onInsert }: { onInsert: (latex: string) => void }) {
             title={item.label}
             aria-label={item.label}
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onInsert(item.latex)}
+            onClick={() => onInsert(item.latex, item.select)}
             dangerouslySetInnerHTML={{ __html: paletteFace(item.latex) }}
           />
         ))}
@@ -84,10 +84,10 @@ function MathView({ node, updateAttributes, editor, getPos, selected, deleteNode
     box.setSelectionRange(edit.start, edit.end);
   }, [draft]);
 
-  function insert(snippet: string) {
+  function insert(snippet: string, select?: string) {
     const box = inputRef.current;
     if (!box) return;
-    const edit = insertSnippet(draft, box.selectionStart, box.selectionEnd, snippet);
+    const edit = insertSnippet(draft, box.selectionStart, box.selectionEnd, snippet, select);
     pendingSelection.current = edit;
     setDraft(edit.text);
   }
