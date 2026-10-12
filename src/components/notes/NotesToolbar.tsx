@@ -167,6 +167,17 @@ export default function NotesToolbar({
   }, [popover]);
 
   const setMode = (mode: ToolMode) => onToolChange({ ...tool, mode });
+  // Picking a tool selects it (opening its color/size panel, if it has one);
+  // clicking the tool that is already selected puts it away and goes back to typing.
+  const toggleTool = (mode: Exclude<ToolMode, "type">, panel: typeof popover = null) => {
+    if (tool.mode === mode) {
+      setMode("type");
+      setPopover(null);
+    } else {
+      setMode(mode);
+      setPopover(panel);
+    }
+  };
   const typing = tool.mode === "type";
   // Typing has its own history; every other tool undoes marks (ink, text boxes, stickers).
   const textHistory = variant === "typed" && typing;
@@ -280,46 +291,37 @@ export default function NotesToolbar({
         <Divider />
         <div className="flex items-center gap-0.5" data-tutorial="note-draw-tools">
           <ToolButton
-            label="Pencil - click again for color and size"
+            label="Pencil - click again to go back to typing"
             active={tool.mode === "pencil"}
             popover={popover === "pencil"}
-            onClick={() => {
-              if (tool.mode === "pencil") setPopover(popover === "pencil" ? null : "pencil");
-              else setMode("pencil");
-            }}
+            onClick={() => toggleTool("pencil", "pencil")}
           >
             <Pencil size={17} />
             {penRgb && <span className="ml-1 h-2 w-2 rounded-full" style={{ background: `rgb(${penRgb})` }} />}
           </ToolButton>
           <ToolButton
-            label="Highlighter - click again for color"
+            label="Highlighter - click again to go back to typing"
             active={tool.mode === "highlighter"}
             popover={popover === "highlighter"}
-            onClick={() => {
-              if (tool.mode === "highlighter") setPopover(popover === "highlighter" ? null : "highlighter");
-              else setMode("highlighter");
-            }}
+            onClick={() => toggleTool("highlighter", "highlighter")}
           >
             <Highlighter size={17} />
             <span className="ml-1 h-2 w-2 rounded-full" style={{ background: `rgb(${markerRgb ?? "250, 204, 21"})` }} />
           </ToolButton>
-          <ToolButton label="Eraser - removes whole strokes" active={tool.mode === "eraser"} onClick={() => setMode("eraser")}>
+          <ToolButton label="Eraser - removes whole strokes. Click again to go back to typing" active={tool.mode === "eraser"} onClick={() => toggleTool("eraser")}>
             <Eraser size={17} />
           </ToolButton>
         </div>
 
-        <ToolButton label="Text box" active={tool.mode === "text"} onClick={() => setMode("text")}>
+        <ToolButton label="Text box - click again to go back to typing" active={tool.mode === "text"} onClick={() => toggleTool("text")}>
           <TextCursorInput size={17} />
           <span className="ml-1.5 hidden text-xs font-medium sm:inline">Text</span>
         </ToolButton>
         <ToolButton
-          label="Stickers"
+          label="Stickers - click again to go back to typing"
           active={tool.mode === "sticker"}
           popover={popover === "sticker"}
-          onClick={() => {
-            setMode("sticker");
-            setPopover(popover === "sticker" && tool.mode === "sticker" ? null : "sticker");
-          }}
+          onClick={() => toggleTool("sticker", "sticker")}
         >
           <Sticker size={17} />
           <span className="ml-1.5 hidden text-xs font-medium sm:inline">Sticker</span>

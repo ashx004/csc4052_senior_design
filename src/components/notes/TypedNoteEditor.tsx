@@ -34,6 +34,8 @@ const MARGIN_X = 80;
 const MARGIN_TOP = 72;
 const MARGIN_BOTTOM = 72;
 const SAVE_DELAY_MS = 900;
+/** How long after placing a text box or sticker the click that finishes the tap is ignored. */
+const PLACEMENT_CLICK_MS = 600;
 /** Tallest the text may grow before hitting the 50-page limit. */
 const MAX_TEXT_BOTTOM = MAX_PAGES_PER_NOTE * PAGE_HEIGHT - MARGIN_BOTTOM;
 
@@ -58,6 +60,10 @@ export default function TypedNoteEditor({
   const [imageBusy, setImageBusy] = useState(0);
   const [currentPage, setCurrentPage] = useState(0);
   const insertImagesRef = useRef<(files: File[], at?: number) => void>(() => {});
+  // When a text box was last placed. Placing one switches back to typing on
+  // pointer-down, so the click that ends the same tap would otherwise count as a
+  // click on the paper and pull the cursor out of the new box.
+  const placedAtRef = useRef(0);
   const [textBottom, setTextBottom] = useState(0);
   const [addedPages, setAddedPages] = useState(Math.max(1, note.pageCount ?? 1));
   const [limitMessage, setLimitMessage] = useState<string | null>(null);
@@ -403,6 +409,7 @@ export default function TypedNoteEditor({
     // Let TipTap handle ordinary clicks inside existing text, and leave stickers
     // and text boxes alone: dragging one ends in a click that bubbles up here.
     if ((event.target as HTMLElement).closest(".ProseMirror") || clickedAnnotation(event.target)) return;
+    if (Date.now() - placedAtRef.current < PLACEMENT_CLICK_MS) return;
     const content = sheetRef.current?.querySelector<HTMLElement>(".ProseMirror");
     if (!content) return;
     // A click on the paper beside or beyond the text goes to the nearest text:
@@ -518,7 +525,10 @@ export default function TypedNoteEditor({
                     tool={tool}
                     onStrokesChange={(strokes) => tools.setStrokes(i, strokes)}
                     onEraseAt={(x, y, r) => tools.eraseAt(i, x, y, r)}
-                    onPointerDownOther={(x, y) => tools.placeAt(i, x, y)}
+                    onPointerDownOther={(x, y) => {
+                      placedAtRef.current = Date.now();
+                      tools.placeAt(i, x, y);
+                    }}
                   />
                 </div>
               ))}
