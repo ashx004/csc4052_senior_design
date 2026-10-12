@@ -3,6 +3,22 @@
 @tailwind utilities;
 
 /* ==========================================================================
+   TOP SEARCH BAR HEIGHT
+   TopBar (src/components/search/TopBar.tsx) sits above <main>, so a page that
+   fills "100vh" inside <main> would overflow by the bar's height. --topbar-h is
+   what the bar currently takes (it sets data-topbar on <html>): 4rem on phones
+   (bar or just the menu-button spacer), 68px on desktop, 0 on desktop with the
+   bar hidden. Full-height utilities inside <main> subtract it.
+   ========================================================================== */
+:root { --topbar-h: 4rem; }
+@media (min-width: 768px) {
+  :root { --topbar-h: 68px; }
+  :root[data-topbar="spacer"] { --topbar-h: 0px; }
+}
+main .min-h-screen { min-height: calc(100vh - var(--topbar-h)); }
+main .h-screen { height: calc(100vh - var(--topbar-h)); }
+
+/* ==========================================================================
    UNIFIED APP THEME
    ========================================================================== */
 
