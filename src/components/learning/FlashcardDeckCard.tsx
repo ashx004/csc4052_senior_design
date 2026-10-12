@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import StudySetActions from './StudySetActions';
 import { flashcardStatusLabel, type FlashcardSetSummary } from '@/src/library/studySets/viewModels';
 import { studySetRoutes } from '@/src/library/studySets/routes';
 import styles from './FlashcardDeckCard.module.css';
@@ -19,6 +20,7 @@ export default function FlashcardDeckCard({
   const face = FACES[index % FACES.length];
   const minutes = typeof set.estimatedMinutes === 'number' ? `about ${set.estimatedMinutes} min` : null;
   return (
+    <article className="relative">
     <Link
       href={studySetRoutes(courseId).flashcard(set.id)}
       className={`${styles.card} ${face === 'purple' ? styles.purple : ''} ${face === 'orange' ? styles.orange : ''} ${face === 'blue' ? styles.blue : ''}`}
@@ -30,5 +32,7 @@ export default function FlashcardDeckCard({
         {minutes && <span>{minutes}</span>}
       </div>
     </Link>
+    <StudySetActions set={set} kind="flashcard" courseId={courseId} />
+    </article>
   );
 }

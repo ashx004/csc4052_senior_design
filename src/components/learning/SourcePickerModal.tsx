@@ -3,6 +3,8 @@
 import { useEffect, useId, useRef } from 'react';
 import {
   filterSourceOptions,
+  sourceCheckboxDisabled,
+  validSourceSelection,
   sourceSelectionNotice,
   sourceStatusLabel,
   toggleSource,
@@ -77,7 +79,7 @@ export default function SourcePickerModal({
         </div>
         {rows.map((option) => {
           const selected = selectedIds.includes(option.id);
-          const disabled = option.status === 'unavailable';
+          const disabled = sourceCheckboxDisabled(option, selectedIds);
           return (
             <label key={option.id} className={styles.row} data-selected={selected} data-disabled={disabled}>
               <input
@@ -154,7 +156,7 @@ export default function SourcePickerModal({
         <span aria-live="polite">{countLabel}</span>
         <span>
           {onBack && <button type="button" className={styles.all} onClick={onBack}>Back</button>}
-          <button type="button" className={styles.pill} disabled={selectedIds.length === 0} onClick={onContinue}>Continue →</button>
+          <button type="button" className={styles.pill} disabled={!validSourceSelection(selectedIds, options)} onClick={() => { if (validSourceSelection(selectedIds, options)) onContinue(); }}>Continue →</button>
         </span>
       </div>
     </dialog>

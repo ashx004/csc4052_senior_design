@@ -17,7 +17,7 @@ import { getEffectiveModelKey } from '@/src/library/chatMode';
 import { publishStudySet } from '@/src/library/discover/publishStudySet';
 import { subscribeNotes } from '@/src/library/notes/notesStore';
 import { DEFAULT_QUIZ_DIFFICULTY } from '@/src/library/quizDifficulty';
-import { normalizeSourceOptions, type SourceOption } from '@/src/library/studySets/sourceOptions';
+import { eligibleSourceIds, validSourceSelection, normalizeSourceOptions, sourceStatusLabel } from '@/src/library/studySets/sourceOptions';
 import {
   canCreateStudySet,
   liveGeneratorBlock,
@@ -65,7 +65,7 @@ export default function StudyLaunch({ courseId, variant, initialKind, preselecte
   const [resources, setResources] = useState<CourseResource[]>([]);
   const [notes, setNotes] = useState<Array<{ id: string; title: string; kind: string; courseId: string | null; resourceId?: string; hidden?: boolean }>>([]);
   const [kind, setKind] = useState<StudyKind>(initialKind ?? 'quiz');
-  const [selectedIds, setSelectedIds] = useState<string[]>(preselectedIds);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [query, setQuery] = useState('');
   const [step, setStep] = useState<'closed' | 'kind' | 'sources' | 'setup'>('closed');
   const [showDocuments, setShowDocuments] = useState(false);
@@ -98,24 +98,25 @@ export default function StudyLaunch({ courseId, variant, initialKind, preselecte
     };
   }, [user, courseId]);
 
-  useEffect(() => {
-    if (preselectedIds.length === 0) return;
-    setSelectedIds(preselectedIds);
-    setStep(initialKind ? 'sources' : 'kind');
-  }, [preselectedIds, initialKind]);
-
   const options = useMemo(
     () => normalizeSourceOptions(resources, notes, courseId),
     [resources, notes, courseId],
   );
+  useEffect(() => {
+    if (preselectedIds.length === 0) return;
+    setSelectedIds(eligibleSourceIds(preselectedIds, options));
+    setStep(initialKind ? 'sources' : 'kind');
+  }, [preselectedIds, initialKind, options]);
+
   const selected = options.filter((option) => selectedIds.includes(option.id));
   const validation = validateStudyConfig(kind, selectedIds.length, config);
   const noteOnly = selected.length > 0 && selected.every((option) => option.kind === 'note');
-  const blockedMessage = noteOnly
+  const sourcesValid = validSourceSelection(selectedIds, options);
+  const blockedMessage = !sourcesValid ? 'Choose available course sources to continue.' : noteOnly
     ? 'Choose a course document. Notes can be included once multi-source generation is connected.'
     : liveGeneratorBlock(kind, selectedIds.length, config);
   const loading = quizFromResource.loading || creatingCards;
-  const canCreate = canCreateStudySet(selectedIds, validation, loading, MULTI_SOURCE_GENERATION_READY) && !blockedMessage;
+  const canCreate = canCreateStudySet(selectedIds, validation, loading, MULTI_SOURCE_GENERATION_READY) && sourcesValid && !blockedMessage;
 
   const openKind = (next: StudyKind) => {
     setKind(next);
@@ -175,7 +176,7 @@ export default function StudyLaunch({ courseId, variant, initialKind, preselecte
   };
 
   const create = async () => {
-    if (!canCreate || loading) return;
+    if (!canCreate || loading || !validSourceSelection(selectedIds, options)) return;
     const option = selected[0];
     const resource = resources.find((item) => item.id === option?.id);
     if (!option || option.kind !== 'document' || !resource?.url) {
@@ -235,15 +236,18 @@ export default function StudyLaunch({ courseId, variant, initialKind, preselecte
                   <button
                     key={resource.id}
                     type="button"
+                    disabled={!eligibleSourceIds([resource.id], options).length}
                     onClick={() => {
-                      setSelectedIds([resource.id]);
+                      const ids = eligibleSourceIds([resource.id], options);
+                      if (!ids.length) return;
+                      setSelectedIds(ids);
                       setShowDocuments(false);
                       setStep('kind');
                     }}
                     className="flex min-w-0 items-center gap-3 rounded-xl bg-bg-main p-3 text-left text-sm font-medium text-text-main hover:bg-bg-warm focus-visible:bg-bg-warm focus-visible:outline-none"
                   >
                     <BookOpen size={18} className="shrink-0 text-text-muted" />
-                    <span className="truncate">{resource.name}</span>
+                    <span className="min-w-0"><span className="block truncate">{resource.name}</span><span className="block text-xs text-text-muted">{sourceStatusLabel(options.find((option) => option.id === resource.id)?.status ?? 'unavailable')}</span></span>
                   </button>
                 ))}
               </div>
@@ -272,7 +276,7 @@ export default function StudyLaunch({ courseId, variant, initialKind, preselecte
         onQueryChange={setQuery}
         onChange={setSelectedIds}
         onBack={preselectedIds.length > 0 && !initialKind ? () => setStep('kind') : undefined}
-        onContinue={() => setStep('setup')}
+        onContinue={() => { if (sourcesValid) setStep('setup'); }}
         onClose={() => setStep('closed')}
       />
       {step === 'setup' && (
