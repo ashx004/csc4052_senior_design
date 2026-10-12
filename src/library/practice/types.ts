@@ -7,13 +7,15 @@
 // course at users/{uid}/enrollment/{courseId}/practiceSets/{setId}, with each
 // finished run in its `attempts` subcollection.
 
+import type { QuizDifficulty } from "@/src/library/quizDifficulty";
+
 export type PracticeKind = "fill_blank" | "word_problem" | "drag_drop";
 
 export const PRACTICE_KINDS: PracticeKind[] = ["fill_blank", "word_problem", "drag_drop"];
 
-// Same three levels (and names) as the quiz levels in quizDifficulty.ts on the sprint-5 quiz branch,
-// so practice and quizzes can share one vocabulary once that branch is merged.
-export type PracticeDifficulty = "review" | "exam" | "challenge";
+// Practice uses the quiz levels (review / exam / challenge) from quizDifficulty.ts,
+// so "Challenge" means the same thing in both.
+export type PracticeDifficulty = QuizDifficulty;
 
 export const BLANK_MARKER = "____";
 
