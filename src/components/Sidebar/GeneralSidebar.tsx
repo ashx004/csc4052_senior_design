@@ -23,7 +23,8 @@ export default function GeneralSidebar() {
     <Sidebar>
       <ul className="flex flex-col gap-1" data-tutorial="sidebar-nav">
         {links.map(({ label, href, icon: Icon }) => {
-          const isActive = pathname === href;
+          // A section stays highlighted on its sub-pages (Notes on /notes/ocr and /notes/<id>).
+          const isActive = pathname === href || pathname.startsWith(`${href}/`);
 
           return (
             <li key={href}>

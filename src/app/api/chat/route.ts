@@ -10,9 +10,15 @@ import { clarifyUserQuery } from "@/src/library/queryClarifier";
 import { searchWeb } from "@/src/library/webSearch";
 import { searchYoutube } from "@/src/library/youtubeSearch";
 import { generateAndUploadPdf, generateAndUploadPdfToCourse } from "@/src/library/pdfGenerate";
-import { generateFlashcardsWithRetry } from "@/src/library/flashcardGeneration";
-import { generateQuizWithValidation } from "@/src/library/quizGeneration";
-import { DEFAULT_QUIZ_DIFFICULTY } from "@/src/library/quizDifficulty";
+import { generateFlashcardsWithRetry, MAX_FLASHCARDS } from "@/src/library/flashcardGeneration";
+import { generateQuizWithValidation, MAX_QUIZ_QUESTIONS } from "@/src/library/quizGeneration";
+import { parseQuizDifficulty } from "@/src/library/quizDifficulty";
+import { generateAcrossSources } from "@/src/library/generation/orchestrator";
+import { isSourceSelectionError } from "@/src/library/sources/errors";
+import { MAX_SOURCES, resolveSources } from "@/src/library/sources/resolveSources";
+import type { SourceInput } from "@/src/library/sources/sourceTypes";
+import { capSources, hasAnySource, noteRowToSource, requestedSourcesFromArgs } from "@/src/library/chatTools/studySetSources";
+import { completeKeys, notebookSetFields, plainSetFields } from "@/src/library/studySets/notebookSet";
 import { warnIfSlowGeneration } from "@/src/library/ollamaHealthCheck";
 import { getStudentProfile, maybeUpdateStudentProfile, StudentProfile } from "@/src/library/studentProfile";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
@@ -33,6 +39,7 @@ import { pendingToolText, proposeAction, recentActionOutcomes, type PendingActio
 import { ALL_TOOL_GROUPS, selectToolGroups, type ToolGroup } from "@/src/library/chatToolRouting";
 import {
   COURSE_TOOLS,
+  findNotesForStudy,
   LOAD_TOOLS_TOOL,
   NOTES_TOOLS,
   PROGRESS_TOOLS,
@@ -204,15 +211,18 @@ const CREATE_FLASHCARDS_TOOL = {
   function: {
     name: "create_flashcards",
     description:
-      "Generate a set of study flashcards from a specific class document and save it to the student's flashcards for that class, ready to study immediately. Use this when the student asks to make/create/generate flashcards from a document (e.g. 'make flashcards from the syllabus', 'create flashcards for the chapter 3 notes'). Reference the exact courseId from the system context, and the document's filename exactly as shown there.",
+      "Generate a set of study flashcards and save it to the student's flashcards for that class, ready to study immediately. Use this when the student asks to make/create/generate flashcards from a document, several documents, their notes, or a whole notebook (e.g. 'make flashcards from the syllabus', 'flashcards from lectures 1 to 3', 'flashcards from my Graphs note', 'flashcards from my Algorithms notebook'). The set covers every source evenly. Reference the exact courseId from the system context. Name documents exactly as shown there; name notes and notebooks by their titles. Give at least one of documentName, documentNames, noteTitles or notebook (up to 10 sources in all).",
     parameters: {
       type: "object",
       properties: {
-        courseId: { type: "string", description: "The class ID the document belongs to" },
-        documentName: { type: "string", description: "The document's filename to generate flashcards from, e.g. \"GroupCreationAssignment.pdf\"" },
-        focus: { type: "string", description: "Optional: a topic within the document to concentrate on, if the student named one" },
+        courseId: { type: "string", description: "The class ID the set is saved to (and the documents belong to)" },
+        documentName: { type: "string", description: "A document's filename to generate flashcards from, e.g. \"GroupCreationAssignment.pdf\"" },
+        documentNames: { type: "array", items: { type: "string" }, description: "Several documents' filenames, to build one set across all of them" },
+        noteTitles: { type: "array", items: { type: "string" }, description: "Titles of the student's own notes to include" },
+        notebook: { type: "string", description: "A notebook's name, to use every note in it" },
+        focus: { type: "string", description: "Optional: a topic within the material to concentrate on, if the student named one" },
       },
-      required: ["courseId", "documentName"],
+      required: ["courseId"],
     },
   },
 };
@@ -222,16 +232,20 @@ const CREATE_QUIZ_TOOL = {
   function: {
     name: "create_quiz",
     description:
-      "Generate a quiz (multiple choice / true-false / matching questions) from a specific class document and save it to the student's quizzes for that class, ready to take immediately. Use this when the student asks to make/create/generate a quiz or practice test from a document. Reference the exact courseId from the system context, and the document's filename exactly as shown there.",
+      "Generate a quiz (multiple choice / true-false / matching questions) and save it to the student's quizzes for that class, ready to take immediately. Use this when the student asks to make/create/generate a quiz or practice test from a document, several documents, their notes, or a whole notebook. The quiz covers every source evenly. Reference the exact courseId from the system context. Name documents exactly as shown there; name notes and notebooks by their titles. Give at least one of documentName, documentNames, noteTitles or notebook (up to 10 sources in all).",
     parameters: {
       type: "object",
       properties: {
-        courseId: { type: "string", description: "The class ID the document belongs to" },
-        documentName: { type: "string", description: "The document's filename to generate the quiz from, e.g. \"GroupCreationAssignment.pdf\"" },
+        courseId: { type: "string", description: "The class ID the quiz is saved to (and the documents belong to)" },
+        documentName: { type: "string", description: "A document's filename to generate the quiz from, e.g. \"GroupCreationAssignment.pdf\"" },
+        documentNames: { type: "array", items: { type: "string" }, description: "Several documents' filenames, to build one quiz across all of them" },
+        noteTitles: { type: "array", items: { type: "string" }, description: "Titles of the student's own notes to include" },
+        notebook: { type: "string", description: "A notebook's name, to use every note in it" },
         questionCount: { type: "number", description: "How many questions to generate, between 1 and 20. Default to 10 if the student doesn't say." },
-        focus: { type: "string", description: "Optional: a topic within the document to concentrate on, if the student named one" },
+        difficulty: { type: "string", enum: ["review", "exam", "challenge"], description: "review = recall and understanding, exam = a typical exam mix, challenge = harder application and analysis. Leave out unless the student says how hard they want it." },
+        focus: { type: "string", description: "Optional: a topic within the material to concentrate on, if the student named one" },
       },
-      required: ["courseId", "documentName"],
+      required: ["courseId"],
     },
   },
 };
@@ -365,15 +379,18 @@ function listEnrolledClasses(context: ChatContext | undefined): string {
     .join("\n\n")}${note}`;
 }
 
-async function readDocument(
+// Finds a class document by name and confirms, with the student's own token,
+// that it is theirs and readable. Used by readDocument and by the study-set
+// tools, which hand the file to the shared generation engine instead of text.
+async function lookupDocument(
   request: NextRequest,
   context: ChatContext | undefined,
   courseId: string,
   documentName: string
-): Promise<{ text: string; raw?: string; doc?: ChatDocument }> {
+): Promise<{ doc?: ChatDocument; error?: string }> {
   const classDoc = context?.classes.find((c) => c.classId === courseId);
   if (!classDoc) {
-    return { text: "Error: no class found with that courseId." };
+    return { error: "Error: no class found with that courseId." };
   }
 
   // Match by name rather than requiring the model to reproduce an opaque
@@ -392,7 +409,7 @@ async function readDocument(
   if (!doc) {
     const available = classDoc.documents.map((d) => d.name).join(", ") || "(no documents in this class)";
     return {
-      text: `Error: there is no document named "${documentName}" in this class. Tell the student plainly that it isn't there. Don't summarize or describe a different document in its place unless they ask you to. Available documents: ${available}`,
+      error: `Error: there is no document named "${documentName}" in this class. Tell the student plainly that it isn't there. Don't summarize or describe a different document in its place unless they ask you to. Available documents: ${available}`,
     };
   }
   // Browser context is only a hint. Resolve authoritative metadata with the
@@ -402,13 +419,25 @@ async function readDocument(
     ? await readOwnedDocument(idToken, context.userId, courseId, doc.resourceId)
     : null;
   if (!authoritative) {
-    return { text: `Error: "${doc.name}" could not be opened. Tell the student and suggest re-uploading it.` };
+    return { error: `Error: "${doc.name}" could not be opened. Tell the student and suggest re-uploading it.` };
   }
   if (!SUPPORTED_DOCUMENT_TYPES.includes(authoritative.fileType)) {
     return {
-      text: `Error: "${authoritative.name}" is a .${authoritative.fileType} file — that type isn't readable yet (PDF, Word, Excel, plain text, and common code files are supported).`,
+      error: `Error: "${authoritative.name}" is a .${authoritative.fileType} file — that type isn't readable yet (PDF, Word, Excel, plain text, and common code files are supported).`,
     };
   }
+  return { doc: authoritative };
+}
+
+async function readDocument(
+  request: NextRequest,
+  context: ChatContext | undefined,
+  courseId: string,
+  documentName: string
+): Promise<{ text: string; raw?: string; doc?: ChatDocument }> {
+  const found = await lookupDocument(request, context, courseId, documentName);
+  if (!found.doc) return { text: found.error ?? "Error: that document could not be opened." };
+  const authoritative = found.doc;
 
   try {
     let text = await getDocumentText(request, authoritative.url, authoritative.fileType);
@@ -549,7 +578,7 @@ const WRITE_TOOLS = new Set([
   "set_self_confidence",
 ]);
 function writeTarget(args: Record<string, unknown>): string {
-  const keys = ["eventId", "title", "courseId", "documentName", "titles", "notebook", "startDateTime"];
+  const keys = ["eventId", "title", "courseId", "documentName", "documentNames", "noteTitles", "titles", "notebook", "startDateTime", "difficulty"];
   return canonicalArgs(Object.fromEntries(keys.filter((k) => args?.[k] !== undefined).map((k) => [k, String(args[k]).toLowerCase().trim()])));
 }
 
@@ -981,133 +1010,148 @@ async function recallPastChatTool(
   }
 }
 
+/** Cards in a chat-made flashcard set when the student gives no number (same as the Learning page). */
+const DEFAULT_CHAT_FLASHCARDS = 20;
 type GeneratedStudySet = { kind: "flashcard" | "quiz" | "note"; id: string; courseId: string; name: string };
 
-// The stored sourceDocKey (flashcardSets/quizSets schema) is the raw MinIO
-// object key, not the download URL — matches the ?key= extraction the
-// client pages already do (flashcards/page.tsx's extractStorageKey) so a
-// chat-created set looks identical to one created from the course page.
-function storageKeyFromDocUrl(url: string): string {
-  return decodeURIComponent(url.split("key=")[1] ?? "");
-}
-
-// Shares the exact same generation logic as the standalone
-// generate-flashcards/generate-quiz routes (see flashcardGeneration.ts/
-// quizGeneration.ts) and the same document-reading path as the
-// read_document tool above — just persists straight to Firestore instead of
-// handing the result back to a client page to save. New sets are always
-// created fresh (never merged into an existing set for the same document,
-// unlike the course-page flow) — simpler, and a student re-asking the chat
-// for "more flashcards" from the same doc reasonably expects a new set.
-async function createFlashcardsFromDocument(
+// Builds a quiz or flashcard set from whatever the student named - one
+// document, several, their notes, or a whole notebook - through the same
+// engine as the Learning page and the generate-quiz / generate-flashcards /
+// notebooks routes (source resolution, per-source quotas, grounding checks), so
+// a chat-made set is the same as one made in the UI. It persists straight to
+// Firestore instead of handing the result to a client page. New sets are always
+// created fresh (never merged into an existing set for the same sources) -
+// a student re-asking the chat for "more flashcards" expects a new set.
+async function createStudySetFromSources(
+  kind: "quiz" | "flashcards",
   request: NextRequest,
   context: ChatContext | undefined,
   primaryTarget: OllamaTarget,
   modelKey: string | undefined,
-  courseId: string,
-  documentName: string,
-  focus?: string
+  args: Record<string, unknown>
 ): Promise<{ result: string; studySet?: GeneratedStudySet }> {
+  const noun = kind === "quiz" ? "quiz" : "flashcards";
   if (!context?.userId) {
-    return { result: "Error: no student context available to save flashcards for." };
+    return { result: `Error: no student context available to save ${noun} for.` };
   }
-
   const idToken = getIdToken(request);
   if (!idToken) {
     return { result: "Error: not authenticated." };
   }
-
-  const readResult = await readDocument(request, context, courseId, documentName);
-  if (!readResult.doc) {
-    return { result: readResult.text };
+  const courseId = typeof args.courseId === "string" ? args.courseId : "";
+  if (!context.classes.some((c) => c.classId === courseId)) {
+    return { result: "Error: no class found with that courseId." };
   }
 
+  const requested = requestedSourcesFromArgs(args);
+  if (!hasAnySource(requested)) {
+    return { result: `Error: say what to make the ${noun} from - a document name, note titles, or a notebook. Ask the student which.` };
+  }
+
+  // Documents: authoritative lookups, passed on as files for the engine to read.
+  const inputs: Array<SourceInput & { noteId?: string; typed?: boolean }> = [];
+  for (const name of requested.documentNames) {
+    const found = await lookupDocument(request, context, courseId, name);
+    if (!found.doc) return { result: found.error ?? "Error: that document could not be opened." };
+    inputs.push({ title: found.doc.name, url: found.doc.url, fileType: found.doc.fileType, resourceId: found.doc.resourceId });
+  }
+
+  // Notes and notebooks.
+  let notebookId: string | undefined;
+  if (requested.noteTitles.length > 0 || requested.notebook) {
+    const found = await findNotesForStudy({ idToken, uid: context.userId, context }, requested.noteTitles, requested.notebook);
+    if (found.error) return { result: found.error };
+    notebookId = found.notebookId;
+    inputs.push(...found.rows.map(noteRowToSource));
+  }
+
+  const { kept, overflow } = capSources(inputs);
+  const overflowNote = overflow.length
+    ? ` (${overflow.length} more source${overflow.length === 1 ? "" : "s"} were left out - one set uses at most ${MAX_SOURCES}; offer a second set for the rest)`
+    : "";
+
   try {
-    const generated = await generateFlashcardsWithRetry(withFocus(readResult.raw ?? readResult.text, focus), primaryTarget.baseUrl, modelKey);
-    const collectionPath = `users/${context.userId}/enrollment/${courseId}/flashcardSets`;
-    const docId = await firestoreCreate(idToken, collectionPath, {
+    // Loaded here, not at the top: resolveDeps pulls in Firebase Admin, which the
+    // rest of this route (and its unit tests) doesn't need until a set is built.
+    const { resolveDepsFor } = await import("@/src/library/sources/resolveDeps");
+    const resolved = await resolveSources(resolveDepsFor(request, context.userId, courseId), kept);
+    if (resolved.sources.length === 0) {
+      return { result: `Error: couldn't read any text from what was named. You have NOT seen its contents - tell the student and don't guess what it covers.` };
+    }
+
+    const wanted = kind === "quiz" ? Math.round(Number(args.questionCount ?? 10)) : DEFAULT_CHAT_FLASHCARDS;
+    const cap = kind === "quiz" ? MAX_QUIZ_QUESTIONS : MAX_FLASHCARDS;
+    // allocateQuotas needs at least one item per source; a student who asked
+    // for 3 questions across 5 notes can't act on "pick fewer sources", so the
+    // count rises to the number of sources instead.
+    const count = Math.max(Math.min(cap, Math.max(1, Number.isFinite(wanted) ? wanted : 10)), resolved.sources.length);
+    const focus = typeof args.focus === "string" ? args.focus : undefined;
+    const baseUrl = primaryTarget.baseUrl;
+    const types = { multipleChoice: true, trueFalse: true, matching: false };
+    const level = parseQuizDifficulty(args.difficulty);
+
+    const generated = kind === "quiz"
+      ? await generateAcrossSources({
+          sources: resolved.sources,
+          count,
+          shuffle: false,
+          generate: async (source, quota, alreadyAsked) => {
+            const result = await generateQuizWithValidation(withFocus(source.text, focus), quota, types, baseUrl, modelKey, alreadyAsked, level);
+            return { topicName: result.topicName, items: result.questions };
+          },
+        })
+      : await generateAcrossSources({
+          sources: resolved.sources,
+          count,
+          shuffle: true,
+          generate: async (source, quota, alreadyAsked) => {
+            const result = await generateFlashcardsWithRetry(withFocus(source.text, focus), baseUrl, modelKey, alreadyAsked, quota);
+            return { topicName: result.topicName, items: result.questions };
+          },
+        });
+
+    if (generated.items.length === 0) {
+      return { result: `Error: failed to generate ${noun} from that material. Tell the student and offer to try again.` };
+    }
+
+    const serverKeys = resolved.sources.map((src) => src.sourceKey).filter((key): key is string => !!key);
+    const typedNoteIds = kept.filter((src) => src.typed === true && src.noteId).map((src) => src.noteId as string);
+    const documentIds = kept.map((src) => ("resourceId" in src ? src.resourceId : undefined)).filter((id): id is string => !!id);
+    const sourceKeys = completeKeys(serverKeys, typedNoteIds, documentIds);
+    const identity = notebookId ? notebookSetFields(notebookId, sourceKeys) : plainSetFields(sourceKeys);
+
+    const base = {
       name: generated.topicName,
-      sourceDocKey: storageKeyFromDocUrl(readResult.doc.url),
-      cards: generated.questions,
+      ...identity,
       pinned: true,
       visibility: "private",
       createdAt: new Date(),
       updatedAt: new Date(),
-    });
-
-    if (!docId) {
-      return { result: "Error: the flashcards were generated but failed to save. Tell the student and offer to try again." };
-    }
-
-    return {
-      result: `Created a flashcard set called "${generated.topicName}" with ${generated.questions.length} cards from "${readResult.doc.name}". It's saved to this class's flashcards and ready to study — a link has been shared with the student, don't repeat the raw questions/answers back in your reply unless asked. This is finished - don't call this tool again for it.`,
-      studySet: { kind: "flashcard", id: docId, courseId, name: generated.topicName },
     };
-  } catch (error) {
-    console.error("create_flashcards tool failed:", error);
-    return { result: "Error: failed to generate flashcards from that document. Tell the student and offer to try again." };
-  }
-}
-
-async function createQuizFromDocument(
-  request: NextRequest,
-  context: ChatContext | undefined,
-  primaryTarget: OllamaTarget,
-  modelKey: string | undefined,
-  courseId: string,
-  documentName: string,
-  questionCount: number | undefined,
-  focus?: string
-): Promise<{ result: string; studySet?: GeneratedStudySet }> {
-  if (!context?.userId) {
-    return { result: "Error: no student context available to save a quiz for." };
-  }
-
-  const idToken = getIdToken(request);
-  if (!idToken) {
-    return { result: "Error: not authenticated." };
-  }
-
-  const readResult = await readDocument(request, context, courseId, documentName);
-  if (!readResult.doc) {
-    return { result: readResult.text };
-  }
-
-  const count = Math.min(20, Math.max(1, Math.round(questionCount ?? 10)));
-
-  try {
-    const generated = await generateQuizWithValidation(
-      withFocus(readResult.raw ?? readResult.text, focus),
-      count,
-      { multipleChoice: true, trueFalse: true, matching: false },
-      primaryTarget.baseUrl,
-      modelKey
+    const collectionPath = `users/${context.userId}/enrollment/${courseId}/${kind === "quiz" ? "quizSets" : "flashcardSets"}`;
+    const docId = await firestoreCreate(
+      idToken,
+      collectionPath,
+      kind === "quiz"
+        ? { ...base, questions: generated.items, questionTypes: types, difficulty: level, questionCount: generated.items.length }
+        : { ...base, cards: generated.items }
     );
-    const collectionPath = `users/${context.userId}/enrollment/${courseId}/quizSets`;
-    const docId = await firestoreCreate(idToken, collectionPath, {
-      name: generated.topicName,
-      sourceDocKey: storageKeyFromDocUrl(readResult.doc.url),
-      questions: generated.questions,
-      questionTypes: { multipleChoice: true, trueFalse: true, matching: false },
-      difficulty: DEFAULT_QUIZ_DIFFICULTY,
-      questionCount: generated.questions.length,
-      pinned: true,
-      visibility: "private",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-
     if (!docId) {
-      return { result: "Error: the quiz was generated but failed to save. Tell the student and offer to try again." };
+      return { result: `Error: the ${noun} were generated but failed to save. Tell the student and offer to try again.` };
     }
 
+    const from = resolved.sources.map((src) => `"${src.title}"`).join(", ");
+    const skipped = resolved.skipped.length ? ` Couldn't read: ${resolved.skipped.map((src) => `"${src.title}"`).join(", ")} - mention that.` : "";
+    const label = kind === "quiz" ? `quiz called "${generated.topicName}" with ${generated.items.length} questions` : `flashcard set called "${generated.topicName}" with ${generated.items.length} cards`;
     return {
-      result: `Created a quiz called "${generated.topicName}" with ${generated.questions.length} questions from "${readResult.doc.name}". It's saved to this class's quizzes and ready to take — a link has been shared with the student, don't repeat the raw questions back in your reply unless asked. This is finished - don't call this tool again for it.`,
-      studySet: { kind: "quiz", id: docId, courseId, name: generated.topicName },
+      result: `Created a ${label} from ${from}${overflowNote}. It's saved to this class's ${kind === "quiz" ? "quizzes" : "flashcards"} and ready to ${kind === "quiz" ? "take" : "study"} - a link has been shared with the student, don't repeat the raw ${kind === "quiz" ? "questions" : "cards"} back in your reply unless asked.${skipped} This is finished - don't call this tool again for it.`,
+      studySet: { kind: kind === "quiz" ? "quiz" : "flashcard", id: docId, courseId, name: generated.topicName },
     };
   } catch (error) {
-    console.error("create_quiz tool failed:", error);
-    return { result: "Error: failed to generate a quiz from that document. Tell the student and offer to try again." };
+    console.error(`create_${kind === "quiz" ? "quiz" : "flashcards"} tool failed:`, error);
+    // A message written for the student (e.g. too many sources) is safe to pass on.
+    if (isSourceSelectionError(error)) return { result: `Error: ${error.message}` };
+    return { result: `Error: failed to generate ${noun} from that material. Tell the student and offer to try again.` };
   }
 }
 
@@ -2529,31 +2573,17 @@ export async function POST(request: NextRequest) {
                   generatedFiles.push(pdfResult.file);
                   outputGuard.allowFrom(pdfResult.file.url);
                 }
-              } else if (fnName === "create_flashcards") {
-                const flashcardResult = await createFlashcardsFromDocument(
+              } else if (fnName === "create_flashcards" || fnName === "create_quiz") {
+                const made = await createStudySetFromSources(
+                  fnName === "create_quiz" ? "quiz" : "flashcards",
                   request,
                   context,
                   primaryTarget,
                   modelKey,
-                  args.courseId,
-                  args.documentName,
-                  typeof args.focus === "string" ? args.focus : undefined
+                  args
                 );
-                result = flashcardResult.result;
-                if (flashcardResult.studySet) generatedStudySets.push(flashcardResult.studySet);
-              } else if (fnName === "create_quiz") {
-                const quizResult = await createQuizFromDocument(
-                  request,
-                  context,
-                  primaryTarget,
-                  modelKey,
-                  args.courseId,
-                  args.documentName,
-                  args.questionCount,
-                  typeof args.focus === "string" ? args.focus : undefined
-                );
-                result = quizResult.result;
-                if (quizResult.studySet) generatedStudySets.push(quizResult.studySet);
+                result = made.result;
+                if (made.studySet) generatedStudySets.push(made.studySet);
               } else if (fnName === "list_calendar_events") {
                 result = await listCalendarEventsTool(request, context, args);
               } else if (fnName === "create_calendar_event") {

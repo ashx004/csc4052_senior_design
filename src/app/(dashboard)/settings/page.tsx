@@ -42,6 +42,7 @@ import { syncUpcomingReminderJobsForUser } from "@/src/library/email/reminderJob
 import { getSidebarAutoCollapse, setSidebarAutoCollapse } from "@/src/library/sidebarPreference";
 import { downloadDataExport, requestDataExport } from "@/src/library/dataExportDownload";
 import { ACCOUNT_DELETION_CONFIRMATION } from "@/src/library/accountDeletionConsent";
+import { setStoredSearchBarEnabled, useSearchBarEnabled } from "@/src/library/searchBarPreference";
 
 const EMAIL_REMINDER_OFFSET_OPTIONS = [
     { minutes: 10_080, label: "1 week before" },
@@ -72,6 +73,7 @@ export default function Settings() {
     // const [notificationIsOn, setNotificationOn] = useState<boolean>(false);
     // const [studyRemIsOn, setstudyRemOn] = useState<boolean>(false);
     const [themeMode, setThemeModeState] = useState<ThemeMode>("light");
+    const searchBarEnabled = useSearchBarEnabled();
     const [coffee, setCoffeeState] = useState<boolean>(false);
     const [emailRemindersEnabled, setEmailRemindersEnabled] = useState(false);
     const [emailReminderOffsets, setEmailReminderOffsets] = useState<number[]>([1_440]);
@@ -867,6 +869,45 @@ export default function Settings() {
 
             </div>
 
+            {/* Shows or hides the "Search Catalyst" bar across the top of every
+                page (src/components/search/TopBar.tsx). Ctrl/Cmd+S still works
+                when it's on; pages reclaim the bar's height when it's off. */}
+            <div className="mt-2 flex w-3/4 self-center items-center justify-between gap-3 py-3 px-2
+                        bg-bg-main text-text-main hover:bg-bg-warm" data-tutorial="settings-search-bar">
+
+                <div className="min-w-0">
+                    <span className="text-sm">
+                        Search bar
+                    </span>
+                    <p className="text-xs text-text-muted">
+                        Show the Search Catalyst bar at the top of each page.
+                    </p>
+                </div>
+
+                <div className="flex shrink-0 items-center gap-3">
+                    <button
+                        type="button"
+                        role="switch"
+                        aria-checked={searchBarEnabled}
+                        aria-label="Show the search bar"
+                        onClick={() => setStoredSearchBarEnabled(!searchBarEnabled)}
+                        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                            searchBarEnabled ? "bg-primary" : "bg-border-light"
+                        }`}
+                    >
+                        <span
+                            className={`absolute left-[2px] top-[2px] h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                                searchBarEnabled ? "translate-x-5" : "translate-x-0"
+                            }`}
+                        />
+                    </button>
+                    <span className="w-8 text-xs text-text-muted">
+                        {searchBarEnabled ? "On" : "Off"}
+                    </span>
+                </div>
+
+            </div>
+
             {/* Voice picker for the AI Assistant's "read aloud" button
                 (src/library/tts.ts). Deliberately lists the browser's own
                 named voices rather than a male/female/non-binary category
@@ -874,10 +915,10 @@ export default function Settings() {
                 level, and availability varies by device, so a preview
                 button is the only honest way to choose one. */}
             {ttsSupported && (
-                <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
-                            bg-bg-main text-text-main hover:bg-bg-warm">
+                <div className="mt-2 flex w-3/4 self-center flex-col gap-3 py-3 px-2
+                            bg-bg-main text-text-main hover:bg-bg-warm sm:flex-row sm:items-center sm:justify-between">
 
-                    <div>
+                    <div className="min-w-0">
                         <span className="text-sm">
                             Read-aloud voice
                         </span>
@@ -886,12 +927,16 @@ export default function Settings() {
                         </p>
                     </div>
 
-                    <div className="flex shrink-0 items-center gap-2">
+                    {/* Stacks under the label on narrow screens, with the select
+                        taking the leftover width (min-w-0 lets long voice names
+                        truncate instead of overflowing) beside Preview. */}
+                    <div className="flex w-full items-center gap-2 sm:w-auto sm:shrink-0">
                         <select
                             id="tts-voice-select"
+                            aria-label="Read-aloud voice"
                             value={selectedVoiceURI}
                             onChange={(e) => handleVoiceChange(e.target.value)}
-                            className="rounded-md border border-border-light bg-bg-container px-2 py-1.5 text-xs text-text-main focus:border-primary focus:outline-none"
+                            className="min-w-0 flex-1 truncate rounded-md border border-border-light bg-bg-container px-2 py-1.5 text-xs text-text-main focus:border-primary focus:outline-none sm:max-w-[16rem] sm:flex-none"
                         >
                             {voices.map((voice) => (
                                 <option key={voice.voiceURI} value={voice.voiceURI}>
@@ -903,7 +948,7 @@ export default function Settings() {
                             type="button"
                             onClick={handlePreviewVoice}
                             disabled={!selectedVoiceURI}
-                            className="rounded-md border border-border-light px-3 py-1.5 text-xs font-medium text-text-main transition hover:bg-bg-warm disabled:cursor-not-allowed disabled:opacity-50"
+                            className="shrink-0 rounded-md border border-border-light px-3 py-1.5 text-xs font-medium text-text-main transition hover:bg-bg-warm disabled:cursor-not-allowed disabled:opacity-50"
                         >
                             Preview
                         </button>

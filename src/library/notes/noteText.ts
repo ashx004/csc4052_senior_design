@@ -132,6 +132,22 @@ export function notebookInCourse(notebook: Notebook, courseId: string, notes: No
   return courses.size === 1 && courses.has(courseId);
 }
 
+/**
+ * Which class a notebook belongs to, as short text for the general (all
+ * classes) view, where two notebooks can share a name ("Exam 1 Material").
+ * From its notes' class; an empty notebook, or one whose notes aren't tied to a
+ * class, falls back to the class it was created in. "General" when it has none.
+ */
+export function notebookClassLabel(notebook: Notebook, notes: Note[], classes: ClassOption[]): string | undefined {
+  const inBook = notes.filter((n) => n.notebookId === notebook.id);
+  const ids = new Set(inBook.map((n) => n.courseId).filter((id): id is string => !!id));
+  if (ids.size > 1) return "Multiple classes";
+  const id = ids.size === 1 ? [...ids][0] : notebook.homeCourseId;
+  const course = id ? classes.find((c) => c.id === id) : undefined;
+  // Same word the note rows use for a note that isn't tied to a class.
+  return course ? `${course.classCode || course.className}${course.passed ? " · Passed" : ""}` : "General";
+}
+
 export type NoteSort = "recent" | "title" | "class" | "notebook";
 
 export function sortNotes(

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { FileText, Loader2, PenLine, Puzzle, Sparkles, Variable } from "lucide-react";
 import {
   DIFFICULTY_LABELS,
@@ -63,6 +64,12 @@ export default function PracticeSetup({
       <h2 className="flex items-center gap-2 text-base font-bold text-text-main">
         <Sparkles size={16} className="text-primary" /> Make new practice
       </h2>
+      <p className="mt-1 text-xs text-text-muted">
+        Want to use your own prompt and files instead of this class&apos;s documents?{" "}
+        <Link href="/custom/new?type=practice" className="font-medium text-primary hover:underline">
+          Make a custom practice exam
+        </Link>
+      </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Type of practice">
         {PRACTICE_KINDS.map((k) => {

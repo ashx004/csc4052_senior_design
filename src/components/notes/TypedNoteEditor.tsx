@@ -14,7 +14,8 @@ import type { ExportPage } from "@/src/library/notes/exportMarkup";
 import { isImageFile, uploadNoteImage } from "@/src/library/notes/noteImages";
 import { MAX_PAGES_PER_NOTE, PAGE_HEIGHT, PAGE_WIDTH, type Note } from "@/src/library/notes/types";
 import AnnotationItems from "./AnnotationItems";
-import ExportMenu from "./ExportMenu";
+import ExportMenu, { type ExportSource } from "./ExportMenu";
+import { useExportRegistration } from "./noteExportSlot";
 import { captureElement, sliceCapture } from "./markupCanvas";
 import InkLayer from "./InkLayer";
 import { useMarkShortcuts } from "./useMarkShortcuts";
@@ -28,11 +29,14 @@ import { defaultToolState, type ToolState } from "./tools";
 import { NoteBulletList, TabIndent, TextHighlight, ToolbarItalic, indentLess, indentMore } from "./editor/basicExtensions";
 import { MathBlock, MathInline } from "./editor/MathExtension";
 import { NoteImage } from "./editor/ImageExtension";
+import { clickedAnnotation, nearestTextPoint } from "./editor/clickTarget";
 
 const MARGIN_X = 80;
 const MARGIN_TOP = 72;
 const MARGIN_BOTTOM = 72;
 const SAVE_DELAY_MS = 900;
+/** How long after placing a text box or sticker the click that finishes the tap is ignored. */
+const PLACEMENT_CLICK_MS = 600;
 /** Tallest the text may grow before hitting the 50-page limit. */
 const MAX_TEXT_BOTTOM = MAX_PAGES_PER_NOTE * PAGE_HEIGHT - MARGIN_BOTTOM;
 
@@ -57,6 +61,10 @@ export default function TypedNoteEditor({
   const [imageBusy, setImageBusy] = useState(0);
   const [currentPage, setCurrentPage] = useState(0);
   const insertImagesRef = useRef<(files: File[], at?: number) => void>(() => {});
+  // When a text box was last placed. Placing one switches back to typing on
+  // pointer-down, so the click that ends the same tap would otherwise count as a
+  // click on the paper and pull the cursor out of the new box.
+  const placedAtRef = useRef(0);
   const [textBottom, setTextBottom] = useState(0);
   const [addedPages, setAddedPages] = useState(Math.max(1, note.pageCount ?? 1));
   const [limitMessage, setLimitMessage] = useState<string | null>(null);
@@ -399,25 +407,20 @@ export default function TypedNoteEditor({
 
   function placeCursorOnPaper(event: React.MouseEvent<HTMLDivElement>) {
     if (!editor || tool.mode !== "type") return;
-    // Let TipTap handle ordinary clicks inside existing text. A click on the
-    // rest of the paper creates enough empty lines to reach that position,
-    // so students can start writing anywhere below their last line.
-    if ((event.target as HTMLElement).closest(".ProseMirror")) return;
-    const sheet = sheetRef.current;
-    if (!sheet) return;
-    const top = sheet.getBoundingClientRect().top;
-    const clickedY = (event.clientY - top) / scaleRef.current;
-    const currentBottom = measureTextBottom();
-    if (clickedY <= currentBottom + 8) {
-      editor.chain().focus("end").run();
-      return;
-    }
-    const lineHeight = 28;
-    const breaks = Math.min(
-      Math.max(1, Math.ceil((Math.min(clickedY, MAX_TEXT_BOTTOM) - currentBottom) / lineHeight)),
-      500
-    );
-    editor.chain().focus("end").insertContent(Array.from({ length: breaks }, () => ({ type: "hardBreak" }))).run();
+    // Let TipTap handle ordinary clicks inside existing text, and leave stickers
+    // and text boxes alone: dragging one ends in a click that bubbles up here.
+    if ((event.target as HTMLElement).closest(".ProseMirror") || clickedAnnotation(event.target)) return;
+    if (Date.now() - placedAtRef.current < PLACEMENT_CLICK_MS) return;
+    const content = sheetRef.current?.querySelector<HTMLElement>(".ProseMirror");
+    if (!content) return;
+    // A click on the paper beside or beyond the text goes to the nearest text:
+    // the start or end of that line in the side margins, the very start above
+    // everything and the very end below it. (Screen coordinates throughout, so
+    // the page's zoom needs no correction.)
+    const point = nearestTextPoint({ x: event.clientX, y: event.clientY }, content.getBoundingClientRect());
+    const hit = editor.view.posAtCoords(point);
+    if (hit) editor.chain().focus().setTextSelection(hit.pos).run();
+    else editor.chain().focus("end").run();
   }
 
   const sheetHeight = pages * PAGE_HEIGHT;
@@ -438,6 +441,19 @@ export default function TypedNoteEditor({
     }));
   }
 
+  // Offered through the note page's Share dialog; the editor shows its own
+  // Export button only when it has no such page around it.
+  const exportSource = (): ExportSource => ({
+    uid,
+    note,
+    getPages: exportPages,
+    typed: {
+      markdown: () => (editor ? noteToMarkdown(editor.getJSON()) : ""),
+      plain: () => (editor ? noteToPlainText(editor.getJSON()) : ""),
+    },
+  });
+  const inWorkspace = useExportRegistration(exportSource);
+
   return (
     <div className="flex h-full flex-col">
       <div className="sticky top-[53px] z-10 flex flex-wrap items-center justify-center gap-2 px-3 py-2">
@@ -457,15 +473,7 @@ export default function TypedNoteEditor({
           onTextUndo={() => editor?.chain().focus().undo().run()}
           onTextRedo={() => editor?.chain().focus().redo().run()}
         />
-        <ExportMenu
-          uid={uid}
-          note={note}
-          getPages={exportPages}
-          typed={{
-            markdown: () => (editor ? noteToMarkdown(editor.getJSON()) : ""),
-            plain: () => (editor ? noteToPlainText(editor.getJSON()) : ""),
-          }}
-        />
+        {!inWorkspace && <ExportMenu source={exportSource} typedNote />}
         <input
           ref={fileInputRef}
           type="file"
@@ -523,7 +531,10 @@ export default function TypedNoteEditor({
                     tool={tool}
                     onStrokesChange={(strokes) => tools.setStrokes(i, strokes)}
                     onEraseAt={(x, y, r) => tools.eraseAt(i, x, y, r)}
-                    onPointerDownOther={(x, y) => tools.placeAt(i, x, y)}
+                    onPointerDownOther={(x, y) => {
+                      placedAtRef.current = Date.now();
+                      tools.placeAt(i, x, y);
+                    }}
                   />
                 </div>
               ))}

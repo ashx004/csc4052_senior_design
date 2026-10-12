@@ -7,7 +7,8 @@ import { Loader2 } from "lucide-react";
 import { db } from "@/src/library/firebase";
 import { useAuth } from "@/src/context/AuthContext";
 import { getEffectiveModelKey } from "@/src/library/chatMode";
-import { DEFAULT_QUIZ_DIFFICULTY } from "@/src/library/quizDifficulty";
+import { DEFAULT_QUIZ_DIFFICULTY, QUIZ_DIFFICULTY_OPTIONS, parseQuizDifficulty, type QuizDifficulty } from "@/src/library/quizDifficulty";
+import { completeKeys, notebookSetFields } from "@/src/library/studySets/notebookSet";
 import { noteToMarkdown } from "@/src/library/notes/noteText";
 import type { ClassOption, Note, Notebook } from "@/src/library/notes/types";
 import ClassSelect from "./ClassSelect";
@@ -38,6 +39,7 @@ export default function GenerateFromNotebookModal({
   }, [notes, classes]);
   const [courseId, setCourseId] = useState(majorityCourse);
   const [questionCount, setQuestionCount] = useState(10);
+  const [difficulty, setDifficulty] = useState<QuizDifficulty>(DEFAULT_QUIZ_DIFFICULTY);
   const [types, setTypes] = useState({ multipleChoice: true, trueFalse: true, matching: false });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +59,10 @@ export default function GenerateFromNotebookModal({
         body: JSON.stringify({
           kind,
           sources,
+          // Lets the server look up each document's index state and use
+          // retrieval instead of re-reading every file in full.
+          courseId,
+          difficulty,
           questionCount,
           questionTypes: types,
           modelKey: getEffectiveModelKey(kind === "quiz" ? "quiz" : "flashcards"),
@@ -65,12 +71,18 @@ export default function GenerateFromNotebookModal({
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Generation failed.");
 
-      const sourceNotebookKey = `notebook:${notebook.id}`;
+      // The notebook's identity plus every real file behind it, so the study
+      // plan still sees those documents as covered.
+      const typedNoteIds = notes.filter((n) => n.kind === "typed").map((n) => n.id);
+      const documentIds = notes.map((n) => n.resourceId).filter((id): id is string => !!id);
+      const identity = notebookSetFields(
+        notebook.id,
+        completeKeys(Array.isArray(data.sourceKeys) ? data.sourceKeys : [], typedNoteIds, documentIds)
+      );
       if (kind === "flashcards") {
         const ref = await addDoc(collection(db, "users", user.uid, "enrollment", courseId, "flashcardSets"), {
           name: data.topicName || notebook.name,
-          sourceDocKey: sourceNotebookKey,
-          sourceNotebookId: notebook.id,
+          ...identity,
           cards: data.questions,
           pinned: true,
           visibility: "private",
@@ -81,11 +93,10 @@ export default function GenerateFromNotebookModal({
       } else {
         const ref = await addDoc(collection(db, "users", user.uid, "enrollment", courseId, "quizSets"), {
           name: data.topicName || notebook.name,
-          sourceDocKey: sourceNotebookKey,
-          sourceNotebookId: notebook.id,
+          ...identity,
           questions: data.questions,
           questionTypes: types,
-          difficulty: DEFAULT_QUIZ_DIFFICULTY,
+          difficulty: parseQuizDifficulty(data.difficulty),
           questionCount: data.questions.length,
           pinned: true,
           visibility: "private",
@@ -124,6 +135,24 @@ export default function GenerateFromNotebookModal({
                 Questions <span className="tabular-nums text-text-main">{questionCount}</span>
               </label>
               <input id="gen-count" type="range" min={5} max={20} value={questionCount} onChange={(e) => setQuestionCount(Number(e.target.value))} className="w-full accent-primary" disabled={busy} />
+            </div>
+            <div>
+              <label htmlFor="gen-level" className="mb-1.5 block text-xs font-medium text-text-muted">
+                Level
+              </label>
+              <select
+                id="gen-level"
+                value={difficulty}
+                onChange={(e) => setDifficulty(e.target.value as QuizDifficulty)}
+                disabled={busy}
+                className="w-full rounded-lg border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main"
+              >
+                {QUIZ_DIFFICULTY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label} - {option.subtitle}
+                  </option>
+                ))}
+              </select>
             </div>
             <fieldset className="space-y-1.5">
               <legend className="mb-1.5 text-xs font-medium text-text-muted">Question types</legend>

@@ -295,6 +295,7 @@ export default function StudyLaunch({ courseId, variant, initialKind, preselecte
         onQueryChange={setQuery}
         onChange={setSelectedIds}
         onBack={preselectedIds.length > 0 && !initialKind ? () => setStep('kind') : undefined}
+        customHref={`/custom/new?type=${kind === 'quiz' ? 'quiz' : 'flashcards'}`}
         onContinue={() => { if (sourcesValid) setStep('setup'); }}
         onClose={() => setStep('closed')}
       />

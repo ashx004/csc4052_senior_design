@@ -19,7 +19,8 @@ export default function WordProblemRunner({
   items,
   onFinish,
 }: {
-  courseId: string;
+  /** The class the set belongs to; null for a custom (no-class) set. */
+  courseId: string | null;
   setId: string;
   items: WordProblemItem[];
   onFinish: (results: ItemResult[]) => void;
@@ -55,7 +56,7 @@ export default function WordProblemRunner({
       const response = await fetch("/api/grade-practice", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ courseId, setId, itemId: item.id, answer: answer.trim() }),
+        body: JSON.stringify({ ...(courseId ? { courseId } : { custom: true }), setId, itemId: item.id, answer: answer.trim() }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Couldn't check that answer.");
