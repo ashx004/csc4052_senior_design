@@ -9,7 +9,8 @@ import { STICKER_SIZE, drawSticker } from "@/src/library/notes/stickers";
 import AnnotationItems from "./AnnotationItems";
 import InkLayer, { drawInkStroke } from "./InkLayer";
 import NotesToolbar from "./NotesToolbar";
-import ExportMenu from "./ExportMenu";
+import ExportMenu, { type ExportSource } from "./ExportMenu";
+import { useExportRegistration } from "./noteExportSlot";
 import type { ExportPage } from "@/src/library/notes/exportMarkup";
 import FileNotesEditor from "./FileNotesEditor";
 import TranscriptReader from "./TranscriptReader";
@@ -254,6 +255,10 @@ export default function DocumentAnnotator({
     );
   }
 
+  // Export is offered through the note page's Share dialog once the pages have drawn.
+  const exportSource = (): ExportSource | null => (rendered ? { uid, note, getPages: exportPages } : null);
+  const inWorkspace = useExportRegistration(exportSource);
+
   return (
     <div className="flex h-full flex-col">
       <div className="sticky top-[53px] z-10 flex flex-wrap items-center justify-center gap-2 px-3 py-2">
@@ -266,7 +271,7 @@ export default function DocumentAnnotator({
           onUndo={ink.undo}
           onRedo={ink.redo}
         />
-        {rendered && <ExportMenu uid={uid} note={note} getPages={exportPages} />}
+        {!inWorkspace && rendered && <ExportMenu source={exportSource} typedNote={false} />}
       </div>
       {note.scan && (
         <div className="flex justify-center gap-2 px-3 pb-2">

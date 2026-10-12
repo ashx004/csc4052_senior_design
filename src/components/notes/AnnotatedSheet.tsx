@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MAX_PAGES_PER_NOTE, PAGE_HEIGHT, PAGE_WIDTH, type Note } from "@/src/library/notes/types";
 import type { ExportPage } from "@/src/library/notes/exportMarkup";
-import ExportMenu from "./ExportMenu";
+import ExportMenu, { type ExportSource } from "./ExportMenu";
+import { useExportRegistration } from "./noteExportSlot";
 import { captureElement, sliceCapture } from "./markupCanvas";
 import AnnotationItems from "./AnnotationItems";
 import InkLayer from "./InkLayer";
@@ -87,6 +88,10 @@ export default function AnnotatedSheet({
     }));
   }
 
+  // Export is offered through the note page's Share dialog when there is one.
+  const exportSource = (): ExportSource | null => (note ? { uid, note, getPages: exportPages } : null);
+  const inWorkspace = useExportRegistration(exportSource);
+
   return (
     <div className="flex h-full flex-col">
       <div className="sticky top-[53px] z-10 flex flex-wrap items-center justify-center gap-2 px-3 py-2">
@@ -99,7 +104,7 @@ export default function AnnotatedSheet({
           onUndo={ink.undo}
           onRedo={ink.redo}
         />
-        {note && <ExportMenu uid={uid} note={note} getPages={exportPages} />}
+        {!inWorkspace && note && <ExportMenu source={exportSource} typedNote={false} />}
       </div>
       <FloatingZoom zoom={paperZoom} />
       <div ref={scrollRef} className="flex-1 overflow-auto px-4 pb-24 pt-2">

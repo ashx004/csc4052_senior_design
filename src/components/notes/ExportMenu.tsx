@@ -29,30 +29,42 @@ const TYPED_ITEMS: { action: Action; label: string; hint: string }[] = [
 /** Text of a typed note, read live from the editor so unsaved edits export. */
 export type TypedText = { markdown: () => string; plain: () => string };
 
-const bytesOf = async (blob: Blob) => new Uint8Array(await blob.arrayBuffer());
-
-/** Exports a file note's markup. The original file is never altered: the
- *  marks can leave as their own files, or drawn onto a copy. */
-export default function ExportMenu({
-  uid,
-  note,
-  getPages,
-  typed,
-}: {
+/** Everything an export needs from the open note's editor. */
+export interface ExportSource {
   uid: string;
   note: Pick<Note, "id" | "title" | "fileType" | "url">;
   getPages: () => Promise<ExportPage[]>;
   typed?: TypedText;
+}
+
+const bytesOf = async (blob: Blob) => new Uint8Array(await blob.arrayBuffer());
+
+/**
+ * Exports a note. The original file is never altered: marks can leave as their
+ * own files, or drawn onto a copy. `source` is read when a format is picked, so
+ * it always reflects the editor as it is now (and may not be ready yet).
+ *
+ * "menu" is a button with a dropdown; "list" shows the formats directly, for
+ * use inside another popup (the note page's Share dialog).
+ */
+export default function ExportMenu({
+  source,
+  typedNote,
+  variant = "menu",
+}: {
+  source: () => ExportSource | null;
+  /** Whether this is a typed note (its formats differ from a file's). */
+  typedNote: boolean;
+  variant?: "menu" | "list";
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<Action | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const title = safeName(note.title.replace(/\.[A-Za-z0-9]{1,5}$/, "")) || "note";
-  const names = exportFileNames(title);
+  const list = variant === "list";
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || list) return;
     const onDown = (e: PointerEvent) => !rootRef.current?.contains(e.target as Node) && setOpen(false);
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
     document.addEventListener("pointerdown", onDown);
@@ -61,9 +73,9 @@ export default function ExportMenu({
       document.removeEventListener("pointerdown", onDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [open]);
+  }, [open, list]);
 
-  async function writtenNotes(): Promise<string> {
+  async function writtenNotes(uid: string, note: ExportSource["note"]): Promise<string> {
     const fresh = await getNote(uid, note.id);
     return (noteToMarkdown(fresh?.content) || fresh?.plainText || "").trim();
   }
@@ -78,6 +90,14 @@ export default function ExportMenu({
   }
 
   async function run(action: Action) {
+    const current = source();
+    if (!current) {
+      setMessage("Export isn't ready yet - give the note a moment to finish loading.");
+      return;
+    }
+    const { uid, note, getPages, typed } = current;
+    const title = safeName(note.title.replace(/\.[A-Za-z0-9]{1,5}$/, "")) || "note";
+    const names = exportFileNames(title);
     setBusy(action);
     setMessage(null);
     try {
@@ -88,7 +108,7 @@ export default function ExportMenu({
           return;
         }
         downloadBlob(`${title}.${action}`, new Blob([text], { type: action === "md" ? "text/markdown" : "text/plain" }));
-        setOpen(false);
+        finish();
         return;
       }
       const pages = action === "notes" ? [] : await getPages();
@@ -112,7 +132,7 @@ export default function ExportMenu({
       } else if (action === "json") {
         downloadBlob(names.json, new Blob([markupToJson({ ...note }, pages)], { type: "application/json" }));
       } else if (action === "notes") {
-        const text = await writtenNotes();
+        const text = await writtenNotes(uid, note);
         if (!text) {
           setMessage("There are no written notes on this file yet.");
           return;
@@ -132,7 +152,7 @@ export default function ExportMenu({
           for (const layer of await markupLayers(pages)) entries.push({ name: `markup/${layer.name}`, bytes: layer.bytes });
           entries.push({ name: "markup/markup.json", bytes: new TextEncoder().encode(markupToJson({ ...note }, pages)) });
         }
-        const text = await writtenNotes();
+        const text = await writtenNotes(uid, note);
         if (text) entries.push({ name: "notes.md", bytes: new TextEncoder().encode(text) });
         if (!entries.length) {
           setMessage("There is nothing to export yet.");
@@ -140,13 +160,50 @@ export default function ExportMenu({
         }
         downloadBlob(names.zip, storedZip(entries));
       }
-      setOpen(false);
+      finish();
     } catch (error) {
       console.error(error);
       setMessage(error instanceof Error && error.message ? error.message : "The export didn't work. Try again.");
     } finally {
       setBusy(null);
     }
+  }
+
+  /** After a successful download: close the dropdown, or confirm in the list. */
+  function finish() {
+    if (list) setMessage("Downloaded.");
+    else setOpen(false);
+  }
+
+  const items = (typedNote ? TYPED_ITEMS : ITEMS).map((item) => (
+    <button
+      key={item.action}
+      type="button"
+      role="menuitem"
+      disabled={busy !== null}
+      onClick={() => void run(item.action)}
+      className="flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-bg-warm disabled:opacity-50"
+    >
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-text-main">{item.label}</span>
+        <span className="block text-xs text-text-muted">{item.hint}</span>
+      </span>
+      {busy === item.action && <Loader2 size={15} className="mt-0.5 shrink-0 animate-spin" />}
+    </button>
+  ));
+  const status = message && (
+    <p role="status" className="px-2.5 pb-1.5 pt-1 text-xs text-text-muted">
+      {message}
+    </p>
+  );
+
+  if (list) {
+    return (
+      <div role="menu" aria-label={typedNote ? "Export note" : "Export markup"}>
+        {items}
+        {status}
+      </div>
+    );
   }
 
   return (
@@ -164,28 +221,9 @@ export default function ExportMenu({
         <Download size={15} /> Export
       </button>
       {open && (
-        <div role="menu" aria-label={typed ? "Export note" : "Export markup"} className="absolute right-0 top-11 z-30 w-72 rounded-xl border border-border-light bg-bg-container p-1.5 shadow-lg">
-          {(typed ? TYPED_ITEMS : ITEMS).map((item) => (
-            <button
-              key={item.action}
-              type="button"
-              role="menuitem"
-              disabled={busy !== null}
-              onClick={() => void run(item.action)}
-              className="flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-bg-warm disabled:opacity-50"
-            >
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium text-text-main">{item.label}</span>
-                <span className="block text-xs text-text-muted">{item.hint}</span>
-              </span>
-              {busy === item.action && <Loader2 size={15} className="mt-0.5 shrink-0 animate-spin" />}
-            </button>
-          ))}
-          {message && (
-            <p role="status" className="px-2.5 pb-1.5 pt-1 text-xs text-text-muted">
-              {message}
-            </p>
-          )}
+        <div role="menu" aria-label={typedNote ? "Export note" : "Export markup"} className="absolute right-0 top-11 z-30 w-72 rounded-xl border border-border-light bg-bg-container p-1.5 shadow-lg">
+          {items}
+          {status}
         </div>
       )}
     </div>

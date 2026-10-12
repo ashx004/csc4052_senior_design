@@ -14,7 +14,8 @@ import type { ExportPage } from "@/src/library/notes/exportMarkup";
 import { isImageFile, uploadNoteImage } from "@/src/library/notes/noteImages";
 import { MAX_PAGES_PER_NOTE, PAGE_HEIGHT, PAGE_WIDTH, type Note } from "@/src/library/notes/types";
 import AnnotationItems from "./AnnotationItems";
-import ExportMenu from "./ExportMenu";
+import ExportMenu, { type ExportSource } from "./ExportMenu";
+import { useExportRegistration } from "./noteExportSlot";
 import { captureElement, sliceCapture } from "./markupCanvas";
 import InkLayer from "./InkLayer";
 import { useMarkShortcuts } from "./useMarkShortcuts";
@@ -440,6 +441,19 @@ export default function TypedNoteEditor({
     }));
   }
 
+  // Offered through the note page's Share dialog; the editor shows its own
+  // Export button only when it has no such page around it.
+  const exportSource = (): ExportSource => ({
+    uid,
+    note,
+    getPages: exportPages,
+    typed: {
+      markdown: () => (editor ? noteToMarkdown(editor.getJSON()) : ""),
+      plain: () => (editor ? noteToPlainText(editor.getJSON()) : ""),
+    },
+  });
+  const inWorkspace = useExportRegistration(exportSource);
+
   return (
     <div className="flex h-full flex-col">
       <div className="sticky top-[53px] z-10 flex flex-wrap items-center justify-center gap-2 px-3 py-2">
@@ -459,15 +473,7 @@ export default function TypedNoteEditor({
           onTextUndo={() => editor?.chain().focus().undo().run()}
           onTextRedo={() => editor?.chain().focus().redo().run()}
         />
-        <ExportMenu
-          uid={uid}
-          note={note}
-          getPages={exportPages}
-          typed={{
-            markdown: () => (editor ? noteToMarkdown(editor.getJSON()) : ""),
-            plain: () => (editor ? noteToPlainText(editor.getJSON()) : ""),
-          }}
-        />
+        {!inWorkspace && <ExportMenu source={exportSource} typedNote />}
         <input
           ref={fileInputRef}
           type="file"
