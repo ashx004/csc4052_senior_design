@@ -9,6 +9,11 @@ export interface PaletteItem {
   /** Tooltip and accessible name. */
   label: string;
   latex: string;
+  /**
+   * Text to select after inserting, for templates whose blank is ordinary text
+   * rather than a \square box (KaTeX can't draw a math box inside \text{}).
+   */
+  select?: string;
 }
 
 export interface PaletteGroup {
@@ -17,7 +22,7 @@ export interface PaletteGroup {
   items: PaletteItem[];
 }
 
-const sym = (label: string, latex: string): PaletteItem => ({ label, latex });
+const sym = (label: string, latex: string, select?: string): PaletteItem => ({ label, latex, ...(select ? { select } : {}) });
 
 export const PALETTE: PaletteGroup[] = [
   {
@@ -38,7 +43,7 @@ export const PALETTE: PaletteGroup[] = [
       sym("Overline", "\\overline{\\square}"),
       sym("Vector", "\\vec{\\square}"),
       sym("Hat", "\\hat{\\square}"),
-      sym("Text", "\\text{\\square}"),
+      sym("Text", "\\text{words}", "words"),
     ],
   },
   {
@@ -139,7 +144,7 @@ export function nextPlaceholder(text: string, from: number): { start: number; en
  * gives x over an empty box). Afterwards the first empty box is selected, ready
  * to be typed over, or the caret sits after what was added if there are none.
  */
-export function insertSnippet(text: string, selStart: number, selEnd: number, snippet: string): Edit {
+export function insertSnippet(text: string, selStart: number, selEnd: number, snippet: string, select?: string): Edit {
   const start = Math.max(0, Math.min(selStart, selEnd, text.length));
   const end = Math.max(start, Math.min(Math.max(selStart, selEnd), text.length));
   const before = text.slice(0, start);
@@ -157,6 +162,9 @@ export function insertSnippet(text: string, selStart: number, selEnd: number, sn
 
   const box = nextPlaceholder(joined, before.length);
   if (box && box.start < before.length + piece.length) return { text: joined, start: box.start, end: box.end };
+  // Text templates: select the sample word so typing replaces it.
+  const word = select ? piece.indexOf(select) : -1;
+  if (select && word >= 0 && !selected) return { text: joined, start: before.length + word, end: before.length + word + select.length };
   const caret = before.length + piece.length;
   return { text: joined, start: caret, end: caret };
 }

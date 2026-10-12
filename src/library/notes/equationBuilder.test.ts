@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import katex from "katex";
 import { PALETTE, PLACEHOLDER, insertSnippet, nextPlaceholder } from "./equationBuilder";
 
 const box = (text: string) => text.slice(0, 0) + PLACEHOLDER;
@@ -10,6 +11,12 @@ describe("PALETTE", () => {
       const labels = group.items.map((i) => i.label);
       expect(new Set(labels).size).toBe(labels.length);
       for (const item of group.items) expect(item.latex.trim()).not.toBe("");
+    }
+  });
+
+  it("renders every template in KaTeX without an error, so no button shows broken math", () => {
+    for (const item of PALETTE.flatMap((g) => g.items)) {
+      expect(() => katex.renderToString(item.latex, { throwOnError: true, strict: "ignore" }), item.label).not.toThrow();
     }
   });
 
@@ -73,6 +80,15 @@ describe("insertSnippet", () => {
   it("works on an empty equation", () => {
     const edit = insertSnippet("", 0, 0, "\\sqrt{\\square}");
     expect(edit.text.slice(edit.start, edit.end)).toBe(PLACEHOLDER);
+  });
+});
+
+describe("text templates", () => {
+  it("select the sample word so typing replaces it", () => {
+    const item = PALETTE.flatMap((g) => g.items).find((i) => i.label === "Text")!;
+    const edit = insertSnippet("x ", 2, 2, item.latex, item.select);
+    expect(edit.text).toBe("x \\text{words}");
+    expect(edit.text.slice(edit.start, edit.end)).toBe("words");
   });
 });
 
