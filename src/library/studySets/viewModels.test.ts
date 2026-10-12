@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { flashcardStatusLabel, quizResultLabel, toFlashcardSummary, toQuizSummary } from './viewModels';
+import { flashcardStatusLabel, quizResultLabel, quizScoreParts, toFlashcardSummary, toQuizSummary } from './viewModels';
 
 describe('saved-set summaries', () => {
   it('keeps missing source metadata and estimates absent while counting empty cards', () => {
@@ -35,5 +35,11 @@ describe('saved-set summaries', () => {
     expect(flashcardStatusLabel(undefined)).toBe('Flashcards');
     expect(flashcardStatusLabel('in_progress')).toBe('In progress');
     expect(toQuizSummary('q2', { name: 'Bones' }).latestAttemptKnown).toBe(false);
+  });
+
+  it('splits a score into a big value and a small label, with no label when untaken', () => {
+    expect(quizScoreParts({ score: 18, total: 20, completedAt: null })).toEqual({ value: '18 / 20', label: 'Correct' });
+    expect(quizScoreParts({ score: 0, total: 20, completedAt: null })).toEqual({ value: '0 / 20', label: 'Correct' });
+    expect(quizScoreParts(null)).toEqual({ value: 'Not taken', label: null });
   });
 });

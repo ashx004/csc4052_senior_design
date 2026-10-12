@@ -150,6 +150,19 @@
    BASELINE APP OVERRIDES
    ========================================================================== */
 
+/* --- Study-set accents ---------------------------------------------------
+   One bright colour cycle shared by the quiz rows and the flashcard decks, so
+   the two pages read as one family. These four hues already lived in the app
+   (they were the original deck faces); naming them here means the quiz bars
+   and the deck cards can never drift apart. --set-accent-N is the face and the
+   bar; the deck's stacked-card shadow is mixed from it in the card's own CSS. */
+:root {
+  --set-accent-1: #6b5fdf; /* purple */
+  --set-accent-2: #eb704c; /* orange */
+  --set-accent-3: #398beb; /* blue */
+  --set-accent-4: #302f38; /* charcoal */
+}
+
 body {
   background-color: var(--color-bg-main);
   color: var(--color-text-main);

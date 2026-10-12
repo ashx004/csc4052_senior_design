@@ -242,7 +242,9 @@ export default function StudyLaunch({ courseId, variant, initialKind, preselecte
                 <span className="block font-semibold text-text-main">Already have a document in mind?</span>
                 <span className="mt-0.5 block text-sm text-text-muted">Start from your course resources and choose quiz or flashcards there.</span>
               </span>
-              <span className="shrink-0 text-sm font-semibold text-text-main">{showDocuments ? 'Hide' : 'Browse documents →'}</span>
+              <span className="flex shrink-0 items-center gap-1.5 text-sm font-semibold text-text-main">
+                {showDocuments ? 'Hide' : <>Browse documents<ArrowRight size={18} strokeWidth={2.5} aria-hidden="true" /></>}
+              </span>
             </button>
             {showDocuments && (
               <div className="mt-5 grid gap-2 border-t border-border-light pt-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -272,7 +274,8 @@ export default function StudyLaunch({ courseId, variant, initialKind, preselecte
         </>
       ) : (
         <button type="button" className={pickerStyles.pill} onClick={() => openKind(initialKind ?? 'quiz')}>
-          {initialKind === 'flashcards' ? 'Make flashcards →' : 'Make a quiz →'}
+          {initialKind === 'flashcards' ? 'Make flashcards' : 'Make a quiz'}
+          <ArrowRight size={20} strokeWidth={2.5} aria-hidden="true" />
         </button>
       )}
 
