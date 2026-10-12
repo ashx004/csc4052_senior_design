@@ -47,7 +47,7 @@ import {
   subscribeNotes,
   syncClassDocuments,
 } from "@/src/library/notes/notesStore";
-import { matchesSearch, notebookInCourse, sortNotes, type NoteSort } from "@/src/library/notes/noteText";
+import { matchesSearch, notebookClassLabel, notebookInCourse, sortNotes, type NoteSort } from "@/src/library/notes/noteText";
 import { MAX_NOTES_PER_NOTEBOOK, type ClassOption, type Note, type Notebook } from "@/src/library/notes/types";
 import AddModal from "./AddModal";
 import { classLabel } from "./ClassSelect";
@@ -94,7 +94,7 @@ function FolderButton({
   icon,
   label,
   count,
-  badge,
+  subtext,
 }: {
   dropId: string | null;
   active: boolean;
@@ -102,7 +102,8 @@ function FolderButton({
   icon: React.ReactNode;
   label: string;
   count: number;
-  badge?: string;
+  /** A second line under the label, e.g. which class a notebook is for. */
+  subtext?: string;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: dropId ?? "none-droppable", disabled: !dropId });
   return (
@@ -116,8 +117,10 @@ function FolderButton({
       }`}
     >
       {icon}
-      <span className="min-w-0 truncate md:flex-1">{label}</span>
-      {badge && !isOver && <span className="hidden shrink-0 rounded bg-bg-main px-1.5 text-[10px] text-text-muted lg:inline">{badge}</span>}
+      <span className="min-w-0 md:flex-1">
+        <span className="block truncate">{label}</span>
+        {subtext && <span className={`block truncate text-[11px] leading-tight ${isOver ? "" : "text-text-muted"}`}>{subtext}</span>}
+      </span>
       <span className={`shrink-0 text-xs tabular-nums ${isOver ? "" : "text-text-muted"}`}>{count}</span>
     </button>
   );
@@ -216,13 +219,8 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
 
   const countIn = (id: string) => allNotes.filter((n) => n.notebookId === id && (!scope || n.courseId === scope)).length;
   const classOf = (id: string | null) => classes.find((c) => c.id === id);
-  const notebookBadge = (b: Notebook) => {
-    const ids = new Set(allNotes.filter((n) => n.notebookId === b.id).map((n) => n.courseId));
-    if (ids.size > 1) return "Multi-class";
-    const only = [...ids][0];
-    const c = only ? classOf(only) : null;
-    return c ? `${c.classCode || c.className}${c.passed ? " · Passed" : ""}` : undefined;
-  };
+  // Only the general view needs this: inside one class every notebook is that class's.
+  const notebookSubtext = (b: Notebook) => (scope ? undefined : notebookClassLabel(b, allNotes, classes));
 
   function setViewSaved(v: "list" | "card") {
     setView(v);
@@ -431,7 +429,7 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
                   icon={<BookCopy size={16} className="shrink-0" />}
                   label={b.name}
                   count={countIn(b.id)}
-                  badge={scope ? undefined : notebookBadge(b)}
+                  subtext={notebookSubtext(b)}
                 />
               ))}
             </div>
@@ -563,6 +561,7 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
                   {notebooks.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}
+                      {notebookSubtext(b) ? ` (${notebookSubtext(b)})` : ""}
                     </option>
                   ))}
                 </select>
