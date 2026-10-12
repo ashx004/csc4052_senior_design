@@ -382,6 +382,7 @@ export default function QuizTakingPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const [pastAttempts, setPastAttempts] = useState<PastAttempt[]>([]);
+  const [attemptsLoaded, setAttemptsLoaded] = useState(false);
   const [viewedAttempt, setViewedAttempt] = useState<PastAttempt | null>(null);
   const [attemptNotFound, setAttemptNotFound] = useState(false);
   const [practiceTask, setPracticeTask] = useState<{ id: string; sourceSuggestionId: string | null } | null>(null);
@@ -485,6 +486,8 @@ export default function QuizTakingPage() {
     } catch (error) {
       console.error('Error fetching past attempts:', error);
       setPastAttempts([]);
+    } finally {
+      setAttemptsLoaded(true);
     }
   };
 
@@ -660,6 +663,30 @@ export default function QuizTakingPage() {
       cancelled = true;
     };
   }, [searchParams, user, loading, notFound, quizDocumentMissing, allQuestions, courseId, quizId, quizSource]);
+
+  // The landing page (Take again / Past Attempts) used to sit between the quiz
+  // list and the thing the user came for. A bare /quizzes/<id> now goes straight
+  // to the newest result, or straight into the questions when the quiz has never
+  // been taken. The page's own result screen already offers "Do it again",
+  // practice and the other follow-ups, so nothing is lost.
+  //
+  // `landing` still renders when a practice task is unavailable (that state needs
+  // its message) and when the set has no questions to take and no attempts to show.
+  const landingSkippable =
+    mode === 'landing' &&
+    !practiceUnavailable &&
+    !attemptNotFound &&
+    !searchParams.get('attemptId') &&
+    !searchParams.get('mode') &&
+    (pastAttempts.length > 0 || allQuestions.length > 0);
+
+  useEffect(() => {
+    if (!modeResolved || !attemptsLoaded || !landingSkippable) return;
+    const base = `/courses/${courseId}/quizzes/${quizId}`;
+    router.replace(
+      pastAttempts.length > 0 ? `${base}?attemptId=${pastAttempts[0].id}` : `${base}?mode=take`,
+    );
+  }, [modeResolved, attemptsLoaded, landingSkippable, pastAttempts, courseId, quizId, router]);
 
   const answeredCount = activeQuestions.filter((q) => !!answers[q.id]).length;
   const allAnswered = activeQuestions.length > 0 && answeredCount === activeQuestions.length;
@@ -1037,7 +1064,7 @@ export default function QuizTakingPage() {
       </div>
 
       <div className="mx-auto max-w-3xl px-6 py-8 md:px-14">
-        {mode === 'landing' && (
+        {mode === 'landing' && !landingSkippable && (
           <div className="flex flex-col gap-8 pb-10">
             <div className="flex flex-wrap items-center gap-3" data-tutorial="course-quiz-actions">
               <button
@@ -1088,6 +1115,12 @@ export default function QuizTakingPage() {
             ) : (
               <p className="text-sm text-text-muted">No attempts yet</p>
             )}
+          </div>
+        )}
+
+        {landingSkippable && (
+          <div className="flex justify-center py-20">
+            <Loader2 className="animate-spin text-primary" />
           </div>
         )}
 

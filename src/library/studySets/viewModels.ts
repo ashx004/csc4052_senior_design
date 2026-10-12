@@ -97,6 +97,18 @@ export function quizResultLabel(attempt: QuizSetSummary['latestAttempt']): strin
   return `${attempt.score} / ${attempt.total} correct`;
 }
 
+/**
+ * The same result split in two, for the stacked display on a quiz row: a big
+ * value line ("18 / 20") above a small label ("Correct"). An untaken quiz has
+ * no label, so the row shows one line.
+ */
+export function quizScoreParts(
+  attempt: QuizSetSummary['latestAttempt'],
+): { value: string; label: string | null } {
+  if (!attempt) return { value: 'Not taken', label: null };
+  return { value: `${attempt.score} / ${attempt.total}`, label: 'Correct' };
+}
+
 export function flashcardStatusLabel(reviewStatus?: string): string {
   if (reviewStatus === 'new') return 'New';
   if (reviewStatus === 'in_progress') return 'In progress';

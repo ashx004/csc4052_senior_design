@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
 import FlashcardDeckCard from '@/src/components/learning/FlashcardDeckCard';
 import FlashcardViewer from '@/src/components/learning/FlashcardViewer';
 import StudyLaunch from '@/src/components/learning/StudyLaunch';
@@ -54,7 +54,7 @@ export default function FlashcardLibraryPage() {
                   <h3 className="text-[22px] font-bold tracking-tight text-text-main">Your decks</h3>
                   <p className="mt-1 text-sm text-text-muted">Choose a deck to open its cards.</p>
                 </div>
-                <button type="button" className="rounded-full bg-[#1d1b1a] px-5 py-3 text-sm font-bold text-white" onClick={() => open('flashcards')}>Make flashcards →</button>
+                <button type="button" className="inline-flex items-center gap-1.5 rounded-full bg-[#1d1b1a] px-5 py-3 text-sm font-bold text-white" onClick={() => open('flashcards')}>Make flashcards<ArrowRight size={20} strokeWidth={2.5} aria-hidden="true" /></button>
               </div>
               {error && <p role="alert" className="mt-4 text-sm text-alert-error">Could not load flashcard decks.</p>}
               {loading ? (

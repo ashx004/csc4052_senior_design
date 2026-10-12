@@ -158,6 +158,9 @@
 }
 
 .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border: 0;
   border-radius: 100px;
   background: #1d1b1a;

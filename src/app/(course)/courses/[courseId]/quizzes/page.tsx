@@ -40,7 +40,7 @@ export default function QuizLibraryPage() {
           <p className="mt-8 text-center text-sm text-text-muted">No quizzes yet. Make one from a course document.</p>
         ) : (
           <div className="mt-7 grid gap-3">
-            {quizzes.map((quiz) => <QuizListRow key={quiz.id} quiz={quiz} courseId={courseId} />)}
+            {quizzes.map((quiz, index) => <QuizListRow key={quiz.id} quiz={quiz} courseId={courseId} index={index} />)}
           </div>
         )}
       </div>
