@@ -97,6 +97,7 @@ import CourseMasterySummary from "@/src/components/studyPlan/CourseMasterySummar
 import PlanTimeOverageModal from "@/src/components/studyPlan/PlanTimeOverageModal";
 import DocumentPickerModal from "@/src/components/studyPlan/DocumentPickerModal";
 import ActionToast from "@/src/components/studyPlan/ActionToast";
+import CustomSetsSection from "@/src/components/custom/CustomSetsSection";
 
 const CLASSES_ANCHOR = "learning-classes";
 const PLAN_ANCHOR = "learning-study-plan";
@@ -1605,6 +1606,8 @@ function LearningPageContent() {
             </div>
           </section>
         )}
+
+        {user && <CustomSetsSection userId={user.uid} />}
 
         {user && !documentMasteryLoading && documentCountsReady && classes.length > 0 && (
           <section aria-labelledby="course-mastery-heading" className="space-y-4">

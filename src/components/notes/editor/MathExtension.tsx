@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { PALETTE, insertSnippet, nextPlaceholder, type Edit } from "@/src/library/notes/equationBuilder";
 import { InputRule, Node, mergeAttributes } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import katex from "katex";
@@ -8,6 +9,59 @@ import "katex/dist/katex.min.css";
 
 export function renderLatex(latex: string, display: boolean): string {
   return katex.renderToString(latex.trim() || "\\square", { displayMode: display, throwOnError: false, output: "htmlAndMathml", strict: "ignore" });
+}
+
+// Each palette button shows the math it inserts, rendered once and reused.
+const paletteHtml = new Map<string, string>();
+function paletteFace(latex: string): string {
+  let html = paletteHtml.get(latex);
+  if (!html) {
+    html = renderLatex(latex, false);
+    paletteHtml.set(latex, html);
+  }
+  return html;
+}
+
+/**
+ * Buttons for building an equation without knowing LaTeX: pick a group, click
+ * a template or symbol, and it is written into the equation text at the cursor.
+ * mousedown is cancelled so the text box keeps focus (losing it would finish the
+ * equation).
+ */
+function EquationPalette({ onInsert }: { onInsert: (latex: string, select?: string) => void }) {
+  const [group, setGroup] = useState(PALETTE[0].id);
+  const current = PALETTE.find((g) => g.id === group) ?? PALETTE[0];
+  return (
+    <div className="note-math-palette">
+      <div role="tablist" aria-label="Equation parts" className="note-math-tabs">
+        {PALETTE.map((g) => (
+          <button
+            key={g.id}
+            type="button"
+            role="tab"
+            aria-selected={g.id === current.id}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setGroup(g.id)}
+          >
+            {g.title}
+          </button>
+        ))}
+      </div>
+      <div role="group" aria-label={current.title} className="note-math-grid">
+        {current.items.map((item) => (
+          <button
+            key={item.label}
+            type="button"
+            title={item.label}
+            aria-label={item.label}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onInsert(item.latex, item.select)}
+            dangerouslySetInnerHTML={{ __html: paletteFace(item.latex) }}
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function MathView({ node, updateAttributes, editor, getPos, selected, deleteNode }: NodeViewProps) {
@@ -18,6 +72,25 @@ function MathView({ node, updateAttributes, editor, getPos, selected, deleteNode
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const finished = useRef(false);
   const html = useMemo(() => renderLatex(editing ? draft : latex, display), [editing, draft, latex, display]);
+  // Where to put the cursor once a palette click has changed the text.
+  const pendingSelection = useRef<Edit | null>(null);
+
+  useEffect(() => {
+    const edit = pendingSelection.current;
+    const box = inputRef.current;
+    if (!edit || !box) return;
+    pendingSelection.current = null;
+    box.focus();
+    box.setSelectionRange(edit.start, edit.end);
+  }, [draft]);
+
+  function insert(snippet: string, select?: string) {
+    const box = inputRef.current;
+    if (!box) return;
+    const edit = insertSnippet(draft, box.selectionStart, box.selectionEnd, snippet, select);
+    pendingSelection.current = edit;
+    setDraft(edit.text);
+  }
 
   useEffect(() => {
     if (editing) {
@@ -73,10 +146,19 @@ function MathView({ node, updateAttributes, editor, getPos, selected, deleteNode
             value={draft}
             rows={display ? 3 : 1}
             spellCheck={false}
-            placeholder="LaTeX, e.g. \frac{a}{b} or x^2 + y^2"
+            placeholder="Use the buttons below, or type LaTeX, e.g. \frac{a}{b}"
             aria-label="LaTeX equation"
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
+              // Tab hops to the next empty box in a template instead of leaving the equation.
+              if (e.key === "Tab" && !e.shiftKey) {
+                const next = nextPlaceholder(draft, e.currentTarget.selectionEnd);
+                if (next) {
+                  e.preventDefault();
+                  e.currentTarget.setSelectionRange(next.start, next.end);
+                  return;
+                }
+              }
               if (e.key === "Enter" && (!display || e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
                 commit(true);
@@ -87,7 +169,15 @@ function MathView({ node, updateAttributes, editor, getPos, selected, deleteNode
             }}
             onBlur={() => commit(false)}
           />
-          <small>{display ? "Ctrl+Enter to finish" : "Enter to finish"} - LaTeX supported</small>
+          <EquationPalette onInsert={insert} />
+          <span className="note-math-foot">
+            <small>
+              Click a button, then fill in the boxes (Tab jumps to the next one). {display ? "Ctrl+Enter" : "Enter"} to finish.
+            </small>
+            <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => commit(true)}>
+              Done
+            </button>
+          </span>
         </span>
       )}
     </NodeViewWrapper>

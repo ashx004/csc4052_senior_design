@@ -163,6 +163,14 @@ export const SITE_SEARCH_ENTRIES: SearchEntry[] = [
     keywords: ["practice", "fill in the blank", "word problems", "drag and drop", "drag", "timer", "text box", "written answer"],
   },
   {
+    id: "feature-custom-study",
+    title: "Custom quiz, flashcards or practice exam",
+    description: "Write your own prompt and/or upload files to make a one-off quiz, flashcard deck or practice exam - no class needed.",
+    href: "/custom/new",
+    category: "Feature",
+    keywords: ["custom", "my own", "prompt", "upload files", "one-off", "quiz", "flashcards", "practice exam", "no class"],
+  },
+  {
     id: "feature-blocks",
     title: "Blocks game",
     description: "A puzzle game that quizzes you on a class between rounds - find it on a class's Discover page.",

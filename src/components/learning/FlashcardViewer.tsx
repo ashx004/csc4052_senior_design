@@ -36,6 +36,7 @@ import { useGenerateQuizFromResource } from '@/src/hooks/useGenerateQuizFromReso
 import { findResourceForSourceDocKey } from '@/src/library/studyPlan/recommendationEngine';
 import {
   resolveQuizNextStep,
+  sourceKeysFrom,
   type QuizNextStep,
   type QuizSetRef,
 } from '@/src/library/studyPlan/nextStudyActivity';
@@ -82,6 +83,7 @@ async function loadCourseQuizzes(userId: string, courseId: string): Promise<Load
       id: quizDoc.id,
       name: name || 'Untitled quiz',
       sourceDocKey: typeof data.sourceDocKey === 'string' ? data.sourceDocKey : null,
+      sourceKeys: sourceKeysFrom(data.sourceKeys),
       createdAtMs: millisFrom(data.createdAt),
     };
   });
