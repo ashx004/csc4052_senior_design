@@ -23,6 +23,7 @@ import {
   Trash2,
   RotateCcw,
   GraduationCap,
+  Camera,
 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -37,6 +38,8 @@ import {
   deleteUserResource,
   MAX_FILE_SIZE_BYTES,
 } from "@/src/components/resourceManagement/fileUploadService";
+import { compressImage } from "@/src/library/imageCompress";
+import TranscriptReader from "@/src/components/notes/TranscriptReader";
 import PageTutorial from "@/src/components/tutorial/PageTutorial";
 import notesSteps from "@/src/library/tutorials/steps/notes";
 
@@ -241,6 +244,23 @@ function DocumentPreviewModal({
   const docxRef = useRef<HTMLDivElement>(null);
   const [showSourceImages, setShowSourceImages] = useState(false);
   const [sourceImages, setSourceImages] = useState<string[]>([]);
+  const [imageTranscript, setImageTranscript] = useState<string | null>(null);
+  const imageTranscriptReady = isImage && !!doc.ocrTranscriptUrl && ocrStatus !== "queued" && ocrStatus !== "processing" && ocrStatus !== "failed";
+
+  useEffect(() => {
+    if (!imageTranscriptReady || !doc.ocrTranscriptUrl) {
+      setImageTranscript(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(doc.ocrTranscriptUrl)
+      .then((res) => (res.ok ? res.text() : Promise.reject(new Error("unavailable"))))
+      .then((value) => !cancelled && setImageTranscript(value))
+      .catch(() => !cancelled && setImageTranscript(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [imageTranscriptReady, doc.ocrTranscriptUrl]);
 
   useEffect(() => {
     if (!isOcrDocument) return;
@@ -354,7 +374,7 @@ function DocumentPreviewModal({
               <img
                 src={doc.url}
                 alt={doc.name}
-                className="mx-auto max-h-[65vh] max-w-full rounded-lg border border-border-light object-contain shadow-sm"
+                className="mx-auto max-h-[40vh] max-w-full rounded-lg border border-border-light object-contain shadow-sm sm:max-h-[50vh]"
               />
               {ocrStatus === "queued" || ocrStatus === "processing" ? (
                 <div className="flex items-center justify-center gap-2 rounded-lg border border-border-light bg-bg-main p-4 text-sm text-text-muted">
@@ -381,6 +401,11 @@ function DocumentPreviewModal({
                       Download transcription
                     </a>
                   )}
+                </div>
+              )}
+              {imageTranscript !== null && (
+                <div className="overflow-hidden rounded-lg border border-border-light">
+                  <TranscriptReader value={imageTranscript} label="Transcription" />
                 </div>
               )}
             </div>
@@ -442,7 +467,11 @@ function DocumentPreviewModal({
               {errorMsg}
             </div>
           ) : text !== null ? (
-            <pre className="whitespace-pre-wrap break-words p-6 text-sm text-[#1f1712]">{text}</pre>
+            doc.ocrScanned || doc.resourceKind === "ocr_document" || /\.(txt|md)$/i.test(doc.name) ? (
+              <TranscriptReader value={text} />
+            ) : (
+              <pre className="whitespace-pre-wrap break-words p-6 text-sm text-[#1f1712]">{text}</pre>
+            )
           ) : null}
         </div>
       </div>
@@ -467,6 +496,7 @@ function NotesContent() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const [notes, setNotes] = useState<NoteDoc[]>([]);
   const [notesLoading, setNotesLoading] = useState(true);
@@ -644,6 +674,13 @@ function NotesContent() {
     }
   }
 
+  function addCameraPhotos(photos: File[]) {
+    const named = photos.map(
+      (photo, i) => new File([photo], `Page ${selectedFiles.length + i + 1}.${photo.type === "image/png" ? "png" : "jpg"}`, { type: photo.type || "image/jpeg" })
+    );
+    applyFileSelection([...selectedFiles, ...named]);
+  }
+
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
@@ -659,19 +696,33 @@ function NotesContent() {
     setUploadError(null);
     try {
       const allImages = selectedFiles.every((file) => IMAGE_TYPES.includes(getFileType(file.name) ?? ""));
+      // Phone photos are huge and often sideways; normalize them first so the
+      // upload is quick and the transcription model gets a clean image.
+      const files = await Promise.all(
+        selectedFiles.map(async (file) => {
+          if (!IMAGE_TYPES.includes(getFileType(file.name) ?? "") || file.type === "image/gif") return file;
+          try {
+            const out = await compressImage(file, { maxEdge: 2400, quality: 0.88 });
+            if (!out.recompressed) return file;
+            return new File([out.blob], file.name.replace(/\.[^.]+$/, "") + (out.blob.type === "image/jpeg" ? ".jpg" : file.name.slice(file.name.lastIndexOf("."))), { type: out.blob.type });
+          } catch {
+            return file;
+          }
+        })
+      );
       if (combineOcrImages) {
         if (!allImages) throw new Error("An OCR document can contain image files only.");
         await uploadOcrDocument({
           userId: user.uid,
           classDocId: selectedClassId,
-          files: selectedFiles,
+          files,
           category,
           name: ocrDocumentName,
           pageNames: ocrPageNames,
         });
       } else {
         await Promise.all(
-          selectedFiles.map((file) =>
+          files.map((file) =>
             uploadUserResource({ userId: user.uid, classDocId: selectedClassId, file, category })
           )
         );
@@ -868,6 +919,26 @@ function NotesContent() {
                 Browse files
               </span>
             </div>
+
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files?.length) addCameraPhotos(Array.from(e.target.files));
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              disabled={isUploading}
+              onClick={() => cameraInputRef.current?.click()}
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-border-light bg-bg-container px-4 py-2.5 text-sm font-medium text-text-main transition hover:bg-bg-warm disabled:opacity-50 sm:w-auto"
+            >
+              <Camera size={16} /> {selectedFiles.length ? "Take another page" : "Take a photo"}
+            </button>
 
             {selectedFiles.length > 0 && (
               <ul className="mt-4 space-y-2">

@@ -6,17 +6,28 @@ import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import { TextSelection } from "@tiptap/pm/state";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { FilePlus2 } from "lucide-react";
+import { TaskItem, TaskList } from "@tiptap/extension-list";
+import { ChevronLeft, ChevronRight, FilePlus2, Loader2 } from "lucide-react";
 import { saveTypedNote } from "@/src/library/notes/notesStore";
-import { noteToPlainText } from "@/src/library/notes/noteText";
-import { PENCIL_WIDTHS } from "@/src/library/notes/ink";
-import { EMPTY_PAGE, MAX_PAGES_PER_NOTE, PAGE_HEIGHT, PAGE_WIDTH, type Note } from "@/src/library/notes/types";
+import { noteToMarkdown, noteToPlainText } from "@/src/library/notes/noteText";
+import type { ExportPage } from "@/src/library/notes/exportMarkup";
+import { isImageFile, uploadNoteImage } from "@/src/library/notes/noteImages";
+import { MAX_PAGES_PER_NOTE, PAGE_HEIGHT, PAGE_WIDTH, type Note } from "@/src/library/notes/types";
+import AnnotationItems from "./AnnotationItems";
+import ExportMenu from "./ExportMenu";
+import { captureElement, sliceCapture } from "./markupCanvas";
 import InkLayer from "./InkLayer";
-import NotesToolbar, { type TextFormatState } from "./NotesToolbar";
+import { useMarkShortcuts } from "./useMarkShortcuts";
+import NotesToolbar, { EMPTY_FORMAT, type FormatAction, type ListKind, type TextFormatState } from "./NotesToolbar";
 import PageDecorations from "./PageDecorations";
+import { useAnnotationTools } from "./useAnnotationTools";
 import { usePageInk } from "./usePageInk";
 import { usePaperScale } from "./usePaperScale";
-import type { ToolState } from "./tools";
+import { usePaperZoom, ZoomButtons } from "./PaperZoom";
+import { defaultToolState, type ToolState } from "./tools";
+import { NoteBulletList, TabIndent, TextHighlight, ToolbarItalic, indentLess, indentMore } from "./editor/basicExtensions";
+import { MathBlock, MathInline } from "./editor/MathExtension";
+import { NoteImage } from "./editor/ImageExtension";
 
 const MARGIN_X = 80;
 const MARGIN_TOP = 72;
@@ -38,14 +49,21 @@ export default function TypedNoteEditor({
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sheetRef = useRef<HTMLDivElement | null>(null);
-  const scale = usePaperScale(scrollRef);
-  const [tool, setTool] = useState<ToolState>({ mode: "type", pencilWidth: PENCIL_WIDTHS.default, highlighterColor: "yellow", sticker: "⭐" });
+  const textLayerRef = useRef<HTMLDivElement | null>(null);
+  const paperZoom = usePaperZoom();
+  const scale = usePaperScale(scrollRef, 32, paperZoom.zoom);
+  const [tool, setTool] = useState<ToolState>(defaultToolState);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [imageBusy, setImageBusy] = useState(0);
+  const [currentPage, setCurrentPage] = useState(0);
+  const insertImagesRef = useRef<(files: File[], at?: number) => void>(() => {});
   const [textBottom, setTextBottom] = useState(0);
   const [addedPages, setAddedPages] = useState(Math.max(1, note.pageCount ?? 1));
   const [limitMessage, setLimitMessage] = useState<string | null>(null);
   const [showContents, setShowContents] = useState(false);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const ink = usePageInk(uid, note.id);
+  const tools = useAnnotationTools(ink, tool, setTool);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSave = useRef(false);
   // TipTap keeps the onUpdate callback from the editor's first render, when
@@ -60,7 +78,11 @@ export default function TypedNoteEditor({
   const lastFitRef = useRef<ProseMirrorNode | null>(null);
 
   const inkPages = useMemo(
-    () => Object.entries(ink.pages).reduce((max, [i, p]) => (p.strokes.length ? Math.max(max, Number(i) + 1) : max), 0),
+    () =>
+      Object.entries(ink.pages).reduce(
+        (max, [i, p]) => (p.strokes.length || p.texts.length || p.stickers.length ? Math.max(max, Number(i) + 1) : max),
+        0
+      ),
     [ink.pages]
   );
   const textPages = Math.ceil((textBottom + MARGIN_BOTTOM) / PAGE_HEIGHT);
@@ -69,11 +91,40 @@ export default function TypedNoteEditor({
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
-      StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
-      Placeholder.configure({ placeholder: "Start typing... Use # for a heading, **bold**, *italics*, or - for a list." }),
+      StarterKit.configure({ heading: { levels: [1, 2, 3] }, italic: false, bulletList: false, link: { openOnClick: false, autolink: true } }),
+      ToolbarItalic,
+      NoteBulletList,
+      TaskList,
+      TaskItem.configure({ nested: true }),
+      TextHighlight,
+      TabIndent,
+      MathInline,
+      MathBlock,
+      NoteImage,
+      Placeholder.configure({
+        placeholder: "Start typing... # for a heading, - for a dash list, [ ] for a checklist, $x^2$ for math. Tab indents.",
+      }),
     ],
     content: (note.content as object) ?? { type: "doc", content: [{ type: "paragraph" }] },
-    editorProps: { attributes: { class: "note-editor-content", "aria-label": "Note text", spellcheck: "true" } },
+    editorProps: {
+      attributes: { class: "note-editor-content", "aria-label": "Note text", spellcheck: "true" },
+      handlePaste: (_view, event) => {
+        const files = Array.from(event.clipboardData?.files ?? []).filter(isImageFile);
+        if (!files.length) return false;
+        event.preventDefault();
+        insertImagesRef.current(files);
+        return true;
+      },
+      handleDrop: (view, event, _slice, moved) => {
+        if (moved) return false;
+        const files = Array.from(event.dataTransfer?.files ?? []).filter(isImageFile);
+        if (!files.length) return false;
+        event.preventDefault();
+        const at = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
+        insertImagesRef.current(files, at);
+        return true;
+      },
+    },
     onCreate: ({ editor: ed }) => {
       lastFitRef.current = ed.state.doc;
     },
@@ -106,9 +157,39 @@ export default function TypedNoteEditor({
     selector: ({ editor: ed }): TextFormatState => ({
       bold: !!ed?.isActive("bold"),
       italic: !!ed?.isActive("italic"),
+      underline: !!ed?.isActive("underline"),
+      strike: !!ed?.isActive("strike"),
+      code: !!ed?.isActive("code"),
+      quote: !!ed?.isActive("blockquote"),
+      highlight: !!ed?.isActive("highlight"),
       heading: ([1, 2, 3] as const).find((l) => ed?.isActive("heading", { level: l })) ?? 0,
+      list: !ed
+        ? null
+        : ed.isActive("taskList")
+          ? "task"
+          : ed.isActive("orderedList")
+            ? "ordered"
+            : ed.isActive("bulletList")
+              ? ed.getAttributes("bulletList").marker === "dot"
+                ? "dot"
+                : "dash"
+              : null,
+      canUndo: !!ed?.can().undo(),
+      canRedo: !!ed?.can().redo(),
     }),
-  }) ?? { bold: false, italic: false, heading: 0 };
+  }) ?? EMPTY_FORMAT;
+
+  // Content loaded at creation produces no transaction, so the state hooks
+  // below would keep their empty first reading until the first keystroke.
+  useEffect(() => {
+    if (editor && !editor.isDestroyed) editor.view.dispatch(editor.state.tr);
+  }, [editor]);
+
+  const wordCount =
+    useEditorState({
+      editor,
+      selector: ({ editor: ed }) => (ed ? ed.getText().trim().split(/\s+/).filter(Boolean).length : 0),
+    }) ?? 0;
 
   function measureTextBottom(): number {
     const content = sheetRef.current?.querySelector<HTMLElement>(".ProseMirror");
@@ -186,18 +267,9 @@ export default function TypedNoteEditor({
     onSaveStateChange(ink.saving ? "saving" : "saved");
   }, [ink.saving, onSaveStateChange]);
 
-  // Ctrl/Cmd+Z undoes drawing while a drawing tool is active; in typing
+  // Marks undo/redo with the keyboard while a mark tool is active; in typing
   // mode the editor handles it for text.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey && tool.mode !== "type") {
-        e.preventDefault();
-        ink.undo();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [tool.mode, ink]);
+  useMarkShortcuts(ink.undo, ink.redo, tool.mode !== "type");
 
   function addPage() {
     if (pages >= MAX_PAGES_PER_NOTE) return;
@@ -211,12 +283,111 @@ export default function TypedNoteEditor({
     );
   }
 
-  function onFormat(action: "bold" | "italic" | 1 | 2 | 3) {
+  function toggleList(kind: ListKind) {
     if (!editor) return;
     const chain = editor.chain().focus();
-    if (action === "bold") chain.toggleBold().run();
-    else if (action === "italic") chain.toggleItalic().run();
-    else chain.toggleHeading({ level: action }).run();
+    if (kind === "ordered") chain.toggleOrderedList().run();
+    else if (kind === "task") chain.toggleList("taskList", "taskItem").run();
+    else {
+      const marker = kind === "dot" ? "dot" : "dash";
+      if (editor.isActive("bulletList") && editor.getAttributes("bulletList").marker !== marker) {
+        chain.updateAttributes("bulletList", { marker }).run();
+      } else if (editor.isActive("bulletList")) {
+        chain.toggleBulletList().run();
+      } else {
+        chain.toggleList("bulletList", "listItem", false, { marker }).run();
+      }
+    }
+  }
+
+  function onFormat(action: FormatAction) {
+    if (!editor) return;
+    const chain = editor.chain().focus();
+    if (typeof action === "number") chain.toggleHeading({ level: action }).run();
+    else if (typeof action === "object" && "list" in action) toggleList(action.list);
+    else if (typeof action === "object") {
+      if (action.highlight) chain.setMark("highlight", { color: action.highlight }).run();
+      else chain.unsetMark("highlight").run();
+    } else {
+      switch (action) {
+        case "bold":
+          chain.toggleBold().run();
+          break;
+        case "italic":
+          chain.toggleItalic().run();
+          break;
+        case "underline":
+          chain.toggleUnderline().run();
+          break;
+        case "strike":
+          chain.toggleStrike().run();
+          break;
+        case "code":
+          chain.toggleCode().run();
+          break;
+        case "quote":
+          chain.toggleBlockquote().run();
+          break;
+        case "divider":
+          chain.setHorizontalRule().run();
+          break;
+        case "math":
+          chain.insertContent({ type: "mathInline", attrs: { latex: "" } }).run();
+          break;
+        case "image":
+          fileInputRef.current?.click();
+          break;
+        case "indent":
+          indentMore(editor);
+          break;
+        case "outdent":
+          indentLess(editor);
+          break;
+      }
+    }
+  }
+
+  async function insertImages(files: File[], at?: number) {
+    if (!editor) return;
+    setImageBusy((n) => n + files.length);
+    if (typeof at === "number") editor.commands.setTextSelection(Math.min(at, editor.state.doc.content.size));
+    for (const file of files) {
+      try {
+        const up = await uploadNoteImage(uid, note.id, file);
+        const alt = file.name.replace(/\.[^.]+$/, "").slice(0, 120);
+        editor.chain().focus().insertContent({ type: "noteImage", attrs: { src: up.src, alt } }).run();
+      } catch (e) {
+        setLimitMessage(e instanceof Error ? e.message : "Couldn't add that picture.");
+      } finally {
+        setImageBusy((n) => n - 1);
+      }
+    }
+  }
+  insertImagesRef.current = (files, at) => void insertImages(files, at);
+
+  // The page scrolls inside the layout, so the current page is whichever
+  // one sits under the upper part of the window.
+  useEffect(() => {
+    const update = () => {
+      const sheet = sheetRef.current;
+      if (!sheet) return;
+      const top = sheet.getBoundingClientRect().top;
+      const probe = window.innerHeight * 0.35;
+      setCurrentPage(Math.max(0, Math.floor((probe - top) / (PAGE_HEIGHT * scaleRef.current))));
+    };
+    update();
+    window.addEventListener("scroll", update, { capture: true, passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, { capture: true });
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  function goToPage(index: number) {
+    const target = Math.max(0, Math.min(pages - 1, index));
+    setCurrentPage(target);
+    sheetRef.current?.querySelector(`[data-page="${target}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function skipLine() {
@@ -251,9 +422,25 @@ export default function TypedNoteEditor({
 
   const sheetHeight = pages * PAGE_HEIGHT;
 
+  async function exportPages(): Promise<ExportPage[]> {
+    const el = textLayerRef.current;
+    let shot: HTMLCanvasElement | null = null;
+    const base = async (i: number) => {
+      if (!el) return null;
+      shot ??= await captureElement(el);
+      return sliceCapture(shot, i, PAGE_WIDTH, PAGE_HEIGHT);
+    };
+    return Array.from({ length: pages }, (_, i) => ({
+      width: PAGE_WIDTH,
+      height: PAGE_HEIGHT,
+      annotations: tools.page(i),
+      base: () => base(i),
+    }));
+  }
+
   return (
     <div className="flex h-full flex-col">
-      <div className="sticky top-[53px] z-10 flex justify-center px-3 py-2">
+      <div className="sticky top-[53px] z-10 flex flex-wrap items-center justify-center gap-2 px-3 py-2">
         <NotesToolbar
           variant="typed"
           tool={tool}
@@ -261,10 +448,36 @@ export default function TypedNoteEditor({
           format={format}
           onFormat={onFormat}
           canUndo={ink.canUndo}
+          canRedo={ink.canRedo}
           onUndo={ink.undo}
+          onRedo={ink.redo}
           showContents={showContents}
           onToggleContents={() => setShowContents((s) => !s)}
           onSkipLine={skipLine}
+          onTextUndo={() => editor?.chain().focus().undo().run()}
+          onTextRedo={() => editor?.chain().focus().redo().run()}
+        />
+        <ExportMenu
+          uid={uid}
+          note={note}
+          getPages={exportPages}
+          typed={{
+            markdown: () => (editor ? noteToMarkdown(editor.getJSON()) : ""),
+            plain: () => (editor ? noteToPlainText(editor.getJSON()) : ""),
+          }}
+        />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          aria-label="Choose pictures to add"
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            e.target.value = "";
+            if (files.length) insertImagesRef.current(files);
+          }}
         />
       </div>
 
@@ -278,7 +491,7 @@ export default function TypedNoteEditor({
       )}
 
       <div className="relative flex min-h-0 flex-1">
-        <div ref={scrollRef} className="min-w-0 flex-1 px-4 pb-24 pt-2">
+        <div ref={scrollRef} className="min-w-0 flex-1 overflow-x-auto px-4 pb-24 pt-2">
           <div className="mx-auto" style={{ width: PAGE_WIDTH * scale, height: sheetHeight * scale }}>
             <div
               ref={sheetRef}
@@ -287,6 +500,7 @@ export default function TypedNoteEditor({
               onClick={placeCursorOnPaper}
             >
               <div
+                ref={textLayerRef}
                 className="relative z-10"
                 style={{
                   padding: `${MARGIN_TOP}px ${MARGIN_X}px 0`,
@@ -301,13 +515,27 @@ export default function TypedNoteEditor({
               {Array.from({ length: pages }, (_, i) => (
                 // pointer-events-none: the page wrapper must never block clicks into
                 // the text; the canvas inside opts back in only for drawing tools.
-                <div key={i} data-page={i} className="pointer-events-none absolute left-0 right-0 z-0" style={{ top: i * PAGE_HEIGHT, height: PAGE_HEIGHT }}>
+                <div key={i} data-page={i} className="pointer-events-none absolute left-0 right-0 z-0 scroll-mt-28" style={{ top: i * PAGE_HEIGHT, height: PAGE_HEIGHT }}>
                   <InkLayer
                     width={PAGE_WIDTH}
                     height={PAGE_HEIGHT}
-                    strokes={(ink.pages[i] ?? EMPTY_PAGE).strokes}
+                    strokes={tools.page(i).strokes}
                     tool={tool}
-                    onStrokesChange={(strokes) => ink.updatePage(i, { ...(ink.pages[i] ?? EMPTY_PAGE), strokes })}
+                    onStrokesChange={(strokes) => tools.setStrokes(i, strokes)}
+                    onEraseAt={(x, y, r) => tools.eraseAt(i, x, y, r)}
+                    onPointerDownOther={(x, y) => tools.placeAt(i, x, y)}
+                  />
+                </div>
+              ))}
+              {Array.from({ length: pages }, (_, i) => (
+                <div key={`items-${i}`} className="pointer-events-none absolute left-0 right-0 z-20" style={{ top: i * PAGE_HEIGHT, height: PAGE_HEIGHT }}>
+                  <AnnotationItems
+                    height={PAGE_HEIGHT}
+                    annotations={tools.page(i)}
+                    tool={tool}
+                    editingId={tools.editingId}
+                    onEditingChange={tools.setEditingId}
+                    onChange={(next) => tools.setPage(i, next)}
                   />
                 </div>
               ))}
@@ -324,8 +552,41 @@ export default function TypedNoteEditor({
               <FilePlus2 size={15} /> Add page
             </button>
             <span className="tabular-nums">
-              {pages} of {MAX_PAGES_PER_NOTE} pages
+              {pages} of {MAX_PAGES_PER_NOTE} pages · {wordCount} {wordCount === 1 ? "word" : "words"}
             </span>
+          </div>
+        </div>
+
+        <div className="pointer-events-none fixed inset-x-0 bottom-3 z-10 flex justify-center px-3">
+          <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-border-light bg-bg-container px-1.5 py-1 text-xs text-text-main shadow-md" role="group" aria-label="Page navigation">
+            <button type="button" aria-label="Previous page" disabled={currentPage <= 0} onClick={() => goToPage(currentPage - 1)} className="rounded-full p-1.5 hover:bg-bg-warm disabled:opacity-30">
+              <ChevronLeft size={16} />
+            </button>
+            <label className="flex items-center gap-1 tabular-nums">
+              <span className="sr-only">Go to page</span>
+              <select
+                value={Math.min(currentPage, pages - 1)}
+                onChange={(e) => goToPage(Number(e.target.value))}
+                className="cursor-pointer rounded-md bg-transparent px-1 py-0.5 font-medium outline-none hover:bg-bg-warm"
+              >
+                {Array.from({ length: pages }, (_, i) => (
+                  <option key={i} value={i}>
+                    Page {i + 1}
+                  </option>
+                ))}
+              </select>
+              <span className="text-text-muted">of {pages}</span>
+            </label>
+            <button type="button" aria-label="Next page" disabled={currentPage >= pages - 1} onClick={() => goToPage(currentPage + 1)} className="rounded-full p-1.5 hover:bg-bg-warm disabled:opacity-30">
+              <ChevronRight size={16} />
+            </button>
+            <span className="mx-0.5 h-4 w-px bg-border-light" aria-hidden />
+            <ZoomButtons zoom={paperZoom} />
+            {imageBusy > 0 && (
+              <span className="ml-1 flex items-center gap-1 pr-2 text-text-muted">
+                <Loader2 size={13} className="animate-spin" /> Adding picture...
+              </span>
+            )}
           </div>
         </div>
 
