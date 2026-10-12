@@ -167,8 +167,12 @@ describe("notebookClassLabel", () => {
     expect(notebookClassLabel(book("b4", "c1"), [], classes)).toBe("CSC 450");
   });
 
-  it("is undefined with no class anywhere, and ignores other notebooks' notes", () => {
-    expect(notebookClassLabel(book("b5"), [note("n1", "other", "c1")], classes)).toBeUndefined();
-    expect(notebookClassLabel(book("b6"), [note("n1", "b6", null)], classes)).toBeUndefined();
+  it("is General with no class anywhere, and ignores other notebooks' notes", () => {
+    expect(notebookClassLabel(book("b5"), [note("n1", "other", "c1")], classes)).toBe("General");
+    expect(notebookClassLabel(book("b6"), [note("n1", "b6", null)], classes)).toBe("General");
+  });
+
+  it("is General when the class is gone from the student's list", () => {
+    expect(notebookClassLabel(book("b7", "deleted-class"), [], classes)).toBe("General");
   });
 });
