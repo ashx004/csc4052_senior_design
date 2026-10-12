@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-const id = z.string().min(1).max(256).refine((s) => !/[\/\\\u0000-\u001f]/.test(s) && s !== "." && s !== "..", "Invalid identifier");
+// Control characters are rejected on purpose, so the regex names them.
+// eslint-disable-next-line no-control-regex
+const id = z.string().min(1).max(256).refine((s) => !/[/\\\u0000-\u001f]/.test(s) && s !== "." && s !== "..", "Invalid identifier");
+/** Client-made ID for one chat request, so the Stop button can name the reply to cancel. */
+export const RUN_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 const text = z.string().max(4000);
 const document = z.object({
   resourceId: id, name: text, fileType: z.string().max(32), category: text, url: z.string().max(4000),
@@ -24,6 +28,7 @@ export const chatRequestSchema = z.object({
   // knows what happened to them - and only them.
   // The side panel's conversations are temporary: don't save them as chat sessions.
   ephemeral: z.boolean().optional(),
+  runId: z.string().regex(RUN_ID_PATTERN).optional(),
   pendingActionIds: z.array(z.string().regex(/^[A-Za-z0-9]{1,64}$/)).max(50).optional(),
 }).superRefine((body, ctx) => {
   const last = body.messages.at(-1);

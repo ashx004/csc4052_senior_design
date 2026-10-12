@@ -9,6 +9,7 @@ import { useCourseInfo } from "@/src/hooks/useCourseInfo";
 import { getEffectiveModelKey } from "@/src/library/chatMode";
 import { publishStudySet } from "@/src/library/discover/publishStudySet";
 import type { StudySetVisibility } from "@/src/library/discover/types";
+import { parseQuizDifficulty, type QuizDifficulty } from "@/src/library/quizDifficulty";
 
 export interface QuizResourceContext {
   sourceDocKey: string;
@@ -24,6 +25,7 @@ export interface QuizGenerationConfig {
     trueFalse: boolean;
     matching: boolean;
   };
+  difficulty: QuizDifficulty;
   visibility: StudySetVisibility;
 }
 
@@ -62,6 +64,7 @@ export function useGenerateQuizFromResource(courseId: string) {
             docName: resource.name,
             questionCount: config.questionCount,
             questionTypes: config.questionTypes,
+            difficulty: config.difficulty,
             modelKey: getEffectiveModelKey("quiz"),
           }),
         });
@@ -77,6 +80,7 @@ export function useGenerateQuizFromResource(courseId: string) {
           sourceDocKey: resource.sourceDocKey,
           questions: data.questions,
           questionTypes: config.questionTypes,
+          difficulty: parseQuizDifficulty(data.difficulty),
           questionCount: data.questions.length,
           pinned: true,
           visibility: config.visibility,

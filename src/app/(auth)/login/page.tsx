@@ -249,9 +249,11 @@ function LoginForm() {
 
   return (
     <div className="flex min-h-screen items-center justify-center
-                    bg-bg-main">
+                    bg-bg-main px-4 py-10">
+      {/* w-full max-w-md: full width on phones, capped on larger screens.
+          Without a real width the card shrink-wraps to its widest child. */}
       <div className="bg-bg-container rounded items-center shadow-md flex
-                      flex-col w-100 h-100 px-10 py-10 sm:px-16 lg:px-24">
+                      flex-col w-full max-w-md px-6 py-10 sm:px-10">
 
         <AppLogo className="w-[168px] h-[168px]" />
 
@@ -277,7 +279,7 @@ function LoginForm() {
           <input
             type="email"
             placeholder="email"
-            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded mt-8 font-mono text-sm"
+            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded font-mono text-sm"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
@@ -293,7 +295,7 @@ function LoginForm() {
           <button
             onClick={handleLogin}
             disabled={isSubmitting}
-            className="bg-primary text-text-inverse py-1 px-4 rounded
+            className="bg-primary text-text-inverse py-1.5 px-4 rounded
                       hover:bg-primary-hover disabled:opacity-50" >
             Log In
           </button>
