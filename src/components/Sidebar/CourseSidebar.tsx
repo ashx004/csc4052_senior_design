@@ -31,8 +31,11 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
   const displayName = courseName || courseId.replace(/-/g, " ").toUpperCase();
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
-  const [flashcardSets, setFlashcardSets] = useState<FlashcardSetSummary[]>([]);
-  const [quizSets, setQuizSets] = useState<FlashcardSetSummary[]>([]);
+  const [watchedFlashcardSets, setFlashcardSets] = useState<FlashcardSetSummary[]>([]);
+  const [watchedQuizSets, setQuizSets] = useState<FlashcardSetSummary[]>([]);
+  // Signed out means no sets, whatever was last loaded.
+  const flashcardSets = user ? watchedFlashcardSets : [];
+  const quizSets = user ? watchedQuizSets : [];
 
   const toggleSection = (title: string) => {
     setOpenSections((prev) => ({
@@ -42,10 +45,7 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
   };
 
   useEffect(() => {
-    if (!user) {
-      setFlashcardSets([]);
-      return;
-    }
+    if (!user) return;
 
     const setsRef = collection(db, "users", user.uid, "enrollment", courseId, "flashcardSets");
     const q = query(setsRef, orderBy("createdAt", "desc"));
@@ -73,10 +73,7 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
   }, [user, courseId]);
 
   useEffect(() => {
-    if (!user) {
-      setQuizSets([]);
-      return;
-    }
+    if (!user) return;
 
     const setsRef = collection(db, "users", user.uid, "enrollment", courseId, "quizSets");
     const q = query(setsRef, orderBy("createdAt", "desc"));
@@ -167,6 +164,18 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
             }`}
           >
             <span>Notes</span>
+          </Link>
+
+          {/* Practice - fill in the blank, word problems and timed drag-and-drop */}
+          <Link
+            href={`${base}/practice`}
+            className={`flex items-center gap-3 text-sm font-semibold px-3 py-3 mt-1 rounded-xl transition-colors ${
+              pathname.startsWith(`${base}/practice`)
+                ? "bg-white/15 text-white"
+                : "text-white/65 hover:bg-white/10 hover:text-white"
+            }`}
+          >
+            <span>Practice</span>
           </Link>
 
           {/* Learning — plain button, no dropdown */}

@@ -28,5 +28,12 @@ export function useStickToBottom<T extends HTMLElement>(deps: DependencyList) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the caller's content deps
   }, deps);
 
-  return { ref, onScroll, stick };
+  // A callback ref, so what callers put in JSX is a plain function: handing a
+  // ref *object* through a hook's return value is what React's lint rules
+  // (rightly) can't tell apart from reading ref.current during render.
+  const attach = useCallback((node: T | null) => {
+    ref.current = node;
+  }, []);
+
+  return { attach, onScroll, stick };
 }

@@ -34,4 +34,21 @@ describe("parseSyllabusResponse", () => {
     expect(parseSyllabusResponse("no json here").dates).toEqual([]);
     expect(parseSyllabusResponse("[]").classSchedule).toBe("");
   });
+
+  it("keeps an end date only for a real span", () => {
+    const info = parseSyllabusResponse(
+      JSON.stringify({
+        dates: [
+          { date: "2026-11-25", endDate: "2026-11-27", title: "Fall Break", kind: "holiday" },
+          { date: "2026-12-02", endDate: "", title: "Midterm 2", kind: "exam" },
+          { date: "2026-12-05", endDate: "2026-12-01", title: "Backwards", kind: "other" },
+          { date: "Week 9", endDate: "2026-12-10", title: "Wording only", kind: "other" },
+        ],
+      })
+    );
+    expect(info.dates[0]).toEqual({ date: "2026-11-25", endDate: "2026-11-27", title: "Fall Break", kind: "holiday" });
+    expect(info.dates[1]).not.toHaveProperty("endDate");
+    expect(info.dates[2]).not.toHaveProperty("endDate");
+    expect(info.dates[3]).not.toHaveProperty("endDate");
+  });
 });
