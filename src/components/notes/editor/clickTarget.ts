@@ -7,6 +7,15 @@
 //   below all the text      -> the very end (right of the last line)
 // Pure, so it is unit-tested; the editor feeds the result to view.posAtCoords.
 
+/**
+ * Whether a click began on a sticker or text box laid over the page (or on
+ * their resize/delete buttons). Dropping a dragged sticker ends in a click on
+ * it, which bubbles to the page; that must not count as a click on the paper.
+ */
+export function clickedAnnotation(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest("[data-annotation-id]") !== null;
+}
+
 export interface Box {
   left: number;
   right: number;

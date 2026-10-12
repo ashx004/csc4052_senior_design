@@ -1,5 +1,6 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { nearestTextPoint } from "./clickTarget";
+import { clickedAnnotation, nearestTextPoint } from "./clickTarget";
 
 const text = { left: 80, right: 720, top: 72, bottom: 400 };
 
@@ -26,5 +27,23 @@ describe("nearestTextPoint", () => {
 
   it("copes with a text box narrower than the inset", () => {
     expect(nearestTextPoint({ x: 0, y: 0 }, { left: 10, right: 10, top: 5, bottom: 5 })).toEqual({ left: 11, top: 6 });
+  });
+});
+
+describe("clickedAnnotation", () => {
+  const sheet = document.createElement("div");
+  sheet.innerHTML = `
+    <div id="paper"></div>
+    <div data-annotation-id="s1" id="sticker"><span id="face">x</span><button id="del">d</button></div>`;
+
+  it("is true on a sticker, anything inside it, and its buttons", () => {
+    expect(clickedAnnotation(sheet.querySelector("#sticker"))).toBe(true);
+    expect(clickedAnnotation(sheet.querySelector("#face"))).toBe(true);
+    expect(clickedAnnotation(sheet.querySelector("#del"))).toBe(true);
+  });
+
+  it("is false on the bare paper and for a non-element target", () => {
+    expect(clickedAnnotation(sheet.querySelector("#paper"))).toBe(false);
+    expect(clickedAnnotation(null)).toBe(false);
   });
 });
