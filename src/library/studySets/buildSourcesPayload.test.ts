@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildSourcesPayload, completeSourceKeys } from './buildSourcesPayload';
+import { dedupeSources } from '@/src/library/sources/resolveSources';
+import { sourcesFromBody } from '@/src/library/sources/requestSources';
 
 const opt = (id: string, kind: 'document' | 'note', resourceId?: string) =>
   ({ id, title: `T-${id}`, kind, resourceId, status: 'ready' as const });
@@ -17,6 +19,22 @@ describe('buildSourcesPayload', () => {
   it('still sends a note with nothing to read, as empty text, so the server reports it as skipped', () => {
     const out = buildSourcesPayload([opt('n1', 'note', 'd9')], [], [{ id: 'n1', title: 'My note', resourceId: 'd9' }]);
     expect(out).toEqual([{ title: 'My note', text: '' }]);
+  });
+
+  // Spec §10: "URL de-duplication (document + its own note)". dedupeSources is
+  // tested on hand-written inputs; this covers the real chain, because a
+  // document-note only de-duplicates if the payload the UI builds carries the
+  // same url the document does (notesStore writes `url: resource.url`).
+  it('builds a document and its own document-note so the server collapses them to one', () => {
+    const url = 'https://x/?key=users/u1/lecture3.pdf';
+    const payload = buildSourcesPayload(
+      [opt('d1', 'document', 'd1'), opt('n1', 'note', 'd1')],
+      [{ id: 'd1', name: 'Lecture 3.pdf', url }],
+      [{ id: 'n1', title: 'My notes on Lecture 3', resourceId: 'd1', url, fileType: 'pdf' }],
+    );
+    expect(payload).toHaveLength(2);
+    // Through the route's own parser, exactly as the POST body travels.
+    expect(dedupeSources(sourcesFromBody({ sources: payload }))).toHaveLength(1);
   });
 
   it('skips a picked id that resolves to neither a resource nor a note', () => {

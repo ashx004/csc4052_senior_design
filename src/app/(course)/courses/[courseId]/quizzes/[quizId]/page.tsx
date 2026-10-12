@@ -1127,7 +1127,7 @@ export default function QuizTakingPage() {
         {(mode === 'taking' || mode === 'results') && (
           <>
             {mode === 'results' && (
-              <div className="mb-6">
+              <div className="mb-6" data-tutorial="course-quiz-actions">
                 <QuizResults score={resultsScore} total={resultsTotal} />
                 <QuizPracticeSuggestion
                   suggestion={suggestionForCard}
@@ -1168,7 +1168,7 @@ export default function QuizTakingPage() {
             </div>
 
             {mode === 'taking' ? (
-              <div className="mt-8 flex flex-col items-end gap-2 pb-10">
+              <div className="mt-8 flex flex-col items-end gap-2 pb-10" data-tutorial="course-quiz-actions">
                 <p className="text-xs text-text-muted">
                   {answeredCount} of {activeQuestions.length} answered
                 </p>
