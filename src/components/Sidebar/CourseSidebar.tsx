@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { ArrowLeft, ChevronDown, HelpCircle, BookCopy, Home, Globe, Lock, GraduationCap } from "lucide-react";
 import Sidebar from "./Sidebar";
 import SidebarItemMenu from "./SidebarItemMenu";
 import { useAuth } from "@/src/context/AuthContext";
+import { studySetRoutes } from "@/src/library/studySets/routes";
 import { collection, doc, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
 import type { StudySetVisibility } from "@/src/library/discover/types";
@@ -25,9 +26,13 @@ interface FlashcardSetSummary {
 
 export default function CourseSidebar({ courseId, courseName }: CourseSidebarProps) {
   const pathname = usePathname();
-  const router = useRouter();
   const { user } = useAuth();
   const base = `/courses/${courseId}`;
+  const routes = studySetRoutes(courseId);
+  const linkClass = (active: boolean) =>
+    `block flex-1 text-left text-sm font-semibold px-3 py-3 rounded-xl transition-colors ${
+      active ? "bg-white/15 text-white" : "text-white/65 hover:bg-white/10 hover:text-white"
+    }`;
   const displayName = courseName || courseId.replace(/-/g, " ").toUpperCase();
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
@@ -167,43 +172,28 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
           </Link>
 
           {/* Practice - fill in the blank, word problems and timed drag-and-drop */}
-          <Link
-            href={`${base}/practice`}
-            className={`flex items-center gap-3 text-sm font-semibold px-3 py-3 mt-1 rounded-xl transition-colors ${
-              pathname.startsWith(`${base}/practice`)
-                ? "bg-white/15 text-white"
-                : "text-white/65 hover:bg-white/10 hover:text-white"
-            }`}
-          >
-            <span>Practice</span>
+          <Link href={`${base}/practice`} className={`mt-1 ${linkClass(pathname.startsWith(`${base}/practice`))}`}>
+            Practice
           </Link>
 
-          {/* Learning — plain button, no dropdown */}
-          <button
-            onClick={() => router.push(`${base}/learning`)}
-            className={`block w-full text-left text-sm font-semibold px-3 py-3 mt-1 rounded-xl transition-colors ${
-              pathname === `${base}/learning`
-                ? "bg-white/15 text-white"
-                : "text-white/65 hover:bg-white/10 hover:text-white"
-            }`}
-          >
+          <Link href={routes.hub} className={`mt-1 ${linkClass(pathname === routes.hub || pathname === `${base}/learning`)}`}>
             My Study Sets
-          </button>
+          </Link>
 
-          {/* Flashcard — dropdown of pinned flashcard sets */}
-          <div className="mt-1">
+          <div className="mt-1 flex items-center">
+            <Link href={routes.flashcards} className={linkClass(pathname === routes.flashcards || pathname.startsWith(`${base}/flashcards`))}>
+              Flashcards
+            </Link>
             <button
+              type="button"
+              aria-label="Show pinned flashcards"
               onClick={() => toggleSection("Flashcard")}
-              className="flex items-center justify-between w-full text-sm font-semibold text-white/65 px-3 py-3 rounded-xl hover:bg-white/10 hover:text-white transition-colors"
+              className="rounded-xl p-3 text-white/65 hover:bg-white/10 hover:text-white"
             >
-              <span>Recent Flashcard</span>
-              <ChevronDown
-                size={16}
-                className={`text-white/65 transition-transform duration-200 ${
-                  openSections["Flashcard"] ? "rotate-180" : ""
-                }`}
-              />
+              <ChevronDown size={16} className={`transition-transform duration-200 ${openSections["Flashcard"] ? "rotate-180" : ""}`} />
             </button>
+          </div>
+          <div>
 
             {openSections["Flashcard"] && (
               <div className="ml-2 mt-0.5 space-y-0.5">
@@ -225,7 +215,7 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
                           <Lock size={14} className="shrink-0 text-white/65" aria-label="Private" />
                         )}
                       </Link>
-                      <div className="pr-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="pr-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                         <SidebarItemMenu onUnpin={() => handleUnpinFlashcard(set.id)} />
                       </div>
                     </div>
@@ -237,20 +227,20 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
             )}
           </div>
 
-          {/* Quizzes — dropdown */}
-          <div className="mt-1">
+          <div className="mt-1 flex items-center">
+            <Link href={routes.quizzes} className={linkClass(pathname === routes.quizzes || pathname.startsWith(`${base}/quizzes`))}>
+              Quizzes
+            </Link>
             <button
+              type="button"
+              aria-label="Show pinned quizzes"
               onClick={() => toggleSection("Quizzes")}
-              className="flex items-center justify-between w-full text-sm font-semibold text-white/65 px-3 py-3 rounded-xl hover:bg-white/10 hover:text-white transition-colors"
+              className="rounded-xl p-3 text-white/65 hover:bg-white/10 hover:text-white"
             >
-              <span>Recent Quizzes</span>
-              <ChevronDown
-                size={16}
-                className={`text-white/65 transition-transform duration-200 ${
-                  openSections["Quizzes"] ? "rotate-180" : ""
-                }`}
-              />
+              <ChevronDown size={16} className={`transition-transform duration-200 ${openSections["Quizzes"] ? "rotate-180" : ""}`} />
             </button>
+          </div>
+          <div>
 
             {openSections["Quizzes"] && (
               <div className="ml-2 mt-0.5 space-y-0.5">
@@ -272,7 +262,7 @@ export default function CourseSidebar({ courseId, courseName }: CourseSidebarPro
                           <Lock size={14} className="shrink-0 text-white/65" aria-label="Private" />
                         )}
                       </Link>
-                      <div className="pr-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="pr-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                         <SidebarItemMenu onUnpin={() => handleUnpinQuiz(set.id)} />
                       </div>
                     </div>

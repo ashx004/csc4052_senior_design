@@ -3,14 +3,14 @@ import type { TutorialStep } from "../types";
 const courseLearningSteps: TutorialStep[] = [
   {
     target: '[data-tutorial="course-learning-heading"]',
-    title: "Turn documents into study material",
-    body: "This is where you generate flashcards and quizzes straight from anything you've uploaded to this class.",
+    title: "Choose how you want to study",
+    body: "Create a quiz to check what you remember or make flashcards for quick review.",
     placement: "bottom",
   },
   {
     target: '[data-tutorial="course-learning-grid"]',
-    title: "Pick a document",
-    body: "Click any document to generate flashcards or a quiz from it. Nothing here yet? Upload resources from the class page or Notes first.",
+    title: "Start with a quiz or flashcards",
+    body: "Choose a quiz or flashcards, then pick the course sources you want to study. You can also start from a document below the cards.",
     placement: "bottom",
   },
   {

@@ -11,6 +11,7 @@ import type { PublicStudySet } from '@/src/library/discover/types';
 import { Compass, Loader2, AlertCircle, Sparkles, Gamepad2 } from 'lucide-react';
 import LearnQuestionsSession from '@/src/components/discover/LearnQuestionsSession';
 import StudySetCarousel from '@/src/components/discover/StudySetCarousel';
+import StudyLaunch, { StudySpaceHeading } from '@/src/components/learning/StudyLaunch';
 import { buildLearnQuestionsSession } from '@/src/library/discover/learnQuestions';
 import type { LearnQuestion } from '@/src/library/discover/types';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
@@ -176,8 +177,48 @@ export default function DiscoverPage() {
       </div>
 
       <div className="px-6 py-8 md:px-14">
+        {/* Make something new — the same block the learning hub uses, so a
+            student who lands here can start a quiz or a deck without going
+            back a page first. */}
+        <section className="mb-11">
+          <StudySpaceHeading />
+          <StudyLaunch courseId={courseId} variant="hero" />
+        </section>
+
+        {/* Switch It Up With a Game */}
+        <section data-tutorial="course-discover-game">
+          <h2 className="text-lg font-bold text-[#1a1a2e] mb-1">Switch It Up With a Game</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Answer questions, build with blocks, and make studying fun.
+          </p>
+
+          <div className="grid min-h-[230px] grid-cols-1 overflow-hidden rounded-xl border border-gray-200 bg-white md:min-h-[250px] md:grid-cols-[52%_48%]">
+            <div className="flex flex-col justify-between gap-8 p-5 md:p-6">
+              <div>
+                <h3 className="text-2xl font-semibold text-[#1a1a2e]">Blocks</h3>
+                <p className="mt-2 max-w-sm text-sm text-gray-500">
+                  Place pieces on the board, answer questions to keep them coming.
+                </p>
+              </div>
+              <button
+                onClick={() => router.push(`/courses/${courseId}/discover/blocks`)}
+                className="inline-flex w-[240px] max-w-full items-center justify-center gap-1.5 rounded-lg bg-[#1a1a2e] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#2a2a3e]"
+              >
+                <Gamepad2 size={14} />
+                Play Blocks
+              </button>
+            </div>
+            <div className="relative h-48 overflow-hidden md:h-auto md:min-h-[250px]">
+              <img
+                src="/block_game.png"
+                alt=""
+                className="absolute inset-0 h-full w-full scale-110 object-cover object-center"
+              />
+            </div>
+          </div>
+        </section>
         {/* Recommended Study Sets */}
-        <section data-tutorial="course-discover-sets">
+        <section className="mt-8" data-tutorial="course-discover-sets">
           <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
             Based on your recent studying
           </p>
@@ -232,39 +273,6 @@ export default function DiscoverPage() {
           ) : (
             <LearnQuestionsSession questions={learnQuestions} onStateChange={setLearnQuestionsState} />
           )}
-        </section>
-
-        {/* Switch It Up With a Game */}
-        <section className="mt-8" data-tutorial="course-discover-game">
-          <h2 className="text-lg font-bold text-[#1a1a2e] mb-1">Switch It Up With a Game</h2>
-          <p className="text-sm text-gray-500 mb-4">
-            Answer questions, build with blocks, and make studying fun.
-          </p>
-
-          <div className="grid min-h-[230px] grid-cols-1 overflow-hidden rounded-xl border border-gray-200 bg-white md:min-h-[250px] md:grid-cols-[52%_48%]">
-            <div className="flex flex-col justify-between gap-8 p-5 md:p-6">
-              <div>
-                <h3 className="text-2xl font-semibold text-[#1a1a2e]">Blocks</h3>
-                <p className="mt-2 max-w-sm text-sm text-gray-500">
-                  Place pieces on the board, answer questions to keep them coming.
-                </p>
-              </div>
-              <button
-                onClick={() => router.push(`/courses/${courseId}/discover/blocks`)}
-                className="inline-flex w-[240px] max-w-full items-center justify-center gap-1.5 rounded-lg bg-[#1a1a2e] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#2a2a3e]"
-              >
-                <Gamepad2 size={14} />
-                Play Blocks
-              </button>
-            </div>
-            <div className="relative h-48 overflow-hidden md:h-auto md:min-h-[250px]">
-              <img
-                src="/block_game.png"
-                alt=""
-                className="absolute inset-0 h-full w-full scale-110 object-cover object-center"
-              />
-            </div>
-          </div>
         </section>
       </div>
 

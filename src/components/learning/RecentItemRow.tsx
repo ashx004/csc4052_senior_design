@@ -92,7 +92,7 @@ export default function RecentItemRow({
   return (
     <div
       onClick={handleRowClick}
-      className="group relative flex cursor-pointer items-center justify-between px-4 py-3 hover:bg-[#F5F0EB] transition-colors"
+      className="group relative flex cursor-pointer items-center justify-between px-4 py-3 hover:bg-bg-warm focus-within:bg-bg-warm transition-colors"
     >
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
@@ -118,7 +118,7 @@ export default function RecentItemRow({
 
       <div
         ref={menuRef}
-        className="relative shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="relative shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
       >
         <button
           onClick={(e) => {

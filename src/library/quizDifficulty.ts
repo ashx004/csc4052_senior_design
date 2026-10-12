@@ -48,6 +48,8 @@ export function difficultyLabel(difficulty: QuizDifficulty): string {
  * listed first (Array.prototype.sort is stable).
  */
 export function buildBloomPlan(difficulty: QuizDifficulty, questionCount: number): BloomLevel[] {
+  // A negative count would make Array(n) throw a RangeError; an empty plan is the safe answer.
+  if (questionCount <= 0) return [];
   const mix = BLOOM_LEVELS.filter((level) => BLOOM_MIX[difficulty][level]).map((level) => {
     const exact = ((BLOOM_MIX[difficulty][level] ?? 0) * questionCount) / 100;
     return { level, count: Math.floor(exact), remainder: exact - Math.floor(exact) };

@@ -9,8 +9,8 @@ const courseQuizSteps: TutorialStep[] = [
   },
   {
     target: '[data-tutorial="course-quiz-actions"]',
-    title: "Take it, or check past results",
-    body: "Take again starts a fresh attempt. Once you've completed it at least once, you can also review your last result here.",
+    title: "Your result, and what to do next",
+    body: "Opening a quiz drops you straight into the questions, or back on your latest result if you've taken it before. From a result you can retry it or practise just what you missed.",
     placement: "bottom",
   },
 ];

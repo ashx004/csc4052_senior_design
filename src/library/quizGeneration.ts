@@ -9,6 +9,9 @@ import { BLOOM_LEVELS, DEFAULT_QUIZ_DIFFICULTY, buildBloomPlan, type BloomLevel,
 // from different sources (a raw PDF/txt parse there vs. the richer
 // extractDocumentText behind chat's read_document tool here).
 
+/** Most questions one quiz may be generated with. */
+export const MAX_QUIZ_QUESTIONS = 50;
+
 const MAX_OLLAMA_ATTEMPTS = 2;
 const MAX_MATCHING_GROUP_SIZE = 5;
 
@@ -25,6 +28,13 @@ const QuizQuestionSchema = z.object({
         .catch(undefined),
       concept: z.string().trim().max(200).optional().catch(undefined),
       explanation: z.string().trim().max(1000).optional().catch(undefined),
+      // Evidence for grounding checks. Never fails the question: an empty or
+      // non-string quote becomes undefined and verifyGrounding decides.
+      sourceQuote: z
+        .string()
+        .transform((v) => v.trim().slice(0, 500) || undefined)
+        .optional()
+        .catch(undefined),
 });
 
 type ParsedQuestion = z.infer<typeof QuizQuestionSchema>;
@@ -108,7 +118,8 @@ Set each question's bloomLevel to the level it actually targets. A matching ques
       "correctAnswer": string,
       "bloomLevel": ${BLOOM_LEVELS.map((l) => `"${l}"`).join(" | ")},
       "concept": string,
-      "explanation": string
+      "explanation": string,
+      "sourceQuote": string
     }
   ]
 }
@@ -135,7 +146,10 @@ Rules:
 - Questions must be clear and unambiguous, with exactly one correct answer.
 - Cover different important concepts throughout the document.
 - Do not repeat the same question or concept.
-- Rephrase ideas in your own words; do not copy sentences from the document.
+- Rephrase ideas in your own words; do not copy sentences from the document. The only exception is "sourceQuote".
+- Each question must include "sourceQuote": one short sentence copied EXACTLY, word for word, from the source material. Do not paraphrase it.
+- Distractors must be plausible and competitive — a student who does not know the material should not be able to eliminate them by style or length alone.
+- Never use "all of the above" or "none of the above", and never write trick questions.
 - Use clear wording. The thinking should be hard, not the words.
 - The question must make sense and be answerable before the student reads the options.
 - apply, analyze and evaluate questions must describe a short new situation, not ask for a definition.
@@ -271,8 +285,8 @@ export async function generateQuizWithValidation(
   difficulty: QuizDifficulty = DEFAULT_QUIZ_DIFFICULTY
 ): Promise<QuizResult> {
   const enabled = enabledQuestionTypes(questionTypes);
-  if (!Number.isInteger(questionCount) || questionCount < 1 || questionCount > 20 || !enabled.length) {
-    throw new Error("Choose 1–20 questions and at least one question type.");
+  if (!Number.isInteger(questionCount) || questionCount < 1 || questionCount > MAX_QUIZ_QUESTIONS || !enabled.length) {
+    throw new Error(`Choose 1–${MAX_QUIZ_QUESTIONS} questions and at least one question type.`);
   }
   const deadline = Date.now() + GENERATION_DEADLINE_MS;
   const accepted: ParsedQuestion[] = [];
@@ -285,7 +299,7 @@ export async function generateQuizWithValidation(
   for (let attempt = 0; attempt < MAX_OLLAMA_ATTEMPTS; attempt++) {
     const needed = questionCount - accepted.length;
     // Some fresh drafts will be rewordings; ask for a few spares to cover them.
-    const drafts = avoidQuestions.length ? Math.min(20, needed + 3) : needed;
+    const drafts = avoidQuestions.length ? Math.min(MAX_QUIZ_QUESTIONS, needed + 3) : needed;
     // Plan the real count first, then the spares, so the spares are the ones
     // thrown away and the first `needed` questions keep the intended mix.
     const plan = [...buildBloomPlan(difficulty, needed), ...buildBloomPlan(difficulty, drafts - needed)];
