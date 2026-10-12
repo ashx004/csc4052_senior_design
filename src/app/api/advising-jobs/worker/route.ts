@@ -14,6 +14,7 @@ import {
   type FirestoreDate,
 } from "@/src/library/advisingJobs";
 import type { AdvisingNotificationType } from "@/src/library/studyPlan/types";
+import { ACTIVE_JOB_STATUSES, JOB_STATUS } from "@/src/library/jobStatus";
 
 // The two kinds of advising background job. Each is processed by POSTing the
 // student's uid to its route with the internal secret; that route does the
@@ -82,7 +83,7 @@ async function claimNextJob(): Promise<{ kind: JobKind; id: string; data: Advisi
   for (const kind of JOB_KINDS) {
     const candidates = await adminDb
       .collection(kind.collection)
-      .where("status", "in", ["queued", "processing"])
+      .where("status", "in", ACTIVE_JOB_STATUSES)
       .limit(20)
       .get();
 
@@ -93,13 +94,13 @@ async function claimNextJob(): Promise<{ kind: JobKind; id: string; data: Advisi
 
         const data = fresh.data() as AdvisingJob;
         const status = fresh.data()?.status;
-        const canClaimQueued = status === "queued" && isReadyToRun(data.nextAttemptAt);
-        const canReclaimProcessing = status === "processing" && hasExpiredLease(data.leaseExpiresAt);
+        const canClaimQueued = status === JOB_STATUS.pending && isReadyToRun(data.nextAttemptAt);
+        const canReclaimProcessing = status === JOB_STATUS.inProgress && hasExpiredLease(data.leaseExpiresAt);
         if (!canClaimQueued && !canReclaimProcessing) return null;
 
         const attempts = (typeof data.attempts === "number" ? data.attempts : 0) + 1;
         transaction.update(candidate.ref, {
-          status: "processing",
+          status: JOB_STATUS.inProgress,
           attempts,
           startedAt: new Date(),
           leaseExpiresAt: new Date(Date.now() + JOB_LEASE_MS),
@@ -119,7 +120,7 @@ async function updateActiveClaim(collection: string, jobId: string, fields: Upda
   const jobRef = adminDb.collection(collection).doc(jobId);
   return adminDb.runTransaction(async (transaction) => {
     const fresh = await transaction.get(jobRef);
-    if (!fresh.exists || fresh.data()?.status !== "processing") return false;
+    if (!fresh.exists || fresh.data()?.status !== JOB_STATUS.inProgress) return false;
     transaction.update(jobRef, fields);
     return true;
   });
@@ -139,7 +140,7 @@ export async function POST(request: NextRequest) {
 
   if (await isAccountDeletionInProgress(job.data.userId)) {
     await updateActiveClaim(job.kind.collection, job.id, {
-      status: "cancelled",
+      status: JOB_STATUS.cancelled,
       updatedAt: new Date(),
       lastError: "Account deletion requested.",
       leaseExpiresAt: null,
@@ -174,7 +175,7 @@ export async function POST(request: NextRequest) {
     }
 
     const updated = await updateActiveClaim(kind.collection, job.id, {
-      status: "complete",
+      status: JOB_STATUS.completed,
       completedAt: new Date(),
       updatedAt: new Date(),
       lastError: null,
@@ -189,7 +190,7 @@ export async function POST(request: NextRequest) {
     const willRetry = !(error instanceof PermanentJobError) && job.attempts < MAX_ATTEMPTS;
     const retryDelayMs = 30_000 * 2 ** Math.max(0, job.attempts - 1);
     const updated = await updateActiveClaim(kind.collection, job.id, {
-      status: willRetry ? "queued" : "failed",
+      status: willRetry ? JOB_STATUS.pending : JOB_STATUS.failed,
       ...(willRetry ? { nextAttemptAt: new Date(Date.now() + retryDelayMs) } : { failedAt: new Date() }),
       leaseExpiresAt: null,
       updatedAt: new Date(),

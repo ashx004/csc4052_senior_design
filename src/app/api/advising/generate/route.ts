@@ -4,6 +4,7 @@ import { adminDb } from "@/src/library/firebaseAdmin";
 import { verifyRequestAuth, isInternalRequest } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import { SCHEDULE_JOBS, enqueueAdvisingJob, readAdvisingJob } from "@/src/library/advisingJobs";
+import { JOB_STATUS } from "@/src/library/jobStatus";
 import {
   buildAcademicProgress,
   TranscriptData,
@@ -438,7 +439,7 @@ async function enqueueGeneration(request: NextRequest) {
   }
 
   await enqueueAdvisingJob(request, SCHEDULE_JOBS, auth.uid);
-  return NextResponse.json({ queued: true, status: "queued" }, { status: 202 });
+  return NextResponse.json({ queued: true, status: JOB_STATUS.pending }, { status: 202 });
 }
 
 // Browser-facing: polled until the job finishes, and read on page load to
@@ -451,7 +452,7 @@ export async function GET(request: NextRequest) {
 
   const { status, data } = await readAdvisingJob(request, SCHEDULE_JOBS, auth.uid);
 
-  const saved = status === "complete"
+  const saved = status === JOB_STATUS.completed
     ? (await adminDb.collection("users").doc(auth.uid).collection("advising").doc("schedule").get()).data()
     : undefined;
 
