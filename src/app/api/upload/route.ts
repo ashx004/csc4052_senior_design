@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { getMinioClient } from "@/src/library/minioClient";
+import { isAccountDeletionInProgress } from "@/src/library/accountDeletionGuard";
 
 export async function POST(req: NextRequest) {
     try {
@@ -20,6 +21,9 @@ export async function POST(req: NextRequest) {
         }
         if (!storagePath.startsWith(`users/${auth.uid}/`)) {
             return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
+        if (await isAccountDeletionInProgress(auth.uid)) {
+            return NextResponse.json({ error: "This account is being deleted." }, { status: 410 });
         }
 
         const arrayBuffer = await req.arrayBuffer();
