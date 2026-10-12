@@ -27,6 +27,7 @@
 .title {
   margin: 0;
   max-width: 260px;
+  padding-right: 24px;
   font-size: 20px;
   line-height: 1.2;
 }

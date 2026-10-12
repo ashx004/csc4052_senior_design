@@ -175,7 +175,10 @@
 
 @media (max-width: 620px) {
   .head, .body, .foot { padding-left: 20px; padding-right: 20px; }
-  .status { display: none; }
+  .row { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 6px 12px; }
+  .row input { grid-row: 1 / 3; }
+  .title, .meta { overflow-wrap: anywhere; }
+  .status { grid-column: 2; margin-left: 0; white-space: normal; }
 }
 
 @media (prefers-reduced-motion: reduce) {

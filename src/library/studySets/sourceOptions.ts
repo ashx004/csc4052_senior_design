@@ -70,10 +70,22 @@ export function filterSourceOptions(options: SourceOption[], query: string): Sou
   return options.filter((option) => option.title.toLowerCase().includes(needle));
 }
 
+export function eligibleSourceIds(ids: string[], options: SourceOption[]): string[] {
+  return [...new Set(ids)].filter((id) => options.some((option) => option.id === id && option.status !== 'unavailable')).slice(0, MAX_STUDY_SOURCES);
+}
+
+export function validSourceSelection(ids: string[], options: SourceOption[]): boolean {
+  return ids.length > 0 && ids.length <= MAX_STUDY_SOURCES && eligibleSourceIds(ids, options).length === ids.length;
+}
+
+export function sourceCheckboxDisabled(option: SourceOption, ids: string[]): boolean {
+  return !ids.includes(option.id) && (option.status === 'unavailable' || ids.length >= MAX_STUDY_SOURCES);
+}
+
 export function toggleSource(ids: string[], id: string, options: SourceOption[]): string[] {
+  if (ids.includes(id)) return ids.filter((item) => item !== id);
   const option = options.find((item) => item.id === id);
   if (!option || option.status === 'unavailable') return ids;
-  if (ids.includes(id)) return ids.filter((item) => item !== id);
   return ids.length < MAX_STUDY_SOURCES ? [...ids, id] : ids;
 }
 
