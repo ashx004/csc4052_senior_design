@@ -165,7 +165,60 @@ async function main() {
         return data;
       });
     }
-    await check("standalone flashcards", async () => { const d = await json("/api/generate-flashcards", { docUrl, docName: "Queue Lab.txt" }); assert.equal(d.questions.length, 10); assert.equal(new Set(d.questions.map((q: any) => q.question)).size, 10); return d; });
+    // 20, not 10: a request that names no count now gets the route's default
+    // of 20 cards (DEFAULT_FLASHCARD_COUNT in generate-flashcards/route.ts).
+    await check("standalone flashcards", async () => { const d = await json("/api/generate-flashcards", { docUrl, docName: "Queue Lab.txt" }); assert.equal(d.questions.length, 20); assert.equal(new Set(d.questions.map((q: any) => q.question)).size, 20); return d; });
+    await check("flashcards honor a custom count", async () => {
+      const d = await json("/api/generate-flashcards", { docUrl, docName: "Queue Lab.txt", count: 4 });
+      assert.equal(d.questions.length, 4);
+      return d;
+    });
+    await check("flashcards across two sources cover both", async () => {
+      const d = await json("/api/generate-flashcards", {
+        count: 8,
+        sources: [
+          { title: "Queue Lab", url: docUrl, fileType: "txt" },
+          { title: "Typed note", text: source },
+        ],
+      });
+      assert.equal(d.questions.length, 8);
+      // Every selected source must contribute — that is the whole feature.
+      assert.equal(d.audit.length, 2);
+      for (const entry of d.audit) assert.ok(entry.produced > 0, `${entry.title} produced nothing`);
+      return d;
+    });
+    await check("quiz across two sources cover both", async () => {
+      const d = await json("/api/generate-quiz", {
+        questionCount: 8,
+        questionTypes: { multipleChoice: true },
+        sources: [
+          { title: "Queue Lab", url: docUrl, fileType: "txt" },
+          { title: "Typed note", text: source },
+        ],
+      });
+      assert.equal(d.questions.length, 8);
+      // Every selected source must contribute — that is the whole feature.
+      assert.equal(d.audit.length, 2);
+      for (const entry of d.audit) assert.ok(entry.produced > 0, `${entry.title} produced nothing`);
+      return d;
+    });
+    await check("every generated question carries a sourceQuote", async () => {
+      const d = await json("/api/generate-quiz", {
+        questionCount: 3,
+        questionTypes: { multipleChoice: true },
+        sources: [{ title: "Queue Lab", url: docUrl, fileType: "txt" }],
+      });
+      assert.equal(d.questions.length, 3);
+      for (const q of d.questions) assert.ok(q.sourceQuote, "question has no sourceQuote");
+      return d;
+    });
+    await check("picking no sources is rejected", async () => {
+      const response = await post("/api/generate-flashcards", { sources: [], count: 10 });
+      assert.equal(response.status, 400);
+      const body = await response.json();
+      assert.equal(body.error, "Pick at least one document or note.");
+      return body;
+    });
     await check("notebook quiz", async () => { const d = await json("/api/notebooks/generate", { kind: "quiz", sources: [{ title: "Queue Lab", text: source }], questionCount: 3, questionTypes: { multipleChoice: true } }); assert.equal(d.questions.length, 3); return d; });
     await check("discover/blocks generation from cards", async () => { const d = await json("/api/discover/learn-question", { count: 3, courses: [{ courseCode: "CSC 301", courseName: "Data Structures", cardsToTest: [{ question: "What capacity does the Aster queue have?", answer: "17 items" }, { question: "What code indicates overflow?", answer: "ZEPHYR-47" }, { question: "What order does a queue use?", answer: "FIFO" }] }] }); assert.equal(d.questions.length, 3); for (const q of d.questions) assert.ok(q.options.includes(q.correctAnswer)); return d; });
     await check("PDF generation and authenticated download", async () => {

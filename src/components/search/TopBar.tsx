@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import SearchBar from "./SearchBar";
+import { useSearchBarEnabled } from "@/src/library/searchBarPreference";
 import type { SearchEntry } from "@/src/library/search/siteSearchIndex";
 
 type TopBarProps = {
@@ -18,9 +20,21 @@ const PAGES_WITH_COMPACT_SEARCH = ["/learning"];
 // On desktop it matches the sidebar header's height (68px) so the two line up.
 export default function TopBar({ extraSearchEntries }: TopBarProps) {
   const pathname = usePathname();
+  const enabled = useSearchBarEnabled();
+  const showBar = enabled && !PAGES_WITH_COMPACT_SEARCH.includes(pathname);
 
-  if (PAGES_WITH_COMPACT_SEARCH.includes(pathname)) {
-    // No bar, but phones still need the space under the fixed menu button.
+  // Tells global.css how much height the bar takes (--topbar-h), so full-height
+  // pages inside <main> shrink by that much instead of overflowing below it.
+  useEffect(() => {
+    document.documentElement.dataset.topbar = showBar ? "bar" : "spacer";
+    return () => {
+      delete document.documentElement.dataset.topbar;
+    };
+  }, [showBar]);
+
+  if (!showBar) {
+    // No bar (turned off in Settings, or the page has its own compact search),
+    // but phones still need the space under the fixed menu button.
     return <div className="h-16 shrink-0 md:hidden" aria-hidden="true" />;
   }
 

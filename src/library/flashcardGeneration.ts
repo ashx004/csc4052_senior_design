@@ -8,6 +8,9 @@ import { GENERATION_DEADLINE_MS, normalizedQuestion, structuredGeneration } from
 // chat's read_document tool here, which additionally supports docx/xlsx/
 // image OCR).
 
+/** Most flashcards one set may be generated with. */
+export const MAX_FLASHCARDS = 30;
+
 export const FlashcardResponseSchema = z.object({
   topicName: z
     .string().trim().min(1).max(200)
@@ -16,8 +19,17 @@ export const FlashcardResponseSchema = z.object({
     z.object({
       question: z.string().trim().min(1).max(4000).describe("A clear, concise question about a key concept from the document"),
       answer: z.string().trim().min(1).max(4000).describe("A brief, accurate answer in 1-2 sentences"),
+      // Optional on purpose: a missing quote must not fail parsing and lose the
+      // whole batch. verifyGrounding is the single place that rejects it. A bad
+      // quote (too long, blank, wrong type) degrades instead of failing parse.
+      // preprocess, not transform: z.toJSONSchema below cannot represent transforms.
+      sourceQuote: z.preprocess(
+        (v) => (typeof v === "string" ? v.trim().slice(0, 500) || undefined : undefined),
+        z.string().max(500).optional()
+          .describe("A short verbatim sentence copied exactly from the document that supports this answer")
+      ),
     })
-  ).min(1).max(10),
+  ).min(1).max(MAX_FLASHCARDS),
 });
 
 export type FlashcardResult = z.infer<typeof FlashcardResponseSchema>;
@@ -38,6 +50,7 @@ Rules:
 - Cover different topics across the document, not just the beginning
 - Use simple language that a student can quickly understand
 - Do NOT use information outside of this document
+- Include a "sourceQuote": one short sentence copied EXACTLY, word for word, from the document content below. Do not paraphrase it.
 - The topic name should reflect the overall subject of the document, not a single flashcard
 - Return ONLY valid JSON matching the required schema — no commentary, no markdown fences`;
 
@@ -64,15 +77,19 @@ export async function generateFlashcardsWithRetry(
   extractedText: string,
   baseUrl: string,
   modelKey: string | undefined,
-  previousQuestions: string[] = []
+  previousQuestions: string[] = [],
+  count = 10
 ): Promise<FlashcardResult> {
+  if (!Number.isInteger(count) || count < 1 || count > MAX_FLASHCARDS) {
+    throw new Error(`Choose between 1 and ${MAX_FLASHCARDS} flashcards.`);
+  }
   const previous = previousQuestions.filter((q): q is string => typeof q === "string");
   const seen = new Set(previous.map(normalizedQuestion));
   const accepted: FlashcardResult["questions"] = [];
   const deadline = Date.now() + GENERATION_DEADLINE_MS;
   let topicName = "";
   for (let attempt = 0; attempt < 2; attempt++) {
-    const needed = 10 - accepted.length;
+    const needed = count - accepted.length;
     const messages = buildFlashcardMessages(extractedText, [...previous, ...accepted.map((q) => q.question)], needed);
     if (attempt) messages[1].content += "\nThe previous output had missing, empty, or duplicate cards. Correct those issues in the replacements.";
     const raw = await structuredGeneration({ baseUrl, modelKey, feature: "flashcards", deadline, messages, schema: flashcardSchema(needed) });
@@ -84,8 +101,8 @@ export async function generateFlashcardsWithRetry(
       if (!key || seen.has(key)) continue;
       seen.add(key);
       accepted.push(card);
-      if (accepted.length === 10) return { topicName, questions: accepted };
+      if (accepted.length === count) return { topicName, questions: accepted };
     }
   }
-  throw new Error("Could not generate 10 valid, distinct flashcards from this material. Try a more detailed source.");
+  throw new Error(`Could not generate ${count} valid, distinct flashcards from this material. Try a more detailed source.`);
 }

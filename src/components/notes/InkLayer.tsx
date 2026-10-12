@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { HIGHLIGHTER_COLORS, HIGHLIGHTER_WIDTH, strokesTouchedBy, thinPoints } from "@/src/library/notes/ink";
+import { HIGHLIGHTER_COLORS, HIGHLIGHTER_WIDTH, penStrokeColor, straightLine, strokesTouchedBy, thinPoints, tracePath } from "@/src/library/notes/ink";
 import type { InkStroke } from "@/src/library/notes/types";
 import type { ToolState } from "./tools";
 
 const ERASER_RADIUS = 8;
+/** Holding the pen still this long turns the stroke into a straight line. */
+const HOLD_TO_STRAIGHTEN_MS = 650;
 /** Ink on a document page: those pages stay light in every theme, so
  *  theme-colored (light-in-dark-mode) ink would vanish on them. */
 const DOCUMENT_INK = "#1f2328";
@@ -42,12 +44,10 @@ export function drawInkStroke(ctx: CanvasRenderingContext2D, stroke: InkStroke, 
     ctx.globalCompositeOperation = dark ? "screen" : "multiply";
     ctx.strokeStyle = `rgba(${dark ? color.darkRgb : color.rgb}, ${dark ? 0.5 : 0.45})`;
   } else {
-    ctx.strokeStyle = inkColor;
+    ctx.strokeStyle = penStrokeColor(stroke.color, inkColor, dark);
   }
   ctx.beginPath();
-  ctx.moveTo(pts[0], pts[1]);
-  if (pts.length === 2) ctx.lineTo(pts[0] + 0.01, pts[1]);
-  for (let i = 2; i + 1 < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+  tracePath(ctx, pts);
   ctx.stroke();
   ctx.restore();
 }
@@ -84,6 +84,8 @@ export default function InkLayer({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const liveRef = useRef<InkStroke | null>(null);
   const erasingRef = useRef(false);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const snappedRef = useRef(false);
   const strokesRef = useRef(strokes);
   strokesRef.current = strokes;
   const themeVersion = useThemeVersion();
@@ -149,7 +151,7 @@ export default function InkLayer({
     liveRef.current = {
       id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
       tool: highlighter ? "highlighter" : "pencil",
-      color: highlighter ? tool.highlighterColor : "ink",
+      color: highlighter ? tool.highlighterColor : tool.pencilColor,
       width: highlighter ? HIGHLIGHTER_WIDTH : tool.pencilWidth,
       points: [x, y],
     };
@@ -167,14 +169,37 @@ export default function InkLayer({
     // Coalesced events give smooth curves on fast pen/finger movement.
     const events = e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent];
     const rect = e.currentTarget.getBoundingClientRect();
-    for (const ev of events) {
-      live.points.push(((ev.clientX - rect.left) / rect.width) * width, ((ev.clientY - rect.top) / rect.height) * height);
+    const toPage = (ev: { clientX: number; clientY: number }): [number, number] => [
+      ((ev.clientX - rect.left) / rect.width) * width,
+      ((ev.clientY - rect.top) / rect.height) * height,
+    ];
+    if (snappedRef.current) {
+      // Already a straight line: the free end follows the pointer.
+      live.points = straightLine(live.points, toPage(events[events.length - 1]));
+      redraw(live);
+      armHold(live, toPage(events[events.length - 1]));
+      return;
     }
+    for (const ev of events) live.points.push(...toPage(ev));
     redraw(live);
+    armHold(live, toPage(events[events.length - 1]));
+  }
+
+  function armHold(live: InkStroke, end: [number, number]) {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    if (live.points.length < 8 && !snappedRef.current) return;
+    holdTimer.current = setTimeout(() => {
+      if (liveRef.current !== live) return;
+      snappedRef.current = true;
+      live.points = straightLine(live.points, end);
+      redraw(live);
+    }, HOLD_TO_STRAIGHTEN_MS);
   }
 
   function handleUp() {
     erasingRef.current = false;
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    snappedRef.current = false;
     const live = liveRef.current;
     liveRef.current = null;
     if (!live) return;

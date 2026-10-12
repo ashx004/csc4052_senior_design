@@ -1,39 +1,29 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
-import { buildChatContext, type ChatContext } from '@/src/library/chatContext';
+import { useChatContext } from '@/src/hooks/useChatContext';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
 import { buildPageTextSuggestions, type PageTextPageContext } from '@/src/library/Contextual_AI/contextualAi';
 import { getCourseResources } from '@/src/components/resourceManagement/fileUploadService';
 import {
-  collection,
   deleteDoc,
   doc,
   getDoc,
-  onSnapshot,
-  orderBy,
-  query,
-  Timestamp,
   updateDoc,
 } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
-import { ArrowLeft, FileEdit, BookOpen, Loader2 } from 'lucide-react';
-import PdfThumbnail from '@/src/components/learning/PdfThumbnail';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 import { useCourseInfo } from '@/src/hooks/useCourseInfo';
-import RecentItemRow, { RecentItem } from '@/src/components/learning/RecentItemRow';
-import SortDropdown, { SortOption } from '@/src/components/learning/SortDropdown';
-import LectureChoiceModal from '@/src/components/learning/LectureChoiceModal';
 import ConfirmDeleteModal from '@/src/components/learning/ConfirmDeleteModal';
-import QuizSetupModal from '@/src/components/quizzes/QuizSetupModal';
-import { useGenerateQuizFromResource } from '@/src/hooks/useGenerateQuizFromResource';
+import RecentStudySets from '@/src/components/learning/RecentStudySets';
+import StudyLaunch, { StudySpaceHeading } from '@/src/components/learning/StudyLaunch';
+import { useStudySets } from '@/src/hooks/useStudySets';
 import { publishStudySet } from '@/src/library/discover/publishStudySet';
 import { unpublishStudySet } from '@/src/library/discover/unpublishStudySet';
-import type { StudySetVisibility } from '@/src/library/discover/types';
 import PageTutorial from '@/src/components/tutorial/PageTutorial';
 import courseLearningSteps from '@/src/library/tutorials/steps/course-learning';
-
 interface Resource {
   id: string;
   name: string;
@@ -43,20 +33,6 @@ interface Resource {
 }
 
 type DeleteTarget = { id: string; kind: 'flashcard' | 'quiz' };
-
-function extractStorageKey(url: string): string {
-  return decodeURIComponent(url.split('key=')[1] ?? '');
-}
-
-function sortRecentItems(items: RecentItem[], sort: SortOption): RecentItem[] {
-  const copy = [...items];
-  if (sort === 'title') {
-    copy.sort((a, b) => a.name.localeCompare(b.name));
-  } else {
-    copy.sort((a, b) => (b.createdAt?.toMillis() ?? 0) - (a.createdAt?.toMillis() ?? 0));
-  }
-  return copy;
-}
 
 export default function CourseLearningPage() {
   const params = useParams();
@@ -73,17 +49,10 @@ export default function CourseLearningPage() {
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [flashcardSets, setFlashcardSets] = useState<RecentItem[]>([]);
-  const [flashcardSort, setFlashcardSort] = useState<SortOption>('recent');
-
-  const [quizSets, setQuizSets] = useState<RecentItem[]>([]);
-  const [quizSort, setQuizSort] = useState<SortOption>('recent');
-
-  const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
+  const { flashcards, quizzes, loading: setsLoading, error: setsError } = useStudySets(courseId);
+  const [documentEntry, setDocumentEntry] = useState<string[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [deleting, setDeleting] = useState(false);
-
-  const quizFromResource = useGenerateQuizFromResource(courseId);
 
   const searchParams = useSearchParams();
   const quizFromId = searchParams.get('quizFrom');
@@ -94,13 +63,8 @@ export default function CourseLearningPage() {
     const resource = resources.find((item) => item.id === quizFromId);
     if (!resource) return;
     handledQuizFromRef.current = quizFromId;
-    quizFromResource.begin({
-      sourceDocKey: extractStorageKey(resource.url),
-      resourceId: resource.id,
-      name: resource.name,
-      url: resource.url,
-    });
-  }, [quizFromId, loading, resources, quizFromResource.begin]);
+    setDocumentEntry([resource.id]);
+  }, [quizFromId, loading, resources]);
 
   const [togglingVisibilityId, setTogglingVisibilityId] = useState<string | null>(null);
 
@@ -110,14 +74,8 @@ export default function CourseLearningPage() {
   // result to model either.
   const [catalystOpen, setCatalystOpen] = useState(false);
   const catalystBtnRef = useRef<HTMLButtonElement | null>(null);
-  const [catalystChatContext, setCatalystChatContext] = useState<ChatContext | null>(null);
-
-  useEffect(() => {
-    if (!user?.email) return;
-    buildChatContext(user.uid, user.email)
-      .then(setCatalystChatContext)
-      .catch(() => setCatalystChatContext(null));
-  }, [user]);
+  
+  const catalystChatContext = useChatContext(user?.uid, user?.email);
 
   useEffect(() => {
     if (authLoading) return;
@@ -140,106 +98,6 @@ export default function CourseLearningPage() {
     fetchResources();
   }, [user, authLoading, courseId]);
 
-  // Recent flashcard sets — every set for this course, regardless of pinned status
-  useEffect(() => {
-    if (!user) {
-      setFlashcardSets([]);
-      return;
-    }
-
-    const setsRef = collection(db, 'users', user.uid, 'enrollment', courseId, 'flashcardSets');
-    const q = query(setsRef, orderBy('createdAt', 'desc'));
-
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        setFlashcardSets(
-          snapshot.docs.map((docSnap) => {
-            const data = docSnap.data();
-            return {
-              id: docSnap.id,
-              name: (data.name as string) || 'Untitled',
-              itemCount: Array.isArray(data.cards) ? data.cards.length : 0,
-              createdAt: (data.createdAt as Timestamp) ?? null,
-              pinned: data.pinned as boolean | undefined,
-              visibility: data.visibility as StudySetVisibility | undefined,
-              publicSetId: data.publicSetId as string | undefined,
-            };
-          })
-        );
-      },
-      (error) => {
-        console.error('Error fetching flashcard sets:', error);
-        setFlashcardSets([]);
-      }
-    );
-
-    return () => unsubscribe();
-  }, [user, courseId]);
-
-  // Recent quizzes — the quizSets collection does not exist yet, so this stays empty
-  useEffect(() => {
-    if (!user) {
-      setQuizSets([]);
-      return;
-    }
-
-    const setsRef = collection(db, 'users', user.uid, 'enrollment', courseId, 'quizSets');
-    const q = query(setsRef, orderBy('createdAt', 'desc'));
-
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        setQuizSets(
-          snapshot.docs.map((docSnap) => {
-            const data = docSnap.data();
-            return {
-              id: docSnap.id,
-              name: (data.name as string) || 'Untitled',
-              itemCount: Array.isArray(data.questions) ? data.questions.length : 0,
-              createdAt: (data.createdAt as Timestamp) ?? null,
-              pinned: data.pinned as boolean | undefined,
-              visibility: data.visibility as StudySetVisibility | undefined,
-              publicSetId: data.publicSetId as string | undefined,
-            };
-          })
-        );
-      },
-      (error) => {
-        console.error('Error fetching quiz sets:', error);
-        setQuizSets([]);
-      }
-    );
-
-    return () => unsubscribe();
-  }, [user, courseId]);
-
-  const sortedFlashcardSets = useMemo(
-    () => sortRecentItems(flashcardSets, flashcardSort),
-    [flashcardSets, flashcardSort]
-  );
-  const sortedQuizSets = useMemo(() => sortRecentItems(quizSets, quizSort), [quizSets, quizSort]);
-
-  const handleSelectFlashcard = () => {
-    if (!selectedResource) return;
-    router.push(
-      `/courses/${courseId}/flashcards?docId=${selectedResource.id}&docName=${encodeURIComponent(
-        selectedResource.name
-      )}`
-    );
-  };
-
-  const handleSelectQuiz = () => {
-    if (!selectedResource) return;
-    quizFromResource.begin({
-      sourceDocKey: extractStorageKey(selectedResource.url),
-      resourceId: selectedResource.id,
-      name: selectedResource.name,
-      url: selectedResource.url,
-    });
-    setSelectedResource(null);
-  };
-
   // Toggles a quiz or flashcard set between Public and Private after
   // creation. Mirrors the same publish/unpublish calls used at creation
   // time (2C/2D), just triggered from the RecentItemRow menu instead.
@@ -250,7 +108,7 @@ export default function CourseLearningPage() {
     try {
       const collectionName = kind === 'flashcard' ? 'flashcardSets' : 'quizSets';
       const setRef = doc(db, 'users', user.uid, 'enrollment', courseId, collectionName, id);
-      const current = kind === 'flashcard' ? flashcardSets : quizSets;
+      const current = kind === 'flashcard' ? flashcards : quizzes;
       const item = current.find((set) => set.id === id);
       const isCurrentlyPublic = item?.visibility === 'public';
 
@@ -309,143 +167,52 @@ export default function CourseLearningPage() {
     resources.length
       ? `Documents available to turn into flashcards/quizzes (${resources.length}): ${resources.map((r) => r.name).join(', ')}`
       : 'No documents uploaded to this class yet — the student needs to upload one before creating flashcards or a quiz.',
-    `Existing flashcard sets: ${flashcardSets.length ? flashcardSets.map((s) => s.name).join(', ') : 'none yet'}`,
-    `Existing quiz sets: ${quizSets.length ? quizSets.map((s) => s.name).join(', ') : 'none yet'}`,
+    `Existing flashcard sets: ${flashcards.length ? flashcards.map((s) => s.name).join(', ') : 'none yet'}`,
+    `Existing quiz sets: ${quizzes.length ? quizzes.map((s) => s.name).join(', ') : 'none yet'}`,
   ].join('\n');
   const learningPageContext: PageTextPageContext | null =
     !loading ? { kind: 'page_text', courseId, pageTitle: `the ${courseCode || courseDisplayName} Learning page`, pageText: learningPageText } : null;
   const catalystSuggestions = learningPageContext ? buildPageTextSuggestions(learningPageContext) : [];
 
-  if (authLoading || loading) {
+  if (authLoading || loading || setsLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-[#FAFAF8]">
-        <Loader2 size={32} className="animate-spin text-[#8B6914]" />
+      <div className="flex items-center justify-center min-h-screen bg-bg-main">
+        <Loader2 size={32} className="animate-spin text-primary" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#FAFAF8]">
+    <div className="min-h-screen bg-bg-main">
       <PageTutorial id="course-learning" steps={courseLearningSteps} />
       {/* Header */}
-      <div className="flex h-[60px] items-center justify-between border-b border-border-light px-14">
-        <div className="ml-4 flex translate-y-3 items-center gap-3">
+      <div className="flex min-h-[68px] items-center justify-between border-b border-border-light px-5 sm:px-8 lg:px-14">
+        <div className="flex items-center gap-3">
           <button
             onClick={() => router.back()}
-            className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors"
+            aria-label="Go back"
+            className="p-1.5 rounded-md hover:bg-bg-warm transition-colors"
           >
             <ArrowLeft size={20} className="text-text-main" />
           </button>
-          <h1 className="ml-1 text-xl font-bold text-[#1a1a2e]">
+          <h1 className="ml-1 text-xl font-bold text-text-main">
             {courseInfoLoading ? 'Loading...' : courseDisplayName}
           </h1>
         </div>
       </div>
 
-      <div className="px-14 py-6">
-        {/* Page header */}
-        <h2 className="text-left text-lg font-bold text-[#1a1a2e] mb-6" data-tutorial="course-learning-heading">
-          Choose A Lecture And Make Your Own Flashcard Or Quizzes
-        </h2>
-
-        {/* Document grid */}
-        {resources.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-text-muted" data-tutorial="course-learning-grid">
-            <BookOpen size={48} className="mb-4" />
-            <p className="text-lg font-medium">No documents yet</p>
-            <p className="text-sm mt-1">Upload resources to your course to start learning</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5" data-tutorial="course-learning-grid">
-            {resources.map((resource, index) => (
-              <button
-                key={resource.id}
-                onClick={() => setSelectedResource(resource)}
-                className="text-left rounded-xl overflow-hidden border border-border-light
-                           hover:shadow-md transition-shadow bg-bg-container group"
-              >
-                {/* Document preview */}
-                {resource.name?.toLowerCase().endsWith('.pdf') ? (
-                  <PdfThumbnail url={resource.url} className="h-36" />
-                ) : (
-                  <div className="h-36 bg-[#E8E3DA] flex items-center justify-center">
-                    <FileEdit
-                      size={36}
-                      className="text-[#8B7B5E] opacity-50 group-hover:opacity-75 transition-opacity"
-                    />
-                  </div>
-                )}
-
-                {/* Card info */}
-                <div className="bg-[#F0EBE1] px-4 py-3">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <FileEdit size={14} className="text-[#8B7B5E]" />
-                    <span className="text-[10px] font-semibold tracking-wider text-[#8B7B5E] uppercase">
-                      NOTE {index + 1}
-                    </span>
-                  </div>
-                  <h3 className="text-sm font-semibold text-[#1a1a2e] leading-snug truncate">
-                    {resource.name}
-                  </h3>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Recent Flashcard */}
-        <div className="mt-12" data-tutorial="course-learning-recent">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-base font-bold text-[#1a1a2e]">Recent Flashcard</h2>
-            <SortDropdown value={flashcardSort} onChange={setFlashcardSort} />
-          </div>
-
-          {sortedFlashcardSets.length === 0 ? (
-            <p className="px-1 py-6 text-sm text-text-muted">No flashcards yet</p>
-          ) : (
-            <div className="flex flex-col divide-y divide-border-light rounded-xl border border-border-light bg-bg-container">
-              {sortedFlashcardSets.map((set) => (
-                <RecentItemRow
-                  key={set.id}
-                  item={set}
-                  courseId={courseId}
-                  courseName={courseDisplayName}
-                  kind="flashcard"
-                  onDelete={(id) => setDeleteTarget({ id, kind: 'flashcard' })}
-                  onToggleVisibility={(id) => handleToggleVisibility('flashcard', id)}
-                  togglingVisibility={togglingVisibilityId === set.id}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Recent Quizzes */}
-        <div className="mt-10 mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-base font-bold text-[#1a1a2e]">Recent Quizzes</h2>
-            <SortDropdown value={quizSort} onChange={setQuizSort} />
-          </div>
-
-          {sortedQuizSets.length === 0 ? (
-            <p className="px-1 py-6 text-sm text-text-muted">No quizzes yet</p>
-          ) : (
-            <div className="flex flex-col divide-y divide-border-light rounded-xl border border-border-light bg-bg-container">
-              {sortedQuizSets.map((set) => (
-                <RecentItemRow
-                  key={set.id}
-                  item={set}
-                  courseId={courseId}
-                  courseName={courseDisplayName}
-                  kind="quiz"
-                  onDelete={(id) => setDeleteTarget({ id, kind: 'quiz' })}
-                  onToggleVisibility={(id) => handleToggleVisibility('quiz', id)}
-                  togglingVisibility={togglingVisibilityId === set.id}
-                />
-              ))}
-            </div>
-          )}
-        </div>
+      <div className="mx-auto max-w-[1500px] px-5 py-8 sm:px-8 lg:px-14 lg:py-11">
+        {setsError && <p role="alert" className="mb-5 text-sm text-red-700">Could not load some saved study sets. Please try again.</p>}
+        <StudySpaceHeading />
+        <StudyLaunch courseId={courseId} variant="hero" initialKind={documentEntry.length ? 'quiz' : undefined} preselectedIds={documentEntry} />
+        <RecentStudySets
+          flashcards={flashcards.slice(0, 4)}
+          quizzes={quizzes.slice(0, 4)}
+          courseId={courseId}
+          onDelete={setDeleteTarget}
+          onToggleVisibility={handleToggleVisibility}
+          togglingVisibilityId={togglingVisibilityId}
+        />
       </div>
 
       {learningPageContext && catalystChatContext && (
@@ -463,23 +230,6 @@ export default function CourseLearningPage() {
           />
         </>
       )}
-
-      <LectureChoiceModal
-        open={!!selectedResource}
-        documentName={selectedResource?.name ?? ''}
-        onClose={() => setSelectedResource(null)}
-        onSelectFlashcard={handleSelectFlashcard}
-        onSelectQuiz={handleSelectQuiz}
-      />
-
-      <QuizSetupModal
-        open={quizFromResource.open}
-        documentName={quizFromResource.documentName}
-        onClose={quizFromResource.close}
-        onStart={quizFromResource.start}
-        loading={quizFromResource.loading}
-        error={quizFromResource.error}
-      />
 
       <ConfirmDeleteModal
         open={!!deleteTarget}

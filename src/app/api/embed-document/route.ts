@@ -21,6 +21,7 @@ import { deleteChunksForResource, upsertChunks, chunkPointId } from "@/src/libra
 import { createTimeoutSignal } from "@/src/library/withTimeout";
 import { isInternalRequest, verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
+import { isAccountDeletionInProgress } from "@/src/library/accountDeletionGuard";
 import { generateCourseSummary } from "@/src/library/courseSummary";
 import { saveDocumentText } from "@/src/library/documentTextCache";
 
@@ -265,6 +266,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    if (await isAccountDeletionInProgress(userId)) {
+      return NextResponse.json({ error: "This account is being deleted." }, { status: 410 });
+    }
+
     const resourceCollectionPath = `users/${userId}/enrollment/${courseId}/resources`;
     const resourceRef = adminDb.doc(`${resourceCollectionPath}/${resourceId}`);
     const resource = internal
@@ -457,6 +462,9 @@ export async function POST(request: NextRequest) {
         if (!(await sourceIsCurrent())) {
           return NextResponse.json({ success: true, skipped: true, superseded: true, reason: "The page set changed during OCR." });
         }
+        if (await isAccountDeletionInProgress(userId)) {
+          return NextResponse.json({ success: true, skipped: true, reason: "Account deletion requested." });
+        }
         text = pageTexts.join("\n\n").trim();
         await persistOcrDocumentTranscript({
           userId,
@@ -477,6 +485,9 @@ export async function POST(request: NextRequest) {
       if (isImage) {
         if (!(await sourceIsCurrent())) {
           return NextResponse.json({ success: true, skipped: true, superseded: true, reason: "The source document changed during OCR." });
+        }
+        if (await isAccountDeletionInProgress(userId)) {
+          return NextResponse.json({ success: true, skipped: true, reason: "Account deletion requested." });
         }
         await persistImageTranscript({
           userId,
@@ -502,6 +513,9 @@ export async function POST(request: NextRequest) {
       throw error;
     }
 
+    if (await isAccountDeletionInProgress(userId)) {
+      return NextResponse.json({ success: true, skipped: true, reason: "Account deletion requested." });
+    }
     const markedIndexing = await updateResource({
       indexed: false,
       vectorIndexed: false,
@@ -565,6 +579,9 @@ export async function POST(request: NextRequest) {
 
       if (!(await sourceIsCurrent())) {
         return NextResponse.json({ success: true, skipped: true, superseded: true, reason: "The source document changed during indexing." });
+      }
+      if (await isAccountDeletionInProgress(userId)) {
+        return NextResponse.json({ success: true, skipped: true, reason: "Account deletion requested." });
       }
 
       // A single atomic commit, not one write per chunk: fewer round trips,

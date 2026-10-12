@@ -4,6 +4,7 @@
 // Reusable right-side Catalyst AI drawer for flashcards and quiz results.
 // Renders via portal into document.body so it floats above course layout.
 
+import ThinkingIndicator from "./ThinkingIndicator";
 import React, {
   useState,
   useRef,
@@ -12,7 +13,7 @@ import React, {
   type KeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Send, Sparkles, Loader2,Maximize2,Minimize2 } from "lucide-react";
+import { ChevronDown, Send, Sparkles, Maximize2,Minimize2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import type { PageContext, SuggestionItem } from "@/src/library/Contextual_AI/contextualAi";
 import { useSpeechToText } from "@/src/library/useSpeechToText";
@@ -74,6 +75,8 @@ export default function ContextualAiPanel({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const stt = useSpeechToText({ text: input, onText: setInput });
+  // Pulled out so callbacks can depend on this one stable function, not the whole object.
+  const stopListening = stt.stop;
   const [isStreaming, setIsStreaming] = useState(false);
   const [toolStatus, setToolStatus] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -120,7 +123,7 @@ export default function ContextualAiPanel({
   }, []);
 
   // Follows new content only while the student is at the bottom.
-  const scroller = useStickToBottom<HTMLDivElement>([messages, toolStatus]);
+  const { attach: scrollRef, onScroll: onChatScroll, stick: stickToBottom } = useStickToBottom<HTMLDivElement>([messages, toolStatus]);
 
   // Focus input when panel opens
   useEffect(() => {
@@ -151,7 +154,7 @@ export default function ContextualAiPanel({
       if (!trimmed || isStreaming) return;
       // Stop dictation first, so late speech results can't refill the
       // input this clears below.
-      stt.stop();
+      stopListening();
 
       // A message the user is actively sending makes this stream
       // authoritative — stop watching a previous resumed-live generation
@@ -163,7 +166,7 @@ export default function ContextualAiPanel({
       const assistantMsg: ChatMessage = { role: "assistant", content: "" };
 
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
-      scroller.stick();
+      stickToBottom();
       setInput("");
       setIsStreaming(true);
       setToolStatus(null);
@@ -302,7 +305,7 @@ export default function ContextualAiPanel({
         abortRef.current = null;
       }
     },
-    [messages, isStreaming, chatContext, pageContext, panelContextKey, stt.stop, scroller.stick]
+    [messages, isStreaming, chatContext, pageContext, panelContextKey, stopListening, stickToBottom]
   );
 
   // ─── Handlers ───────────────────────────────────────────────
@@ -438,8 +441,8 @@ export default function ContextualAiPanel({
 
         {/* ── Scrollable body ── */}
         <div
-            ref={scroller.ref}
-            onScroll={scroller.onScroll}
+            ref={scrollRef}
+            onScroll={onChatScroll}
             className={`mx-auto w-full flex-1 space-y-4 overflow-y-auto px-5 py-3 ${
                 isExpanded ? "max-w-4xl" : ""
             }`}
@@ -521,12 +524,7 @@ export default function ContextualAiPanel({
                     <ReactMarkdown>{msg.content}</ReactMarkdown>
                   </div>
                 ) : msg.role === "assistant" && !msg.content && isStreaming && i === messages.length - 1 ? (
-                  <div className="flex items-center gap-2 text-text-muted">
-                    <Loader2 size={14} className="animate-spin" />
-                    <span className="text-xs">
-                      {toolStatus || "Thinking…"}
-                    </span>
-                  </div>
+                  <ThinkingIndicator status={toolStatus || null} compact />
                 ) : (
                   <span>{msg.content}</span>
                 )}
@@ -539,9 +537,8 @@ export default function ContextualAiPanel({
 
           {/* Tool status indicator (while assistant has partial content) */}
           {isStreaming && toolStatus && messages[messages.length - 1]?.content && (
-            <div className="flex items-center gap-2 text-xs text-text-muted pl-1">
-              <Loader2 size={12} className="animate-spin" />
-              {toolStatus}
+            <div className="pl-1">
+              <ThinkingIndicator status={toolStatus} compact />
             </div>
           )}
 
