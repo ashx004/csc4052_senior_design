@@ -98,6 +98,22 @@ export function indentLess(editor: Editor): boolean {
   return true;
 }
 
+/**
+ * Backspace on a line with no text acts like Shift+Tab: it un-nests an empty
+ * list item or removes one level of indent from an empty line, instead of
+ * deleting back into the line above. An empty line that is not indented and
+ * not in a list keeps the normal Backspace. Returns whether it handled the key.
+ */
+export function outdentOnEmptyBackspace(editor: Editor): boolean {
+  const { selection } = editor.state;
+  const parent = selection.$from.parent;
+  if (!selection.empty || !parent.isTextblock || parent.content.size !== 0) return false;
+  const inList = LIST_ITEMS.some((name) => editor.isActive(name));
+  const indented = (Number(parent.attrs.indent) || 0) > 0;
+  if (!inList && !indented) return false;
+  return indentLess(editor);
+}
+
 /** Tab / Shift+Tab work on all text, not just lists. Escape leaves the
  *  editor so keyboard users are never trapped by the Tab key. */
 export const TabIndent = Extension.create({
@@ -132,6 +148,7 @@ export const TabIndent = Extension.create({
         indentLess(this.editor);
         return true;
       },
+      Backspace: () => outdentOnEmptyBackspace(this.editor),
       Escape: () => {
         this.editor.commands.blur();
         return true;
