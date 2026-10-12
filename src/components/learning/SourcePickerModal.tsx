@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef } from 'react';
+import Link from 'next/link';
 import {
   filterSourceOptions,
   sourceCheckboxDisabled,
@@ -23,6 +24,8 @@ interface SourcePickerModalProps {
   onQueryChange: (query: string) => void;
   onChange: (ids: string[]) => void;
   onBack?: () => void;
+  /** Where "use my own prompt and files instead" goes; omitted where that doesn't apply. */
+  customHref?: string;
   onContinue: () => void;
   onClose: () => void;
 }
@@ -36,6 +39,7 @@ export default function SourcePickerModal({
   onQueryChange,
   onChange,
   onBack,
+  customHref,
   onContinue,
   onClose,
 }: SourcePickerModalProps) {
@@ -131,6 +135,12 @@ export default function SourcePickerModal({
           aria-label="Search course material"
           autoFocus
         />
+        {customHref && (
+          <p className={styles.sub}>
+            Not from your course material?{' '}
+            <Link href={customHref} className={styles.all}>Make a custom {kind === 'quiz' ? 'quiz' : 'flashcard set'} from your own prompt and files →</Link>
+          </p>
+        )}
         {notice && <p className={styles.notice}>{notice}</p>}
         <div className={styles.group}>
           <span>Choose up to 10</span>
