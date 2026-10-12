@@ -28,6 +28,7 @@ import { defaultToolState, type ToolState } from "./tools";
 import { NoteBulletList, TabIndent, TextHighlight, ToolbarItalic, indentLess, indentMore } from "./editor/basicExtensions";
 import { MathBlock, MathInline } from "./editor/MathExtension";
 import { NoteImage } from "./editor/ImageExtension";
+import { nearestTextPoint } from "./editor/clickTarget";
 
 const MARGIN_X = 80;
 const MARGIN_TOP = 72;
@@ -399,25 +400,18 @@ export default function TypedNoteEditor({
 
   function placeCursorOnPaper(event: React.MouseEvent<HTMLDivElement>) {
     if (!editor || tool.mode !== "type") return;
-    // Let TipTap handle ordinary clicks inside existing text. A click on the
-    // rest of the paper creates enough empty lines to reach that position,
-    // so students can start writing anywhere below their last line.
+    // Let TipTap handle ordinary clicks inside existing text.
     if ((event.target as HTMLElement).closest(".ProseMirror")) return;
-    const sheet = sheetRef.current;
-    if (!sheet) return;
-    const top = sheet.getBoundingClientRect().top;
-    const clickedY = (event.clientY - top) / scaleRef.current;
-    const currentBottom = measureTextBottom();
-    if (clickedY <= currentBottom + 8) {
-      editor.chain().focus("end").run();
-      return;
-    }
-    const lineHeight = 28;
-    const breaks = Math.min(
-      Math.max(1, Math.ceil((Math.min(clickedY, MAX_TEXT_BOTTOM) - currentBottom) / lineHeight)),
-      500
-    );
-    editor.chain().focus("end").insertContent(Array.from({ length: breaks }, () => ({ type: "hardBreak" }))).run();
+    const content = sheetRef.current?.querySelector<HTMLElement>(".ProseMirror");
+    if (!content) return;
+    // A click on the paper beside or beyond the text goes to the nearest text:
+    // the start or end of that line in the side margins, the very start above
+    // everything and the very end below it. (Screen coordinates throughout, so
+    // the page's zoom needs no correction.)
+    const point = nearestTextPoint({ x: event.clientX, y: event.clientY }, content.getBoundingClientRect());
+    const hit = editor.view.posAtCoords(point);
+    if (hit) editor.chain().focus().setTextSelection(hit.pos).run();
+    else editor.chain().focus("end").run();
   }
 
   const sheetHeight = pages * PAGE_HEIGHT;
