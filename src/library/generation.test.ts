@@ -61,8 +61,24 @@ describe("quiz generation contract", () => {
     expect(new Set(result.questions.map((q) => q.matchingGroupId)).size).toBe(1);
     for (const q of result.questions) expect(q.options).toContain(q.correctAnswer);
   });
-  it.each([0, 21, 2.5, NaN])("rejects invalid count %s before inference", async (n) => {
+  it.each([0, 51, 2.5, NaN])("rejects invalid count %s before inference", async (n) => {
     await expect(quiz(n)).rejects.toThrow("Choose"); expect(request).not.toHaveBeenCalled();
+  });
+  it("regenerating a quiz above twenty questions asks for at least the needed count and does not throw", async () => {
+    request.mockResolvedValueOnce(reply(Array.from({ length: 43 }, (_, i) => mc(i + 1))));
+    const result = await generateQuizWithValidation("Source text", 40, { multipleChoice: true }, "http://ai", undefined, ["Old question about something else entirely?"]);
+    expect(result.questions).toHaveLength(40);
+    const asked = Number(/must contain exactly (\d+) items/.exec(body(0).messages[1].content)?.[1]);
+    expect(asked).toBeGreaterThanOrEqual(40);
+  });
+  it("accepts a count above the old twenty-question ceiling", async () => {
+    request.mockResolvedValueOnce(reply(Array.from({ length: 30 }, (_, i) => mc(i + 1))));
+    expect((await quiz(30)).questions).toHaveLength(30);
+  });
+
+  it.each([51, 0, 2.5])("still rejects an out-of-range quiz count %s", async (n) => {
+    await expect(quiz(n)).rejects.toThrow("Choose");
+    expect(request).not.toHaveBeenCalled();
   });
 });
 
@@ -171,6 +187,44 @@ describe("flashcards", () => {
     request.mockImplementation(async () => reply(questions)); await expect(flash()).rejects.toThrow("Could not generate");
     expect(request).toHaveBeenCalledTimes(2);
   });
+  it("honors a custom count instead of always ten", async () => {
+    request.mockResolvedValueOnce(reply(cards(3)));
+    const result = await generateFlashcardsWithRetry("Source text", "http://ai", undefined, [], 3);
+    expect(result.questions).toHaveLength(3);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(body(0).messages[1].content).toContain("exactly 3 flashcards");
+  });
+
+  it("generates more than ten cards when asked", async () => {
+    request.mockResolvedValueOnce(reply(cards(25)));
+    const result = await generateFlashcardsWithRetry("Source text", "http://ai", undefined, [], 25);
+    expect(result.questions).toHaveLength(25);
+  });
+
+  it("repairs only the shortfall against the custom count", async () => {
+    request.mockResolvedValueOnce(reply(cards(2)));
+    request.mockResolvedValueOnce(reply(cards(3, 2)));
+    const result = await generateFlashcardsWithRetry("Source text", "http://ai", undefined, [], 5);
+    expect(result.questions).toHaveLength(5);
+    expect(body(1).messages[1].content).toContain("exactly 3 flashcards");
+  });
+
+  it("names the custom count in the failure message", async () => {
+    request.mockImplementation(async () => reply([]));
+    await expect(generateFlashcardsWithRetry("Source text", "http://ai", undefined, [], 7)).rejects.toThrow(
+      "7 valid, distinct flashcards"
+    );
+  });
+
+  it("still defaults to ten for callers that pass no count", async () => {
+    request.mockResolvedValueOnce(reply(cards(10)));
+    expect((await flash()).questions).toHaveLength(10);
+  });
+
+  it.each([0, 31, 2.5, NaN])("rejects an out-of-range flashcard count %s before inference", async (n) => {
+    await expect(generateFlashcardsWithRetry("Source text", "http://ai", undefined, [], n)).rejects.toThrow("Choose");
+    expect(request).not.toHaveBeenCalled();
+  });
 });
 
 describe("bounded inference and transport", () => {
@@ -197,5 +251,64 @@ describe("bounded inference and transport", () => {
   it("preserves distinct code operators when comparing questions", () => {
     expect(normalizedQuestion("What is C++?")).not.toBe(normalizedQuestion("What is C#?"));
     expect(normalizedQuestion("x++")).not.toBe(normalizedQuestion("x--"));
+  });
+});
+
+describe("grounding evidence in generated items", () => {
+  it("asks flashcards for a verbatim quote and keeps it", async () => {
+    request.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          message: {
+            content: JSON.stringify({
+              topicName: "Topic",
+              questions: [{ question: "Q?", answer: "A", sourceQuote: "verbatim evidence here" }],
+            }),
+          },
+        })
+      )
+    );
+    const result = await generateFlashcardsWithRetry("Source text", "http://ai", undefined, [], 1);
+    expect(result.questions[0].sourceQuote).toBe("verbatim evidence here");
+    expect(body(0).messages[1].content).toContain("sourceQuote");
+  });
+
+  it("keeps a flashcard whose quote is missing rather than failing the batch", async () => {
+    request.mockResolvedValueOnce(reply(cards(1)));
+    const result = await generateFlashcardsWithRetry("Source text", "http://ai", undefined, [], 1);
+    expect(result.questions).toHaveLength(1);
+    expect(result.questions[0].sourceQuote).toBeUndefined();
+  });
+
+  it("truncates an over-length flashcard quote instead of failing the batch", async () => {
+    request.mockResolvedValueOnce(
+      new Response(JSON.stringify({ message: { content: JSON.stringify({ topicName: "Topic", questions: [{ question: "Q?", answer: "A", sourceQuote: "x".repeat(600) }] }) } }))
+    );
+    const result = await generateFlashcardsWithRetry("Source text", "http://ai", undefined, [], 1);
+    expect(result.questions[0].sourceQuote).toBe("x".repeat(500));
+  });
+
+  it.each([null, 42, ["a"], "   "])("degrades a bad flashcard quote %j to undefined without failing the batch", async (bad) => {
+    request.mockResolvedValueOnce(
+      new Response(JSON.stringify({ message: { content: JSON.stringify({ topicName: "Topic", questions: [{ question: "Q?", answer: "A", sourceQuote: bad }] }) } }))
+    );
+    const result = await generateFlashcardsWithRetry("Source text", "http://ai", undefined, [], 1);
+    expect(result.questions).toHaveLength(1);
+    expect(result.questions[0].sourceQuote).toBeUndefined();
+  });
+
+  it("asks the quiz prompt for evidence and bans trick options", async () => {
+    request.mockResolvedValueOnce(reply([mc(1), mc(2), mc(3)]));
+    await quiz();
+    const prompt = body(0).messages[1].content as string;
+    expect(prompt).toContain("sourceQuote");
+    expect(prompt).toContain("all of the above");
+    expect(prompt).toContain("plausible");
+  });
+
+  it("carries a quiz question's quote through validation", async () => {
+    request.mockResolvedValueOnce(reply([{ ...mc(1), sourceQuote: "quoted from the source" }]));
+    const result = await quiz(1);
+    expect(result.questions[0].sourceQuote).toBe("quoted from the source");
   });
 });

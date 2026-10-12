@@ -33,6 +33,7 @@ import PageTutorial from '@/src/components/tutorial/PageTutorial';
 import courseFlashcardsSteps from '@/src/library/tutorials/steps/course-flashcards';
 import { useLearningProgress } from '@/src/hooks/useLearningProgress';
 import { useGenerateQuizFromResource } from '@/src/hooks/useGenerateQuizFromResource';
+import { primaryKeyOf, sameSourceSet, sourceKeysOf } from '@/src/library/studySets/sourceIdentity';
 import { findResourceForSourceDocKey } from '@/src/library/studyPlan/recommendationEngine';
 import {
   resolveQuizNextStep,
@@ -107,33 +108,37 @@ async function requestFlashcards(
   return { topicName: data.topicName, questions: data.questions };
 }
 
-// Creates a new flashcardSets doc for this source document, or appends cards
-// to the existing one if a set for this sourceDocKey already exists.
+// Creates a new flashcardSets doc for this set of sources, or appends cards
+// to the existing one built from exactly the same sources.
 // `visibility` is only ever written on the create branch — appending cards
 // to an already-existing set never changes its visibility.
 async function persistFlashcardSet(
   userId: string,
   courseId: string,
-  sourceDocKey: string,
+  sourceKeys: string[],
   topicName: string,
   cards: Flashcard[],
   visibility: StudySetVisibility
 ): Promise<string> {
+  const primary = primaryKeyOf(sourceKeys);
   const setsRef = collection(db, 'users', userId, 'enrollment', courseId, 'flashcardSets');
-  const existing = await getDocs(query(setsRef, where('sourceDocKey', '==', sourceDocKey)));
+  // Firestore cannot express array equality, so narrow by the primary key
+  // and compare the full source set in code.
+  const existing = await getDocs(query(setsRef, where('sourceDocKey', '==', primary)));
+  const match = existing.docs.find((d) => sameSourceSet(sourceKeysOf(d.data()), sourceKeys));
 
-  if (!existing.empty) {
-    const existingDoc = existing.docs[0];
-    await updateDoc(existingDoc.ref, {
+  if (match) {
+    await updateDoc(match.ref, {
       cards: arrayUnion(...cards),
       updatedAt: serverTimestamp(),
     });
-    return existingDoc.id;
+    return match.id;
   }
 
   const newDoc = await addDoc(setsRef, {
     name: topicName,
-    sourceDocKey,
+    sourceDocKey: primary,
+    sourceKeys,
     cards,
     pinned: true,
     visibility,
@@ -296,7 +301,7 @@ export default function FlashcardsPage() {
       setDisplayName(topicName || resource.name);
       setSourceDocKey(key);
 
-      const setDocId = await persistFlashcardSet(user.uid, courseId, key, topicName, questions, visibility);
+      const setDocId = await persistFlashcardSet(user.uid, courseId, [key], topicName, questions, visibility);
       setSavedSetId(setDocId);
 
       // Publishing is best-effort — a failure here shouldn't block the
@@ -399,7 +404,7 @@ export default function FlashcardsPage() {
         // inert in practice — persistFlashcardSet only writes it on the
         // create branch. Kept conservative ("private") in case that
         // assumption is ever wrong for an edge case not covered here.
-        const appendedSetId = await persistFlashcardSet(user.uid, courseId, sourceDocKey, '', questions, 'private');
+        const appendedSetId = await persistFlashcardSet(user.uid, courseId, [sourceDocKey], '', questions, 'private');
         setSavedSetId(appendedSetId);
       }
     } catch (err) {

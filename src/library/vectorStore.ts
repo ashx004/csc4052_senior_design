@@ -65,6 +65,8 @@ export type ChunkPoint = {
 export type ChunkSearchResult = {
   score: number;
   payload: ChunkPoint["payload"];
+  /** Present only when the caller asked for vectors (see searchChunks options). */
+  vector?: number[];
 };
 
 // LAN-direct when reachable, falling back to the public tunneled URL
@@ -109,7 +111,8 @@ export async function upsertChunks(points: ChunkPoint[]): Promise<void> {
 export async function searchChunks(
   queryVector: number[],
   filter: { userId: string; resourceIds: string[] },
-  limit: number
+  limit: number,
+  options: { withVectors?: boolean } = {}
 ): Promise<ChunkSearchResult[]> {
   if (filter.resourceIds.length === 0) return [];
 
@@ -122,6 +125,7 @@ export async function searchChunks(
         vector: queryVector,
         limit,
         with_payload: true,
+        with_vector: options.withVectors === true,
         filter: {
           must: [
             { key: "userId", match: { value: filter.userId } },
@@ -138,7 +142,11 @@ export async function searchChunks(
     }
 
     const data = await response.json();
-    return (data?.result ?? []).map((r: any) => ({ score: r.score, payload: r.payload }));
+    return (data?.result ?? []).map((r: any) => ({
+      score: r.score,
+      payload: r.payload,
+      ...(Array.isArray(r.vector) ? { vector: r.vector } : {}),
+    }));
   } finally {
     cancel();
   }
