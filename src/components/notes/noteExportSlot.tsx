@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, type MutableRefObject } from "react";
+import { createContext, useContext, useEffect } from "react";
 import type { ExportSource } from "./ExportMenu";
 
 /**
@@ -12,7 +12,12 @@ import type { ExportSource } from "./ExportMenu";
  */
 export type ExportGetter = () => ExportSource | null;
 
-const ExportSlotContext = createContext<MutableRefObject<ExportGetter | null> | null>(null);
+/** What the note page gives its editors: a way to register (or withdraw, with null) their export. */
+export interface ExportSlot {
+  set: (getter: ExportGetter | null) => void;
+}
+
+const ExportSlotContext = createContext<ExportSlot | null>(null);
 export const ExportSlotProvider = ExportSlotContext.Provider;
 
 /**
@@ -22,13 +27,8 @@ export const ExportSlotProvider = ExportSlotContext.Provider;
 export function useExportRegistration(getSource: ExportGetter): boolean {
   const slot = useContext(ExportSlotContext);
   useEffect(() => {
-    if (slot) slot.current = getSource;
+    slot?.set(getSource);
   });
-  useEffect(
-    () => () => {
-      if (slot) slot.current = null;
-    },
-    [slot]
-  );
+  useEffect(() => () => slot?.set(null), [slot]);
   return slot !== null;
 }

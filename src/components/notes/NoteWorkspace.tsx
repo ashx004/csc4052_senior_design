@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check, Loader2, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Plus, Share2 } from "lucide-react";
 import ShareNoteModal from "./ShareNoteModal";
-import { ExportSlotProvider, type ExportGetter } from "./noteExportSlot";
+import { ExportSlotProvider, type ExportGetter, type ExportSlot } from "./noteExportSlot";
 import type { ClassOption, Note } from "@/src/library/notes/types";
 import { NoteTypeIcon } from "./noteVisuals";
 
@@ -50,6 +50,7 @@ export default function NoteWorkspace({
   const [sharing, setSharing] = useState(false);
   // The open editor registers here how to export it; the Share dialog calls it on demand.
   const exportGetter = useRef<ExportGetter | null>(null);
+  const exportSlot = useMemo<ExportSlot>(() => ({ set: (getter) => void (exportGetter.current = getter) }), []);
   const course = classes.find((c) => c.id === note.courseId);
 
   useEffect(() => {
@@ -173,7 +174,7 @@ export default function NoteWorkspace({
           </aside>
         )}
         <div className="min-w-0 flex-1">
-          <ExportSlotProvider value={exportGetter}>{children}</ExportSlotProvider>
+          <ExportSlotProvider value={exportSlot}>{children}</ExportSlotProvider>
         </div>
       </div>
       {sharing && (
