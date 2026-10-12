@@ -1,9 +1,8 @@
 // @vitest-environment jsdom
-import { createRef, type MutableRefObject } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import ShareNoteModal from "./ShareNoteModal";
-import { ExportSlotProvider, useExportRegistration, type ExportGetter } from "./noteExportSlot";
+import { ExportSlotProvider, useExportRegistration, type ExportGetter, type ExportSlot } from "./noteExportSlot";
 import type { ExportSource } from "./ExportMenu";
 
 // The notes store starts Firebase, which needs real keys; exports here never read it.
@@ -80,8 +79,8 @@ describe("useExportRegistration", () => {
   }
 
   it("hands the editor's export to the page, and withdraws it when the editor goes away", () => {
-    const slot = createRef<ExportGetter | null>() as MutableRefObject<ExportGetter | null>;
-    slot.current = null;
+    let registered: ExportGetter | null = null;
+    const slot: ExportSlot = { set: (getter) => void (registered = getter) };
     const getter: ExportGetter = () => typedSource();
     const { unmount } = render(
       <ExportSlotProvider value={slot}>
@@ -89,9 +88,9 @@ describe("useExportRegistration", () => {
       </ExportSlotProvider>
     );
     expect(screen.getByText("in workspace")).toBeTruthy();
-    expect(slot.current).toBe(getter);
+    expect(registered).toBe(getter);
     unmount();
-    expect(slot.current).toBeNull();
+    expect(registered).toBeNull();
   });
 
   it("tells an editor with no page around it to show its own Export button", () => {
