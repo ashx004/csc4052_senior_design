@@ -4,13 +4,13 @@ const noteEditorSteps: TutorialStep[] = [
   {
     target: '[data-tutorial="note-toolbar"]',
     title: "Write and format",
-    body: "Bold, italics and H1-H3 headings are here. Markdown works too: type # for a heading or **word** for bold.",
+    body: "Bold, italics, headings and lists are here (more options are under the ... button). Markdown works too: type # for a heading or **word** for bold.",
     placement: "bottom",
   },
   {
     target: '[data-tutorial="note-draw-tools"]',
     title: "Draw and highlight",
-    body: "Pick the pencil (click it again to change the tip size), a highlighter color, or the eraser, which removes whole strokes. Click the T to go back to typing.",
+    body: "Pick the pencil (its color and tip size open right away), a highlighter color, or the eraser, which removes whole strokes. Click a selected tool again, or the T, to go back to typing.",
     placement: "bottom",
   },
   {

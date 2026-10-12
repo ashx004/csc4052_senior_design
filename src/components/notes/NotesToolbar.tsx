@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Bold,
+  ChevronDown,
   Code,
+  Ellipsis,
   Eraser,
   Highlighter,
   ImagePlus,
@@ -60,7 +62,7 @@ function ToolButton({
       disabled={disabled}
       onMouseDown={(e) => e.preventDefault() /* keep the text selection */}
       onClick={onClick}
-      className={`flex h-9 min-w-9 shrink-0 items-center justify-center rounded-lg px-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+      className={`flex h-8 min-w-8 shrink-0 items-center justify-center rounded-md px-1.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
         active ? "bg-primary text-text-inverse" : "text-text-main hover:bg-bg-warm"
       }`}
     >
@@ -69,7 +71,53 @@ function ToolButton({
   );
 }
 
-const Divider = () => <span className="mx-1 h-6 w-px shrink-0 bg-border-light" aria-hidden="true" />;
+const Divider = () => <span className="mx-0.5 h-5 w-px shrink-0 bg-border-light" aria-hidden="true" />;
+
+/** One row of a dropdown menu (headings, lists, more): icon or sample, then a plain label. */
+function MenuItem({
+  label,
+  hint,
+  active = false,
+  disabled = false,
+  onClick,
+  children,
+}: {
+  label: string;
+  /** Longer tooltip, e.g. the Markdown shortcut. */
+  hint?: string;
+  active?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      title={hint ?? label}
+      aria-label={hint ?? label}
+      aria-pressed={active}
+      disabled={disabled}
+      onMouseDown={(e) => e.preventDefault() /* keep the text selection */}
+      onClick={onClick}
+      className={`flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+        active ? "bg-primary text-text-inverse" : "text-text-main hover:bg-bg-warm"
+      }`}
+    >
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center">{children}</span>
+      <span className="min-w-0 flex-1 whitespace-nowrap">{label}</span>
+    </button>
+  );
+}
+
+/** A dropdown anchored under its button; closes via the toolbar's outside-click handling. */
+function Menu({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div role="menu" aria-label={label} className="absolute left-1/2 top-full z-30 mt-2 min-w-44 -translate-x-1/2 rounded-xl border border-border-light bg-bg-container p-1.5 shadow-lg">
+      {children}
+    </div>
+  );
+}
 
 export type ListKind = "dash" | "dot" | "ordered" | "task";
 
@@ -119,7 +167,7 @@ export type FormatAction =
   | { list: ListKind }
   | { highlight: HighlighterColor | null };
 
-type Popover = "pencil" | "highlighter" | "sticker" | "highlight" | null;
+type Popover = "pencil" | "highlighter" | "sticker" | "highlight" | "heading" | "list" | "more" | null;
 
 export default function NotesToolbar({
   variant,
@@ -187,13 +235,12 @@ export default function NotesToolbar({
   const act = (a: FormatAction) => onFormat?.(a);
 
   return (
-    // Popovers sit outside the scrolling row - overflow-x-auto would clip them.
-    // w-fit: as a flex item this wrapper would otherwise shrink to 0px on
-    // phones (a scroll container's min-content width is 0) and hide the bar.
+    // The bar wraps onto a second row on narrow screens instead of scrolling
+    // sideways (a scroll container would also clip the dropdowns).
     <div ref={barRef} className="relative w-fit max-w-full" data-tutorial="note-toolbar">
-      <div className="flex items-center gap-0.5 overflow-x-auto rounded-2xl border border-border-light bg-bg-container px-2 py-1.5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-center gap-0.5 rounded-xl border border-border-light bg-bg-container px-1.5 py-1 shadow-sm">
         <ToolButton label={variant === "typed" ? "Type" : "Select and move"} active={typing} onClick={() => setMode("type")}>
-          {variant === "typed" ? <Type size={17} /> : <MousePointer2 size={17} />}
+          {variant === "typed" ? <Type size={16} /> : <MousePointer2 size={16} />}
         </ToolButton>
 
         <Divider />
@@ -202,89 +249,172 @@ export default function NotesToolbar({
           disabled={textHistory ? !format?.canUndo : !canUndo}
           onClick={() => (textHistory ? onTextUndo?.() : onUndo())}
         >
-          <Undo2 size={17} />
+          <Undo2 size={16} />
         </ToolButton>
         <ToolButton
           label={textHistory ? "Redo typing (Ctrl+Shift+Z)" : "Redo (Ctrl+Shift+Z)"}
           disabled={textHistory ? !format?.canRedo : !canRedo}
           onClick={() => (textHistory ? onTextRedo?.() : onRedo())}
         >
-          <Redo2 size={17} />
+          <Redo2 size={16} />
         </ToolButton>
 
         {variant === "typed" && format && onFormat && (
           <>
             <Divider />
             <ToolButton label="Bold (Ctrl+B)" active={format.bold} disabled={!typing} onClick={() => act("bold")}>
-              <Bold size={17} />
+              <Bold size={16} />
             </ToolButton>
             <ToolButton label="Italic (Ctrl+I)" active={format.italic} disabled={!typing} onClick={() => act("italic")}>
-              <Italic size={17} />
+              <Italic size={16} />
             </ToolButton>
             <ToolButton label="Underline (Ctrl+U)" active={format.underline} disabled={!typing} onClick={() => act("underline")}>
-              <Underline size={17} />
+              <Underline size={16} />
             </ToolButton>
-            <ToolButton label="Strikethrough" active={format.strike} disabled={!typing} onClick={() => act("strike")}>
-              <Strikethrough size={17} />
+            <ToolButton
+              label="Highlight text"
+              active={format.highlight}
+              disabled={!typing}
+              popover={popover === "highlight"}
+              onClick={() => setPopover(popover === "highlight" ? null : "highlight")}
+            >
+              <span className="rounded px-1 text-xs font-bold text-black" style={{ background: `rgb(${markerRgb ?? "250, 204, 21"})` }}>
+                A
+              </span>
             </ToolButton>
+            <Divider />
+
             <div className="relative">
               <ToolButton
-                label="Highlight text"
-                active={format.highlight}
+                label="Heading size"
+                active={format.heading > 0}
                 disabled={!typing}
-                onClick={() => setPopover(popover === "highlight" ? null : "highlight")}
+                popover={popover === "heading"}
+                onClick={() => setPopover(popover === "heading" ? null : "heading")}
               >
-                <span className="rounded px-1 text-xs font-bold text-black" style={{ background: `rgb(${markerRgb ?? "250, 204, 21"})` }}>
-                  A
-                </span>
+                <span className="text-xs font-bold">{format.heading ? `H${format.heading}` : "Aa"}</span>
+                <ChevronDown size={12} className="ml-0.5" aria-hidden="true" />
               </ToolButton>
+              {popover === "heading" && (
+                <Menu label="Heading size">
+                  <MenuItem
+                    label="Normal text"
+                    active={format.heading === 0}
+                    onClick={() => {
+                      if (format.heading) act(format.heading);
+                      setPopover(null);
+                    }}
+                  >
+                    <span className="text-sm">Aa</span>
+                  </MenuItem>
+                  {([1, 2, 3] as const).map((level) => (
+                    <MenuItem
+                      key={level}
+                      label={`Heading ${level}`}
+                      active={format.heading === level}
+                      onClick={() => {
+                        act(level);
+                        setPopover(null);
+                      }}
+                    >
+                      <span className="text-xs font-bold">H{level}</span>
+                    </MenuItem>
+                  ))}
+                </Menu>
+              )}
             </div>
-            <ToolButton label="Inline code" active={format.code} disabled={!typing} onClick={() => act("code")}>
-              <Code size={17} />
-            </ToolButton>
-            <Divider />
-            {([1, 2, 3] as const).map((level) => (
-              <ToolButton key={level} label={`Heading ${level}`} active={format.heading === level} disabled={!typing} onClick={() => act(level)}>
-                <span className="text-xs">H{level}</span>
+
+            <div className="relative">
+              <ToolButton
+                label="Lists"
+                active={format.list !== null}
+                disabled={!typing}
+                popover={popover === "list"}
+                onClick={() => setPopover(popover === "list" ? null : "list")}
+              >
+                {format.list === "ordered" ? (
+                  <ListOrdered size={16} />
+                ) : format.list === "task" ? (
+                  <ListChecks size={16} />
+                ) : format.list === "dash" ? (
+                  <span className="text-base leading-none">–</span>
+                ) : (
+                  <List size={16} />
+                )}
+                <ChevronDown size={12} className="ml-0.5" aria-hidden="true" />
               </ToolButton>
-            ))}
-            <Divider />
-            <ToolButton label="Dash list (type - and a space)" active={format.list === "dash"} disabled={!typing} onClick={() => act({ list: "dash" })}>
-              <span className="text-base leading-none">–</span>
-            </ToolButton>
-            <ToolButton label="Bullet list (type * and a space)" active={format.list === "dot"} disabled={!typing} onClick={() => act({ list: "dot" })}>
-              <List size={17} />
-            </ToolButton>
-            <ToolButton label="Numbered list (type 1. and a space)" active={format.list === "ordered"} disabled={!typing} onClick={() => act({ list: "ordered" })}>
-              <ListOrdered size={17} />
-            </ToolButton>
-            <ToolButton label="Checklist (type [ ] and a space)" active={format.list === "task"} disabled={!typing} onClick={() => act({ list: "task" })}>
-              <ListChecks size={17} />
-            </ToolButton>
+              {popover === "list" && (
+                <Menu label="Lists">
+                  {(
+                    [
+                      ["dash", "Dash list", "Dash list (type - and a space)", <span key="i" className="text-base leading-none">–</span>],
+                      ["dot", "Bullet list", "Bullet list (type * and a space)", <List key="i" size={16} />],
+                      ["ordered", "Numbered list", "Numbered list (type 1. and a space)", <ListOrdered key="i" size={16} />],
+                      ["task", "Checklist", "Checklist (type [ ] and a space)", <ListChecks key="i" size={16} />],
+                    ] as const
+                  ).map(([kind, label, hint, icon]) => (
+                    <MenuItem
+                      key={kind}
+                      label={label}
+                      hint={hint}
+                      active={format.list === kind}
+                      onClick={() => {
+                        act({ list: kind });
+                        setPopover(null);
+                      }}
+                    >
+                      {icon}
+                    </MenuItem>
+                  ))}
+                </Menu>
+              )}
+            </div>
             <ToolButton label="Indent (Tab)" disabled={!typing} onClick={() => act("indent")}>
-              <IndentIncrease size={17} />
+              <IndentIncrease size={16} />
             </ToolButton>
             <ToolButton label="Outdent (Shift+Tab)" disabled={!typing} onClick={() => act("outdent")}>
-              <IndentDecrease size={17} />
+              <IndentDecrease size={16} />
             </ToolButton>
-            <Divider />
-            <ToolButton label="Equation (type $...$)" disabled={!typing} onClick={() => act("math")}>
-              <Sigma size={17} />
-            </ToolButton>
-            <ToolButton label="Insert picture" disabled={!typing} onClick={() => act("image")}>
-              <ImagePlus size={17} />
-            </ToolButton>
-            <ToolButton label="Quote" active={format.quote} disabled={!typing} onClick={() => act("quote")}>
-              <Quote size={17} />
-            </ToolButton>
-            <ToolButton label="Divider line" disabled={!typing} onClick={() => act("divider")}>
-              <SeparatorHorizontal size={17} />
-            </ToolButton>
-            {onSkipLine && (
-              <ToolButton label="Add blank line" disabled={!typing} onClick={onSkipLine}>
-                <WrapText size={17} />
+
+            <div className="relative">
+              <ToolButton
+                label="More: strikethrough, code, equation, picture, quote, divider, blank line"
+                active={format.strike || format.code || format.quote}
+                disabled={!typing}
+                popover={popover === "more"}
+                onClick={() => setPopover(popover === "more" ? null : "more")}
+              >
+                <Ellipsis size={16} />
               </ToolButton>
-            )}
+              {popover === "more" && (
+                <Menu label="More formatting">
+                  {(
+                    [
+                      ["Strikethrough", "Strikethrough", format.strike, <Strikethrough key="i" size={16} />, () => act("strike")],
+                      ["Inline code", "Inline code", format.code, <Code key="i" size={16} />, () => act("code")],
+                      ["Equation", "Equation (type $...$)", false, <Sigma key="i" size={16} />, () => act("math")],
+                      ["Picture", "Insert picture", false, <ImagePlus key="i" size={16} />, () => act("image")],
+                      ["Quote", "Quote", format.quote, <Quote key="i" size={16} />, () => act("quote")],
+                      ["Divider line", "Divider line", false, <SeparatorHorizontal key="i" size={16} />, () => act("divider")],
+                      ...(onSkipLine ? ([["Blank line", "Add blank line", false, <WrapText key="i" size={16} />, onSkipLine]] as const) : []),
+                    ] as const
+                  ).map(([label, hint, active, icon, run]) => (
+                    <MenuItem
+                      key={label}
+                      label={label}
+                      hint={hint}
+                      active={active}
+                      onClick={() => {
+                        run();
+                        setPopover(null);
+                      }}
+                    >
+                      {icon}
+                    </MenuItem>
+                  ))}
+                </Menu>
+              )}
+            </div>
           </>
         )}
 
@@ -296,7 +426,7 @@ export default function NotesToolbar({
             popover={popover === "pencil"}
             onClick={() => toggleTool("pencil", "pencil")}
           >
-            <Pencil size={17} />
+            <Pencil size={16} />
             {penRgb && <span className="ml-1 h-2 w-2 rounded-full" style={{ background: `rgb(${penRgb})` }} />}
           </ToolButton>
           <ToolButton
@@ -305,16 +435,16 @@ export default function NotesToolbar({
             popover={popover === "highlighter"}
             onClick={() => toggleTool("highlighter", "highlighter")}
           >
-            <Highlighter size={17} />
+            <Highlighter size={16} />
             <span className="ml-1 h-2 w-2 rounded-full" style={{ background: `rgb(${markerRgb ?? "250, 204, 21"})` }} />
           </ToolButton>
           <ToolButton label="Eraser - removes whole strokes. Click again to go back to typing" active={tool.mode === "eraser"} onClick={() => toggleTool("eraser")}>
-            <Eraser size={17} />
+            <Eraser size={16} />
           </ToolButton>
         </div>
 
         <ToolButton label="Text box - click again to go back to typing" active={tool.mode === "text"} onClick={() => toggleTool("text")}>
-          <TextCursorInput size={17} />
+          <TextCursorInput size={16} />
           <span className="ml-1.5 hidden text-xs font-medium sm:inline">Text</span>
         </ToolButton>
         <ToolButton
@@ -323,14 +453,14 @@ export default function NotesToolbar({
           popover={popover === "sticker"}
           onClick={() => toggleTool("sticker", "sticker")}
         >
-          <Sticker size={17} />
+          <Sticker size={16} />
           <span className="ml-1.5 hidden text-xs font-medium sm:inline">Sticker</span>
         </ToolButton>
 
         <Divider />
         {onToggleContents && (
           <ToolButton label="Contents and pages" active={!!showContents} onClick={onToggleContents}>
-            <ListTree size={17} />
+            <ListTree size={16} />
           </ToolButton>
         )}
       </div>
