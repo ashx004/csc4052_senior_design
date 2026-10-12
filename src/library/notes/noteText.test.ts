@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   matchesSearch,
+  notebookClassLabel,
   noteHeadings,
   notebookInCourse,
   notePreview,
@@ -139,5 +140,35 @@ describe("notePreview", () => {
 
   it("falls back to the stored plain text", () => {
     expect(notePreview({ content: undefined, plainText: "saved text" })).toEqual({ heading: null, body: "saved text" });
+  });
+});
+
+describe("notebookClassLabel", () => {
+  const classes = [
+    { id: "c1", className: "Artificial Intelligence", classCode: "CSC 450" },
+    { id: "c2", className: "Algorithms", classCode: "CSC 325", passed: true },
+  ];
+  const book = (id: string, homeCourseId: string | null = null) => ({ id, name: "Exam 1 Material", homeCourseId }) as never;
+  const note = (id: string, notebookId: string | null, courseId: string | null) => ({ id, notebookId, courseId }) as never;
+
+  it("names the class its notes belong to", () => {
+    expect(notebookClassLabel(book("b1"), [note("n1", "b1", "c1"), note("n2", "b1", "c1")], classes)).toBe("CSC 450");
+  });
+
+  it("marks a passed class", () => {
+    expect(notebookClassLabel(book("b2"), [note("n1", "b2", "c2")], classes)).toBe("CSC 325 · Passed");
+  });
+
+  it("says so when a notebook mixes classes", () => {
+    expect(notebookClassLabel(book("b3"), [note("n1", "b3", "c1"), note("n2", "b3", "c2")], classes)).toBe("Multiple classes");
+  });
+
+  it("falls back to the class an empty notebook was made in", () => {
+    expect(notebookClassLabel(book("b4", "c1"), [], classes)).toBe("CSC 450");
+  });
+
+  it("is undefined with no class anywhere, and ignores other notebooks' notes", () => {
+    expect(notebookClassLabel(book("b5"), [note("n1", "other", "c1")], classes)).toBeUndefined();
+    expect(notebookClassLabel(book("b6"), [note("n1", "b6", null)], classes)).toBeUndefined();
   });
 });
