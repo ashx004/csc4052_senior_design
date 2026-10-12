@@ -1,6 +1,24 @@
+// A set built from several documents (or a notebook) keeps one primary
+// sourceDocKey plus every source's key in sourceKeys, so a document counts as
+// covered when it appears in either.
+export interface SetSourceRef {
+  sourceDocKey: string | null;
+  sourceKeys?: readonly string[] | null;
+}
+
+export function setCoversSource(set: SetSourceRef, sourceDocKey: string): boolean {
+  return set.sourceDocKey === sourceDocKey || (set.sourceKeys?.includes(sourceDocKey) ?? false);
+}
+
+/** The sourceKeys of a stored set, tolerating older sets that have none. */
+export function sourceKeysFrom(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((key): key is string => typeof key === "string" && key !== "") : [];
+}
+
 export interface FlashcardSetRef {
   id: string;
   sourceDocKey: string | null;
+  sourceKeys?: readonly string[] | null;
   createdAt?: number | null;
   updatedAt?: number | null;
 }
@@ -12,6 +30,7 @@ export type FlashcardNextStep =
 export interface QuizSetRef {
   id: string;
   sourceDocKey: string | null;
+  sourceKeys?: readonly string[] | null;
   createdAtMs?: number | null;
 }
 
@@ -30,7 +49,7 @@ export function resolveFlashcardNextStep(
   sourceDocKey: string,
   sets: readonly FlashcardSetRef[],
 ): FlashcardNextStep {
-  const matches = sets.filter((set) => set.sourceDocKey === sourceDocKey);
+  const matches = sets.filter((set) => setCoversSource(set, sourceDocKey));
   if (matches.length === 0) return { action: "create_flashcards" };
 
   let newest: FlashcardSetRef | null = null;
@@ -56,7 +75,7 @@ export function resolveQuizNextStep(
   sourceDocKey: string,
   quizzes: readonly QuizSetRef[],
 ): QuizNextStep {
-  const matches = quizzes.filter((quiz) => quiz.sourceDocKey === sourceDocKey);
+  const matches = quizzes.filter((quiz) => setCoversSource(quiz, sourceDocKey));
   if (matches.length === 0) return { action: "create_quiz" };
 
   let newest: QuizSetRef | null = null;

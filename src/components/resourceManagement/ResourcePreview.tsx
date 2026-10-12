@@ -74,7 +74,7 @@ import { addOcrDocumentPages, getCourseResources, deleteUserResource, INDEXABLE_
 import { db } from "@/src/library/firebase";
 import { useLearningProgress } from "@/src/hooks/useLearningProgress";
 import { documentTargetForResource, findResourceForSourceDocKey } from "@/src/library/studyPlan/recommendationEngine";
-import { resolveFlashcardNextStep, type FlashcardNextStep, type FlashcardSetRef } from "@/src/library/studyPlan/nextStudyActivity";
+import { resolveFlashcardNextStep, setCoversSource, sourceKeysFrom, type FlashcardNextStep, type FlashcardSetRef } from "@/src/library/studyPlan/nextStudyActivity";
 import NextStepGuidance from "@/src/components/studyPlan/NextStepGuidance";
 
 export type Category = "classDoc" | "notes" | "assignments";
@@ -322,9 +322,11 @@ function matchingFlashcardSets(sourceDocKey: string, resource: Resource, sets: F
     };
     return sets
         .filter((set) => {
-            if (!set.sourceDocKey) return false;
-            if (set.sourceDocKey === sourceDocKey) return true;
-            return findResourceForSourceDocKey(set.sourceDocKey, [resourceRef]) != null;
+            if (setCoversSource(set, sourceDocKey)) return true;
+            // Older keys may be stored as a URL or storage key for the same file.
+            return [set.sourceDocKey, ...(set.sourceKeys ?? [])].some(
+                (key) => !!key && findResourceForSourceDocKey(key, [resourceRef]) != null,
+            );
         })
         .map((set) => ({ ...set, sourceDocKey }));
 }
@@ -336,6 +338,7 @@ async function loadFlashcardSetRefs(userId: string, courseId: string): Promise<F
         return {
             id: setDoc.id,
             sourceDocKey: typeof data.sourceDocKey === "string" ? data.sourceDocKey : null,
+            sourceKeys: sourceKeysFrom(data.sourceKeys),
             createdAt: millisFrom(data.createdAt),
             updatedAt: millisFrom(data.updatedAt),
         };
