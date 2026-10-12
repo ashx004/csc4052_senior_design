@@ -1,0 +1,29 @@
+.wrap { display: grid; gap: 8px; }
+.summary, .note, .error { margin: 0; color: var(--color-text-muted); font-size: 13px; line-height: 1.5; }
+.error { color: var(--color-alert-error); }
+.field { display: grid; gap: 8px; margin: 16px 0; font-size: 14px; font-weight: 700; }
+.field input[type='number'] {
+  max-width: 130px;
+  padding: 10px;
+  border-radius: 9px;
+  border: 1px solid var(--color-border-light);
+  background: var(--color-bg-main);
+  color: var(--color-text-main);
+}
+.options { display: flex; flex-wrap: wrap; gap: 9px; }
+.options label {
+  background: var(--color-bg-warm);
+  padding: 10px 13px;
+  border-radius: 9px;
+  font-weight: 500;
+  font-size: 13px;
+}
+.options label:has(input:checked) { background: color-mix(in srgb, var(--color-accent-lavender) 78%, var(--color-bg-container)); }
+.raise {
+  border: 0;
+  background: none;
+  color: var(--color-text-main);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

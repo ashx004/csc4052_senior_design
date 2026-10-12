@@ -155,6 +155,22 @@ export const SITE_SEARCH_ENTRIES: SearchEntry[] = [
     keywords: ["quiz", "test", "exam", "practice test", "generate quiz"],
   },
   {
+    id: "feature-practice",
+    title: "Practice (fill in the blank, word problems, drag and drop)",
+    description: "Generate fill-in-the-blank, word-problem and timed drag-and-drop practice from a class's documents - open a class, then Practice.",
+    href: "/learning",
+    category: "Feature",
+    keywords: ["practice", "fill in the blank", "word problems", "drag and drop", "drag", "timer", "text box", "written answer"],
+  },
+  {
+    id: "feature-custom-study",
+    title: "Custom quiz, flashcards or practice exam",
+    description: "Write your own prompt and/or upload files to make a one-off quiz, flashcard deck or practice exam - no class needed.",
+    href: "/custom/new",
+    category: "Feature",
+    keywords: ["custom", "my own", "prompt", "upload files", "one-off", "quiz", "flashcards", "practice exam", "no class"],
+  },
+  {
     id: "feature-blocks",
     title: "Blocks game",
     description: "A puzzle game that quizzes you on a class between rounds - find it on a class's Discover page.",
@@ -330,6 +346,7 @@ export function courseSearchEntries(courseId: string, courseName?: string | null
   return [
     entry("home", "overview", "class details, instructor info, AI summary, and resources.", "", ["course page", "class page", "details", "instructor", "resources"]),
     entry("learning", "learning", "generate flashcards and quizzes from this class's documents.", "/learning", ["flashcards", "quizzes", "generate", "study"]),
+    entry("practice", "practice", "fill-in-the-blank, word-problem and timed drag-and-drop practice made from this class's documents.", "/practice", ["practice", "fill in the blank", "word problems", "drag and drop", "timer", "text box"]),
     entry("discover", "discover", "study sets other students shared for this class.", "/discover", ["shared", "study sets", "community", "practice"]),
     entry("blocks", "Blocks game", "the puzzle game that quizzes you on this class.", "/discover/blocks", ["game", "puzzle", "play"]),
   ];

@@ -63,7 +63,7 @@ export default function DiscoverPage() {
 
   return (
     <div className="min-h-screen bg-bg-main px-6 py-10 sm:px-10">
-      <div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-5xl flex-col justify-center">
+      <div className="mx-auto flex min-h-[calc(100vh-5rem-var(--topbar-h))] max-w-5xl flex-col justify-center">
         <h1 className="mb-8 text-center text-2xl font-bold tracking-tight text-text-main md:text-3xl">
           Choose a class to get started.
         </h1>

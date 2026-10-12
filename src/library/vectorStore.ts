@@ -65,7 +65,50 @@ export type ChunkPoint = {
 export type ChunkSearchResult = {
   score: number;
   payload: ChunkPoint["payload"];
+  /** Present only when the caller asked for vectors (see searchChunks options). */
+  vector?: number[];
 };
+
+/** Every live vector stores user-supplied or derived document text in its
+ * payload. Account export/delete must operate by userId, not by resource,
+ * because resources can be removed before their orphaned points are cleaned. */
+export async function listChunksForUser(userId: string): Promise<ChunkPoint["payload"][]> {
+  const payloads: ChunkPoint["payload"][] = [];
+  let offset: string | number | undefined;
+
+  do {
+    const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS, "Qdrant export scroll");
+    try {
+      const response = await fetch(`${await baseUrl()}/collections/${COLLECTION}/points/scroll`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({
+          limit: 256,
+          with_payload: true,
+          with_vector: false,
+          ...(offset === undefined ? {} : { offset }),
+          filter: { must: [{ key: "userId", match: { value: userId } }] },
+        }),
+        signal,
+      });
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new Error(`Qdrant export scroll failed (${response.status}): ${text}`);
+      }
+      const result = await response.json() as {
+        result?: { points?: Array<{ payload?: ChunkPoint["payload"] }>; next_page_offset?: string | number | null };
+      };
+      for (const point of result.result?.points ?? []) {
+        if (point.payload?.userId === userId) payloads.push(point.payload);
+      }
+      offset = result.result?.next_page_offset ?? undefined;
+    } finally {
+      cancel();
+    }
+  } while (offset !== undefined);
+
+  return payloads;
+}
 
 // LAN-direct when reachable, falling back to the public tunneled URL
 // (QDRANT_FALLBACK_URL) for callers off the home/school LAN — same
@@ -85,12 +128,66 @@ function headers(): HeadersInit {
   };
 }
 
+// Every search and delete filters on these two fields. Without a payload index
+// Qdrant checks each point's payload one by one for every such filter, which is
+// instant at a few hundred points and gets steadily slower as every student's
+// chunks pile into the one collection. Keyword indexes make the filter a lookup.
+// Creating one that already exists is a harmless no-op, so this is simply run
+// (once per process, lazily) before writes and deletes; a failure never blocks
+// the real call and is retried next time.
+export const INDEXED_PAYLOAD_FIELDS = ["userId", "resourceId"] as const;
+let payloadIndexes: Promise<void> | null = null;
+
+export function ensurePayloadIndexes(): Promise<void> {
+  if (payloadIndexes) return payloadIndexes;
+  const attempt: Promise<void> = (async () => {
+    const base = await baseUrl();
+    for (const field of INDEXED_PAYLOAD_FIELDS) {
+      const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS, "Qdrant create index");
+      try {
+        const response = await fetch(`${base}/collections/${COLLECTION}/index?wait=true`, {
+          method: "PUT",
+          headers: headers(),
+          body: JSON.stringify({ field_name: field, field_schema: "keyword" }),
+          signal,
+        });
+        if (!response.ok) throw new Error(`Qdrant index on ${field} failed (${response.status}): ${await response.text().catch(() => "")}`);
+      } finally {
+        cancel();
+      }
+    }
+  })().catch((error) => {
+    payloadIndexes = null; // try again on the next call
+    console.error("Couldn't make sure Qdrant payload indexes exist (non-fatal):", error);
+  });
+  payloadIndexes = attempt;
+  return attempt;
+}
+
+/** For tests: forget that the indexes were already checked. */
+export function resetPayloadIndexCheck(): void {
+  payloadIndexes = null;
+}
+
 export async function upsertChunks(points: ChunkPoint[]): Promise<void> {
   if (points.length === 0) return;
+  // A document worker can have started before the account guard was written.
+  // Check immediately before the external write so it cannot resurrect a
+  // vector after account deletion has already verified Qdrant is empty.
+  // Keep Firebase Admin out of this module's import path: list/search/delete
+  // are also used by temporary non-Firebase data export mode.
+  const { isAccountDeletionInProgress } = await import("./accountDeletionGuard");
+  if (await isAccountDeletionInProgress(points[0].payload.userId)) {
+    throw new Error("This account is being deleted.");
+  }
 
+  await ensurePayloadIndexes();
+  // The reachability probes in baseUrl() can take a few seconds when the LAN
+  // address is down; they must not eat into the request's own time limit.
+  const base = await baseUrl();
   const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS, "Qdrant upsert");
   try {
-    const response = await fetch(`${await baseUrl()}/collections/${COLLECTION}/points`, {
+    const response = await fetch(`${base}/collections/${COLLECTION}/points`, {
       method: "PUT",
       headers: headers(),
       body: JSON.stringify({ points }),
@@ -109,19 +206,22 @@ export async function upsertChunks(points: ChunkPoint[]): Promise<void> {
 export async function searchChunks(
   queryVector: number[],
   filter: { userId: string; resourceIds: string[] },
-  limit: number
+  limit: number,
+  options: { withVectors?: boolean } = {}
 ): Promise<ChunkSearchResult[]> {
   if (filter.resourceIds.length === 0) return [];
 
+  const base = await baseUrl();
   const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS, "Qdrant search");
   try {
-    const response = await fetch(`${await baseUrl()}/collections/${COLLECTION}/points/search`, {
+    const response = await fetch(`${base}/collections/${COLLECTION}/points/search`, {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({
         vector: queryVector,
         limit,
         with_payload: true,
+        with_vector: options.withVectors === true,
         filter: {
           must: [
             { key: "userId", match: { value: filter.userId } },
@@ -138,16 +238,22 @@ export async function searchChunks(
     }
 
     const data = await response.json();
-    return (data?.result ?? []).map((r: any) => ({ score: r.score, payload: r.payload }));
+    return ((data?.result ?? []) as ChunkSearchResult[]).map((r) => ({
+      score: r.score,
+      payload: r.payload,
+      ...(Array.isArray(r.vector) ? { vector: r.vector } : {}),
+    }));
   } finally {
     cancel();
   }
 }
 
 export async function deleteChunksForResource(userId: string, resourceId: string): Promise<void> {
+  await ensurePayloadIndexes();
+  const base = await baseUrl();
   const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS, "Qdrant delete");
   try {
-    const response = await fetch(`${await baseUrl()}/collections/${COLLECTION}/points/delete`, {
+    const response = await fetch(`${base}/collections/${COLLECTION}/points/delete`, {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({
@@ -167,5 +273,37 @@ export async function deleteChunksForResource(userId: string, resourceId: string
     }
   } finally {
     cancel();
+  }
+}
+
+/**
+ * Removes every chunk a student owns in one filtered delete (account deletion).
+ * Don't fetch the chunks first and delete them by ID: one delete-by-filter is a
+ * single small request however many chunks there are, where fetching them all
+ * means large responses (vectors included) that time out over the tunnel.
+ */
+export async function deleteChunksForUser(userId: string): Promise<void> {
+  await ensurePayloadIndexes();
+  const base = await baseUrl();
+  const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS * 3, "Qdrant account delete");
+  try {
+    const response = await fetch(`${base}/collections/${COLLECTION}/points/delete?wait=true`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ filter: { must: [{ key: "userId", match: { value: userId } }] } }),
+      signal,
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Qdrant account delete failed (${response.status}): ${text}`);
+    }
+  } finally {
+    cancel();
+  }
+
+  // `wait=true` makes this normally immediate; the read-back makes a silent
+  // asynchronous/partial delete a hard failure rather than claiming success.
+  if ((await listChunksForUser(userId)).length > 0) {
+    throw new Error("Qdrant account delete did not remove all indexed context.");
   }
 }

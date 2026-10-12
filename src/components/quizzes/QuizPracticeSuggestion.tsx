@@ -22,9 +22,9 @@ interface QuizPracticeSuggestionProps {
 }
 
 const primaryButtonClass =
-  "rounded-xl bg-[#1a1a2e] px-5 py-2.5 text-sm font-semibold text-text-inverse transition-colors hover:bg-[#2a2a3e]";
+  "rounded-xl bg-[#1a1a2e] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#2a2a3e]";
 const secondaryButtonClass =
-  "rounded-xl border border-border-light px-5 py-2.5 text-sm font-semibold text-[#1a1a2e] transition-colors hover:bg-bg-warm";
+  "rounded-xl border border-border-light px-5 py-2.5 text-sm font-semibold text-text-main transition-colors hover:bg-bg-warm";
 
 function SuggestionActions({
   view,
@@ -104,7 +104,7 @@ export default function QuizPracticeSuggestion({
       {view.primaryAction === "unavailable" ? (
         <p className="text-sm text-text-main">These practice questions are no longer available.</p>
       ) : (
-        <p className="text-lg font-bold text-[#1a1a2e]">{reason}</p>
+        <p className="text-lg font-bold text-text-main">{reason}</p>
       )}
       <SuggestionActions
         view={view}

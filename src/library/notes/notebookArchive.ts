@@ -1,15 +1,15 @@
 import { noteToPlainText } from "./noteText";
 import type { Note } from "./types";
 
-type Entry = { name: string; bytes: Uint8Array };
+export type Entry = { name: string; bytes: Uint8Array };
 
 const encoder = new TextEncoder();
 
-function safeName(name: string): string {
+export function safeName(name: string): string {
   return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").trim() || "Untitled";
 }
 
-function uniqueName(name: string, seen: Set<string>): string {
+export function uniqueName(name: string, seen: Set<string>): string {
   const clean = safeName(name);
   if (!seen.has(clean)) {
     seen.add(clean);
@@ -39,28 +39,35 @@ function u32(value: number) { return [value & 0xff, (value >>> 8) & 0xff, (value
 
 /** Builds a standards-compliant, uncompressed ZIP in the browser. This avoids
  * adding a large archive dependency just to export a notebook. */
-function storedZip(entries: Entry[]): Blob {
+// Time 00:00, date 1980-01-01 (a zero date is invalid in DOS format).
+const DOS_DATE = [0, 0, 0x21, 0];
+
+export function storedZip(entries: Entry[]): Blob {
   const chunks: Uint8Array[] = [];
   const central: Uint8Array[] = [];
   let offset = 0;
   for (const entry of entries) {
     const name = encoder.encode(entry.name);
     const crc = crc32(entry.bytes);
-    const local = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, ...u32(crc), ...u32(entry.bytes.length), ...u32(entry.bytes.length), ...u16(name.length), 0, 0]);
+    const local = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 20, 0, 0, 0, 0, 0, ...DOS_DATE, ...u32(crc), ...u32(entry.bytes.length), ...u32(entry.bytes.length), ...u16(name.length), 0, 0]);
     chunks.push(local, name, entry.bytes);
-    central.push(new Uint8Array([0x50, 0x4b, 0x01, 0x02, 20, 0, 20, 0, 0, 0, 0, 0, 0, 0, ...u32(crc), ...u32(entry.bytes.length), ...u32(entry.bytes.length), ...u16(name.length), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ...u32(offset)]), name);
+    central.push(new Uint8Array([0x50, 0x4b, 0x01, 0x02, 20, 0, 20, 0, 0, 0, 0, 0, ...DOS_DATE, ...u32(crc), ...u32(entry.bytes.length), ...u32(entry.bytes.length), ...u16(name.length), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ...u32(offset)]), name);
     offset += local.length + name.length + entry.bytes.length;
   }
   const centralSize = central.reduce((sum, item) => sum + item.length, 0);
   return new Blob([...chunks, ...central, new Uint8Array([0x50, 0x4b, 0x05, 0x06, 0, 0, 0, 0, ...u16(entries.length), ...u16(entries.length), ...u32(centralSize), ...u32(offset), 0, 0])], { type: "application/zip" });
 }
 
-function downloadZip(filename: string, entries: Entry[]): void {
+export function downloadBlob(filename: string, blob: Blob): void {
   const link = document.createElement("a");
-  link.href = URL.createObjectURL(storedZip(entries));
+  link.href = URL.createObjectURL(blob);
   link.download = filename;
   link.click();
   URL.revokeObjectURL(link.href);
+}
+
+function downloadZip(filename: string, entries: Entry[]): void {
+  downloadBlob(filename, storedZip(entries));
 }
 
 export async function downloadNotebookArchive(notebookName: string, notes: Note[]): Promise<void> {

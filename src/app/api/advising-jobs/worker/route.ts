@@ -4,6 +4,7 @@ import type { DocumentData, UpdateData } from "firebase-admin/firestore";
 import { adminDb } from "@/src/library/firebaseAdmin";
 import { resolveInternalUrl } from "@/src/library/pdfExtract";
 import { isInternalRequest } from "@/src/library/verifyAuth";
+import { isAccountDeletionInProgress } from "@/src/library/accountDeletionGuard";
 import {
   EXTRACTION_JOBS,
   SCHEDULE_JOBS,
@@ -135,6 +136,16 @@ export async function POST(request: NextRequest) {
 
   const job = await claimNextJob();
   if (!job) return NextResponse.json({ processed: false, reason: "No queued jobs." });
+
+  if (await isAccountDeletionInProgress(job.data.userId)) {
+    await updateActiveClaim(job.kind.collection, job.id, {
+      status: "cancelled",
+      updatedAt: new Date(),
+      lastError: "Account deletion requested.",
+      leaseExpiresAt: null,
+    });
+    return NextResponse.json({ processed: true, jobId: job.id, cancelled: true });
+  }
 
   const { kind } = job;
 

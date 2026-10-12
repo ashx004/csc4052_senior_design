@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   query,
   serverTimestamp,
@@ -25,6 +26,8 @@ type SaveLocalEventInput = {
   db: Firestore;
   uid: string;
   eventId?: string;
+  /** With an eventId: create the event if it doesn't exist yet instead of failing (used by syllabus import). */
+  upsert?: boolean;
   eventData: DocumentData;
   reminderEvent: Omit<ReminderEligibleEvent, "id">;
 };
@@ -54,7 +57,8 @@ export async function saveLocalEventWithReminderJobs(input: SaveLocalEventInput)
   const pendingJobIds = new Set(pendingJobs.map((job) => job.jobId));
   const batch = writeBatch(input.db);
 
-  if (input.eventId) {
+  const exists = input.eventId && input.upsert ? (await getDoc(eventRef)).exists() : true;
+  if (input.eventId && exists) {
     batch.update(eventRef, { ...input.eventData, updatedAt: serverTimestamp() });
   } else {
     batch.set(eventRef, {

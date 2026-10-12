@@ -47,6 +47,9 @@ export interface ToolSideEffects {
 
 type ToolResult = { text: string } & ToolSideEffects;
 
+/** What looking up a student's notes needs; the study-set tools in the chat route have no more than this. */
+export type NoteEnv = Pick<ToolEnv, "idToken" | "uid" | "context">;
+
 async function proposed(env: ToolEnv, action: Parameters<ToolEnv["propose"]>[0]): Promise<ToolResult> {
   const card = await env.propose(action);
   if (!card) return { text: "Error: the change couldn't be prepared right now. Tell the student and offer to try again." };
@@ -185,10 +188,10 @@ const notebooksPath = (uid: string) => `users/${uid}/notebooks`;
 
 type Row = { id: string; data: Record<string, unknown> };
 
-function classOf(env: ToolEnv, courseId: unknown) {
+function classOf(env: Pick<ToolEnv, "context">, courseId: unknown) {
   return env.context.classes.find((c) => c.classId === courseId);
 }
-function classLabel(env: ToolEnv, courseId: unknown): string {
+function classLabel(env: Pick<ToolEnv, "context">, courseId: unknown): string {
   const c = classOf(env, courseId);
   return c ? c.classCode || c.className : "General (no class)";
 }
@@ -220,12 +223,12 @@ function findByTitle<T extends Row>(rows: T[], title: string, field = "title"): 
   return { candidates: partial.length ? partial : ci };
 }
 
-async function loadNotes(env: ToolEnv): Promise<Row[]> {
+async function loadNotes(env: NoteEnv): Promise<Row[]> {
   const rows = await firestoreListCollection(env.idToken, notesPath(env.uid));
   return rows.filter((r) => r.data.hidden !== true);
 }
 
-async function resolveNote(env: ToolEnv, title: unknown): Promise<{ note?: Row; error?: string; notes: Row[] }> {
+async function resolveNote(env: NoteEnv, title: unknown): Promise<{ note?: Row; error?: string; notes: Row[] }> {
   const notes = await loadNotes(env);
   if (typeof title !== "string" || !title.trim()) return { error: "Error: say which note (its title).", notes };
   const { match, candidates } = findByTitle(notes, title);
@@ -252,6 +255,44 @@ async function resolveNotebook(env: ToolEnv, name: string, create: boolean, home
 }
 
 const noteLink = (id: string, title: string) => ({ id, title });
+
+/**
+ * The notes behind a quiz or flashcard request: notes picked by title, and/or
+ * every note in a named notebook. An error is worded for the model to relay.
+ */
+export async function findNotesForStudy(
+  env: NoteEnv,
+  titles: string[],
+  notebook: string | null
+): Promise<{ rows: Row[]; notebookId?: string; error?: string }> {
+  const rows: Row[] = [];
+  let notebookId: string | undefined;
+
+  if (notebook) {
+    const books = await firestoreListCollection(env.idToken, notebooksPath(env.uid));
+    const { match, candidates } = findByTitle(books, notebook, "name");
+    if (!match) {
+      return {
+        rows,
+        error: candidates.length > 1
+          ? `Error: "${notebook}" matches several notebooks: ${candidates.map((b) => `"${str(b.data.name)}"`).join(", ")}. Ask which one.`
+          : `Error: there's no notebook named "${notebook}". Notebooks: ${books.map((b) => `"${str(b.data.name)}"`).join(", ") || "none yet"}. Tell the student plainly.`,
+      };
+    }
+    notebookId = match.id;
+    const inBook = (await loadNotes(env)).filter((n) => n.data.notebookId === match.id);
+    if (inBook.length === 0) return { rows, error: `Error: the notebook "${str(match.data.name)}" has no notes in it yet. Tell the student.` };
+    rows.push(...inBook);
+  }
+
+  for (const title of titles) {
+    const { note, error } = await resolveNote(env, title);
+    if (error || !note) return { rows, error };
+    if (!rows.some((r) => r.id === note.id)) rows.push(note);
+  }
+
+  return { rows, notebookId };
+}
 
 /** What was actually saved, for the model to report instead of re-describing from memory. */
 function savedSummary(content: { content?: { type?: string }[] }): string {
@@ -307,7 +348,7 @@ async function listNotes(env: ToolEnv, args: Record<string, unknown>): Promise<T
   const lines = rows.slice(0, 25).map((n) => {
     const kind = n.data.kind === "typed" ? "typed note" : n.data.scan ? "scanned notes" : `${str(n.data.fileType).toUpperCase() || "file"} from class files`;
     const book = n.data.notebookId ? `, notebook "${bookName(n.data.notebookId)}"` : "";
-    const text = n.data.kind === "typed" ? snippet(str(n.data.plainText), query || undefined) : "";
+    const text = snippet(str(n.data.plainText), query || undefined);
     return `- "${str(n.data.title)}" (${kind}, ${classLabel(env, n.data.courseId)}${book}, edited ${when(env, n.data.updatedAt)})${text ? ` - preview: ${text}` : ""}`;
   });
   const more = rows.length > 25 ? `\n...and ${rows.length - 25} more. Narrow it with a query or class.` : "";

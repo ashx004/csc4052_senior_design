@@ -34,8 +34,13 @@ dist-ssr
 
 # Local Codex/Superpowers artifacts
 .superpowers/
-docs/superpowers/
+docs/
+design/
 .specs/
 
 # chat eval run reports (scripts/chatEval.mjs)
 scripts/*.report-*.json
+
+# quiz quality eval (scripts/quizQualityEval.ts): run output and class documents
+scripts/quiz-eval-results/
+scripts/fixtures/quiz-eval/

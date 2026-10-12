@@ -4,6 +4,7 @@ import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { deleteChunksForResource } from "@/src/library/vectorStore";
 import { getMinioClient } from "@/src/library/minioClient";
 import { forgetDocumentText } from "@/src/library/documentTextCache";
+import { isAccountDeletionInProgress } from "@/src/library/accountDeletionGuard";
 
 export async function DELETE(req: NextRequest) {
     const key = req.nextUrl.searchParams.get("key");
@@ -17,6 +18,9 @@ export async function DELETE(req: NextRequest) {
     }
     if (!key.startsWith(`users/${auth.uid}/`)) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (await isAccountDeletionInProgress(auth.uid)) {
+        return NextResponse.json({ error: "This account is being deleted." }, { status: 410 });
     }
 
     try {

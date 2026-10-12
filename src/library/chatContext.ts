@@ -80,10 +80,63 @@ export type ChatContext = {
   timeZone?: string;
 };
 
+export function toChatDocument(resourceId: string, resourceData: Record<string, any>): ChatDocument {
+  return {
+    resourceId,
+    name: resourceData.name ?? "Untitled",
+    fileType: resourceData.fileType ?? "",
+    category: resourceData.category ?? "",
+    url: resourceData.url ?? "",
+    vectorIndexed: resourceData.vectorIndexed === true,
+    indexStatus:
+      resourceData.indexStatus === "queued" ||
+      resourceData.indexStatus === "processing" ||
+      resourceData.indexStatus === "complete" ||
+      resourceData.indexStatus === "failed"
+        ? resourceData.indexStatus
+        : undefined,
+    ocrScanned: resourceData.ocrScanned === true,
+  };
+}
+
+export function toChatClass(classId: string, data: Record<string, any>, documents: ChatDocument[]): ChatClass {
+  return {
+    classId,
+    className: data.className ?? "",
+    classCode: data.classCode ?? "",
+    term: data.term ?? "",
+    facultyName: data.facultyName ?? "",
+    facultyEmail: data.facultyEmail ?? "",
+    facultyPhoneNumber: data.facultyPhoneNumber ?? "",
+    facultyOfficeNumber: data.facultyOfficeNumber ?? "",
+    classSchedule: data.classSchedule ?? "",
+    time: data.time ?? "",
+    classRoom: data.classRoom ?? "",
+    classDescription: data.classDescription ?? "",
+    meetingDays: Array.isArray(data.meetingDays) ? data.meetingDays : undefined,
+    meetingStartTime: typeof data.meetingStartTime === "string" ? data.meetingStartTime : undefined,
+    meetingEndTime: typeof data.meetingEndTime === "string" ? data.meetingEndTime : undefined,
+    meetingTimeZone: typeof data.meetingTimeZone === "string" ? data.meetingTimeZone : undefined,
+    termStartDate: typeof data.termStartDate === "string" ? data.termStartDate : undefined,
+    termEndDate: typeof data.termEndDate === "string" ? data.termEndDate : undefined,
+    termSeason: data.termSeason,
+    termYear: data.termYear,
+    subject: data.subject,
+    courseNumber: data.courseNumber,
+    status: getEnrollmentStatus(data),
+    documents,
+  };
+}
+
+export function browserTimeZone(): string | undefined {
+  return typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
+}
+
 // Pulls together everything the AI assistant is allowed to know about the
 // current student: identity, enrolled classes, and the course documents
 // available to each one (metadata only — full text is fetched on demand
-// server-side via the read_document tool).
+// server-side via the read_document tool). A one-time snapshot; screens that
+// stay open while files change use useChatContext (src/hooks) instead.
 export async function buildChatContext(userId: string, email: string): Promise<ChatContext> {
   let name = "";
   let college = "";
@@ -100,77 +153,21 @@ export async function buildChatContext(userId: string, email: string): Promise<C
 
   const classes: ChatClass[] = [];
   try {
-    const enrollmentRef = collection(db, "users", userId, "enrollment");
-    const enrollmentSnap = await getDocs(enrollmentRef);
+    const enrollmentSnap = await getDocs(collection(db, "users", userId, "enrollment"));
 
     for (const enrollmentDoc of enrollmentSnap.docs) {
-      const data = enrollmentDoc.data();
       const documents: ChatDocument[] = [];
-
       try {
-        const resourcesRef = collection(
-          db,
-          "users",
-          userId,
-          "enrollment",
-          enrollmentDoc.id,
-          "resources"
-        );
-        const resourcesSnap = await getDocs(resourcesRef);
-        resourcesSnap.forEach((resourceDoc) => {
-          const resourceData = resourceDoc.data();
-          documents.push({
-            resourceId: resourceDoc.id,
-            name: resourceData.name ?? "Untitled",
-            fileType: resourceData.fileType ?? "",
-            category: resourceData.category ?? "",
-            url: resourceData.url ?? "",
-            vectorIndexed: resourceData.vectorIndexed === true,
-            indexStatus:
-              resourceData.indexStatus === "queued" ||
-              resourceData.indexStatus === "processing" ||
-              resourceData.indexStatus === "complete" ||
-              resourceData.indexStatus === "failed"
-                ? resourceData.indexStatus
-                : undefined,
-            ocrScanned: resourceData.ocrScanned === true,
-          });
-        });
+        const resourcesSnap = await getDocs(collection(db, "users", userId, "enrollment", enrollmentDoc.id, "resources"));
+        resourcesSnap.forEach((resourceDoc) => documents.push(toChatDocument(resourceDoc.id, resourceDoc.data())));
       } catch (error) {
         console.error(`Error fetching resources for class ${enrollmentDoc.id}:`, error);
       }
-
-      classes.push({
-        classId: enrollmentDoc.id,
-        className: data.className ?? "",
-        classCode: data.classCode ?? "",
-        term: data.term ?? "",
-        facultyName: data.facultyName ?? "",
-        facultyEmail: data.facultyEmail ?? "",
-        facultyPhoneNumber: data.facultyPhoneNumber ?? "",
-        facultyOfficeNumber: data.facultyOfficeNumber ?? "",
-        classSchedule: data.classSchedule ?? "",
-        time: data.time ?? "",
-        classRoom: data.classRoom ?? "",
-        classDescription: data.classDescription ?? "",
-        meetingDays: Array.isArray(data.meetingDays) ? data.meetingDays : undefined,
-        meetingStartTime: typeof data.meetingStartTime === "string" ? data.meetingStartTime : undefined,
-        meetingEndTime: typeof data.meetingEndTime === "string" ? data.meetingEndTime : undefined,
-        meetingTimeZone: typeof data.meetingTimeZone === "string" ? data.meetingTimeZone : undefined,
-        termStartDate: typeof data.termStartDate === "string" ? data.termStartDate : undefined,
-        termEndDate: typeof data.termEndDate === "string" ? data.termEndDate : undefined,
-        termSeason: data.termSeason,
-        termYear: data.termYear,
-        subject: data.subject,
-        courseNumber: data.courseNumber,
-        status: getEnrollmentStatus(data),
-        documents,
-      });
+      classes.push(toChatClass(enrollmentDoc.id, enrollmentDoc.data(), documents));
     }
   } catch (error) {
     console.error("Error fetching enrollments for chat context:", error);
   }
 
-  const timeZone = typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
-  return { userId, email, name, college, classes, timeZone };
+  return { userId, email, name, college, classes, timeZone: browserTimeZone() };
 }
