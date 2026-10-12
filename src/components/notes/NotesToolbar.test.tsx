@@ -91,11 +91,15 @@ describe("NotesToolbar formatting menus", () => {
     const row = container.querySelector('[data-tutorial="note-toolbar"] > div') as HTMLElement;
     expect(row.className).toContain("flex-wrap");
     expect(row.className).not.toContain("overflow-x-auto");
+    // Whole groups wrap, never a group's own buttons, so rows break between clusters.
+    const groups = Array.from(row.children) as HTMLElement[];
+    expect(groups.length).toBeGreaterThanOrEqual(4);
+    for (const group of groups) expect(group.className).toContain("shrink-0");
   });
 
   it("keeps the toolbar to a modest number of buttons, grouping the rest into menus", () => {
     const { container } = setupFormat();
-    expect(container.querySelectorAll('[data-tutorial="note-toolbar"] > div > button, [data-tutorial="note-toolbar"] > div > div > button').length).toBeLessThanOrEqual(20);
+    expect(container.querySelectorAll('[data-tutorial="note-toolbar"] button').length).toBeLessThanOrEqual(22);
   });
 
   it("picks a heading from the heading menu, then closes it", () => {
