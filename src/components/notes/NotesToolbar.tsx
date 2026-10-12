@@ -71,7 +71,12 @@ function ToolButton({
   );
 }
 
-const Divider = () => <span className="mx-0.5 h-5 w-px shrink-0 bg-border-light" aria-hidden="true" />;
+/** A cluster of related buttons in its own pill. The bar wraps between groups, never inside one, so on a narrow screen they stack neatly. */
+const Group = ({ children, ...rest }: { children: ReactNode } & React.HTMLAttributes<HTMLDivElement>) => (
+  <div className="flex shrink-0 items-center gap-0.5 rounded-xl border border-border-light bg-bg-container px-1 py-1 shadow-sm" {...rest}>
+    {children}
+  </div>
+);
 
 /** One row of a dropdown menu (headings, lists, more): icon or sample, then a plain label. */
 function MenuItem({
@@ -235,15 +240,14 @@ export default function NotesToolbar({
   const act = (a: FormatAction) => onFormat?.(a);
 
   return (
-    // The bar wraps onto a second row on narrow screens instead of scrolling
+    // On a narrow screen the groups stack onto more rows rather than scrolling
     // sideways (a scroll container would also clip the dropdowns).
     <div ref={barRef} className="relative w-fit max-w-full" data-tutorial="note-toolbar">
-      <div className="flex flex-wrap items-center justify-center gap-0.5 rounded-xl border border-border-light bg-bg-container px-1.5 py-1 shadow-sm">
+      <div className="flex flex-wrap items-center justify-center gap-1.5">
+        <Group>
         <ToolButton label={variant === "typed" ? "Type" : "Select and move"} active={typing} onClick={() => setMode("type")}>
           {variant === "typed" ? <Type size={16} /> : <MousePointer2 size={16} />}
         </ToolButton>
-
-        <Divider />
         <ToolButton
           label={textHistory ? "Undo typing (Ctrl+Z)" : "Undo (Ctrl+Z)"}
           disabled={textHistory ? !format?.canUndo : !canUndo}
@@ -258,10 +262,11 @@ export default function NotesToolbar({
         >
           <Redo2 size={16} />
         </ToolButton>
+        </Group>
 
         {variant === "typed" && format && onFormat && (
           <>
-            <Divider />
+            <Group>
             <ToolButton label="Bold (Ctrl+B)" active={format.bold} disabled={!typing} onClick={() => act("bold")}>
               <Bold size={16} />
             </ToolButton>
@@ -282,8 +287,9 @@ export default function NotesToolbar({
                 A
               </span>
             </ToolButton>
-            <Divider />
+            </Group>
 
+            <Group>
             <div className="relative">
               <ToolButton
                 label="Heading size"
@@ -415,10 +421,11 @@ export default function NotesToolbar({
                 </Menu>
               )}
             </div>
+            </Group>
           </>
         )}
 
-        <Divider />
+        <Group>
         <div className="flex items-center gap-0.5" data-tutorial="note-draw-tools">
           <ToolButton
             label="Pencil - click again to go back to typing"
@@ -456,12 +463,13 @@ export default function NotesToolbar({
           <Sticker size={16} />
           <span className="ml-1.5 hidden text-xs font-medium sm:inline">Sticker</span>
         </ToolButton>
-
-        <Divider />
+        </Group>
         {onToggleContents && (
-          <ToolButton label="Contents and pages" active={!!showContents} onClick={onToggleContents}>
-            <ListTree size={16} />
-          </ToolButton>
+          <Group>
+            <ToolButton label="Contents and pages" active={!!showContents} onClick={onToggleContents}>
+              <ListTree size={16} />
+            </ToolButton>
+          </Group>
         )}
       </div>
 
