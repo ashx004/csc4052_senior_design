@@ -39,6 +39,7 @@ import {
 } from "@/src/components/resourceManagement/fileUploadService";
 import { compressImage } from "@/src/library/imageCompress";
 import TranscriptReader from "@/src/components/notes/TranscriptReader";
+import JobProgressIndicator from "@/src/components/jobs/JobProgressIndicator";
 import PageTutorial from "@/src/components/tutorial/PageTutorial";
 import notesSteps from "@/src/library/tutorials/steps/notes";
 
@@ -376,10 +377,7 @@ function DocumentPreviewModal({
                 className="mx-auto max-h-[40vh] max-w-full rounded-lg border border-border-light object-contain shadow-sm sm:max-h-[50vh]"
               />
               {ocrStatus === "queued" || ocrStatus === "processing" ? (
-                <div className="flex items-center justify-center gap-2 rounded-lg border border-border-light bg-bg-main p-4 text-sm text-text-muted">
-                  <Loader2 size={16} className="animate-spin" />
-                  {ocrStatus === "queued" ? "Transcription queued…" : "Transcription processing…"} This preview will update automatically when it is ready.
-                </div>
+                <JobProgressIndicator kind="ocr" status={ocrStatus} />
               ) : ocrStatus === "failed" ? (
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-alert-error bg-alert-error-bg p-4 text-sm text-alert-error">
                   <p>{doc.ocrError || "Transcription failed. You can try again."}</p>
