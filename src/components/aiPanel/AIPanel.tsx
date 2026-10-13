@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { MessageSquare, X, Send, Square } from "lucide-react";
+import { MessageSquare, X, Send, Square, Eraser } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -37,7 +37,7 @@ export default function AIPanel() {
   const pathname = usePathname();
   const { user } = useAuth();
   const pageContext = useAIPageContext();
-  const { messages, isSending, toolStatus, activity, errorText, sendMessage, stop } = useAIPanelChat(user?.uid, user?.email ?? undefined);
+  const { messages, isSending, toolStatus, activity, errorText, sendMessage, clear, stop } = useAIPanelChat(user?.uid, user?.email ?? undefined);
   // Follows new text and Confirm cards unless the student has scrolled up.
   const { attach: scrollRef, onScroll: onChatScroll, stick: stickToBottom } = useStickToBottom<HTMLDivElement>([messages, toolStatus, activity, errorText]);
   const [isOpen, setIsOpen] = useState(false);
@@ -101,13 +101,26 @@ export default function AIPanel() {
         <div className="flex h-full w-screen flex-col md:w-auto md:min-w-[24rem]">
           <div className="flex items-center justify-between border-b border-border-light px-4 py-4">
             <h2 className="text-sm font-semibold tracking-[0.2em] text-text-main">CATALYST</h2>
-            <button
-              onClick={() => toggleOpen(false)}
-              className="rounded-full p-1.5 text-text-muted transition-colors hover:text-text-main"
-              aria-label="Close AI assistant panel"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              {messages.length > 0 && (
+                <button
+                  onClick={clear}
+                  disabled={isSending}
+                  title="Clear chat"
+                  className="rounded-full p-1.5 text-text-muted transition-colors hover:text-text-main disabled:opacity-50"
+                  aria-label="Clear chat"
+                >
+                  <Eraser className="h-4 w-4" />
+                </button>
+              )}
+              <button
+                onClick={() => toggleOpen(false)}
+                className="rounded-full p-1.5 text-text-muted transition-colors hover:text-text-main"
+                aria-label="Close AI assistant panel"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
           <div ref={scrollRef} onScroll={onChatScroll} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
