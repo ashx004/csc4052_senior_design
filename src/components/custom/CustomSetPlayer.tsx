@@ -30,6 +30,7 @@ import PracticeResults from "@/src/components/practice/PracticeResults";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/src/components/practice/PracticeShell";
 import { totalScore } from "@/src/library/practice/grading";
 import { formatClock } from "@/src/library/practice/dragDrop";
+import RecoveryScreen from "@/src/components/recovery/RecoveryScreen";
 import {
   DIFFICULTY_LABELS,
   KIND_LABELS,
@@ -82,7 +83,8 @@ export default function CustomSetPlayer({ setId }: { setId: string }) {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const [set, setSet] = useState<LoadedSet | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "missing">("loading");
+  const [status, setStatus] = useState<"loading" | "ready" | "missing" | "error">("loading");
+  const [loadError, setLoadError] = useState<Error | null>(null);
   const [attempts, setAttempts] = useState<PastAttempt[]>([]);
   const [deleting, setDeleting] = useState(false);
   // The best score so far, kept in a ref so recording a run doesn't depend on render state.
@@ -110,6 +112,7 @@ export default function CustomSetPlayer({ setId }: { setId: string }) {
     let cancelled = false;
     (async () => {
       try {
+        setLoadError(null);
         const snap = await getDoc(setRef());
         if (cancelled) return;
         if (!snap.exists()) return setStatus("missing");
@@ -132,7 +135,10 @@ export default function CustomSetPlayer({ setId }: { setId: string }) {
         void loadAttempts();
       } catch (error) {
         console.error("Error loading custom set:", error);
-        if (!cancelled) setStatus("missing");
+        if (!cancelled) {
+          setLoadError(error instanceof Error ? error : new Error("Unable to load this study set."));
+          setStatus("error");
+        }
       }
     })();
     return () => {
@@ -179,14 +185,20 @@ export default function CustomSetPlayer({ setId }: { setId: string }) {
       </div>
     );
   }
+
+  if (status === "error" && loadError) {
+    throw loadError;
+  }
+
   if (status === "missing" || !set) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-bg-main px-6 text-center">
-        <p className="text-lg font-semibold text-text-main">This set couldn&apos;t be found.</p>
-        <button onClick={() => router.push("/learning")} className={PRIMARY_BUTTON}>
-          Back to Learning
-        </button>
-      </div>
+      <RecoveryScreen
+        variant="unavailable"
+        layout="page"
+        title="This study set isn't available"
+        message="It may have been removed or is no longer available to you."
+        primaryAction={{ label: "Back to Learning", onClick: () => router.push("/learning") }}
+      />
     );
   }
 

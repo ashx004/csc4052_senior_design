@@ -10,13 +10,13 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
 import { useAuth } from "@/src/context/AuthContext";
 import { DATA_CHANGED_EVENT } from "@/src/library/dataChanged";
+import RecoveryScreen from "@/src/components/recovery/RecoveryScreen";
 
 async function getEnrollmentName(userId: string, enrollmentId: string): Promise<string | null> {
     const docRef = doc(db, "users", userId, "enrollment", enrollmentId);
     const docSnap = await getDoc(docRef);
 
     if (!docSnap.exists()) {
-        console.log("No such document!");
         return null;
     }
 
@@ -34,6 +34,8 @@ export default function CourseLayout({
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const [courseName, setCourseName] = useState<string | null>(null);
+  const [courseState, setCourseState] = useState<"loading" | "ready" | "unavailable" | "error">("loading");
+  const [courseLoadError, setCourseLoadError] = useState<Error | null>(null);
   // This class's own sections, so the top-bar search can jump straight to them.
   const courseEntries = useMemo(() => courseSearchEntries(courseId, courseName), [courseId, courseName]);
 
@@ -45,17 +47,28 @@ export default function CourseLayout({
       return;
     }
 
-    const load = () =>
-      getEnrollmentName(user.uid, courseId)
-        .then(setCourseName)
-        .catch((error) => {
-          console.error("Error getting enrollment name: ", error);
-          setCourseName(null);
-        });
+    let active = true;
+    const load = async () => {
+      setCourseState("loading");
+      setCourseLoadError(null);
+      try {
+        const enrollmentName = await getEnrollmentName(user.uid, courseId);
+        if (!active) return;
+        setCourseName(enrollmentName);
+        setCourseState(enrollmentName === null ? "unavailable" : "ready");
+      } catch (error) {
+        if (!active) return;
+        setCourseLoadError(error instanceof Error ? error : new Error("Unable to load this course."));
+        setCourseState("error");
+      }
+    };
     void load();
     // The course was renamed from its page or by the AI panel.
     window.addEventListener(DATA_CHANGED_EVENT, load);
-    return () => window.removeEventListener(DATA_CHANGED_EVENT, load);
+    return () => {
+      active = false;
+      window.removeEventListener(DATA_CHANGED_EVENT, load);
+    };
   }, [user, authLoading, courseId, router]);
 
   if (authLoading || !user) {
@@ -64,6 +77,14 @@ export default function CourseLayout({
         <Loader2 size={24} className="animate-spin text-[#B08957]" />
       </div>
     );
+  }
+
+  if (courseState === "error" && courseLoadError) {
+    throw courseLoadError;
+  }
+
+  if (courseState === "unavailable") {
+    return <RecoveryScreen variant="unavailable" layout="page" />;
   }
 
   return (
