@@ -2,8 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Download, Loader2, RotateCcw, Save, X } from "lucide-react";
+import { doc, onSnapshot } from "firebase/firestore";
 import { downloadScanArchive } from "@/src/library/notes/notebookArchive";
 import { loadDocumentSource, saveDocumentNote } from "@/src/library/notes/notesStore";
+import { db } from "@/src/library/firebase";
+import { isActiveJobStatus, type ActiveJobStatus } from "@/src/library/jobStatus";
 import { MAX_PAGES_PER_NOTE, PAGE_WIDTH, type Note, type PageAnnotations } from "@/src/library/notes/types";
 import { STICKER_SIZE, drawSticker } from "@/src/library/notes/stickers";
 import AnnotationItems from "./AnnotationItems";
@@ -20,6 +23,7 @@ import { usePageInk } from "./usePageInk";
 import { usePaperScale } from "./usePaperScale";
 import { FloatingZoom, usePaperZoom } from "./PaperZoom";
 import { defaultToolState, type ToolState } from "./tools";
+import JobProgressIndicator from "@/src/components/jobs/JobProgressIndicator";
 
 type RenderedPage = { src: string; height: number };
 
@@ -73,6 +77,7 @@ export default function DocumentAnnotator({
   const [error, setError] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
   const [showSourceImages, setShowSourceImages] = useState(!note.scan);
+  const [ocrJobStatus, setOcrJobStatus] = useState<ActiveJobStatus | null>(null);
   const [transcript, setTranscript] = useState<string | null>(null);
   const transcriptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [downloadingScan, setDownloadingScan] = useState(false);
@@ -89,6 +94,25 @@ export default function DocumentAnnotator({
   useEffect(() => {
     onSaveStateChange(ink.saving ? "saving" : "saved");
   }, [ink.saving, onSaveStateChange]);
+
+  // A Notes entry contains only a stable reference to its class resource.
+  // Subscribe to that source of truth so a preview opened from Notes reflects
+  // the same queued/processing OCR state as the course-resource preview.
+  useEffect(() => {
+    if (!note.scan || !note.courseId || !note.resourceId) {
+      setOcrJobStatus(null);
+      return;
+    }
+
+    return onSnapshot(
+      doc(db, "users", uid, "enrollment", note.courseId, "resources", note.resourceId),
+      (resource) => {
+        const status = resource.data()?.ocrStatus;
+        setOcrJobStatus(isActiveJobStatus(status) ? status : null);
+      },
+      () => setOcrJobStatus(null)
+    );
+  }, [uid, note.scan, note.courseId, note.resourceId]);
 
   useEffect(() => {
     if (!note.scan || !note.url) return;
@@ -281,6 +305,11 @@ export default function DocumentAnnotator({
           <button type="button" disabled={downloadingScan || transcript === null || !rendered} onClick={() => void downloadScan()} className="flex items-center gap-1.5 rounded-lg border border-border-light bg-bg-container px-3 py-1.5 text-xs font-medium text-text-main disabled:opacity-40">
             <Download size={14} /> {downloadingScan ? "Preparing..." : "Download transcript & images"}
           </button>
+        </div>
+      )}
+      {ocrJobStatus && (
+        <div className="px-3 pb-2">
+          <JobProgressIndicator kind="ocr" status={ocrJobStatus} />
         </div>
       )}
       {note.fileType === "pdf" && (

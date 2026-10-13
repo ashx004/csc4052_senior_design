@@ -3,6 +3,7 @@ import { adminDb } from "@/src/library/firebaseAdmin";
 import { resolveInternalUrl } from "@/src/library/pdfExtract";
 import { studyNotificationsCollection } from "@/src/library/studyPlan/firestorePaths";
 import type { AdvisingNotificationType } from "@/src/library/studyPlan/types";
+import { JOB_STATUS, isActiveJobStatus, type ActiveJobStatus, type JobStatus } from "@/src/library/jobStatus";
 
 // Advising work that takes longer than one request should (reading the
 // transcript + curriculum, generating a schedule) runs as a background job:
@@ -46,7 +47,7 @@ export async function enqueueAdvisingJob(
   collection: string,
   uid: string,
   extraFields: Record<string, unknown> = {}
-) {
+): Promise<ActiveJobStatus> {
   const jobRef = adminDb.collection(collection).doc(uid);
   const existing = (await jobRef.get()).data();
 
@@ -55,12 +56,13 @@ export async function enqueueAdvisingJob(
   // claimNextJob in advising-jobs/worker), so it's harmless to nudge a job
   // that's genuinely being worked on, and it's what actually rescues one
   // that's stuck (e.g. the one active attempt died without requeuing itself).
-  const alreadyInFlight = existing?.status === "queued" || existing?.status === "processing";
+  const alreadyInFlight = isActiveJobStatus(existing?.status);
 
   if (!alreadyInFlight) {
     await jobRef.set({
       userId: uid,
-      status: "queued",
+      status: JOB_STATUS.pending,
+      progress: 0,
       attempts: 0,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -75,9 +77,10 @@ export async function enqueueAdvisingJob(
   }
 
   pingAdvisingWorker(request);
+  return alreadyInFlight ? existing.status : JOB_STATUS.pending;
 }
 
-export type AdvisingJobStatus = "none" | "queued" | "processing" | "complete" | "failed" | "stale";
+export type AdvisingJobStatus = "none" | "stale" | JobStatus;
 
 // Reads a student's job for the page to poll or resume. Also nudges the
 // worker when a job is due - a retry scheduled for later only runs when
@@ -94,9 +97,9 @@ export async function readAdvisingJob(
   const data = jobDoc.data()!;
   const now = Date.now();
 
-  if (data.status === "queued" || data.status === "processing") {
+  if (isActiveJobStatus(data.status)) {
     const dueAt =
-      data.status === "queued"
+      data.status === JOB_STATUS.pending
         ? toDate(data.nextAttemptAt)?.getTime() ?? now
         : toDate(data.leaseExpiresAt)?.getTime() ?? now;
 
