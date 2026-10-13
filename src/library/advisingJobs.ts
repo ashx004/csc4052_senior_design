@@ -3,7 +3,7 @@ import { adminDb } from "@/src/library/firebaseAdmin";
 import { resolveInternalUrl } from "@/src/library/pdfExtract";
 import { studyNotificationsCollection } from "@/src/library/studyPlan/firestorePaths";
 import type { AdvisingNotificationType } from "@/src/library/studyPlan/types";
-import { JOB_STATUS, isActiveJobStatus, type JobStatus } from "@/src/library/jobStatus";
+import { JOB_STATUS, isActiveJobStatus, type ActiveJobStatus, type JobStatus } from "@/src/library/jobStatus";
 
 // Advising work that takes longer than one request should (reading the
 // transcript + curriculum, generating a schedule) runs as a background job:
@@ -47,7 +47,7 @@ export async function enqueueAdvisingJob(
   collection: string,
   uid: string,
   extraFields: Record<string, unknown> = {}
-) {
+): Promise<ActiveJobStatus> {
   const jobRef = adminDb.collection(collection).doc(uid);
   const existing = (await jobRef.get()).data();
 
@@ -62,6 +62,7 @@ export async function enqueueAdvisingJob(
     await jobRef.set({
       userId: uid,
       status: JOB_STATUS.pending,
+      progress: 0,
       attempts: 0,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -76,6 +77,7 @@ export async function enqueueAdvisingJob(
   }
 
   pingAdvisingWorker(request);
+  return alreadyInFlight ? existing.status : JOB_STATUS.pending;
 }
 
 export type AdvisingJobStatus = "none" | "stale" | JobStatus;
