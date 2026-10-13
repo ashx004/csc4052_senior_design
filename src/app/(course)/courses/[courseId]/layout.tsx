@@ -84,7 +84,14 @@ export default function CourseLayout({
   }
 
   if (courseState === "unavailable") {
-    return <RecoveryScreen variant="unavailable" layout="page" />;
+    return (
+      <RecoveryScreen
+        variant="unavailable"
+        layout="page"
+        primaryAction={{ label: "Back to classes", onClick: () => router.push("/classes") }}
+        secondaryAction={{ label: "Go to dashboard", onClick: () => router.push("/dashboard") }}
+      />
+    );
   }
 
   return (
