@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { BookOpen, CalendarPlus, FileSearch, FileText, Gauge, ListChecks, NotebookPen, X } from "lucide-react";
 import type { ChatClass } from "@/src/library/chatContext";
-import { DEFAULT_QUIZ_DIFFICULTY, QUIZ_DIFFICULTY_OPTIONS, type QuizDifficulty } from "@/src/library/quizDifficulty";
-import { MAX_CUSTOM_FILES, type CustomType } from "@/src/library/custom/customRequest";
+import type { CustomType } from "@/src/library/custom/customRequest";
+import type { StudyKind } from "@/src/library/studySets/setupRules";
+import StudyLaunch from "@/src/components/learning/StudyLaunch";
 
 // Quick actions above the chat box: a reminder of what the assistant can do,
 // and a way to ask for it without ambiguity. Each action collects the class,
@@ -14,7 +16,7 @@ import { MAX_CUSTOM_FILES, type CustomType } from "@/src/library/custom/customRe
 // file the student meant, which was the most common source of wrong answers
 // in testing (2026-09-25).
 
-type Field = "class" | "file" | "files" | "difficulty" | "count" | "focus" | "title" | "when" | "duration" | "query";
+type Field = "class" | "file" | "count" | "focus" | "title" | "when" | "duration" | "query";
 
 interface QuickAction {
   id: string;
@@ -23,20 +25,19 @@ interface QuickAction {
   /** Shown under the form's heading. */
   hint: string;
   fields: Field[];
-  /** At least one file is required (quiz/flashcards are generated from the chosen documents). */
+  /** A file is required (the practice exam and notes are generated from a chosen one). */
   needsFile?: boolean;
+  /** Opens the Learning page's own flow (source picker, setup, custom sets) instead of sending a chat message. */
+  launchKind?: StudyKind;
   /** Where to build a one-off set from the student's own files or prompt, with no class. */
   customType?: CustomType;
   submitLabel: string;
-  build: (v: Values) => string;
+  build?: (v: Values) => string;
 }
 
 interface Values {
   classLabel: string;
   file: string;
-  /** Every file picked for a quiz or flashcards; they are combined into one set. */
-  files: string[];
-  difficulty: QuizDifficulty;
   count: string;
   focus: string;
   title: string;
@@ -48,8 +49,6 @@ interface Values {
 
 const UNREADABLE = new Set(["zip", "class", "jar", "exe", "tar", "gz", "7z", "rar"]);
 const quoteFile = (f: string) => `"${f}"`;
-const quoteFiles = (files: string[]) => files.map(quoteFile).join(", ");
-const difficultyWord: Record<QuizDifficulty, string> = { review: "review-level", exam: "exam-style", challenge: "challenge-level" };
 const focusPart = (f: string) => (f.trim() ? ` Focus on: ${f.trim()}.` : "");
 
 const ACTIONS: QuickAction[] = [
@@ -57,23 +56,21 @@ const ACTIONS: QuickAction[] = [
     id: "quiz",
     label: "Make a quiz",
     icon: <ListChecks size={15} />,
-    hint: "Built from one or more of your class files and saved to that class's quizzes.",
-    fields: ["class", "files", "difficulty", "count", "focus"],
-    needsFile: true,
+    hint: "Pick one or more files or notes from a class, set the difficulty, and it's saved to that class's quizzes.",
+    fields: ["class"],
+    launchKind: "quiz",
     customType: "quiz",
-    submitLabel: "Make quiz",
-    build: (v) => `Make a ${v.count}-question ${difficultyWord[v.difficulty]} quiz from ${quoteFiles(v.files)} in ${v.classLabel}.${focusPart(v.focus)}`,
+    submitLabel: "Choose sources",
   },
   {
     id: "flashcards",
     label: "Flashcards",
     icon: <BookOpen size={15} />,
-    hint: "A flashcard set from one or more of your class files, ready to study.",
-    fields: ["class", "files", "focus"],
-    needsFile: true,
+    hint: "Pick one or more files or notes from a class and get a deck ready to study.",
+    fields: ["class"],
+    launchKind: "flashcards",
     customType: "flashcards",
-    submitLabel: "Make flashcards",
-    build: (v) => `Make flashcards from ${quoteFiles(v.files)} in ${v.classLabel}.${focusPart(v.focus)}`,
+    submitLabel: "Choose sources",
   },
   {
     id: "exam",
@@ -162,10 +159,13 @@ export default function QuickActions({
   compact?: boolean;
 }) {
   const current = useMemo(() => classes.filter((c) => c.status !== "completed"), [classes]);
-  const [active, setActive] = useState<QuickAction | null>(null);
+  const [openForm, setActive] = useState<{ action: QuickAction; path: string | null } | null>(null);
   const [courseId, setCourseId] = useState<string>("");
-  const [values, setValues] = useState<Omit<Values, "classLabel">>({ file: "", files: [], difficulty: DEFAULT_QUIZ_DIFFICULTY, count: "10", focus: "", title: "", date: todayIso(), time: "18:00", duration: "1 hour", query: "" });
+  const [values, setValues] = useState<Omit<Values, "classLabel">>({ file: "", count: "10", focus: "", title: "", date: todayIso(), time: "18:00", duration: "1 hour", query: "" });
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const pathname = usePathname();
+  // The study flow routes to the new set; the form shouldn't still be open on the next page.
+  const active = openForm && openForm.path === pathname ? openForm.action : null;
 
   useEffect(() => {
     if (!active) return;
@@ -182,14 +182,15 @@ export default function QuickActions({
     const allowAll = action.id === "progress" || action.id === "find";
     const preferred = current.find((c) => c.classId === defaultCourseId)?.classId ?? (allowAll ? "" : current[0]?.classId ?? "");
     setCourseId(preferred);
-    setValues((v) => ({ ...v, file: "", files: [], difficulty: DEFAULT_QUIZ_DIFFICULTY, focus: "", title: "", query: "", count: action.id === "exam" ? "15" : "10" }));
-    setActive(action);
+    setValues((v) => ({ ...v, file: "", focus: "", title: "", query: "", count: action.id === "exam" ? "15" : "10" }));
+    setActive({ action, path: pathname });
   }
 
   function submit() {
     if (!active) return;
     const cls = current.find((c) => c.classId === courseId);
     const classLabel = cls ? cls.classCode || cls.className : ALL_CLASSES;
+    if (!active.build) return;
     onSend(active.build({ ...values, classLabel }));
     setActive(null);
   }
@@ -198,7 +199,7 @@ export default function QuickActions({
     !active
       ? true
       : (active.fields.includes("class") && !["progress", "find"].includes(active.id) && !courseId) ||
-        (active.needsFile && (active.fields.includes("files") ? values.files.length === 0 : !values.file)) ||
+        (active.needsFile && !values.file) ||
         (active.fields.includes("query") && !values.query.trim()) ||
         (active.fields.includes("when") && (!values.date || !values.time));
 
@@ -237,7 +238,7 @@ export default function QuickActions({
                   value={courseId}
                   onChange={(e) => {
                     setCourseId(e.target.value);
-                    setValues((v) => ({ ...v, file: "", files: [] }));
+                    setValues((v) => ({ ...v, file: "" }));
                   }}
                   className={inputClass}
                 >
@@ -265,51 +266,6 @@ export default function QuickActions({
                   {files.map((d) => (
                     <option key={d.resourceId} value={d.name}>
                       {d.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-
-            {active.fields.includes("files") && (
-              <fieldset className={`grid gap-1 text-xs font-medium text-text-muted ${wide}`}>
-                <legend className="mb-1">
-                  From files <span className="font-normal">(pick one or more - they become one set, up to {MAX_CUSTOM_FILES})</span>
-                </legend>
-                {files.length === 0 ? (
-                  <p className="rounded-lg border border-dashed border-border-light px-3 py-2 text-sm font-normal">
-                    {selectedClass ? "No readable files in this class" : "Choose a class first"}
-                  </p>
-                ) : (
-                  <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-border-light bg-bg-container p-2">
-                    {files.map((d) => {
-                      const checked = values.files.includes(d.name);
-                      const full = !checked && values.files.length >= MAX_CUSTOM_FILES;
-                      return (
-                        <label key={d.resourceId} className={`flex items-center gap-2 rounded-md px-2 py-1 text-sm font-normal text-text-main ${full ? "opacity-50" : "cursor-pointer hover:bg-bg-warm"}`}>
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            disabled={full}
-                            onChange={() => setValues((v) => ({ ...v, files: checked ? v.files.filter((f) => f !== d.name) : [...v.files, d.name] }))}
-                            className="h-4 w-4 rounded border-border-light text-primary focus:ring-primary"
-                          />
-                          <span className="min-w-0 truncate">{d.name}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                )}
-              </fieldset>
-            )}
-
-            {active.fields.includes("difficulty") && (
-              <label className="grid gap-1 text-xs font-medium text-text-muted">
-                Difficulty
-                <select id="qa-difficulty" value={values.difficulty} onChange={(e) => setValues((v) => ({ ...v, difficulty: e.target.value as QuizDifficulty }))} className={inputClass}>
-                  {QUIZ_DIFFICULTY_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label} - {o.subtitle}
                     </option>
                   ))}
                 </select>
@@ -410,14 +366,30 @@ export default function QuickActions({
             <button type="button" onClick={() => setActive(null)} className="rounded-lg px-3 py-2 text-sm text-text-muted hover:bg-bg-warm">
               Cancel
             </button>
-            <button
-              type="button"
-              disabled={missing || disabled}
-              onClick={submit}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-text-inverse hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {active.submitLabel}
-            </button>
+            {active.launchKind && courseId ? (
+              // The same source picker, setup and custom-set options as the Learning page.
+              <StudyLaunch key={`${courseId}-${active.id}`} courseId={courseId} variant="compact" initialKind={active.launchKind}>
+                {(openFlow) => (
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => openFlow(active.launchKind)}
+                    className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-text-inverse hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {active.submitLabel}
+                  </button>
+                )}
+              </StudyLaunch>
+            ) : (
+              <button
+                type="button"
+                disabled={missing || disabled || !active.build}
+                onClick={submit}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-text-inverse hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {active.submitLabel}
+              </button>
+            )}
           </div>
         </div>
       )}
