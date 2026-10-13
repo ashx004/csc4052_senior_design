@@ -27,6 +27,7 @@ import { useAuth } from "@/src/context/AuthContext";
 import { useTutorial } from "@/src/context/TutorialContext";
 import PageTutorial from "@/src/components/tutorial/PageTutorial";
 import settingsSteps from "@/src/library/tutorials/steps/settings";
+import SignInDevicesModal from "@/src/components/settings/SignInDevicesModal";
 import {
     getAvailableVoices,
     getStoredVoiceURI,
@@ -53,6 +54,7 @@ const EMAIL_REMINDER_OFFSET_OPTIONS = [
 ];
 
 export default function Settings() {
+    const [showSignInDevices, setShowSignInDevices] = useState(false);
     const { user } = useAuth();
     const { resetAll } = useTutorial();
     const [tutorialsReset, setTutorialsReset] = useState(false);
@@ -1394,6 +1396,27 @@ export default function Settings() {
 
 
 
+
+            {/* Sign-in security */}
+            <header className="mt-5 flex w-3/4 shrink-0 self-center border-b border-border-light px-6" />
+            <section className="mt-2 flex w-3/4 self-center flex-col gap-3 rounded-lg bg-bg-main px-3 py-4" aria-labelledby="sign-in-devices-heading">
+                <div className="flex flex-col gap-1">
+                    <h2 id="sign-in-devices-heading" className="text-sm font-medium text-text-main">Sign-in security</h2>
+                    <p className="text-xs text-text-muted">
+                        You&apos;re asked for an emailed code when you sign in on a new device. Review or remove the devices that skip it.
+                    </p>
+                </div>
+                <div className="flex justify-start">
+                    <button
+                        type="button"
+                        onClick={() => setShowSignInDevices(true)}
+                        className="rounded-md border border-border-light bg-bg-container px-3 py-1.5 text-xs font-medium text-text-main transition hover:bg-bg-warm"
+                    >
+                        Sign-in devices
+                    </button>
+                </div>
+            </section>
+            {showSignInDevices && <SignInDevicesModal onClose={() => setShowSignInDevices(false)} />}
 
             {/* Account data */}
             <header className="mt-5 flex w-3/4 shrink-0 self-center border-b border-border-light px-6" />
