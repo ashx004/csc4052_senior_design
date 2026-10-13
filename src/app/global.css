@@ -368,3 +368,27 @@ a:hover {
 .office-file-view .sheet-render td { white-space: nowrap; font-size: 0.8rem; }
 .office-file-view .sheet-render tr:first-child td { background: #e8d2af; font-weight: 600; }
 .note-sheet .ProseMirror .note-math-grid .katex { font-size: 1em; }
+
+
+/* Subtle entrance used for page content: a short fade with a small upward drift.
+   Skipped entirely for people who ask their system for reduced motion. */
+@keyframes catalyst-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* "backwards" (not "both") on purpose: once finished, nothing is left applied, so
+   a transform or opacity doesn't trap fixed-position modals inside this element. */
+.fade-up {
+  animation: catalyst-fade-up 400ms ease-out backwards;
+  animation-delay: var(--fade-delay, 0ms);
+}
+/* Page-to-page fade: opacity only and brief, so moving between tabs such as
+   Notes and OCR doesn't read as the page jumping. */
+@keyframes catalyst-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.page-fade { animation: catalyst-fade-in 160ms ease-out backwards; }
+@media (prefers-reduced-motion: reduce) {
+  .fade-up, .page-fade { animation: none; }
+}
