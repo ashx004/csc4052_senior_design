@@ -1,10 +1,4 @@
-<h1 align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="public/app-logo-dark.svg">
-    <img src="public/app-logo.svg" alt="Catalyst logo" width="120"><br>
-  </picture>
-  Catalyst
-</h1>
+# <picture><source media="(prefers-color-scheme: dark)" srcset="public/app-logo-dark.svg"><img src="public/app-logo.svg" alt="Catalyst logo" height="32"></picture> Catalyst
 
 # To run: 
 
