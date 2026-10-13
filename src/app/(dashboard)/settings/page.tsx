@@ -1,5 +1,6 @@
 "use client";
 
+import AnalyticsPreference from "@/src/components/analytics/AnalyticsPreference";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import {
     EmailAuthProvider,
@@ -633,6 +634,7 @@ export default function Settings() {
                     Settings.
                 </h1>
             </header>
+            <AnalyticsPreference />
 
 
 
