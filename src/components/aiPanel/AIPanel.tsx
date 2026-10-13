@@ -9,9 +9,11 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import { useAuth } from "@/src/context/AuthContext";
+import { pageHasOwnAiPanel } from "@/src/library/aiPanelRoutes";
+import { describePage } from "@/src/library/pageDescriptions";
 import { useSpeechToText } from "@/src/library/useSpeechToText";
 import MicButton from "@/src/components/aiAssistant/MicButton";
-import { useAIPageContext } from "@/src/context/AIPageContext";
+import { useAIPageContext, useOwnAiPanelShown } from "@/src/context/AIPageContext";
 import { useAIPanelChat } from "./useAIPanelChat";
 import QuickActions from "@/src/components/aiAssistant/QuickActions";
 import ConfirmActionCard from "@/src/components/aiAssistant/ConfirmActionCard";
@@ -33,10 +35,13 @@ function buildGreeting(): string {
   return "Hi! I'm Catalyst — ask me anything about your classes, studies, or what's on this page.";
 }
 
-export default function AIPanel() {
+export default function AIPanel({ courseName }: { courseName?: string | null }) {
   const pathname = usePathname();
   const { user } = useAuth();
-  const pageContext = useAIPageContext();
+  // A page that describes its own live content wins; otherwise a description of the page's purpose
+  // keeps the assistant aware of where the student is on every screen.
+  const pageContext = useAIPageContext() ?? describePage(pathname, courseName);
+  const ownPanelShown = useOwnAiPanelShown();
   const { messages, isSending, toolStatus, activity, errorText, sendMessage, clear, stop } = useAIPanelChat(user?.uid, user?.email ?? undefined);
   // Follows new text and Confirm cards unless the student has scrolled up.
   const { attach: scrollRef, onScroll: onChatScroll, stick: stickToBottom } = useStickToBottom<HTMLDivElement>([messages, toolStatus, activity, errorText]);
@@ -62,10 +67,9 @@ export default function AIPanel() {
     if (typeof window !== "undefined") window.localStorage.setItem(STORAGE_KEY, String(next));
   }
 
-  // The full dedicated chat experience already lives at /ai-assistant —
-  // showing the floating panel there too would stack two chat UIs on the
-  // same page for no benefit.
-  if (pathname === "/ai-assistant") return null;
+  // The full chat lives at /ai-assistant, and some course pages carry their own
+  // contextual panel; the floating one would stack a second chat UI there.
+  if (pageHasOwnAiPanel(pathname) || ownPanelShown) return null;
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();

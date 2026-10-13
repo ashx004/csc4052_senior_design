@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import CourseSidebar from "@/src/components/Sidebar/CourseSidebar";
 import TopBar from "@/src/components/search/TopBar";
+import AIPanel from "@/src/components/aiPanel/AIPanel";
+import { AIPageContextProvider } from "@/src/context/AIPageContext";
 import { courseSearchEntries } from "@/src/library/search/siteSearchIndex";
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
@@ -67,6 +69,7 @@ export default function CourseLayout({
   }
 
   return (
+    <AIPageContextProvider>
     <div className="flex h-screen">
       <CourseSidebar courseId={courseId} courseName={courseName ?? undefined} />
       {/* The top bar (site search) also holds the phones' fixed menu
@@ -75,6 +78,9 @@ export default function CourseLayout({
         <TopBar extraSearchEntries={courseEntries} />
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
+      {/* On course pages that don't have their own contextual panel (it hides itself on those). */}
+      <AIPanel courseName={courseName} />
     </div>
+    </AIPageContextProvider>
   );
 }
