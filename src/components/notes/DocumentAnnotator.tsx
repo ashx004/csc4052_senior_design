@@ -14,7 +14,7 @@ import InkLayer, { drawInkStroke } from "./InkLayer";
 import NotesToolbar from "./NotesToolbar";
 import ExportMenu, { type ExportSource } from "./ExportMenu";
 import { useExportRegistration } from "./noteExportSlot";
-import type { ExportPage } from "@/src/library/notes/exportMarkup";
+import { layoutTranscript, type ExportPage, type TextRun } from "@/src/library/notes/exportMarkup";
 import FileNotesEditor from "./FileNotesEditor";
 import TranscriptReader from "./TranscriptReader";
 import { useAnnotationTools } from "./useAnnotationTools";
@@ -59,6 +59,8 @@ async function renderPdf(url: string, onProgress: (done: number, total: number) 
 
 /** A PDF, photo or scan in the Notes tab: its pages, with ink, highlights,
  *  text boxes and stickers on top. The file itself is never modified. */
+const TRANSCRIPT_PENDING = "The transcript is still being prepared. You can view the source images in the meantime.";
+
 export default function DocumentAnnotator({
   uid,
   note,
@@ -120,7 +122,7 @@ export default function DocumentAnnotator({
     fetch(note.url)
       .then((response) => response.ok ? response.text() : Promise.reject(new Error("Transcript unavailable")))
       .then((value) => !cancelled && setTranscript(value))
-      .catch(() => !cancelled && setTranscript("The transcript is still being prepared. You can view the source images in the meantime."));
+      .catch(() => !cancelled && setTranscript(TRANSCRIPT_PENDING));
     return () => { cancelled = true; };
   }, [note.scan, note.url]);
 
@@ -162,6 +164,14 @@ export default function DocumentAnnotator({
 
   const page = tools.page;
 
+  /** The scan's transcript as invisible text for each page, so an exported PDF of the
+   *  photos can still be searched and copied from. It sits in reading order down the
+   *  page rather than on the handwriting itself. */
+  function transcriptRuns(): TextRun[][] {
+    if (!rendered || !transcript || transcript === TRANSCRIPT_PENDING) return [];
+    return layoutTranscript(transcript, PAGE_WIDTH, Math.min(...rendered.map((pg) => pg.height)), rendered.length);
+  }
+
   async function composePage(pg: RenderedPage, annotations: PageAnnotations): Promise<Blob> {
     const image = new Image();
     image.src = pg.src;
@@ -188,7 +198,11 @@ export default function DocumentAnnotator({
     try {
       const form = new FormData();
       form.append("noteId", note.id);
-      for (let index = 0; index < rendered.length; index++) form.append("page", await composePage(rendered[index], page(index)), `page-${index + 1}.jpg`);
+      const words = transcriptRuns();
+      for (let index = 0; index < rendered.length; index++) {
+        form.append("page", await composePage(rendered[index], page(index)), `page-${index + 1}.jpg`);
+        form.append("text", JSON.stringify({ width: PAGE_WIDTH, height: rendered[index].height, runs: words[index] ?? [] }));
+      }
       const response = await fetch("/api/notes/annotated-pdf", { method: "POST", body: form });
       const data = await response.json();
       if (!response.ok || typeof data.url !== "string") throw new Error(data.error || "Couldn't save the annotated PDF.");
@@ -257,10 +271,12 @@ export default function DocumentAnnotator({
 
   async function exportPages(): Promise<ExportPage[]> {
     if (!rendered) throw new Error("The pages are still loading.");
+    const words = transcriptRuns();
     return rendered.map((pg, i) => ({
       width: PAGE_WIDTH,
       height: pg.height,
       annotations: page(i),
+      text: words[i],
       base: () =>
         new Promise<CanvasImageSource | null>((resolve) => {
           const img = new Image();
