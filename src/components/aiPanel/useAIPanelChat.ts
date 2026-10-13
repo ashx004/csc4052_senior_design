@@ -149,6 +149,15 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
     return { stopped };
   }
 
+  /** Starts a fresh conversation: drops the messages and the running summary so the context stays short. */
+  function clear() {
+    if (isSending) return;
+    setMessages([]);
+    setErrorText(null);
+    summaryRef.current = "";
+    summarizedCountRef.current = 0;
+  }
+
   return {
     messages,
     isSending,
@@ -156,6 +165,7 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
     activity: liveActivity.activity,
     errorText,
     sendMessage,
+    clear,
     stop: chatRun.stop,
   };
 }
