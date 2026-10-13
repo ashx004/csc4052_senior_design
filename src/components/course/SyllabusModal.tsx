@@ -54,6 +54,13 @@ const KIND_OPTIONS: { value: SyllabusDateKind; label: string }[] = [
   { value: "other", label: "Other" },
 ];
 
+/** Adds freshly read dates to the ones already on the list, skipping repeats of the same day and title. */
+function mergeDates(existing: ReviewedSyllabusDate[], incoming: ReviewedSyllabusDate[]): ReviewedSyllabusDate[] {
+  const keyOf = (d: ReviewedSyllabusDate) => `${d.iso || d.date}|${d.title.trim().toLowerCase()}`;
+  const seen = new Set(existing.map(keyOf));
+  return [...existing, ...incoming.filter((d) => !seen.has(keyOf(d)))];
+}
+
 export default function SyllabusModal({
   uid,
   courseId,
@@ -71,21 +78,29 @@ export default function SyllabusModal({
     term?: string;
     syllabus?: StoredSyllabus;
   };
-  /** "edit" opens the details already saved from a syllabus, for fixing what the AI got wrong. */
-  mode?: "import" | "edit";
+  /**
+   * "edit" opens the details already saved from a syllabus, for fixing what the AI got wrong.
+   * "dates" is just the course's important dates: edit or add them by hand, or read more
+   * from any file (a calendar, a schedule, a syllabus) and merge them in.
+   */
+  mode?: "import" | "edit" | "dates";
   onClose: () => void;
   onApplied: (fields: Record<string, unknown>) => void;
 }) {
   // Edit mode starts on the review step with what was saved, so none of this
   // needs an effect to fill in.
-  const saved = mode === "edit" ? current.syllabus : undefined;
+  const saved = mode === "edit" || mode === "dates" ? current.syllabus : undefined;
   const term = current.term ?? "";
   const [resources, setResources] = useState<Resource[]>([]);
-  const [step, setStep] = useState<Step>(saved ? "review" : "choose");
+  const [step, setStep] = useState<Step>(saved || mode === "dates" ? "review" : "choose");
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<Resource | null>(() => (saved ? { id: saved.resourceId, name: saved.name, fileType: "" } : null));
   const [info, setInfo] = useState<SyllabusInfo | null>(() =>
-    saved ? { ...emptySyllabusInfo(), officeHours: saved.officeHours, textbooks: saved.textbooks, grading: saved.grading } : null
+    saved
+      ? { ...emptySyllabusInfo(), officeHours: saved.officeHours, textbooks: saved.textbooks, grading: saved.grading }
+      : mode === "dates"
+        ? emptySyllabusInfo()
+        : null
   );
   const [use, setUse] = useState<Record<string, boolean>>(() =>
     saved ? Object.fromEntries(SYLLABUS_ENROLLMENT_FIELDS.map((key) => [key, true])) : {}
@@ -163,6 +178,14 @@ export default function SyllabusModal({
         nextValues[key] = extracted[key] ?? "";
         nextUse[key] = !!extracted[key] && extracted[key] !== (current[key] ?? "");
       }
+      if (mode === "dates") {
+        // Only the dates matter here: they join the list instead of replacing it.
+        const found = reviewSyllabusDates(extracted.dates, term);
+        setDates((all) => mergeDates(all, found));
+        if (found.length === 0) setError("No dates were found in that file. You can still add them by hand.");
+        setStep("review");
+        return;
+      }
       setInfo(extracted);
       setValues({ ...nextValues, officeHours: extracted.officeHours, textbooks: extracted.textbooks, grading: extracted.grading });
       setUse(nextUse);
@@ -170,7 +193,7 @@ export default function SyllabusModal({
       setStep("review");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't read that file.");
-      setStep("choose");
+      setStep(mode === "dates" ? "review" : "choose");
     }
   }
 
@@ -197,6 +220,7 @@ export default function SyllabusModal({
   }
 
   async function apply() {
+    if (mode === "dates") return void applyDates();
     if (!info || !picked) return;
     setSaving(true);
     setError(null);
@@ -237,6 +261,39 @@ export default function SyllabusModal({
     }
   }
 
+  // Saves only the date list into the course's saved syllabus (creating a bare one if
+  // the course never had a syllabus) and brings the calendar in line with it.
+  async function applyDates() {
+    setSaving(true);
+    setError(null);
+    let savedDates = false;
+    const syllabus: StoredSyllabus = {
+      resourceId: current.syllabus?.resourceId ?? "",
+      name: current.syllabus?.name ?? "Course calendar",
+      officeHours: current.syllabus?.officeHours ?? "",
+      textbooks: current.syllabus?.textbooks ?? "",
+      grading: current.syllabus?.grading ?? "",
+      dates: storedSyllabusDates(dates),
+    };
+    try {
+      await updateDoc(doc(db, "users", uid, "enrollment", courseId), { syllabus: { ...syllabus, importedAt: serverTimestamp() } });
+      savedDates = true;
+      await syncSyllabusEvents(db, uid, courseId, planSyllabusEvents(dates, { courseId, classCode: current.classCode ?? "", className: current.className }));
+      onApplied({ syllabus });
+      onClose();
+    } catch (err) {
+      console.error("Saving course dates failed:", err);
+      if (savedDates) {
+        onApplied({ syllabus });
+        setError("Saved the dates, but couldn't update your calendar. Please try Save again.");
+      } else {
+        setError("Couldn't save the dates. Please try again.");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const input = "w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main outline-none focus:border-primary";
   const busy = step === "reading" || uploading || saving;
 
@@ -249,12 +306,12 @@ export default function SyllabusModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 border-b border-border-light px-5 py-3">
-          {step === "review" && mode !== "edit" && (
-            <button type="button" onClick={() => setStep("choose")} disabled={saving} aria-label="Back" className="rounded-md p-1 text-text-muted hover:bg-bg-warm">
+          {((step === "review" && mode === "import") || (step === "choose" && mode === "dates")) && (
+            <button type="button" onClick={() => setStep(mode === "dates" ? "review" : "choose")} disabled={saving} aria-label="Back" className="rounded-md p-1 text-text-muted hover:bg-bg-warm">
               <ArrowLeft size={16} />
             </button>
           )}
-          <h3 className="flex-1 text-sm font-semibold text-text-main">{mode === "edit" ? "Edit syllabus details" : "Course info from syllabus"}</h3>
+          <h3 className="flex-1 text-sm font-semibold text-text-main">{mode === "edit" ? "Edit syllabus details" : mode === "dates" ? "Course calendar" : "Course info from syllabus"}</h3>
           <button type="button" onClick={onClose} disabled={busy} aria-label="Close" className="rounded-md p-1 text-text-muted hover:bg-bg-warm disabled:opacity-40">
             <X size={16} />
           </button>
@@ -270,7 +327,9 @@ export default function SyllabusModal({
           {step === "choose" && (
             <div className="space-y-4">
               <p className="text-sm text-text-muted">
-                Pick the syllabus you've already added to this course, or upload a new one. Catalyst reads it and fills in the schedule, instructor and key dates for you to review.
+                {mode === "dates"
+                  ? "Pick a calendar, schedule or syllabus you've added to this course, or upload a new one. Catalyst reads the dates in it and adds them to your list to review - nothing already there is replaced."
+                  : "Pick the syllabus you've already added to this course, or upload a new one. Catalyst reads it and fills in the schedule, instructor and key dates for you to review."}
               </p>
               <input
                 ref={fileInput}
@@ -289,7 +348,7 @@ export default function SyllabusModal({
                 onClick={() => fileInput.current?.click()}
                 className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border-hover px-4 py-4 text-sm font-medium text-text-main hover:border-primary hover:bg-bg-warm disabled:opacity-50"
               >
-                {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />} Upload a syllabus
+                {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />} {mode === "dates" ? "Upload a calendar or schedule" : "Upload a syllabus"}
               </button>
               <div>
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">From this course</p>
@@ -326,12 +385,18 @@ export default function SyllabusModal({
 
           {step === "review" && info && (
             <div className="space-y-4">
-              <p className="text-sm text-text-muted">
-                {mode === "edit" ? "Fix anything the AI read wrong in " : "Check what was found in "}
-                <span className="font-medium text-text-main">{picked?.name}</span>.{" "}
-                {mode === "edit" ? "Your changes replace what is saved." : "Untick anything you don't want to change."}
-              </p>
-              {SYLLABUS_ENROLLMENT_FIELDS.map((key) => {
+              {mode === "dates" ? (
+                <p className="text-sm text-text-muted">
+                  Edit your course dates, add your own, or read more from a file. Ticked dates go on your calendar; unticked ones are removed from it.
+                </p>
+              ) : (
+                <p className="text-sm text-text-muted">
+                  {mode === "edit" ? "Fix anything the AI read wrong in " : "Check what was found in "}
+                  <span className="font-medium text-text-main">{picked?.name}</span>.{" "}
+                  {mode === "edit" ? "Your changes replace what is saved." : "Untick anything you don't want to change."}
+                </p>
+              )}
+              {mode !== "dates" && SYLLABUS_ENROLLMENT_FIELDS.map((key) => {
                 const existing = current[key] ?? "";
                 return (
                   <div key={key}>
@@ -348,7 +413,7 @@ export default function SyllabusModal({
                   </div>
                 );
               })}
-              {(["officeHours", "textbooks", "grading"] as const).map((key) => (
+              {mode !== "dates" && (["officeHours", "textbooks", "grading"] as const).map((key) => (
                 <div key={key}>
                   <label className="mb-1 block text-xs font-medium text-text-muted">{key === "officeHours" ? "Office hours" : key === "textbooks" ? "Textbooks" : "Grading"}</label>
                   <input value={values[key] ?? ""} onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))} className={input} />
@@ -357,6 +422,15 @@ export default function SyllabusModal({
               <div>
                 <div className="mb-1 flex items-center gap-2">
                   <p className="flex-1 text-xs font-medium text-text-muted">Important dates ({dates.length})</p>
+                  {mode === "dates" && (
+                    <button
+                      type="button"
+                      onClick={() => { setError(null); setStep("choose"); }}
+                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-bg-warm"
+                    >
+                      <Upload size={12} /> Read dates from a file
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setDates((all) => [...all, { date: "", iso: "", endIso: "", title: "", kind: "exam", addToCalendar: false }])}
@@ -455,7 +529,7 @@ export default function SyllabusModal({
               disabled={saving}
               className="flex w-full items-center justify-center gap-2 rounded-md bg-primary py-2.5 text-sm font-medium text-text-inverse hover:bg-primary-hover disabled:opacity-40"
             >
-              {saving ? <><Loader2 size={14} className="animate-spin" /> Saving...</> : "Save to course"}
+              {saving ? <><Loader2 size={14} className="animate-spin" /> Saving...</> : mode === "dates" ? "Save dates" : "Save to course"}
             </button>
           </div>
         )}

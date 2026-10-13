@@ -8,11 +8,12 @@ import AddEnrollmentModal from '@/src/components/classes/AddEnrollmentModal';
 import EditClassScheduleModal from '@/src/components/classes/EditClassScheduleModal';
 import PageTutorial from '@/src/components/tutorial/PageTutorial';
 import classesSteps from '@/src/library/tutorials/steps/classes';
-import { doc, collection, getDocs, deleteDoc, updateDoc } from 'firebase/firestore';
+import { doc, collection, getDocs, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
 import { Minus } from "lucide-react";
 import { Term } from "@/src/library/academicTerm";
 import { EnrollmentStatus, getEnrollmentStatus } from "@/src/library/enrollmentStatus";
+import { sortByPosition } from "@/src/library/classOrder";
 import { syncSyllabusEvents } from "@/src/library/syllabusCalendarSync";
 import { formatClassMeetingSchedule, type StructuredClassSchedule } from "@/src/library/classSchedule";
 
@@ -58,14 +59,19 @@ export interface EnrollmentFields extends StructuredClassSchedule {
     // at least one supported document has been uploaded and indexed.
     courseSummary?: string;
     courseSummaryUpdatedAt?: unknown;
+    // Position set by dragging cards on the Classes page. Absent on classes the
+    // student has never reordered, which sort after the ones that have a position.
+    sortOrder?: number;
     // Facts read from the syllabus the student chose (see SyllabusModal).
     syllabus?: import("@/src/components/course/SyllabusModal").StoredSyllabus;
 }
 
-async function getAllEnrollments(userId: string): Promise<ClassCardProps[]> {
+type OrderedClass = ClassCardProps & { sortOrder?: number };
+
+async function getAllEnrollments(userId: string): Promise<OrderedClass[]> {
     const enrollmentRef = collection(db, "users", userId, "enrollment");
     const querySnapshot = await getDocs(enrollmentRef);
-    const enrollments: ClassCardProps[] = [];
+    const enrollments: OrderedClass[] = [];
 
     querySnapshot.forEach((doc) => {
         const data = doc.data();
@@ -77,10 +83,11 @@ async function getAllEnrollments(userId: string): Promise<ClassCardProps[]> {
             color: data.color,
             scheduleLabel: formatClassMeetingSchedule(data) ?? undefined,
             status: getEnrollmentStatus(data),
+            sortOrder: typeof data.sortOrder === "number" ? data.sortOrder : undefined,
         });
     });
 
-    return enrollments;
+    return sortByPosition(enrollments);
 }
 
 function buildClassesSummary(activeClasses: ClassCardProps[]): string {
@@ -93,7 +100,9 @@ function buildClassesSummary(activeClasses: ClassCardProps[]): string {
 
 export default function Classes() {
     const { user, loading } = useAuth();
-    const [enrollments, setEnrollments] = useState<ClassCardProps[]>([]);
+    const [enrollments, setEnrollments] = useState<OrderedClass[]>([]);
+    const [draggedClassId, setDraggedClassId] = useState<string | null>(null);
+    const [dropTargetId, setDropTargetId] = useState<string | null>(null);
     const [deleteMode, setDeleteMode] = useState(false);
     const [scheduleClassId, setScheduleClassId] = useState<string | null>(null);
     // Holds the class being asked about — offers "mark completed" as a real
@@ -148,6 +157,34 @@ export default function Classes() {
             setEnrollments((prev) => prev.map((e) => (e.classId === classId ? { ...e, color } : e)));
         } catch (error) {
             console.error("Error updating class color: ", error);
+        }
+    };
+
+    // Moves the dragged card to the spot of the one it was dropped on, then saves
+    // every visible card's position so the order sticks across sessions and devices.
+    const handleReorder = async (draggedId: string, targetId: string) => {
+        if (!user || draggedId === targetId) return;
+
+        const ordered = [...activeEnrollments];
+        const from = ordered.findIndex((e) => e.classId === draggedId);
+        const to = ordered.findIndex((e) => e.classId === targetId);
+        if (from < 0 || to < 0) return;
+        ordered.splice(to, 0, ordered.splice(from, 1)[0]);
+
+        const positions = new Map(ordered.map((e, index) => [e.classId, index]));
+        const previous = enrollments;
+        setEnrollments((prev) => sortByPosition(prev.map((e) => (positions.has(e.classId) ? { ...e, sortOrder: positions.get(e.classId) } : e))));
+
+        try {
+            const batch = writeBatch(db);
+            ordered.forEach((e, index) => {
+                if (e.classId) batch.update(doc(db, "users", user.uid, "enrollment", e.classId), { sortOrder: index });
+            });
+            await batch.commit();
+        } catch (error) {
+            console.error("Error saving class order: ", error);
+            setEnrollments(previous);
+            alert("Couldn't save the new order. Please try again.");
         }
     };
 
@@ -256,7 +293,30 @@ export default function Classes() {
                     <h1 className="text-4xl font-bold mb-8" data-tutorial="classes-heading">Classes</h1>
                     <div className="flex flex-wrap justify-center gap-8" data-tutorial="classes-grid">
                         {activeEnrollments.map((enrollment) => (
-                            <div key={enrollment.classId} className="relative">
+                            <div
+                                key={enrollment.classId}
+                                className={`relative transition-opacity ${draggedClassId === enrollment.classId ? "opacity-40" : ""} ${dropTargetId === enrollment.classId && draggedClassId !== enrollment.classId ? "rounded-xl ring-2 ring-primary/50" : ""}`}
+                                draggable={!deleteMode}
+                                onDragStart={(event) => {
+                                    event.dataTransfer.effectAllowed = "move";
+                                    setDraggedClassId(enrollment.classId ?? null);
+                                }}
+                                onDragOver={(event) => {
+                                    if (!draggedClassId) return;
+                                    event.preventDefault();
+                                    setDropTargetId(enrollment.classId ?? null);
+                                }}
+                                onDrop={(event) => {
+                                    event.preventDefault();
+                                    if (draggedClassId && enrollment.classId) void handleReorder(draggedClassId, enrollment.classId);
+                                    setDraggedClassId(null);
+                                    setDropTargetId(null);
+                                }}
+                                onDragEnd={() => {
+                                    setDraggedClassId(null);
+                                    setDropTargetId(null);
+                                }}
+                            >
                                 <ClassCard
                                     {...enrollment}
                                     onColorChange={(color) => enrollment.classId && handleColorChange(enrollment.classId, color)}

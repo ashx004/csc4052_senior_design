@@ -1,0 +1,30 @@
+import { describe, expect, it } from "vitest";
+import { parseGradingBreakdown } from "./gradingBreakdown";
+
+describe("parseGradingBreakdown", () => {
+  it("reads a comma-separated breakdown", () => {
+    expect(parseGradingBreakdown("Exams 40%, Homework 30%, Project 30%")).toEqual([
+      { label: "Exams", percent: 40 },
+      { label: "Homework", percent: 30 },
+      { label: "Project", percent: 30 },
+    ]);
+  });
+
+  it("reads colons, parentheses, percent-first and 'and'", () => {
+    expect(parseGradingBreakdown("Midterm: 25%; Final (35%); 20% Labs and 20% Quizzes")?.map((s) => [s.label, s.percent])).toEqual([
+      ["Midterm", 25],
+      ["Final", 35],
+      ["Labs", 20],
+      ["Quizzes", 20],
+    ]);
+  });
+
+  it("gives up on text that is not a clean list of weights", () => {
+    expect(parseGradingBreakdown("Graded on a curve")).toBeNull();
+    expect(parseGradingBreakdown("Exams 40%")).toBeNull();
+    expect(parseGradingBreakdown("Exams 40%, see syllabus for the rest")).toBeNull();
+    expect(parseGradingBreakdown("Exams 40%, Homework 20%")).toBeNull();
+    expect(parseGradingBreakdown("")).toBeNull();
+    expect(parseGradingBreakdown(undefined)).toBeNull();
+  });
+});
