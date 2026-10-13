@@ -24,6 +24,7 @@ import { checkRateLimit } from "@/src/library/rateLimit";
 import { isAccountDeletionInProgress } from "@/src/library/accountDeletionGuard";
 import { generateCourseSummary } from "@/src/library/courseSummary";
 import { saveDocumentText } from "@/src/library/documentTextCache";
+import { JOB_STATUS, isActiveJobStatus, toPublicJob } from "@/src/library/jobStatus";
 
 const EMBED_RATE_LIMIT_WINDOW_MS = 60_000;
 const EMBED_RATE_LIMIT_MAX = 10; // per user per window — uploads aren't normally rapid-fire
@@ -162,7 +163,7 @@ async function persistImageTranscript(opts: {
     url: transcriptUrl,
     fileType: "txt",
     ocrScanned: true,
-    ocrStatus: "complete",
+    ocrStatus: JOB_STATUS.completed,
     ocrSourceUrl: originalUrl,
     ocrSourceName: originalName,
     ocrSourceFileType: originalFileType,
@@ -203,7 +204,7 @@ async function persistOcrDocumentTranscript(opts: {
     fileType: "txt",
     resourceKind: "ocr_document",
     ocrScanned: true,
-    ocrStatus: "complete",
+    ocrStatus: JOB_STATUS.completed,
     ocrTranscriptUrl: transcriptUrl,
     ocrTextLength: transcript.length,
     ocrModel: resolveModelFromKey("ocr"),
@@ -377,16 +378,18 @@ export async function POST(request: NextRequest) {
       const jobRef = adminDb.collection(JOB_COLLECTION).doc(jobId);
       const existingJob = (await jobRef.get()).data();
       const existingStatus = existingJob?.status;
-      if (
-        (existingStatus === "queued" || existingStatus === "processing") &&
-        existingJob?.sourceVersion === source.version
-      ) {
-        return NextResponse.json({ queued: true, jobId, status: existingStatus }, { status: 202 });
+      if (isActiveJobStatus(existingStatus) && existingJob?.sourceVersion === source.version) {
+        return NextResponse.json({
+          queued: true,
+          jobId,
+          status: existingStatus,
+          job: toPublicJob(jobId, "ocr", existingStatus, (existingJob?.attempts ?? 0) > 0),
+        }, { status: 202 });
       }
 
       const queuedStatus = (isOcrDocument && resource.manualTranscript !== true) || IMAGE_FILE_TYPES.includes(resourceFileType)
-        ? { ocrStatus: "queued", ocrError: null }
-        : { indexStatus: "queued", indexError: null };
+        ? { ocrStatus: JOB_STATUS.pending, ocrError: null }
+        : { indexStatus: JOB_STATUS.pending, indexError: null };
       const markedQueued = await updateResource(queuedStatus);
       if (!markedQueued) throw new Error("Failed to mark document processing as queued");
 
@@ -398,7 +401,8 @@ export async function POST(request: NextRequest) {
         sourceUrl: source.url,
         sourceName: source.name,
         sourceFileType: source.fileType,
-        status: "queued",
+        status: JOB_STATUS.pending,
+        progress: 0,
         attempts: 0,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -413,7 +417,12 @@ export async function POST(request: NextRequest) {
           headers: { "x-internal-secret": process.env.INTERNAL_API_SECRET },
         }).catch((error) => console.error(`Failed to start document worker for ${jobId}:`, error));
       }
-      return NextResponse.json({ queued: true, jobId, status: "queued" }, { status: 202 });
+      return NextResponse.json({
+        queued: true,
+        jobId,
+        status: JOB_STATUS.pending,
+        job: toPublicJob(jobId, "ocr", JOB_STATUS.pending),
+      }, { status: 202 });
     }
 
     const isImage = IMAGE_FILE_TYPES.includes(resourceFileType);
@@ -424,7 +433,7 @@ export async function POST(request: NextRequest) {
     try {
       if (needsOcr) {
         const markedProcessing = await updateResource({
-          ocrStatus: "processing",
+          ocrStatus: JOB_STATUS.inProgress,
           ocrStartedAt: new Date(),
           ocrCompletedAt: null,
           ocrFailedAt: null,
@@ -445,14 +454,14 @@ export async function POST(request: NextRequest) {
               throw new Error(`Page "${page.name}" is not a supported image type.`);
             }
             await resourceRef.collection("pages").doc(page.id).set({
-              ocrStatus: "processing",
+              ocrStatus: JOB_STATUS.inProgress,
               ocrStartedAt: new Date(),
               ocrError: null,
             }, { merge: true });
             pageText = await extractDocumentText(resolveInternalUrl(request, page.url), page.fileType);
             await resourceRef.collection("pages").doc(page.id).set({
               ocrText: pageText,
-              ocrStatus: "complete",
+              ocrStatus: JOB_STATUS.completed,
               ocrCompletedAt: new Date(),
               ocrError: null,
             }, { merge: true });
@@ -504,7 +513,7 @@ export async function POST(request: NextRequest) {
     } catch (error) {
       if (needsOcr) {
         const markedFailed = await updateResource({
-          ocrStatus: "failed",
+          ocrStatus: JOB_STATUS.failed,
           ocrError: getErrorMessage(error, "OCR transcription failed."),
           ocrFailedAt: new Date(),
         });
@@ -519,7 +528,7 @@ export async function POST(request: NextRequest) {
     const markedIndexing = await updateResource({
       indexed: false,
       vectorIndexed: false,
-      indexStatus: "processing",
+      indexStatus: JOB_STATUS.inProgress,
       indexStartedAt: new Date(),
       indexCompletedAt: null,
       indexFailedAt: null,
@@ -545,7 +554,7 @@ export async function POST(request: NextRequest) {
         await updateResource({
           indexed: false,
           vectorIndexed: false,
-          indexStatus: "failed",
+          indexStatus: JOB_STATUS.failed,
           indexError: getErrorMessage(error, "Failed to clear old document chunks."),
           indexFailedAt: new Date(),
         });
@@ -554,7 +563,7 @@ export async function POST(request: NextRequest) {
       await updateResource({
         indexed: false,
         vectorIndexed: false,
-        indexStatus: "failed",
+        indexStatus: JOB_STATUS.failed,
         indexError: "No extractable text.",
         indexFailedAt: new Date(),
       });
@@ -646,7 +655,7 @@ export async function POST(request: NextRequest) {
         indexedAt: new Date(),
         chunkCount: chunks.contextualized.length,
         vectorIndexed,
-        indexStatus: "complete",
+        indexStatus: JOB_STATUS.completed,
         indexCompletedAt: new Date(),
         indexFailedAt: null,
         indexError: null,
@@ -671,7 +680,7 @@ export async function POST(request: NextRequest) {
         indexingGaveUp: true,
         indexingGaveUpReason: timedOut ? "timeout" : "error",
         indexingGaveUpAt: new Date(),
-        indexStatus: "failed",
+        indexStatus: JOB_STATUS.failed,
         indexError: getErrorMessage(
           error,
           timedOut ? "AI indexing timed out." : "AI indexing failed."

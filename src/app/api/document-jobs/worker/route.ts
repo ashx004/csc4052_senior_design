@@ -4,6 +4,7 @@ import { adminDb } from "@/src/library/firebaseAdmin";
 import { resolveInternalUrl } from "@/src/library/pdfExtract";
 import { isInternalRequest } from "@/src/library/verifyAuth";
 import { isAccountDeletionInProgress } from "@/src/library/accountDeletionGuard";
+import { ACTIVE_JOB_STATUSES, JOB_STATUS } from "@/src/library/jobStatus";
 
 const JOB_COLLECTION = "documentProcessingJobs";
 const JOB_LEASE_MS = 10 * 60 * 1000;
@@ -39,7 +40,7 @@ function hasExpiredLease(value: DocumentJob["leaseExpiresAt"]): boolean {
 async function claimNextJob(): Promise<{ id: string; data: DocumentJob; attempts: number } | null> {
   const candidates = await adminDb
     .collection(JOB_COLLECTION)
-    .where("status", "in", ["queued", "processing"])
+    .where("status", "in", ACTIVE_JOB_STATUSES)
     .limit(20)
     .get();
 
@@ -50,13 +51,14 @@ async function claimNextJob(): Promise<{ id: string; data: DocumentJob; attempts
 
       const data = fresh.data() as DocumentJob;
       const status = fresh.data()?.status;
-      const canClaimQueued = status === "queued" && isReadyToRun(data.nextAttemptAt);
-      const canReclaimProcessing = status === "processing" && hasExpiredLease(data.leaseExpiresAt);
+      const canClaimQueued = status === JOB_STATUS.pending && isReadyToRun(data.nextAttemptAt);
+      const canReclaimProcessing = status === JOB_STATUS.inProgress && hasExpiredLease(data.leaseExpiresAt);
       if (!canClaimQueued && !canReclaimProcessing) return null;
 
       const attempts = (typeof data.attempts === "number" ? data.attempts : 0) + 1;
       transaction.update(candidate.ref, {
-        status: "processing",
+        status: JOB_STATUS.inProgress,
+        progress: null,
         attempts,
         startedAt: new Date(),
         leaseExpiresAt: new Date(Date.now() + JOB_LEASE_MS),
@@ -78,7 +80,7 @@ async function updateActiveClaim(
   const jobRef = adminDb.collection(JOB_COLLECTION).doc(job.id);
   return adminDb.runTransaction(async (transaction) => {
     const fresh = await transaction.get(jobRef);
-    if (!fresh.exists || fresh.data()?.status !== "processing") return false;
+    if (!fresh.exists || fresh.data()?.status !== JOB_STATUS.inProgress) return false;
     if (fresh.data()?.sourceVersion !== job.data.sourceVersion) return false;
     transaction.update(jobRef, fields);
     return true;
@@ -95,7 +97,8 @@ export async function POST(request: NextRequest) {
 
   if (await isAccountDeletionInProgress(job.data.userId)) {
     await updateActiveClaim(job, {
-      status: "cancelled",
+      status: JOB_STATUS.cancelled,
+      progress: null,
       updatedAt: new Date(),
       lastError: "Account deletion requested.",
       leaseExpiresAt: null,
@@ -125,14 +128,16 @@ export async function POST(request: NextRequest) {
 
     const completed = await updateActiveClaim(job, result.superseded
       ? {
-          status: "superseded",
+          status: JOB_STATUS.superseded,
+          progress: null,
           supersededAt: new Date(),
           updatedAt: new Date(),
           lastError: result.reason ?? "The source document changed.",
           leaseExpiresAt: null,
         }
       : {
-          status: "complete",
+          status: JOB_STATUS.completed,
+          progress: 100,
           completedAt: new Date(),
           updatedAt: new Date(),
           lastError: null,
@@ -147,7 +152,8 @@ export async function POST(request: NextRequest) {
     const willRetry = job.attempts < 3;
     const retryDelayMs = 30_000 * 2 ** Math.max(0, job.attempts - 1);
     const updated = await updateActiveClaim(job, {
-      status: willRetry ? "queued" : "failed",
+      status: willRetry ? JOB_STATUS.pending : JOB_STATUS.failed,
+      progress: willRetry ? 0 : null,
       ...(willRetry ? { nextAttemptAt: new Date(Date.now() + retryDelayMs) } : { failedAt: new Date() }),
       leaseExpiresAt: null,
       updatedAt: new Date(),
