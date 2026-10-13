@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyRequestAuth, isInternalRequest } from "@/src/library/verifyAuth";
 import { extractPdfTextFromUrl, resolveInternalUrl, } from "@/src/library/pdfExtract";
 import { EXTRACTION_JOBS, enqueueAdvisingJob, readAdvisingJob } from "@/src/library/advisingJobs";
-import { JOB_STATUS } from "@/src/library/jobStatus";
+import { JOB_STATUS, toPublicJob } from "@/src/library/jobStatus";
 import { extractTranscriptWithOllama, extractCurriculumWithOllama, } from "@/src/library/advisingOllama";
 import { FieldValue, } from "firebase-admin/firestore";
 import { adminDb, } from "@/src/library/firebaseAdmin";
@@ -43,12 +43,16 @@ async function enqueueExtraction(request: NextRequest) {
     return NextResponse.json({ error: "Too many requests. Please wait a moment." }, { status: 429 });
   }
 
-  await enqueueAdvisingJob(request, EXTRACTION_JOBS, auth.uid, {
+  const status = await enqueueAdvisingJob(request, EXTRACTION_JOBS, auth.uid, {
     needsManualTransferReview: false,
     unreadableTransferInfo: null,
   });
 
-  return NextResponse.json({ queued: true, status: JOB_STATUS.pending }, { status: 202 });
+  return NextResponse.json({
+    queued: true,
+    status,
+    job: toPublicJob(auth.uid, "advising_extraction", status),
+  }, { status: 202 });
 }
 
 // Browser-facing: polled by the frontend until the job completes or fails,
@@ -62,6 +66,7 @@ export async function GET(request: NextRequest) {
   const { status, data } = await readAdvisingJob(request, EXTRACTION_JOBS, auth.uid);
   return NextResponse.json({
     status,
+    job: toPublicJob(auth.uid, "advising_extraction", status, (data?.attempts ?? 0) > 0),
     lastError: data?.lastError ?? null,
     needsManualTransferReview: data?.needsManualTransferReview ?? false,
     unreadableTransferInfo: data?.unreadableTransferInfo ?? null,
