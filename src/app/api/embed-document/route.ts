@@ -24,7 +24,7 @@ import { checkRateLimit } from "@/src/library/rateLimit";
 import { isAccountDeletionInProgress } from "@/src/library/accountDeletionGuard";
 import { generateCourseSummary } from "@/src/library/courseSummary";
 import { saveDocumentText } from "@/src/library/documentTextCache";
-import { JOB_STATUS, isActiveJobStatus } from "@/src/library/jobStatus";
+import { JOB_STATUS, isActiveJobStatus, toPublicJob } from "@/src/library/jobStatus";
 
 const EMBED_RATE_LIMIT_WINDOW_MS = 60_000;
 const EMBED_RATE_LIMIT_MAX = 10; // per user per window — uploads aren't normally rapid-fire
@@ -379,7 +379,12 @@ export async function POST(request: NextRequest) {
       const existingJob = (await jobRef.get()).data();
       const existingStatus = existingJob?.status;
       if (isActiveJobStatus(existingStatus) && existingJob?.sourceVersion === source.version) {
-        return NextResponse.json({ queued: true, jobId, status: existingStatus }, { status: 202 });
+        return NextResponse.json({
+          queued: true,
+          jobId,
+          status: existingStatus,
+          job: toPublicJob(jobId, "ocr", existingStatus, (existingJob?.attempts ?? 0) > 0),
+        }, { status: 202 });
       }
 
       const queuedStatus = (isOcrDocument && resource.manualTranscript !== true) || IMAGE_FILE_TYPES.includes(resourceFileType)
@@ -397,6 +402,7 @@ export async function POST(request: NextRequest) {
         sourceName: source.name,
         sourceFileType: source.fileType,
         status: JOB_STATUS.pending,
+        progress: 0,
         attempts: 0,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -411,7 +417,12 @@ export async function POST(request: NextRequest) {
           headers: { "x-internal-secret": process.env.INTERNAL_API_SECRET },
         }).catch((error) => console.error(`Failed to start document worker for ${jobId}:`, error));
       }
-      return NextResponse.json({ queued: true, jobId, status: JOB_STATUS.pending }, { status: 202 });
+      return NextResponse.json({
+        queued: true,
+        jobId,
+        status: JOB_STATUS.pending,
+        job: toPublicJob(jobId, "ocr", JOB_STATUS.pending),
+      }, { status: 202 });
     }
 
     const isImage = IMAGE_FILE_TYPES.includes(resourceFileType);

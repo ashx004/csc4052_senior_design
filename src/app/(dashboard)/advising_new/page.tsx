@@ -8,7 +8,12 @@ import TransferCreditForm from "@/src/components/advising/TransferCreditForm";
 import AdvisingDocumentsViewer from "@/src/components/advising/AdvisingDocumentsViewer";
 import { useAuth } from "@/src/context/AuthContext";
 import JobProgressIndicator from "@/src/components/jobs/JobProgressIndicator";
-import { JOB_STATUS, isActiveJobStatus, type ActiveJobStatus } from "@/src/library/jobStatus";
+import {
+  PUBLIC_JOB_STATUS,
+  isPublicActiveJobStatus,
+  type PublicActiveJobStatus,
+  type PublicJob,
+} from "@/src/library/jobStatus";
 import PageTutorial from "@/src/components/tutorial/PageTutorial";
 import advisingNewSteps from "@/src/library/tutorials/steps/advising_new";
 import advisingSetupSteps from "@/src/library/tutorials/steps/advising-setup";
@@ -44,6 +49,7 @@ type JobStatus = "none" | "queued" | "processing" | "complete" | "failed" | "sta
 
 type JobStatusResponse = {
   status: JobStatus;
+  job: PublicJob | null;
   lastError: string | null;
   // extraction jobs
   needsManualTransferReview?: boolean;
@@ -52,10 +58,12 @@ type JobStatusResponse = {
   schedule?: GeneratedSchedule | null;
 };
 
-const isRunning = (status: JobStatus): status is ActiveJobStatus => isActiveJobStatus(status);
+const isRunning = (job: PublicJob | null): job is PublicJob & { status: PublicActiveJobStatus } =>
+  Boolean(job && isPublicActiveJobStatus(job.status));
 
 const JOB_POLL_INTERVAL_MS = 4000;
 const MAX_JOB_POLL_MS = 20 * 60 * 1000;
+type PendingPoll = { timer: ReturnType<typeof setTimeout>; resolve: () => void };
 
 
 export default function AdvisingPage() {
@@ -70,21 +78,41 @@ export default function AdvisingPage() {
   const [documentsReady, setDocumentsReady] = useState<boolean>(false);
   const [generatedSchedule, setGeneratedSchedule,] = useState<GeneratedSchedule | null>(null);
   const [isGeneratingSchedule, setIsGeneratingSchedule,] = useState<boolean>(false);
-  const [scheduleJobStatus, setScheduleJobStatus] = useState<ActiveJobStatus | null>(null);
+  const [scheduleJobStatus, setScheduleJobStatus] = useState<PublicActiveJobStatus | null>(null);
   const [transferReviewInfo, setTransferReviewInfo] = useState<{rowCount: number; totalCreditHours: number;} | null>(null);
   const [showManualCourseForm, setShowManualCourseForm] = useState<boolean>(false);
   const [scheduleNeedsRegeneration, setScheduleNeedsRegeneration] = useState<boolean>(false);
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
-  const [extractionJobStatus, setExtractionJobStatus] = useState<ActiveJobStatus | null>(null);
+  const [extractionJobStatus, setExtractionJobStatus] = useState<PublicActiveJobStatus | null>(null);
 
   // Upload/generate jobs run on the server, so leaving this page doesn't stop
   // them - a popup (NotificationToast) reports the result wherever the
   // student is. This only stops this page's status polling once it's gone.
   const mountedRef = useRef(true);
+  const pendingPollsRef = useRef<Set<PendingPoll>>(new Set());
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+      for (const poll of pendingPollsRef.current) {
+        clearTimeout(poll.timer);
+        poll.resolve();
+      }
+      pendingPollsRef.current.clear();
+    };
   }, []);
+
+  function waitForNextPoll() {
+    return new Promise<void>((resolve) => {
+      let poll: PendingPoll;
+      const timer = setTimeout(() => {
+        pendingPollsRef.current.delete(poll);
+        resolve();
+      }, JOB_POLL_INTERVAL_MS);
+      poll = { timer, resolve };
+      pendingPollsRef.current.add(poll);
+    });
+  }
 
   async function fetchJobStatus(url: string) {
     const token = await user!.getIdToken();
@@ -101,19 +129,19 @@ export default function AdvisingPage() {
   async function waitForJob(
     url: string,
     fallbackError: string,
-    onActiveStatus: (status: ActiveJobStatus) => void
+    onActiveStatus: (status: PublicActiveJobStatus) => void
   ) {
     const deadline = Date.now() + MAX_JOB_POLL_MS;
 
     while (Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, JOB_POLL_INTERVAL_MS));
+      await waitForNextPoll();
       if (!mountedRef.current) return null;
 
       const data = await fetchJobStatus(url);
-      if (isActiveJobStatus(data.status)) onActiveStatus(data.status);
-      if (data.status === "complete") return data;
-      if (data.status === "failed") throw new Error(data.lastError ?? fallbackError);
-      if (!isRunning(data.status)) {
+      if (isRunning(data.job)) onActiveStatus(data.job.status);
+      if (data.job?.status === PUBLIC_JOB_STATUS.completed) return data;
+      if (data.job?.status === PUBLIC_JOB_STATUS.failed) throw new Error(data.lastError ?? fallbackError);
+      if (!isRunning(data.job)) {
         throw new Error("Your request stopped responding. Please try again.");
       }
     }
@@ -139,19 +167,19 @@ export default function AdvisingPage() {
           fetchJobStatus("/api/advising/generate"),
         ]);
 
-        if (isRunning(extractionJob.status)) {
-          setExtractionJobStatus(extractionJob.status);
+        if (isRunning(extractionJob.job)) {
+          setExtractionJobStatus(extractionJob.job.status);
           setIsCheckingDocuments(false);
           resumeExtraction();
           return;
         }
 
-        if (scheduleJob.status === "complete" && scheduleJob.schedule) {
+        if (scheduleJob.job?.status === PUBLIC_JOB_STATUS.completed && scheduleJob.schedule) {
           setGeneratedSchedule(scheduleJob.schedule);
         }
 
-        if (isRunning(scheduleJob.status)) {
-          setScheduleJobStatus(scheduleJob.status);
+        if (isRunning(scheduleJob.job)) {
+          setScheduleJobStatus(scheduleJob.job.status);
           setDocumentsReady(true);
           setIsCheckingDocuments(false);
           resumeScheduleGeneration();
@@ -287,7 +315,7 @@ export default function AdvisingPage() {
                   <JobProgressIndicator
                     className="mt-4"
                     kind="advising"
-                    status={scheduleJobStatus ?? JOB_STATUS.inProgress}
+                    status={scheduleJobStatus ?? PUBLIC_JOB_STATUS.inProgress}
                   />
                 )}
 
@@ -577,7 +605,9 @@ export default function AdvisingPage() {
       );
     }
 
-    setExtractionJobStatus(isActiveJobStatus(data.status) ? data.status : JOB_STATUS.pending);
+    setExtractionJobStatus(
+      isPublicActiveJobStatus(data.job?.status) ? data.job.status : PUBLIC_JOB_STATUS.pending
+    );
 
     // Extraction runs as a background job (it can involve several sequential
     // AI calls, easily taking a few minutes) instead of one long blocking
@@ -678,7 +708,9 @@ export default function AdvisingPage() {
         );
       }
 
-      setScheduleJobStatus(isActiveJobStatus(data.status) ? data.status : JOB_STATUS.pending);
+      setScheduleJobStatus(
+        isPublicActiveJobStatus(data.job?.status) ? data.job.status : PUBLIC_JOB_STATUS.pending
+      );
 
       // Generation runs as a background job, like extraction - wait for it.
       await finishScheduleGeneration();
@@ -773,7 +805,7 @@ export default function AdvisingPage() {
             <JobProgressIndicator
               className="mt-4"
               kind="advising"
-              status={extractionJobStatus ?? JOB_STATUS.inProgress}
+              status={extractionJobStatus ?? PUBLIC_JOB_STATUS.inProgress}
             />
             <div className="mt-4 rounded-lg border border-border-light bg-bg-container px-4 py-3
             text-sm text-text-muted">
