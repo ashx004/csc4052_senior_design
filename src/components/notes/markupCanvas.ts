@@ -1,5 +1,5 @@
 import { drawSticker, STICKER_SIZE } from "@/src/library/notes/stickers";
-import type { ExportPage } from "@/src/library/notes/exportMarkup";
+import type { ExportPage, TextRun } from "@/src/library/notes/exportMarkup";
 import type { PageAnnotations } from "@/src/library/notes/types";
 import { drawInkStroke } from "./InkLayer";
 
@@ -59,6 +59,35 @@ export const canvasBlob = (canvas: HTMLCanvasElement, type: "image/png" | "image
 export async function captureElement(el: HTMLElement): Promise<HTMLCanvasElement> {
   const { toCanvas } = await import("html-to-image");
   return toCanvas(el, { pixelRatio: SCALE, backgroundColor: "#ffffff" });
+}
+
+/** Where every word of a rendered piece of the page sits, sorted into the page it falls on.
+ *  Used to lay invisible, selectable text exactly under the picture of it. */
+export function collectTextRuns(el: HTMLElement, pageHeight: number, pageCount: number): TextRun[][] {
+  const pages: TextRun[][] = Array.from({ length: pageCount }, () => []);
+  const box = el.getBoundingClientRect();
+  // The sheet may be zoomed with a CSS transform; page pixels are the unzoomed ones.
+  const zoom = el.offsetWidth ? box.width / el.offsetWidth : 1;
+  if (!zoom || box.width === 0) return pages;
+  const range = document.createRange();
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => (node.parentElement?.closest("script,style,.katex-mathml") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+  });
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const value = node.nodeValue ?? "";
+    for (const match of value.matchAll(/\S+/g)) {
+      range.setStart(node, match.index!);
+      range.setEnd(node, match.index! + match[0].length);
+      const rect = range.getClientRects()[0];
+      if (!rect || rect.width < 2 || rect.height < 2) continue;
+      const y = (rect.top - box.top) / zoom;
+      const height = rect.height / zoom;
+      const page = Math.floor((y + height / 2) / pageHeight);
+      if (page < 0 || page >= pageCount) continue;
+      pages[page].push({ text: match[0], x: (rect.left - box.left) / zoom, y: y - page * pageHeight, width: rect.width / zoom, height });
+    }
+  }
+  return pages;
 }
 
 /** Cuts one page-high slice out of a tall capture made by `captureElement`. */

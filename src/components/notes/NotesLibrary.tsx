@@ -337,7 +337,7 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
       <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 md:py-8">
         {/* md:pl-12 clears the site's fixed menu button (Sidebar.tsx) when the sidebar is collapsed. */}
         <header className="mb-6 md:pl-12" data-tutorial="notes-heading">
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex min-h-[2.75rem] items-center justify-between gap-4">
             <h1 className="text-3xl font-semibold tracking-tight text-text-main">Notes</h1>
             <div className="flex shrink-0 items-center gap-2">
               <button
@@ -358,7 +358,7 @@ export default function NotesLibrary({ courseId: fixedCourseId }: { courseId: st
           {courseTab ? (
             <p className="mt-1.5 text-sm text-text-muted">{scopedClass ? classLabel(scopedClass) : "This class"}</p>
           ) : (
-            <div className="mt-2 flex items-center gap-2">
+            <div className="mt-2 flex min-h-10 items-center gap-2">
               <label htmlFor="notes-scope" className="text-sm text-text-muted">
                 Showing
               </label>

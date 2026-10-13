@@ -5,8 +5,9 @@ import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
-import { Bold, CheckSquare, Code, Heading2, Highlighter, Italic, List, ListOrdered, Quote, Redo2, Sigma, Underline as UnderlineIcon, Undo2 } from "lucide-react";
+import { Bold, CheckSquare, Code, Heading2, Highlighter, ImagePlus, Italic, List, Loader2, ListOrdered, Quote, Redo2, Sigma, Underline as UnderlineIcon, Undo2 } from "lucide-react";
 import { saveTypedNote } from "@/src/library/notes/notesStore";
+import { isImageFile, uploadNoteImage } from "@/src/library/notes/noteImages";
 import { markdownToDoc } from "@/src/library/notes/markdownToDoc";
 import { noteToMarkdown, noteToPlainText } from "@/src/library/notes/noteText";
 import { PAGE_WIDTH, type Note } from "@/src/library/notes/types";
@@ -40,6 +41,10 @@ export default function FileNotesEditor({
   onSaveStateChange: (state: "saved" | "saving" | "error") => void;
 }) {
   const [source, setSource] = useState<string | null>(null);
+  const [imageBusy, setImageBusy] = useState(0);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const insertImagesRef = useRef<(files: File[], at?: number) => void>(() => {});
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pending = useRef<(() => Promise<void>) | null>(null);
   const saveStateRef = useRef(onSaveStateChange);
@@ -80,12 +85,27 @@ export default function FileNotesEditor({
     editorProps: {
       attributes: { class: "note-editor-content", "aria-label": "Written notes about this file", spellcheck: "true" },
       handlePaste: (view, event) => {
+        const pictures = Array.from(event.clipboardData?.files ?? []).filter(isImageFile);
+        if (pictures.length) {
+          event.preventDefault();
+          insertImagesRef.current(pictures);
+          return true;
+        }
         const text = event.clipboardData?.getData("text/plain") ?? "";
         if (event.clipboardData?.getData("text/html") || !LOOKS_LIKE_MARKDOWN.test(text)) return false;
         event.preventDefault();
         const doc = markdownToDoc(text);
         const node = view.state.schema.nodeFromJSON({ type: "doc", content: doc.content });
         view.dispatch(view.state.tr.replaceSelection(node.slice(0, node.content.size)).scrollIntoView());
+        return true;
+      },
+      handleDrop: (view, event, _slice, moved) => {
+        if (moved) return false;
+        const pictures = Array.from(event.dataTransfer?.files ?? []).filter(isImageFile);
+        if (!pictures.length) return false;
+        event.preventDefault();
+        const at = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
+        insertImagesRef.current(pictures, at);
         return true;
       },
     },
@@ -110,6 +130,27 @@ export default function FileNotesEditor({
       canUndo: !!ed?.can().undo(),
       canRedo: !!ed?.can().redo(),
     }),
+  });
+
+  async function insertImages(files: File[], at?: number) {
+    if (!editor) return;
+    setImageError(null);
+    setImageBusy((n) => n + files.length);
+    if (typeof at === "number") editor.commands.setTextSelection(Math.min(at, editor.state.doc.content.size));
+    for (const file of files) {
+      try {
+        const up = await uploadNoteImage(uid, note.id, file);
+        const alt = file.name.replace(/\.[^.]+$/, "").slice(0, 120);
+        editor.chain().focus().insertContent({ type: "noteImage", attrs: { src: up.src, alt } }).run();
+      } catch (error) {
+        setImageError(error instanceof Error ? error.message : "Couldn't add that picture.");
+      } finally {
+        setImageBusy((n) => n - 1);
+      }
+    }
+  }
+  useEffect(() => {
+    insertImagesRef.current = (files, at) => void insertImages(files, at);
   });
 
   // Leaving the file mid-edit must not drop the last keystrokes.
@@ -194,6 +235,18 @@ export default function FileNotesEditor({
               <Icon size={15} />
             </button>
           ))}
+        {source === null && (
+          <button
+            type="button"
+            title="Add picture"
+            aria-label="Add picture"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => fileInputRef.current?.click()}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-text-main hover:bg-bg-container"
+          >
+            <ImagePlus size={15} />
+          </button>
+        )}
         <button
           type="button"
           aria-pressed={source !== null}
@@ -203,6 +256,24 @@ export default function FileNotesEditor({
           {source === null ? "Markdown" : "Formatted"}
         </button>
       </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+        aria-label="Choose pictures to add"
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          event.target.value = "";
+          if (files.length) insertImagesRef.current(files);
+        }}
+      />
+      {(imageBusy > 0 || imageError) && (
+        <p role="status" className={`flex items-center gap-1 border-x border-border-light bg-bg-warm px-3 py-1 text-xs ${imageError ? "text-alert-error" : "text-text-muted"}`}>
+          {imageBusy > 0 ? <><Loader2 size={13} className="animate-spin" /> Adding picture...</> : imageError}
+        </p>
+      )}
       <div className="note-sheet rounded-b-lg border border-border-light bg-bg-container p-4 focus-within:border-primary">
         {source === null ? (
           <div className="min-h-24">
