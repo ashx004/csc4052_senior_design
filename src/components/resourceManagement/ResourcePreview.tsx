@@ -76,6 +76,7 @@ import { useLearningProgress } from "@/src/hooks/useLearningProgress";
 import { documentTargetForResource, findResourceForSourceDocKey } from "@/src/library/studyPlan/recommendationEngine";
 import { resolveFlashcardNextStep, setCoversSource, sourceKeysFrom, type FlashcardNextStep, type FlashcardSetRef } from "@/src/library/studyPlan/nextStudyActivity";
 import NextStepGuidance from "@/src/components/studyPlan/NextStepGuidance";
+import JobProgressIndicator from "@/src/components/jobs/JobProgressIndicator";
 
 export type Category = "classDoc" | "notes" | "assignments";
 type OcrStatus = "queued" | "processing" | "complete" | "failed";
@@ -1699,10 +1700,7 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
 
                         <div className="relative flex-1 overflow-auto bg-bg-container">
                             {previewResource.resourceKind === "ocr_document" && (previewResource.ocrStatus === "queued" || previewResource.ocrStatus === "processing") && (
-                                <div className="flex items-center gap-2 border-b border-border-light bg-bg-warm px-4 py-3 text-sm text-text-muted" role="status">
-                                    <Loader2 size={16} className="animate-spin" />
-                                    {previewResource.ocrStatus === "queued" ? "Transcription queued…" : "Transcribing your pages…"} This will update automatically when it is ready.
-                                </div>
+                                <JobProgressIndicator className="rounded-none border-x-0 border-t-0" kind="ocr" status={previewResource.ocrStatus} />
                             )}
                             {previewResource.resourceKind === "ocr_document" && previewResource.ocrStatus === "failed" && (
                                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-alert-error bg-alert-error-bg px-4 py-3 text-sm text-alert-error">
@@ -1795,10 +1793,7 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
                                         />
                                     </div>
                                     {previewResource.ocrStatus === "queued" || previewResource.ocrStatus === "processing" ? (
-                                        <div className="flex items-center justify-center gap-2 rounded-lg border border-border-light bg-bg-container p-4 text-sm text-text-muted">
-                                            <Loader2 size={16} className="animate-spin" />
-                                            {previewResource.ocrStatus === "queued" ? "Transcription queued…" : "Transcription processing…"} This preview will update automatically when it is ready.
-                                        </div>
+                                        <JobProgressIndicator kind="ocr" status={previewResource.ocrStatus} />
                                     ) : previewResource.ocrStatus === "failed" ? (
                                         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-alert-error bg-alert-error-bg p-4 text-sm text-alert-error">
                                             <p>{previewResource.ocrError || "Transcription failed. You can try again."}</p>
