@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import RecoveryScreen from "@/src/components/recovery/RecoveryScreen";
 
 /**
@@ -15,6 +16,7 @@ export default function RouteError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const router = useRouter();
   useEffect(() => {
     console.error("Unhandled route error", error);
   }, [error]);
@@ -24,6 +26,7 @@ export default function RouteError({
       variant="unexpected"
       layout="page"
       primaryAction={{ label: "Try again", onClick: reset }}
+      secondaryAction={{ label: "Go to dashboard", onClick: () => router.push("/dashboard") }}
     />
   );
 }

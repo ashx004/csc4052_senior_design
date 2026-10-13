@@ -1,6 +1,7 @@
 "use client";
 
-import type { ComponentType, ReactNode } from "react";
+import Link from "next/link";
+import { useId, type ComponentType, type ReactNode } from "react";
 import {
   AlertTriangle,
   FileQuestion,
@@ -106,10 +107,9 @@ function RecoveryActionButton({
 
   if (action.href && !isDisabled) {
     return (
-      <a className={classes} href={action.href}>
-        {isPrimary && <RefreshCw aria-hidden className="h-4 w-4" />}
+      <Link className={classes} href={action.href}>
         {label}
-      </a>
+      </Link>
     );
   }
 
@@ -121,7 +121,7 @@ function RecoveryActionButton({
       disabled={isDisabled}
       aria-busy={isPrimary && isRetrying ? true : undefined}
     >
-      {isPrimary && <RefreshCw aria-hidden className={isRetrying ? "h-4 w-4 animate-spin" : "h-4 w-4"} />}
+      {isPrimary && isRetrying ? <RefreshCw aria-hidden className="h-4 w-4 animate-spin" /> : null}
       {label}
     </button>
   );
@@ -146,6 +146,7 @@ export default function RecoveryScreen({
   className = "",
 }: RecoveryScreenProps) {
   const presentation = presentations[variant];
+  const titleId = useId();
   const Icon = presentation.Icon;
   const resolvedTitle = title ?? presentation.title;
   const resolvedMessage = message ?? presentation.message;
@@ -157,7 +158,7 @@ export default function RecoveryScreen({
   return (
     <section
       className={`${layoutClasses} flex items-center justify-center ${className}`.trim()}
-      aria-labelledby="recovery-screen-title"
+      aria-labelledby={titleId}
     >
       <div className="w-full max-w-lg rounded-2xl border border-border-light bg-bg-container p-6 text-center shadow-sm sm:p-8">
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-alert-error-bg text-alert-error">
@@ -165,7 +166,7 @@ export default function RecoveryScreen({
         </div>
 
         <div className="mt-5" role="alert" aria-live="assertive">
-          <h1 id="recovery-screen-title" className="text-xl font-semibold text-text-main sm:text-2xl">
+          <h1 id={titleId} className="text-xl font-semibold text-text-main sm:text-2xl">
             {resolvedTitle}
           </h1>
           <p className="mt-2 text-sm leading-6 text-text-muted">{resolvedMessage}</p>
