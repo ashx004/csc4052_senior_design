@@ -10,7 +10,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
 import { useAuth } from "@/src/context/AuthContext";
 import { DATA_CHANGED_EVENT } from "@/src/library/dataChanged";
-import RecoveryScreen from "@/src/components/recovery/RecoveryScreen";
+import CourseUnavailableRecovery from "@/src/components/recovery/CourseUnavailableRecovery";
 
 async function getEnrollmentName(userId: string, enrollmentId: string): Promise<string | null> {
     const docRef = doc(db, "users", userId, "enrollment", enrollmentId);
@@ -85,11 +85,9 @@ export default function CourseLayout({
 
   if (courseState === "unavailable") {
     return (
-      <RecoveryScreen
-        variant="unavailable"
-        layout="page"
-        primaryAction={{ label: "Back to classes", onClick: () => router.push("/classes") }}
-        secondaryAction={{ label: "Go to dashboard", onClick: () => router.push("/dashboard") }}
+      <CourseUnavailableRecovery
+        onBackToClasses={() => router.push("/classes")}
+        onDashboard={() => router.push("/dashboard")}
       />
     );
   }

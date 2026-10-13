@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import RouteError from "./error";
 import NotFound from "./not-found";
 
@@ -30,6 +31,22 @@ describe("application route fallbacks", () => {
     expect(reset).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Go to dashboard" }));
     expect(push).toHaveBeenCalledWith("/dashboard");
+    log.mockRestore();
+  });
+
+  it("restores normal route content when a retry succeeds", () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    function RetryHarness() {
+      const [failed, setFailed] = useState(true);
+      return failed ? <RouteError error={new Error("first route attempt failed")} reset={() => setFailed(false)} /> : <p>Course content restored</p>;
+    }
+
+    render(<RetryHarness />);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(screen.getByText("Course content restored")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
     log.mockRestore();
   });
 
