@@ -1,8 +1,10 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb } from "@/src/library/firebaseAdmin";
+import { adminAuth, adminDb } from "@/src/library/firebaseAdmin";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { mergeSharedEdit } from "@/src/library/notes/sharedEdit";
+import { SHARE_COOKIE, hasValidShareCookie, shareAccessCookieValue } from "@/src/library/notes/shareCookie";
+import { MAX_INVITED_EMAILS, checkShareAccess, parseInvitedEmails, parseShareAudience, type ShareViewer } from "@/src/library/notes/shareAccess";
 
 const hashPassword = (password: string, salt: string) => scryptSync(password, salt, 32).toString("hex");
 const publicNote = (id: string, data: FirebaseFirestore.DocumentData) => ({ id, kind: data.kind, title: data.title, plainText: data.plainText ?? "", fileType: data.fileType ?? "", url: data.annotatedUrl || data.url || null, scan: data.scan === true });
@@ -13,12 +15,27 @@ type ShareRequest = {
   id?: string;
   password?: string;
   allowEdit?: boolean;
+  /** Who may open it: anyone with the link, any signed-in account, or only invitedEmails. */
+  audience?: string;
+  invitedEmails?: string | string[];
   noteId?: string;
   plainText?: string;
 };
 
 function hasShareAccess(request: NextRequest, shareId: string) {
-  return request.cookies.get("note_share_access")?.value === shareId;
+  return hasValidShareCookie(request.cookies.get(SHARE_COOKIE)?.value, shareId);
+}
+
+/** The signed-in visitor, if any, with the email Firebase has verified for them. */
+async function viewerFrom(request: NextRequest): Promise<ShareViewer | null> {
+  const auth = await verifyRequestAuth(request);
+  if (!auth) return null;
+  try {
+    const user = await adminAuth.getUser(auth.uid);
+    return { uid: auth.uid, email: user.email ?? null, emailVerified: user.emailVerified };
+  } catch {
+    return { uid: auth.uid };
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -28,6 +45,15 @@ export async function POST(request: NextRequest) {
     const share = await adminDb.collection("publicNoteShares").doc(body.id ?? "").get();
     if (!share.exists) return NextResponse.json({ error: "This share link is unavailable." }, { status: 404 });
     const data = share.data()!;
+    const allowed = checkShareAccess(data, await viewerFrom(request));
+    if (!allowed.allowed) {
+      return NextResponse.json(
+        allowed.reason === "sign-in"
+          ? { error: "Sign in to open this.", needsSignIn: true }
+          : { error: "This was shared with specific people, and your account isn't one of them. Ask the owner to add your email." },
+        { status: allowed.reason === "sign-in" ? 401 : 403 }
+      );
+    }
     if (data.passwordHash) {
       const candidate = hashPassword(body.password ?? "", data.passwordSalt);
       if (!timingSafeEqual(Buffer.from(candidate, "hex"), Buffer.from(data.passwordHash, "hex"))) return NextResponse.json({ error: "Incorrect password." }, { status: 401 });
@@ -35,7 +61,7 @@ export async function POST(request: NextRequest) {
     const response = NextResponse.json({ title: data.title, type: data.type, notes: data.notes, allowEdit: data.allowEdit === true });
     // This short-lived browser session permits file links after the visitor
     // has supplied the optional password; it grants access only to this share.
-    response.cookies.set("note_share_access", body.id ?? "", { httpOnly: true, sameSite: "lax", maxAge: 60 * 60 * 24, path: "/" });
+    response.cookies.set(SHARE_COOKIE, shareAccessCookieValue(body.id ?? ""), { httpOnly: true, sameSite: "lax", maxAge: 60 * 60 * 24, path: "/" });
     return response;
   }
 
@@ -84,6 +110,11 @@ export async function POST(request: NextRequest) {
     const noteDocs = await user.collection("notes").where("notebookId", "==", body.id).get();
     notes = noteDocs.docs.filter((note) => !note.data().hidden).map((note) => publicNote(note.id, note.data()));
   }
+  const audience = parseShareAudience(body.audience);
+  const { emails: invitedEmails, invalid } = parseInvitedEmails(body.invitedEmails);
+  if (invalid.length) return NextResponse.json({ error: `These don't look like email addresses: ${invalid.slice(0, 3).join(", ")}.` }, { status: 400 });
+  if (invitedEmails.length > MAX_INVITED_EMAILS) return NextResponse.json({ error: `You can invite up to ${MAX_INVITED_EMAILS} people.` }, { status: 400 });
+  if (audience === "invited" && invitedEmails.length === 0) return NextResponse.json({ error: "Add at least one email address to invite." }, { status: 400 });
   const id = randomBytes(18).toString("base64url");
   const salt = body.password?.trim() ? randomBytes(16).toString("hex") : null;
   await adminDb.collection("publicNoteShares").doc(id).set({
@@ -92,6 +123,8 @@ export async function POST(request: NextRequest) {
     type: body.type,
     notes,
     allowEdit: body.allowEdit === true,
+    audience,
+    invitedEmails: audience === "invited" ? invitedEmails : [],
     passwordSalt: salt,
     passwordHash: salt ? hashPassword(body.password!.trim(), salt) : null,
     createdAt: new Date(),
@@ -104,5 +137,6 @@ export async function GET(request: NextRequest) {
   const share = id ? await adminDb.collection("publicNoteShares").doc(id).get() : null;
   if (!share?.exists) return NextResponse.json({ error: "This share link is unavailable." }, { status: 404 });
   const data = share.data()!;
-  return NextResponse.json({ title: data.title, type: data.type, passwordRequired: Boolean(data.passwordHash), allowEdit: data.allowEdit === true });
+  // Only the title and what kind of access is needed; the invited emails stay private.
+  return NextResponse.json({ title: data.title, type: data.type, passwordRequired: Boolean(data.passwordHash), allowEdit: data.allowEdit === true, audience: parseShareAudience(data.audience) });
 }

@@ -2,11 +2,12 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/src/library/firebaseAdmin";
 import { getMinioClient } from "@/src/library/minioClient";
+import { SHARE_COOKIE, hasValidShareCookie } from "@/src/library/notes/shareCookie";
 
 export async function GET(request: NextRequest) {
   const shareId = request.nextUrl.searchParams.get("share");
   const noteId = request.nextUrl.searchParams.get("note");
-  if (!shareId || !noteId || request.cookies.get("note_share_access")?.value !== shareId) return NextResponse.json({ error: "Open the shared link first." }, { status: 401 });
+  if (!shareId || !noteId || !hasValidShareCookie(request.cookies.get(SHARE_COOKIE)?.value, shareId)) return NextResponse.json({ error: "Open the shared link first." }, { status: 401 });
   const share = await adminDb.collection("publicNoteShares").doc(shareId).get();
   const note = share.exists ? (share.data()!.notes as { id: string; url?: string }[]).find((item) => item.id === noteId) : null;
   const url = note?.url;
