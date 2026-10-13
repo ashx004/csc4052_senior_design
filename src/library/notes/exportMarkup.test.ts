@@ -52,7 +52,8 @@ describe("jpegPdf", () => {
     const start = Number(/startxref\n(\d+)/.exec(text)![1]);
     expect(text.slice(start, start + 4)).toBe("xref");
     const entries = [...text.slice(start).matchAll(/^(\d{10}) \d{5} n $/gm)].map((m) => Number(m[1]));
-    expect(entries).toHaveLength(2 * 3 + 2);
+    // Catalog, page tree, three objects per page, and the shared font for the invisible text.
+    expect(entries).toHaveLength(2 * 3 + 3);
     entries.forEach((offset, i) => expect(text.slice(offset, offset + `${i + 1} 0 obj`.length)).toBe(`${i + 1} 0 obj`));
   });
 
