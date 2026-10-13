@@ -1,5 +1,5 @@
 import { Clock3, Loader2 } from "lucide-react";
-import { JOB_STATUS, type ActiveJobStatus } from "@/src/library/jobStatus";
+import { JOB_STATUS, PUBLIC_JOB_STATUS, type ActiveJobStatus, type PublicActiveJobStatus } from "@/src/library/jobStatus";
 
 export type JobProgressKind = "ocr" | "advising";
 
@@ -8,16 +8,17 @@ const JOB_LABELS: Record<JobProgressKind, string> = {
   advising: "Advising request",
 };
 
-const JOB_DESCRIPTIONS: Record<JobProgressKind, Record<ActiveJobStatus, string>> = {
-  ocr: {
-    [JOB_STATUS.pending]: "Your transcription is waiting to start.",
-    [JOB_STATUS.inProgress]: "Your transcription is being processed.",
-  },
-  advising: {
-    [JOB_STATUS.pending]: "Your advising request is waiting to start.",
-    [JOB_STATUS.inProgress]: "Your advising request is being processed.",
-  },
-};
+type ProgressStatus = ActiveJobStatus | PublicActiveJobStatus;
+
+function isPendingStatus(status: ProgressStatus) {
+  return status === JOB_STATUS.pending || status === PUBLIC_JOB_STATUS.pending;
+}
+
+function descriptionFor(kind: JobProgressKind, status: ProgressStatus) {
+  const pending = isPendingStatus(status);
+  if (kind === "ocr") return pending ? "Your transcription is waiting to start." : "Your transcription is being processed.";
+  return pending ? "Your advising request is waiting to start." : "Your advising request is being processed.";
+}
 
 /**
  * An indeterminate progress display for a queued or processing background job.
@@ -27,16 +28,24 @@ const JOB_DESCRIPTIONS: Record<JobProgressKind, Record<ActiveJobStatus, string>>
 export default function JobProgressIndicator({
   kind,
   status,
+  progress,
   className = "",
 }: {
   kind: JobProgressKind;
-  status: ActiveJobStatus;
+  status: ProgressStatus;
+  progress?: number;
   className?: string;
 }) {
-  const isPending = status === JOB_STATUS.pending;
+  const isPending = isPendingStatus(status);
   const label = JOB_LABELS[kind];
   const stateLabel = isPending ? "Waiting to start" : "Processing";
-  const description = JOB_DESCRIPTIONS[kind][status];
+  const description = descriptionFor(kind, status);
+  const determinateProgress = typeof progress === "number" && Number.isFinite(progress)
+    ? Math.max(0, Math.min(100, Math.round(progress)))
+    : undefined;
+  const progressText = determinateProgress === undefined
+    ? stateLabel
+    : `${stateLabel}, ${determinateProgress}% complete`;
 
   return (
     <section
@@ -55,15 +64,22 @@ export default function JobProgressIndicator({
             {label}: {stateLabel}
           </p>
           <p className="mt-0.5 text-sm text-text-muted">{description}</p>
+          {determinateProgress !== undefined && <p className="mt-0.5 text-xs text-text-muted">{determinateProgress}% complete</p>}
         </div>
       </div>
       <div
         className="mt-3 h-1.5 overflow-hidden rounded-full bg-bg-warm"
         role="progressbar"
         aria-label={`${label} progress`}
-        aria-valuetext={stateLabel}
+        aria-valuetext={progressText}
+        aria-valuemin={determinateProgress === undefined ? undefined : 0}
+        aria-valuemax={determinateProgress === undefined ? undefined : 100}
+        aria-valuenow={determinateProgress}
       >
-        <div className="h-full w-2/5 animate-pulse rounded-full bg-primary" />
+        <div
+          className={`h-full rounded-full bg-primary ${determinateProgress === undefined ? "w-2/5 animate-pulse" : ""}`}
+          style={determinateProgress === undefined ? undefined : { width: `${determinateProgress}%` }}
+        />
       </div>
     </section>
   );
