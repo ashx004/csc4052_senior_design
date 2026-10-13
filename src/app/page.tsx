@@ -13,7 +13,6 @@ export default function Home() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const greeting: string = "C a t a l y s t .";
 
   // Same already-signed-in bounce-through as the login page — see its
   // comment for why this is the ONLY place that navigates after a fresh
@@ -62,65 +61,56 @@ export default function Home() {
   }
 
   return (
-    <div className="flex min-h-screen justify-center bg-bg-main">
-      <div className="text-center">
+    <main className="flex min-h-screen flex-col items-center justify-center bg-bg-main px-6 py-12">
+      <div className="fade-up flex w-full max-w-md flex-col items-center text-center">
+        <AppLogo className="h-24 w-24" />
 
-        <AppLogo className="w-[340px] h-[340px]" />
+        <h1 className="mt-6 text-3xl font-bold tracking-[0.2em] text-text-main font-sans">CATALYST</h1>
+        <p className="mt-3 text-base text-text-muted">More than just notes. Organize your classes, study smarter, and stay on top of every deadline.</p>
 
-        <h1 className="text-4xl font-bold text-text-main font-sans">
-          {greeting}
-        </h1>
-
-        <p className="text-text-main font-mono font-thin text-sm mt-6">
-          More than just notes!
-        </p>
-
-        <div className="mt-20 flex flex-col items-center">
-          <Link href="/login">
-            <button className="bg-transparent font-thin text-sm underline
-            text-text-main font-sans cursor-pointer px-16 py-2 rounded
-            hover:bg-bg-warm active:bg-border-light">
-              Log-In
-            </button>
+        <div className="mt-8 flex w-full flex-col gap-3 sm:flex-row">
+          <Link
+            href="/signup"
+            className="flex-1 rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-text-inverse shadow-sm transition hover:bg-primary-hover"
+          >
+            Create an account
           </Link>
-
-          <Link href="/signup">
-            <button className="mt-2 bg-transparent font-thin text-sm underline
-            text-text-main font-sans cursor-pointer px-4 py-2 rounded
-            hover:bg-bg-warm active:bg-border-light">
-              Create a new account
-            </button>
+          <Link
+            href="/login"
+            className="flex-1 rounded-lg border border-border-hover bg-bg-container px-6 py-3 text-sm font-semibold text-text-main transition hover:bg-bg-warm"
+          >
+            Log in
           </Link>
+        </div>
 
+        <div className="my-6 flex w-full items-center gap-3 text-xs uppercase tracking-wide text-text-muted" aria-hidden>
+          <span className="h-px flex-1 bg-border-light" />
+          or continue with
+          <span className="h-px flex-1 bg-border-light" />
+        </div>
+
+        <div className="flex w-full flex-col gap-3">
           <button
             type="button"
             onClick={handleGoogleSignIn}
             disabled={isSubmitting}
-            className="mt-24 bg-bg-container font-thin text-sm
-          text-text-main font-sans cursor-pointer px-10 py-2 rounded
-          hover:bg-bg-warm active:bg-border-light flex items-center
-          gap-2 disabled:opacity-50">
-            <span> Sign in with Google </span>
-            <img
-              src="/google-logo.svg"
-              alt="Google Icon"
-              className="w-6 h-6"
-            />
+            className="flex w-full items-center justify-center gap-3 rounded-lg border border-border-light bg-bg-container px-6 py-3 text-sm font-medium text-text-main transition hover:bg-bg-warm disabled:opacity-50"
+          >
+            <img src="/google-logo.svg" alt="" className="h-5 w-5" />
+            Continue with Google
           </button>
 
           <button
             type="button"
             onClick={handleAppleSignIn}
             disabled={isSubmitting}
-            className="mt-5 bg-bg-container font-thin text-sm
-          text-text-main font-sans cursor-pointer px-12 py-3 rounded
-          hover:bg-bg-warm active:bg-border-light flex items-center
-          gap-2 disabled:opacity-50">
-            <span> Sign in with Apple </span>
-            <AppleLogo className="w-5 h-5 text-text-main" />
+            className="flex w-full items-center justify-center gap-3 rounded-lg border border-border-light bg-bg-container px-6 py-3 text-sm font-medium text-text-main transition hover:bg-bg-warm disabled:opacity-50"
+          >
+            <AppleLogo className="h-5 w-5 text-text-main" />
+            Continue with Apple
           </button>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
