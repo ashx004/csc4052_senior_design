@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { User } from "firebase/auth";
+import RecoveryScreen, { type RecoveryVariant } from "@/src/components/recovery/RecoveryScreen";
+import { RequestFailure, classifyRequestFailure } from "@/src/library/recovery/requestFailure";
 
 type AdvisingDocument = {
   type: "transcript" | "curriculum";
@@ -35,6 +37,8 @@ export default function AdvisingDocumentsViewer({ user }: AdvisingDocumentsViewe
   const [documents, setDocuments] = useState<AdvisingDocument[]>([]);
   const [isLoadingList, setIsLoadingList] = useState<boolean>(true);
   const [listError, setListError] = useState<string>("");
+  const [listRecoveryVariant, setListRecoveryVariant] = useState<RecoveryVariant | null>(null);
+  const listRequest = useRef(0);
 
   const [selectedType, setSelectedType] = useState<AdvisingDocument["type"] | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -45,38 +49,48 @@ export default function AdvisingDocumentsViewer({ user }: AdvisingDocumentsViewe
   // dropped instead of showing the wrong PDF under the wrong heading.
   const openCount = useRef(0);
 
-  // Retrieve the list of uploaded advising documents from storage.
-  useEffect(() => {
-    let cancelled = false;
+  // Retrieve the list of uploaded advising documents from storage. A retry
+  // deliberately repeats this read-only request with the same user context.
+  const loadDocuments = useCallback(async () => {
+    const requestId = ++listRequest.current;
+    setIsLoadingList(true);
+    setListError("");
 
-    async function loadDocuments() {
-      try {
-        setIsLoadingList(true);
-        setListError("");
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch("/api/advising/documents", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-        const token = await user.getIdToken();
-        const response = await fetch("/api/advising/documents", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await response.json();
+      if (!response.ok) throw new RequestFailure(response.status);
+      const data = await response.json();
 
-        if (!response.ok) {
-          throw new Error(data.error ?? "Your advising documents could not be loaded.");
-        }
+      if (requestId !== listRequest.current) return;
+      setDocuments(data.documents as AdvisingDocument[]);
+      setListRecoveryVariant(null);
+    } catch (error) {
+      if (requestId !== listRequest.current) return;
 
-        if (!cancelled) setDocuments(data.documents as AdvisingDocument[]);
-      } catch (error) {
-        if (!cancelled) {
-          setListError(error instanceof Error ? error.message : "Your advising documents could not be loaded.");
-        }
-      } finally {
-        if (!cancelled) setIsLoadingList(false);
+      const kind = classifyRequestFailure(error);
+      if (kind === "authorization") {
+        // Preserve the app's normal auth behavior instead of labelling a
+        // session/permission response as a server or connection failure.
+        setListError("Your session no longer has access to these documents. Please sign in again.");
+        setListRecoveryVariant(null);
+      } else {
+        setListRecoveryVariant(kind);
       }
+    } finally {
+      if (requestId === listRequest.current) setIsLoadingList(false);
     }
-
-    loadDocuments();
-    return () => { cancelled = true; };
   }, [user]);
+
+  useEffect(() => {
+    void loadDocuments();
+    return () => {
+      listRequest.current += 1;
+    };
+  }, [loadDocuments]);
 
   // Free the blob URL when the preview changes or the viewer unmounts.
   useEffect(() => {
@@ -137,7 +151,7 @@ export default function AdvisingDocumentsViewer({ user }: AdvisingDocumentsViewe
         View the transcript and curriculum sheet you uploaded to Catalyst.
       </p>
 
-      {isLoadingList && (
+      {isLoadingList && !listRecoveryVariant && (
         <p className="mt-4 text-sm text-text-muted">Loading your documents...</p>
       )}
 
@@ -147,7 +161,15 @@ export default function AdvisingDocumentsViewer({ user }: AdvisingDocumentsViewe
         </div>
       )}
 
-      {!isLoadingList && !listError && documents.length > 0 && (
+      {listRecoveryVariant && (
+        <RecoveryScreen
+          variant={listRecoveryVariant}
+          primaryAction={{ label: "Try again", onClick: () => void loadDocuments() }}
+          isRetrying={isLoadingList}
+        />
+      )}
+
+      {!isLoadingList && !listError && !listRecoveryVariant && documents.length > 0 && (
         <ul className="mt-4 grid gap-3 sm:grid-cols-2">
           {documents.map((document) => {
             const isSelected = document.type === selectedType;

@@ -13,6 +13,7 @@ import FileNoteViewer from "@/src/components/notes/FileNoteViewer";
 import CreateNoteModal from "@/src/components/notes/CreateNoteModal";
 import PageTutorial from "@/src/components/tutorial/PageTutorial";
 import noteEditorSteps from "@/src/library/tutorials/steps/note-editor";
+import RecoveryScreen from "@/src/components/recovery/RecoveryScreen";
 
 const TITLE_SAVE_DELAY_MS = 700;
 
@@ -79,12 +80,12 @@ export default function NotePage() {
   if (!uid) return null;
   if (!note) {
     return (
-      <div className="mx-auto mt-24 max-w-md px-4 text-center">
-        <p className="text-base font-medium text-text-main">This note doesn&apos;t exist anymore.</p>
-        <button type="button" onClick={() => router.push(fromCourse ? `/courses/${fromCourse}/notes` : "/notes")} className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-text-inverse hover:bg-primary-hover">
-          Back to notes
-        </button>
-      </div>
+      <RecoveryScreen
+        variant="unavailable"
+        title="This note isn't available"
+        message="It may have been removed or is no longer available to you."
+        primaryAction={{ label: "Back to notes", onClick: () => router.push(fromCourse ? `/courses/${fromCourse}/notes` : "/notes") }}
+      />
     );
   }
 

@@ -94,4 +94,76 @@ describe("AdvisingDocumentsViewer", () => {
     expect(await screen.findByText(/isn't available/)).toBeTruthy();
     expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([u]) => String(u).startsWith("/api/download"))).toBe(false);
   });
+
+  it("keeps the page shell and recovers from a network failure by retrying the same request", async () => {
+    let listAttempts = 0;
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url !== "/api/advising/documents") return Promise.resolve(pdf());
+      listAttempts += 1;
+      return listAttempts === 1
+        ? Promise.reject(new TypeError("Failed to fetch"))
+        : Promise.resolve(new Response(JSON.stringify(listing)));
+    });
+
+    render(<AdvisingDocumentsViewer user={user} />);
+
+    expect(await screen.findByRole("heading", { name: "We're having trouble connecting" })).toBeTruthy();
+    // The surrounding page content remains present while only this data region recovers.
+    expect(screen.getByRole("heading", { name: "My Documents" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByText("Transcript")).toBeTruthy();
+    const listCalls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(([url]) => url === "/api/advising/documents");
+    expect(listCalls).toHaveLength(2);
+    expect(listCalls.map(([, options]) => options)).toEqual([
+      { headers: { Authorization: "Bearer token" } },
+      { headers: { Authorization: "Bearer token" } },
+    ]);
+  });
+
+  it("uses server recovery copy, keeps retry available after another failure, and hides server details", async () => {
+    const privateMessage = "database connection string leaked";
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      Promise.resolve(
+        url === "/api/advising/documents"
+          ? new Response(JSON.stringify({ error: privateMessage }), { status: 503 })
+          : pdf()
+      )
+    );
+
+    render(<AdvisingDocumentsViewer user={user} />);
+
+    expect(await screen.findByRole("heading", { name: "Catalyst couldn't complete that request" })).toBeTruthy();
+    expect(screen.queryByText(privateMessage)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => {
+      const listCalls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(([url]) => url === "/api/advising/documents");
+      expect(listCalls).toHaveLength(2);
+    });
+    expect((screen.getByRole("button", { name: "Try again" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("uses the unavailable recovery variant for a missing required resource", async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      Promise.resolve(url === "/api/advising/documents" ? new Response("", { status: 404 }) : pdf())
+    );
+
+    render(<AdvisingDocumentsViewer user={user} />);
+
+    expect(await screen.findByRole("heading", { name: "This page isn't available" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+
+  it("does not mislabel an authorization response as a network or server error", async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      Promise.resolve(url === "/api/advising/documents" ? new Response("", { status: 401 }) : pdf())
+    );
+
+    render(<AdvisingDocumentsViewer user={user} />);
+
+    expect(await screen.findByText(/session no longer has access/i)).toBeTruthy();
+    expect(screen.queryByText("We're having trouble connecting")).toBeNull();
+    expect(screen.queryByText("Catalyst couldn't complete that request")).toBeNull();
+  });
 });
