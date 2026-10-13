@@ -4,6 +4,14 @@ import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { getMinioClient } from "@/src/library/minioClient";
 import { isAccountDeletionInProgress } from "@/src/library/accountDeletionGuard";
+import { checkRateLimit } from "@/src/library/rateLimit";
+
+// The browser already enforces 20MB (MAX_FILE_SIZE_BYTES in fileUploadService),
+// but nothing stopped a direct request from sending more. The small margin
+// covers requests whose body is slightly larger than the file itself.
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+const UPLOAD_RATE_LIMIT_WINDOW_MS = 60_000;
+const UPLOAD_RATE_LIMIT_MAX = 60;
 
 export async function POST(req: NextRequest) {
     try {
@@ -26,7 +34,24 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "This account is being deleted." }, { status: 410 });
         }
 
+        const rateLimit = checkRateLimit(`upload:${auth.uid}`, UPLOAD_RATE_LIMIT_WINDOW_MS, UPLOAD_RATE_LIMIT_MAX);
+        if (!rateLimit.allowed) {
+            return NextResponse.json(
+                { error: "Too many uploads. Please wait a moment and try again." },
+                { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+            );
+        }
+
+        // Reject on the declared size before reading the body into memory.
+        const declaredLength = Number(req.headers.get("content-length"));
+        if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_BYTES) {
+            return NextResponse.json({ error: "File is too large (25 MB maximum)." }, { status: 413 });
+        }
+
         const arrayBuffer = await req.arrayBuffer();
+        if (arrayBuffer.byteLength > MAX_UPLOAD_BYTES) {
+            return NextResponse.json({ error: "File is too large (25 MB maximum)." }, { status: 413 });
+        }
         const buffer = Buffer.from(arrayBuffer);
 
         const s3Client = await getMinioClient();

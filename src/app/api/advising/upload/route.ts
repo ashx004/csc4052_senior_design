@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PutObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { getMinioClient } from "@/src/library/minioClient";
+import { verifyRequestAuth } from "@/src/library/verifyAuth";
+import { checkRateLimit } from "@/src/library/rateLimit";
 
 /* Basically in here the transcript and curriculum sheet are being received.
 Its being checked the both files are pdfs. These files are being uploaded into 
@@ -66,21 +68,44 @@ async function objectExists(storagePath: string): Promise<boolean> {
   ) ?? false;
 }
 
+const UPLOAD_RATE_LIMIT_WINDOW_MS = 60_000;
+const UPLOAD_RATE_LIMIT_MAX = 10;
+
+// The signed-in user decides whose folder is read or written, never a value the
+// client sends. A userId that doesn't match the session is refused outright.
+async function authorize(
+  request: NextRequest,
+  claimedUserId: unknown
+): Promise<{ userId: string } | NextResponse> {
+  const auth = await verifyRequestAuth(request);
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (typeof claimedUserId === "string" && claimedUserId.trim() && claimedUserId !== auth.uid) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  return { userId: auth.uid };
+}
+
 // receive docs, validates them, & upload or replace them in MinIO
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
 
-    const userId = formData.get("userId");
-    const transcript = formData.get("transcript");
-    const curriculum = formData.get("curriculum");
+    const authorized = await authorize(request, formData.get("userId"));
+    if (authorized instanceof NextResponse) return authorized;
+    const { userId } = authorized;
 
-    if (typeof userId !== "string" || !userId.trim()) {
+    const rateLimit = checkRateLimit(`advising-upload:${userId}`, UPLOAD_RATE_LIMIT_WINDOW_MS, UPLOAD_RATE_LIMIT_MAX);
+    if (!rateLimit.allowed) {
       return NextResponse.json(
-        { error: "The user could not be identified." },
-        { status: 400 }
+        { error: "Too many uploads. Please wait a moment and try again." },
+        { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
       );
     }
+
+    const transcript = formData.get("transcript");
+    const curriculum = formData.get("curriculum");
 
     if (!(transcript instanceof File)) {
       return NextResponse.json(
@@ -143,14 +168,9 @@ export async function POST(request: NextRequest) {
 // checks if the user alr has a Tr or Cu sheet stored in MinIO
 export async function GET(request: NextRequest) {
   try {
-    const userId = request.nextUrl.searchParams.get("userId");
-
-    if (!userId?.trim()) {
-      return NextResponse.json(
-        { error: "The user could not be identified." },
-        { status: 400 }
-      );
-    }
+    const authorized = await authorize(request, request.nextUrl.searchParams.get("userId"));
+    if (authorized instanceof NextResponse) return authorized;
+    const { userId } = authorized;
 
     const transcriptPath = `users/${userId}/advising/transcript.pdf`;
     const curriculumPath = `users/${userId}/advising/curriculum.pdf`;
