@@ -15,14 +15,14 @@ const learningSteps: TutorialStep[] = [
   },
   {
     target: '[data-tutorial="learning-hero"]',
-    title: "Build a study plan",
-    body: "Start a personalized study plan, or explore your classes without one — Catalyst adapts either way.",
+    title: "Your pick for today",
+    body: "Catalyst names one thing to study next. Start it in a single click, or pick something else.",
     placement: "bottom",
   },
   {
     target: '[data-tutorial="learning-classes"]',
     title: "Jump into a class",
-    body: "Click any class to generate flashcards and quizzes straight from its uploaded materials.",
+    body: "Open your classes to generate flashcards and quizzes straight from each class's uploaded materials.",
     placement: "top",
   },
 ];
