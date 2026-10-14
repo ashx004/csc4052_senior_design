@@ -1,4 +1,6 @@
-# <picture><source media="(prefers-color-scheme: dark)" srcset="public/app-logo-dark.svg"><img src="public/app-logo.svg" alt="Catalyst logo" height="32"></picture> Catalyst
+<h1><picture><source media="(prefers-color-scheme: dark)" srcset="public/app-logo-dark.svg"><img src="public/app-logo.svg" alt="Catalyst logo" height="36"></picture> Catalyst</h1>
+
+Catalyst is a study companion for college students. It brings each course's syllabus, key dates, notes and uploaded materials into one place, and uses AI to turn those materials into flashcards, quizzes and study plans, answer questions about them, and help with degree advising, so students spend less time organizing and more time learning.
 
 # To run: 
 
