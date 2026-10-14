@@ -129,3 +129,42 @@ describe("friendlyWarnings", () => {
     expect(out[0]).not.toContain("UNREADABLE");
   });
 });
+
+describe("requirement progress and rules the transcript can settle", () => {
+  const courses = [
+    course({ courseCode: "CSC 1000", grade: "A", creditHours: 60 }),
+    course({ courseCode: "CSC 2000", grade: "C", creditHours: 60 }),
+  ];
+
+  it("reports the share of requirements done, not credits", () => {
+    const s = summarizeProgress({ courses }, curriculum([
+      req({ requirementId: "a", courseCode: "CSC 1000" }),
+      req({ requirementId: "b", courseCode: "CSC 9999" }),
+    ], { totalDegreeCredits: 100 }));
+    expect(s.percentEarned).toBe(100);
+    expect(s.percentRequirementsDone).toBe(50);
+  });
+
+  it("settles a total-credits requirement from the transcript", () => {
+    const total = req({ requirementName: "Total Credit Hours", requirementType: "credit-requirement", creditsRequired: 120 });
+    expect(summarizeProgress({ courses }, curriculum([total])).requirements[0].state).toBe("done");
+    expect(summarizeProgress({ courses: [courses[0]] }, curriculum([total])).requirements[0]).toMatchObject({ state: "remaining" });
+  });
+
+  it("checks a minimum grade and a minimum GPA in one subject", () => {
+    const grade = req({ requirementName: "Grade Requirement for CSC Courses", requirementType: "other", description: 'A grade of "C" or higher is required' });
+    const gpa = req({ requirementName: "GPA Requirement for CSC Courses", requirementType: "other", description: "Minimum 2.5 GPA" });
+    const ok = summarizeProgress({ courses }, curriculum([grade, gpa])).requirements;
+    expect(ok.map((r) => r.state)).toEqual(["done", "done"]); // GPA is 3.0
+    const weak = [course({ courseCode: "CSC 1000", grade: "D", creditHours: 3 })];
+    const bad = summarizeProgress({ courses: weak }, curriculum([grade, gpa])).requirements;
+    expect(bad.map((r) => r.state)).toEqual(["remaining", "remaining"]);
+  });
+
+  it("leaves a rule to the student when the sheet gives nothing to check", () => {
+    const vague = req({ requirementName: "Grade Requirement for CSC Courses", requirementType: "other" });
+    const timing = req({ requirementName: "Timing Requirement for MATH 240", requirementType: "other" });
+    const states = summarizeProgress({ courses }, curriculum([vague, timing])).requirements.map((r) => r.state);
+    expect(states).toEqual(["review", "review"]);
+  });
+});
