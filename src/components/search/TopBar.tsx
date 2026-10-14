@@ -10,9 +10,11 @@ type TopBarProps = {
   extraSearchEntries?: SearchEntry[];
 };
 
-// Pages with their own header that show the search as just a magnifying-glass
-// button there (SearchBar's compact mode) instead of this bar.
-const PAGES_WITH_COMPACT_SEARCH = ["/learning"];
+// Learning and its inner pages (classes, study plan) show search as the
+// magnifying-glass button in WorkspaceHeader, instead of this bar.
+function usesCompactSearch(pathname: string): boolean {
+  return pathname === "/learning" || pathname.startsWith("/learning/");
+}
 
 // The bar across the top of every dashboard and course page. On phones the
 // sidebar's fixed menu button (Sidebar.tsx, top-3 left-4, 40px) sits centered
@@ -21,7 +23,7 @@ const PAGES_WITH_COMPACT_SEARCH = ["/learning"];
 export default function TopBar({ extraSearchEntries }: TopBarProps) {
   const pathname = usePathname();
   const enabled = useSearchBarEnabled();
-  const showBar = enabled && !PAGES_WITH_COMPACT_SEARCH.includes(pathname);
+  const showBar = enabled && !usesCompactSearch(pathname);
 
   // Tells global.css how much height the bar takes (--topbar-h), so full-height
   // pages inside <main> shrink by that much instead of overflowing below it.
