@@ -1,7 +1,7 @@
 # Learning Workspace Redesign
 
 **Date:** October 13, 2026  
-**Status:** Approved for implementation planning  
+**Status:** Approved for implementation planning (amended 2026-10-13: landing stats strip, 60-day streak lookback)  
 **Branch:** `Iris_UI_Redesign_page_quizz_flashcard`
 
 ## Purpose
@@ -32,6 +32,7 @@ Content order:
    - **Start your study plan** — opens `/learning/study-plan`; if no usable plan exists, the existing setup flow opens within the Study Plan route.
 3. **Continue where you left off** — a compact resume row shown only when a valid recent class activity or plan task exists. It displays the activity title, course context, remaining time when available, and one Resume action.
 4. A compact streak badge showing the current streak and linking conceptually to the detailed streak presentation on the Study Plan page.
+5. A compact at-a-glance stats strip (current streak, study time this week, topics mastered, today's progress). **Amended 2026-10-13 by the product owner:** the four `StatCards` values must survive the redesign in a smaller single-row form; the landing page may lose the four large tiles but not the information. The streak value here comes from the real streak model, not the former 0/1 placeholder.
 
 The landing page does not show the full recommendation list, course mastery grid, plan workspace, or custom study material controls.
 
@@ -72,6 +73,7 @@ The streak uses an original scalable SVG rather than an emoji or raster icon.
 - Two-tone flame: orange outer flame and warm-yellow inner flame.
 - Compact badge on the Learning landing page.
 - Large card on the Study Plan page with seven weekday indicators, current streak count, and a brief motivational message.
+- The streak is read from at most the previous 60 local days of study sessions (**amended 2026-10-13** to bound Firestore read cost); a streak longer than the window reports as the window length.
 - Completed and incomplete days use text or symbols in addition to color.
 - The SVG is decorative when equivalent visible text is present; the streak value remains available to assistive technology as a complete phrase.
 - Any optional flame motion must be subtle and disabled by `prefers-reduced-motion`.
