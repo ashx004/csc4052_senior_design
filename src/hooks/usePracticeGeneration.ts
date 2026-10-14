@@ -51,7 +51,17 @@ export function usePracticeGeneration(courseId: string) {
           }),
         });
         const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || "Failed to generate practice.");
+        if (!response.ok) {
+          // No JSON body means a proxy answered instead of the app - usually
+          // a gateway timeout because the model took too long.
+          const timedOut = [502, 504, 524].includes(response.status);
+          throw new Error(
+            data.error ||
+              (timedOut
+                ? "Building the practice took too long and the connection timed out. Try fewer questions or rounds, or try again in a minute."
+                : `Failed to generate practice (error ${response.status}). Please try again.`)
+          );
+        }
 
         const items = data.items as PracticeItem[];
         const created = await addDoc(collection(db, "users", user.uid, "enrollment", courseId, "practiceSets"), {

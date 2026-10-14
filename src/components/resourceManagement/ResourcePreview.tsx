@@ -68,6 +68,7 @@ import nasm from "react-syntax-highlighter/dist/esm/languages/prism/nasm";
     ["ruby", ruby], ["kotlin", kotlin], ["swift", swift], ["bash", bash], ["nasm", nasm],
 ].forEach(([name, lang]) => SyntaxHighlighter.registerLanguage(name as string, lang as any));
 import { renderAsync } from "docx-preview";
+import type { PptxSlide } from "@/src/library/pptxSlides";
 import { collection, getDocs, onSnapshot, orderBy, query } from "firebase/firestore";
 import CircleIconButton from "./CircleIconButton";
 import { addOcrDocumentPages, getCourseResources, deleteUserResource, INDEXABLE_FILE_TYPES } from "./fileUploadService";
@@ -112,7 +113,7 @@ type CodeType = keyof typeof CODE_TYPES;
 // other supported file types
 export type FileType = CodeType | "pdf" | "docx" | "zip" | "pptx" | "one" | "xlsx" | "image";
 // "download only" formats — no in-browser rendering attempted, since there's
-const DOWNLOAD_ONLY_TYPES: FileType[] = ["zip", "pptx", "one"];
+const DOWNLOAD_ONLY_TYPES: FileType[] = ["zip", "one"];
 const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp"];
 const NON_CODE_META: Record<"pdf" | "docx" | "zip" | "pptx" | "one" | "xlsx" | "image", { label: string; color: string; bg: string }> = {
     pdf: { label: "PDF", color: "#B85C45", bg: "#FBEAE7" },
@@ -250,6 +251,52 @@ function IndexStatusBadge({ status }: { status: IndexStatus }) {
             {status === "processing" ? <Loader2 size={11} className="animate-spin" /> : <ScanText size={11} />}
             {labels[status]}
         </span>
+    );
+}
+
+/**
+ * What the course's files are doing in the background, from their saved status,
+ * so it is still there after the student leaves and comes back.
+ */
+function BackgroundActivityBanner({ resources }: { resources: Resource[] }) {
+    const working = resources.filter(
+        (r) => r.indexStatus === "queued" || r.indexStatus === "processing" || r.ocrStatus === "queued" || r.ocrStatus === "processing"
+    );
+    const failed = resources.filter((r) => r.indexStatus === "failed" || r.ocrStatus === "failed");
+    if (working.length === 0 && failed.length === 0) return null;
+
+    return (
+        <div className="mb-4 space-y-2" role="status" aria-live="polite">
+            {working.length > 0 && (
+                <div className="rounded-lg border border-border-light bg-bg-warm px-4 py-3">
+                    <p className="flex items-center gap-2 text-sm font-medium text-text-main">
+                        <Loader2 size={15} className="shrink-0 animate-spin text-primary" />
+                        Catalyst is reading {working.length} {working.length === 1 ? "file" : "files"} so the AI can use {working.length === 1 ? "it" : "them"}
+                    </p>
+                    <p className="mt-1 text-xs text-text-muted">
+                        You can leave this page - your {working.length === 1 ? "file is" : "files are"} safe and will keep processing. Check back here to see when {working.length === 1 ? "it's" : "they're"} ready.
+                    </p>
+                    <ul className="mt-2 space-y-0.5 text-xs text-text-muted">
+                        {working.slice(0, 5).map((r) => (
+                            <li key={r.id} className="flex items-center gap-2">
+                                <span className="min-w-0 flex-1 truncate text-text-main">{r.name}</span>
+                                <span className="shrink-0">
+                                    {r.ocrStatus === "queued" || r.ocrStatus === "processing"
+                                        ? r.ocrStatus === "queued" ? "Waiting to transcribe" : "Transcribing"
+                                        : r.indexStatus === "queued" ? "Waiting in line" : "Adding to AI"}
+                                </span>
+                            </li>
+                        ))}
+                        {working.length > 5 && <li>and {working.length - 5} more</li>}
+                    </ul>
+                </div>
+            )}
+            {failed.length > 0 && (
+                <div className="rounded-lg border border-alert-error/40 bg-alert-error-bg px-4 py-3 text-sm text-alert-error">
+                    {failed.length === 1 ? `"${failed[0].name}" couldn't be processed.` : `${failed.length} files couldn't be processed.`} The file is still saved - open it for details.
+                </div>
+            )}
+        </div>
     );
 }
 
@@ -415,6 +462,15 @@ async function generateThumbnail(resource: Resource): Promise<ThumbnailData | nu
             return { kind: "text", content: snippet };
         }
 
+        if (resource.fileType === "pptx") {
+            const { parsePptxSlides } = await import("@/src/library/pptxSlides");
+            const res = await fetch(resource.url);
+            if (!res.ok) return null;
+            const [first] = await parsePptxSlides(await res.arrayBuffer());
+            if (!first) return null;
+            return { kind: "text", content: [first.title, ...first.lines].join("\n").slice(0, 240) };
+        }
+
         if (DOWNLOAD_ONLY_TYPES.includes(resource.fileType)) return null;
 
         const res = await fetch(resource.url);
@@ -546,6 +602,7 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
 
     const [previewText, setPreviewText] = useState<string | null>(null);
     const [excelHtml, setExcelHtml] = useState<string | null>(null);
+    const [pptxSlides, setPptxSlides] = useState<PptxSlide[] | null>(null);
     const [previewLoading, setPreviewLoading] = useState(false);
     const [previewError, setPreviewError] = useState<string | null>(null);
     const [initialResourceUnavailable, setInitialResourceUnavailable] = useState(false);
@@ -881,6 +938,7 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
         if (!previewResource) {
             setPreviewText(null);
             setExcelHtml(null);
+            setPptxSlides(null);
             setPreviewError(null);
             return;
         }
@@ -894,6 +952,7 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
         ) {
             setPreviewText(null);
             setExcelHtml(null);
+            setPptxSlides(null);
             setPreviewLoading(false);
             setPreviewError(null);
             return;
@@ -904,6 +963,7 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
         setPreviewError(null);
         setPreviewText(null);
         setExcelHtml(null);
+            setPptxSlides(null);
 
         async function load() {
             try {
@@ -922,6 +982,12 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
                         trimXmlDeclaration: true,
                         useBase64URL: true,
                     });
+                } else if (type === "pptx") {
+                    const { parsePptxSlides } = await import("@/src/library/pptxSlides");
+                    const res = await fetch(previewResource!.url);
+                    if (!res.ok) throw new Error("File not found");
+                    const slides = await parsePptxSlides(await res.arrayBuffer());
+                    if (!cancelled) setPptxSlides(slides);
                 } else if (type === "xlsx") {
                     const XLSX = await import("xlsx");
                     const res = await fetch(previewResource!.url);
@@ -1284,6 +1350,8 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
                     />
                 </div>
             </div>
+
+            <BackgroundActivityBanner resources={allResources} />
 
             {selectMode && (
                 <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md bg-bg-warm px-3 py-2">
@@ -1819,9 +1887,7 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
                                 </div>
                             ) : DOWNLOAD_ONLY_TYPES.includes(previewResource.fileType) ? (
                                 <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-                                    {previewResource.fileType === "pptx" ? (
-                                        <Presentation size={40} className="text-[#C1440E]" />
-                                    ) : previewResource.fileType === "one" ? (
+                                    {previewResource.fileType === "one" ? (
                                         <BookOpen size={40} className="text-[#7C3F00]" />
                                     ) : (
                                         <FileArchive size={40} className="text-[#8A6D3B]" />
@@ -1839,6 +1905,37 @@ export default function ResourcePreview({ userId, courseId, initialResourceId = 
                                         Download
                                     </a>
                                 </div>
+                            ) : previewResource.fileType === "pptx" ? (
+                                previewLoading ? (
+                                    <div className="flex h-full items-center justify-center gap-2 text-sm text-text-muted">
+                                        <Loader2 size={16} className="animate-spin" />
+                                        Loading preview...
+                                    </div>
+                                ) : previewError ? (
+                                    <div className="flex h-full items-center justify-center p-6 text-center text-sm text-alert-error">
+                                        {previewError}
+                                    </div>
+                                ) : (
+                                    <div className="h-full space-y-4 overflow-auto p-4">
+                                        {pptxSlides?.length === 0 && (
+                                            <p className="text-center text-sm text-text-muted">No readable text was found in this presentation.</p>
+                                        )}
+                                        {pptxSlides?.map((slide) => (
+                                            <section key={slide.number} className="mx-auto max-w-[760px] rounded-lg bg-white p-6 text-[#1f1712] shadow-sm ring-1 ring-border-light">
+                                                <p className="text-[10px] font-medium uppercase tracking-wide text-[#8a8477]">Slide {slide.number}</p>
+                                                <h3 className="mt-1 text-base font-semibold">{slide.title || "(no title)"}</h3>
+                                                {slide.lines.length > 0 && (
+                                                    <ul className="mt-2 space-y-1 text-sm">
+                                                        {slide.lines.map((line, i) => <li key={i}>{line}</li>)}
+                                                    </ul>
+                                                )}
+                                                {slide.notes && (
+                                                    <p className="mt-3 border-t border-[#ede6d8] pt-2 text-xs italic text-[#8a8477]">Notes: {slide.notes}</p>
+                                                )}
+                                            </section>
+                                        ))}
+                                    </div>
+                                )
 							) : previewResource.fileType === "xlsx" ? (
                                 <>
                                     <style>{`
