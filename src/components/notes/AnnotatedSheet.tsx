@@ -5,7 +5,7 @@ import { MAX_PAGES_PER_NOTE, PAGE_HEIGHT, PAGE_WIDTH, type Note } from "@/src/li
 import type { ExportPage } from "@/src/library/notes/exportMarkup";
 import ExportMenu, { type ExportSource } from "./ExportMenu";
 import { useExportRegistration } from "./noteExportSlot";
-import { captureElement, sliceCapture } from "./markupCanvas";
+import { captureElement, collectTextRuns, sliceCapture } from "./markupCanvas";
 import AnnotationItems from "./AnnotationItems";
 import InkLayer from "./InkLayer";
 import NotesToolbar from "./NotesToolbar";
@@ -80,10 +80,12 @@ export default function AnnotatedSheet({
       shot ??= await captureElement(el);
       return sliceCapture(shot, i, PAGE_WIDTH, PAGE_HEIGHT);
     };
+    const words = el ? collectTextRuns(el, PAGE_HEIGHT, pages) : [];
     return Array.from({ length: pages }, (_, i) => ({
       width: PAGE_WIDTH,
       height: PAGE_HEIGHT,
       annotations: tools.page(i),
+      text: words[i],
       base: () => base(i),
     }));
   }

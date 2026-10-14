@@ -2,9 +2,11 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
+import { useAuth } from "@/src/context/AuthContext";
 
 type SharedNote = { id: string; title: string; kind: "typed" | "document"; plainText: string; fileType: string; url: string | null };
-type ShareMeta = { title: string; type: string; passwordRequired: boolean; allowEdit: boolean };
+type ShareMeta = { title: string; type: string; passwordRequired: boolean; allowEdit: boolean; audience?: "anyone" | "signedIn" | "invited" };
 
 function SharedNoteCard({ note, shareId, allowEdit }: { note: SharedNote; shareId: string; allowEdit: boolean }) {
   const [text, setText] = useState(note.plainText ?? "");
@@ -44,11 +46,18 @@ export default function SharedNotePage() {
   const [notes, setNotes] = useState<SharedNote[] | null>(null);
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [needsSignIn, setNeedsSignIn] = useState(false);
+  const { user, loading: authLoading } = useAuth();
 
   async function access(value: string) {
     const response = await fetch("/api/note-shares", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "access", id: shareId, password: value }) });
     const data = await response.json();
-    if (!response.ok) { setError(data.error || "Couldn't open this share."); return; }
+    if (!response.ok) {
+      setNeedsSignIn(data.needsSignIn === true);
+      setError(data.needsSignIn ? "" : data.error || "Couldn't open this share.");
+      return;
+    }
+    setNeedsSignIn(false);
     setNotes(data.notes);
   }
 
@@ -58,16 +67,26 @@ export default function SharedNotePage() {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "This share link is unavailable.");
         setMeta(data);
-        if (!data.passwordRequired) void access("");
       })
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "This share link is unavailable."));
-  // Access is deliberately started only once metadata is known.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shareId]);
+
+  // Open straight away unless a password is needed. A share for signed-in people
+  // waits until sign-in has settled, so a signed-in visitor isn't turned away
+  // before their session has loaded.
+  useEffect(() => {
+    if (!meta || meta.passwordRequired || notes) return;
+    if (meta.audience && meta.audience !== "anyone" && authLoading) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void access("");
+  // access() only reads shareId, which is stable for this page. It is a request to
+  // the server that then sets state, which is what this effect exists to start.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meta, authLoading, user?.uid]);
 
   function submitPassword(event: FormEvent<HTMLFormElement>) { event.preventDefault(); void access(password); }
 
   if (!meta) return <main className="mx-auto max-w-3xl p-8 text-sm text-text-muted">{error || "Opening shared material…"}</main>;
-  if (!notes) return <main className="mx-auto flex min-h-screen max-w-sm items-center p-6"><form onSubmit={submitPassword} className="w-full rounded-2xl border border-border-light bg-bg-container p-6"><h1 className="text-xl font-semibold text-text-main">{meta.title}</h1><p className="mt-2 text-sm text-text-muted">{meta.passwordRequired ? "Enter the password to view this shared material." : "Opening shared material…"}</p>{meta.passwordRequired && <><input autoFocus type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="mt-4 w-full rounded-lg border border-border-light px-3 py-2" /><button className="mt-3 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-text-inverse">Open</button></>}{error && <p className="mt-3 text-sm text-alert-error">{error}</p>}</form></main>;
+  if (!notes) return <main className="mx-auto flex min-h-screen max-w-sm items-center p-6"><form onSubmit={submitPassword} className="w-full rounded-2xl border border-border-light bg-bg-container p-6"><h1 className="text-xl font-semibold text-text-main">{meta.title}</h1><p className="mt-2 text-sm text-text-muted">{needsSignIn ? "Sign in to open this shared material." : meta.passwordRequired ? "Enter the password to view this shared material." : "Opening shared material…"}</p>{needsSignIn && <Link href={`/login?redirect=${encodeURIComponent(`/share/${shareId}`)}`} className="mt-4 inline-block rounded-lg bg-primary px-4 py-2 text-sm font-medium text-text-inverse">Sign in</Link>}{meta.passwordRequired && <><input autoFocus type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="mt-4 w-full rounded-lg border border-border-light px-3 py-2" /><button className="mt-3 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-text-inverse">Open</button></>}{error && <p className="mt-3 text-sm text-alert-error">{error}</p>}</form></main>;
   return <main className="mx-auto max-w-3xl p-6 sm:p-10"><h1 className="text-2xl font-semibold text-text-main">{meta.title}</h1><p className="mt-1 text-sm text-text-muted">Shared {meta.type}{meta.allowEdit ? " · Editing enabled" : " · View only"}</p><div className="mt-6 space-y-5">{notes.map((note) => <SharedNoteCard key={note.id} note={note} shareId={shareId} allowEdit={meta.allowEdit} />)}</div></main>;
 }

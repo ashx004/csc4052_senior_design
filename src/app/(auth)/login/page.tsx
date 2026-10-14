@@ -23,6 +23,8 @@ function LoginForm() {
   const [twoFactorMessage, setTwoFactorMessage] = useState("");
   const [isResendingCode, setIsResendingCode] = useState(false);
   const [resendAfterSeconds, setResendAfterSeconds] = useState(0);
+  // Remembered by default: this browser then skips the emailed code next time (removable in Settings).
+  const [trustDevice, setTrustDevice] = useState(true);
   const [showPasswordReset, setShowPasswordReset] = useState(false);
   const [isResetSubmitting, setIsResetSubmitting] = useState(false);
   const [resetMessage, setResetMessage] = useState("");
@@ -77,6 +79,12 @@ function LoginForm() {
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(data?.error || "Unable to start sign-in verification.");
+      // A browser that already passed the emailed code is signed straight in.
+      if (typeof data?.customToken === "string") {
+        touchRememberCookie();
+        await signInWithCustomToken(auth, data.customToken);
+        return;
+      }
       setAwaitingTwoFactor(true);
       setPassword("");
       setTwoFactorCode("");
@@ -96,7 +104,7 @@ function LoginForm() {
       const response = await fetch("/api/auth/login-2fa/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: twoFactorCode }),
+        body: JSON.stringify({ code: twoFactorCode, trustDevice }),
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(data?.error || "Unable to verify the sign-in code.");
@@ -212,6 +220,13 @@ function LoginForm() {
               className="rounded border border-border-light bg-bg-container px-3 py-2 text-center font-mono text-lg tracking-[0.35em] text-text-main outline-none focus:border-primary"
               aria-label="Eight-digit sign-in code"
             />
+            <label className="flex cursor-pointer items-start gap-2 text-sm text-text-main">
+              <input type="checkbox" checked={trustDevice} onChange={(event) => setTrustDevice(event.target.checked)} className="mt-0.5 h-4 w-4 accent-primary" />
+              <span>
+                Remember this device
+                <span className="block text-xs text-text-muted">Skip the code next time on this browser. Don&apos;t tick this on a shared computer.</span>
+              </span>
+            </label>
             <button
               type="button"
               onClick={handleTwoFactorVerification}

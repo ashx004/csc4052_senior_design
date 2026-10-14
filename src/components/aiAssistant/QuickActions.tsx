@@ -1,8 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { BookOpen, CalendarPlus, FileSearch, FileText, Gauge, ListChecks, NotebookPen, X } from "lucide-react";
 import type { ChatClass } from "@/src/library/chatContext";
+import type { CustomType } from "@/src/library/custom/customRequest";
+import type { StudyKind } from "@/src/library/studySets/setupRules";
+import StudyLaunch from "@/src/components/learning/StudyLaunch";
 
 // Quick actions above the chat box: a reminder of what the assistant can do,
 // and a way to ask for it without ambiguity. Each action collects the class,
@@ -20,10 +25,14 @@ interface QuickAction {
   /** Shown under the form's heading. */
   hint: string;
   fields: Field[];
-  /** A file is required (quiz/flashcards are generated from one document). */
+  /** A file is required (the practice exam and notes are generated from a chosen one). */
   needsFile?: boolean;
+  /** Opens the Learning page's own flow (source picker, setup, custom sets) instead of sending a chat message. */
+  launchKind?: StudyKind;
+  /** Where to build a one-off set from the student's own files or prompt, with no class. */
+  customType?: CustomType;
   submitLabel: string;
-  build: (v: Values) => string;
+  build?: (v: Values) => string;
 }
 
 interface Values {
@@ -47,21 +56,21 @@ const ACTIONS: QuickAction[] = [
     id: "quiz",
     label: "Make a quiz",
     icon: <ListChecks size={15} />,
-    hint: "Built from one of your class files and saved to that class's quizzes.",
-    fields: ["class", "file", "count", "focus"],
-    needsFile: true,
-    submitLabel: "Make quiz",
-    build: (v) => `Make a ${v.count}-question quiz from ${quoteFile(v.file)} in ${v.classLabel}.${focusPart(v.focus)}`,
+    hint: "Pick one or more files or notes from a class, set the difficulty, and it's saved to that class's quizzes.",
+    fields: ["class"],
+    launchKind: "quiz",
+    customType: "quiz",
+    submitLabel: "Choose sources",
   },
   {
     id: "flashcards",
     label: "Flashcards",
     icon: <BookOpen size={15} />,
-    hint: "A flashcard set from one of your class files, ready to study.",
-    fields: ["class", "file", "focus"],
-    needsFile: true,
-    submitLabel: "Make flashcards",
-    build: (v) => `Make flashcards from ${quoteFile(v.file)} in ${v.classLabel}.${focusPart(v.focus)}`,
+    hint: "Pick one or more files or notes from a class and get a deck ready to study.",
+    fields: ["class"],
+    launchKind: "flashcards",
+    customType: "flashcards",
+    submitLabel: "Choose sources",
   },
   {
     id: "exam",
@@ -69,6 +78,7 @@ const ACTIONS: QuickAction[] = [
     icon: <FileText size={15} />,
     hint: "A downloadable practice exam PDF, saved to your class files. Longer exams take a minute or two to write.",
     fields: ["class", "file", "count", "focus"],
+    customType: "practice",
     submitLabel: "Create practice exam",
     build: (v) =>
       `Create a practice exam PDF with ${v.count} questions for ${v.classLabel}${v.file ? `, based on ${quoteFile(v.file)}` : ", based on my class files"}.${focusPart(v.focus)}`,
@@ -149,10 +159,13 @@ export default function QuickActions({
   compact?: boolean;
 }) {
   const current = useMemo(() => classes.filter((c) => c.status !== "completed"), [classes]);
-  const [active, setActive] = useState<QuickAction | null>(null);
+  const [openForm, setActive] = useState<{ action: QuickAction; path: string | null } | null>(null);
   const [courseId, setCourseId] = useState<string>("");
   const [values, setValues] = useState<Omit<Values, "classLabel">>({ file: "", count: "10", focus: "", title: "", date: todayIso(), time: "18:00", duration: "1 hour", query: "" });
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const pathname = usePathname();
+  // The study flow routes to the new set; the form shouldn't still be open on the next page.
+  const active = openForm && openForm.path === pathname ? openForm.action : null;
 
   useEffect(() => {
     if (!active) return;
@@ -170,13 +183,14 @@ export default function QuickActions({
     const preferred = current.find((c) => c.classId === defaultCourseId)?.classId ?? (allowAll ? "" : current[0]?.classId ?? "");
     setCourseId(preferred);
     setValues((v) => ({ ...v, file: "", focus: "", title: "", query: "", count: action.id === "exam" ? "15" : "10" }));
-    setActive(action);
+    setActive({ action, path: pathname });
   }
 
   function submit() {
     if (!active) return;
     const cls = current.find((c) => c.classId === courseId);
     const classLabel = cls ? cls.classCode || cls.className : ALL_CLASSES;
+    if (!active.build) return;
     onSend(active.build({ ...values, classLabel }));
     setActive(null);
   }
@@ -339,18 +353,43 @@ export default function QuickActions({
             )}
           </div>
 
+          {active.customType && (
+            <p className="mt-3 text-xs text-text-muted">
+              Not tied to a class? Make a one-off {active.customType === "practice" ? "practice exam" : active.customType} from your own files or a prompt:{" "}
+              <Link href={`/custom/new?type=${active.customType}`} className="font-medium text-primary hover:underline">
+                Make a custom {active.customType === "practice" ? "practice exam" : active.customType}
+              </Link>
+            </p>
+          )}
+
           <div className="mt-4 flex justify-end gap-2">
             <button type="button" onClick={() => setActive(null)} className="rounded-lg px-3 py-2 text-sm text-text-muted hover:bg-bg-warm">
               Cancel
             </button>
-            <button
-              type="button"
-              disabled={missing || disabled}
-              onClick={submit}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-text-inverse hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {active.submitLabel}
-            </button>
+            {active.launchKind && courseId ? (
+              // The same source picker, setup and custom-set options as the Learning page.
+              <StudyLaunch key={`${courseId}-${active.id}`} courseId={courseId} variant="compact" initialKind={active.launchKind}>
+                {(openFlow) => (
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => openFlow(active.launchKind)}
+                    className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-text-inverse hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {active.submitLabel}
+                  </button>
+                )}
+              </StudyLaunch>
+            ) : (
+              <button
+                type="button"
+                disabled={missing || disabled || !active.build}
+                onClick={submit}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-text-inverse hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {active.submitLabel}
+              </button>
+            )}
           </div>
         </div>
       )}

@@ -1,5 +1,6 @@
 "use client";
 
+import { useClaimAiPanel } from "@/src/context/AIPageContext";
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ChevronLeft, Loader2, Volume2, VolumeX, X } from "lucide-react";
@@ -41,6 +42,7 @@ export default function BlocksPage() {
   }, [authLoading, user, router]);
 
   const catalystChatContext = useChatContext(user?.uid, user?.email);
+  useClaimAiPanel(!!catalystChatContext);
 
   if (authLoading || !user) {
     return (

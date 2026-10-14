@@ -113,3 +113,46 @@ describe("SyllabusModal (edit mode)", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 });
+
+describe("SyllabusModal (course calendar mode)", () => {
+  function openDates(withSyllabus: boolean) {
+    const onClose = vi.fn();
+    const onApplied = vi.fn();
+    render(
+      <SyllabusModal
+        uid="u1"
+        courseId="course1"
+        mode="dates"
+        current={{ classCode: "BIO 101", className: "Intro Biology", term: "Fall 2026", ...(withSyllabus ? { syllabus: saved } : {}) }}
+        onClose={onClose}
+        onApplied={onApplied}
+      />
+    );
+    return { onClose, onApplied };
+  }
+
+  it("shows only the dates, not the instructor and course fields", () => {
+    openDates(true);
+    expect(screen.getByText("Course calendar")).toBeTruthy();
+    expect((screen.getAllByLabelText("Title")[0] as HTMLInputElement).value).toBe("Fall Break");
+    expect(screen.queryByText("Instructor")).toBeNull();
+    expect(screen.queryByText("Office hours")).toBeNull();
+  });
+
+  it("lets a course with no syllabus add dates by hand and saves just the dates", async () => {
+    const { onClose } = openDates(false);
+    fireEvent.click(screen.getByRole("button", { name: /Add a date/ }));
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-10-30" } });
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Project due" } });
+    // A new exam date is ticked for the calendar by default.
+    expect((screen.getByLabelText(/On my calendar/) as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Save dates" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+
+    const stored = (updateDoc.mock.calls[0] as unknown[])[1] as { syllabus: { name: string; dates: { title: string }[] } };
+    expect(stored.syllabus.name).toBe("Course calendar");
+    expect(stored.syllabus.dates.map((d) => d.title)).toEqual(["Project due"]);
+    const planned = (syncSyllabusEvents.mock.calls[0] as unknown[])[3] as { data: Record<string, string> }[];
+    expect(planned).toHaveLength(1);
+  });
+});

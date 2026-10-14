@@ -1,13 +1,15 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { collection, getDocs } from "firebase/firestore";
 import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
   Filter,
   Plus,
+  Upload,
 } from "lucide-react";
 
 import AddEventModal from "@/src/components/calendar/AddEventModal";
@@ -35,6 +37,7 @@ import type { CalendarEvent, CalendarView } from "@/src/components/calendar/cale
 import { useSetPageContext } from "@/src/context/AIPageContext";
 import { useAuth } from "@/src/context/AuthContext";
 import { db } from "@/src/library/firebase";
+import { sortByPosition } from "@/src/library/classOrder";
 import { DEFAULT_EMAIL_REMINDER_OFFSETS_MINUTES } from "@/src/library/email/reminderPreferences";
 import { isEmailReminderEligible, resolveEventDueAt } from "@/src/library/email/reminderModel";
 import { saveLocalEventWithReminderJobs } from "@/src/library/email/reminderJobs";
@@ -142,9 +145,36 @@ export default function CalendarPage() {
     return conflictTitles.length ? { ...event, conflictTitles } : event;
   }), [allEvents]);
   useCalendarReminders(eventsWithConflicts);
-  const classOptions = useMemo(() => Array.from(new Map(
-    eventsWithConflicts.filter((event) => event.classId && event.className).map((event) => [event.classId!, event.className!])
-  ).entries()), [eventsWithConflicts]);
+  // Every current class, in the order the student arranged them, so a class is
+  // pickable even when it has no events in view. Classes only known from events
+  // (e.g. a completed one) follow after.
+  const [enrolledClasses, setEnrolledClasses] = useState<[string, string][]>([]);
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    getDocs(collection(db, "users", user.uid, "enrollment"))
+      .then((snap) => {
+        if (cancelled) return;
+        const rows = snap.docs
+          .map((d) => ({ id: d.id, data: d.data() }))
+          .filter(({ data }) => data.status !== "completed")
+          .map(({ id, data }) => ({
+            id,
+            label: [data.classCode, data.className].filter(Boolean).join(" - ") || "Class",
+            sortOrder: typeof data.sortOrder === "number" ? data.sortOrder : undefined,
+          }));
+        setEnrolledClasses(sortByPosition(rows).map((row) => [row.id, row.label]));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+  const classOptions = useMemo(() => {
+    const options = new Map<string, string>(enrolledClasses);
+    for (const event of eventsWithConflicts) if (event.classId && event.className && !options.has(event.classId)) options.set(event.classId, event.className);
+    return Array.from(options.entries());
+  }, [eventsWithConflicts, enrolledClasses]);
   const filteredEvents = useMemo(() => eventsWithConflicts.filter((event) =>
     (showLocal || event.source !== "local") &&
     (showGoogle || event.source !== "google") &&
@@ -183,9 +213,11 @@ export default function CalendarPage() {
     setSelectedDate(new Date());
   }
 
+  // Clicking a day in the month grid or a week column header drills into that day.
   function handleSelectDate(date: Date) {
     setSelectedDate(date);
     setCurrentDate(new Date(date));
+    setView("day");
   }
 
   async function handleMoveEvent(event: CalendarEvent, targetDate: Date) {
@@ -351,6 +383,28 @@ export default function CalendarPage() {
           </div>
 
           <div className="relative flex items-center gap-3">
+            {classOptions.length > 0 && (
+              <select
+                aria-label="Show one class"
+                value={classFilter}
+                onChange={(change) => setClassFilter(change.target.value)}
+                className="max-w-[14rem] rounded-lg border border-border-light bg-bg-container px-3 py-2 text-sm font-medium text-text-main shadow-sm transition hover:bg-bg-warm"
+              >
+                <option value="all">All classes</option>
+                {classOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+              </select>
+            )}
+            {classFilter !== "all" && (
+              <button
+                type="button"
+                onClick={() => router.push(`/courses/${classFilter}?calendar=1`)}
+                title="Read dates from a syllabus or schedule, or add and edit them by hand"
+                className="inline-flex items-center gap-2 rounded-lg border border-border-light bg-bg-container px-4 py-2 text-sm font-medium text-text-main shadow-sm transition hover:bg-bg-warm"
+              >
+                <Upload size={15} strokeWidth={1.8} />
+                Import class dates
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setShowFilters((open) => !open)}
@@ -370,7 +424,6 @@ export default function CalendarPage() {
                 <label className="mt-2 flex items-center gap-2 text-sm text-text-main"><input type="checkbox" checked={showGoogle} onChange={(change) => setShowGoogle(change.target.checked)} /> Google Calendar</label>
                 <label className="mt-2 flex items-center gap-2 text-sm text-text-main"><input type="checkbox" checked={showClassMeetings} onChange={(change) => setShowClassMeetings(change.target.checked)} /> Class meetings</label>
                 <label className="mt-2 flex items-center gap-2 text-sm text-text-main"><input type="checkbox" checked={showStudy} onChange={(change) => setShowStudy(change.target.checked)} /> Study blocks</label>
-                {classOptions.length > 0 && <label className="mt-3 block text-sm text-text-main">Class<select value={classFilter} onChange={(change) => setClassFilter(change.target.value)} className="mt-1 w-full rounded-md border border-border-light bg-bg-main px-2 py-1.5 text-sm"><option value="all">All classes</option>{classOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>}
               </div>
             )}
             {status === "connected" && (

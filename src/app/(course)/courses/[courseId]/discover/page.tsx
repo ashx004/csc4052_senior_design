@@ -1,5 +1,6 @@
 'use client';
 
+import { useClaimAiPanel } from "@/src/context/AIPageContext";
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
@@ -152,6 +153,8 @@ export default function DiscoverPage() {
         sessionScore: learnQuestionsState.sessionScore,
       }
     : null;
+  // Its own AI panel only shows once there are practice questions to talk about.
+  useClaimAiPanel(learnQuestions.length > 0 && !!learnQuestionsPageContext && !!chatContext);
 
   const catalystSuggestions = learnQuestionsPageContext
     ? buildLearnQuestionSuggestions(learnQuestionsPageContext)
