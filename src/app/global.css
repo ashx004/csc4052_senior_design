@@ -54,6 +54,7 @@ main .h-screen { height: calc(100vh - var(--topbar-h)); }
      light canvas, so these do not get dark-mode overrides. */
   --color-navy: #1A1A30;              /* Hero banner, primary actions, focus mode card */
   --color-brown-label: #B49080;       /* Section labels, metadata, progress accents */
+  --color-streak-flame: #F19A37;      /* Streak flame body */
   --color-beige-canvas: #F0EBE8;      /* Learning workspace canvas */
   --color-beige-light: #FAF9F9;       /* Soft card surfaces */
   --color-gray-secondary: #54555C;    /* Secondary text */
@@ -62,6 +63,17 @@ main .h-screen { height: calc(100vh - var(--topbar-h)); }
   --color-accent-lavender: #E4E7FF;   /* Class / metric accent */
   --color-accent-peach: #FFECE1;      /* Class / metric accent */
   --color-accent-sage: #DCE8D8;       /* Class / metric accent */
+  /* Learning redesign v2 */
+  --color-buddy-bg: #EDF2FB;          /* Today's pick surface */
+  --color-buddy-label: #8A94A6;       /* Cool gray label and meta text */
+  --color-buddy-muted: #A3ADBC;       /* The word "complete" */
+  --color-buddy-track: #E2E8F3;       /* Unfilled progress ring */
+  --color-buddy-blue: #2F6BE4;        /* Play triangle */
+  --color-buddy-hover: #F3F7FF;       /* play button hover */
+  --color-card-lav: #DEE1FF;          /* Explore classes card */
+  --color-scrib-lav: #EBEDFF;         /* Explore classes scribble */
+  --color-card-pea: #FFE0CB;          /* Study plan card */
+  --color-scrib-pea: #FFEFE3;         /* Study plan scribble */
 }
 
 /* ==========================================================================

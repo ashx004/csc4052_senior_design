@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Bell, ChevronDown } from "lucide-react";
 import type { StudyNotification } from "@/src/library/studyPlan/types";
 import SearchBar from "@/src/components/search/SearchBar";
@@ -14,6 +15,9 @@ interface WorkspaceHeaderProps {
   onMarkNotificationRead?: (id: string) => void;
   onDismissNotification?: (id: string) => void;
   onProfile?: () => void;
+  showHeading?: boolean;
+  /** Sits on the left of the icon row. Used for the back link on inner pages. */
+  leading?: ReactNode;
 }
 
 export default function WorkspaceHeader({
@@ -26,22 +30,28 @@ export default function WorkspaceHeader({
   onMarkNotificationRead,
   onDismissNotification,
   onProfile,
+  showHeading = true,
+  leading,
 }: WorkspaceHeaderProps) {
   return (
-    <header className="flex flex-wrap items-start justify-between gap-4">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brown-label">
-          Learning workspace · {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-        </p>
-        <h1 className="mt-2 text-2xl font-bold tracking-[-0.04em] text-navy sm:text-3xl">
-          Your learning, with a plan.
-        </h1>
-        <p className="mt-1 text-sm text-gray-secondary">
-          Choose a class to explore, or let your plan guide the next step.
-        </p>
-      </div>
+    <header className={`flex flex-wrap justify-between gap-3 ${showHeading ? "items-start" : "items-center"}`}>
+      {showHeading ? (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brown-label">
+            Learning workspace · {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+          </p>
+          <h1 className="mt-2 text-2xl font-bold tracking-[-0.04em] text-navy sm:text-3xl">
+            Your learning, with a plan.
+          </h1>
+          <p className="mt-1 text-sm text-gray-secondary">
+            Choose a class to explore, or let your plan guide the next step.
+          </p>
+        </div>
+      ) : (
+        leading ?? <div />
+      )}
 
-      <div className="flex items-center gap-3">
+      <div className="ml-auto flex items-center gap-3">
         {/* Learning shows the site search as just this button, in place of
             the top bar every other page has (see TopBar). */}
         <SearchBar compact />
