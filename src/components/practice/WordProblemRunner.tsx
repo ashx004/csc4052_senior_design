@@ -4,7 +4,7 @@ import { useState } from "react";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { gradeNumeric } from "@/src/library/practice/grading";
 import { MAX_WRITTEN_ANSWER_CHARS, type ItemResult, type WordProblemItem } from "@/src/library/practice/types";
-import { PRIMARY_BUTTON, ProgressDots, QuestionPanel, Verdict } from "./PracticeShell";
+import { MarkCorrectButton, PRIMARY_BUTTON, ProgressDots, QuestionPanel, Verdict } from "./PracticeShell";
 
 interface Outcome {
   score: number;
@@ -66,6 +66,13 @@ export default function WordProblemRunner({
     } finally {
       setChecking(false);
     }
+  }
+
+  // The student overrides the checker (an equivalent answer it didn't accept).
+  function markCorrect() {
+    if (!outcome || outcome.score >= 1) return;
+    setOutcome({ score: 1, note: "Marked correct by you." });
+    setResults((all) => all.map((r, i) => (i === all.length - 1 ? { ...r, score: 1 } : r)));
   }
 
   function next() {
@@ -142,6 +149,7 @@ export default function WordProblemRunner({
                   <p className="opacity-90">{item.expectedAnswer}</p>
                 </div>
               )}
+              {outcome.score < 1 && <MarkCorrectButton onClick={markCorrect} />}
               {item.solution && (
                 <details className="pt-1">
                   <summary className="cursor-pointer font-medium">{isNumber ? "How to solve it" : "Why"}</summary>

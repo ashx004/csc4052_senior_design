@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { z } from "zod";
-import { GENERATION_DEADLINE_MS, normalizedQuestion, structuredGeneration } from "../structuredGeneration";
+import { normalizedQuestion, structuredGeneration } from "../structuredGeneration";
 import { repeatsEarlierQuestion } from "../quizGeneration";
 import { buildCategorizeRound, buildMatchRound, buildSequenceRound } from "./dragDrop";
 import { normalizeAnswer, parseNumber } from "./grading";
@@ -22,6 +22,10 @@ import {
 // anything that fails is dropped, with one repair attempt for what is missing.
 
 const MAX_ATTEMPTS = 2;
+// Shorter than the general 120s: a reverse proxy usually cuts a request off
+// around 100s with an HTML error page, so the app has to answer first with a
+// message the student can read.
+const PRACTICE_DEADLINE_MS = 85_000;
 export const MAX_PRACTICE_ITEMS = 12;
 
 export interface GeneratedPractice {
@@ -377,7 +381,7 @@ Use these round types: ${modes.map((m) => `"${m}"`).join(", ")}${modes.length > 
 
 ${blocks.join("\n")}
 
-For every round leave the lists for the other round types empty, write "instructions" as one short sentence telling the student what to drag where, and "explanation" as one or two sentences recapping the right answer.
+For every round leave the lists for the other round types empty, write "instructions" as one short sentence telling the student what to drag where (the items start in a tray at the top and are dragged down into boxes - never say "left" or "right"; say "drag each term onto its definition" or similar), and "explanation" as one or two sentences recapping the right answer.
 
 ${UNTRUSTED}
 
@@ -406,7 +410,7 @@ export async function generatePractice(req: PracticeRequest): Promise<GeneratedP
     throw new Error(`Choose between 1 and ${MAX_PRACTICE_ITEMS} questions.`);
   }
   const modes = (req.modes?.length ? req.modes : ALL_MODES).filter((m) => ALL_MODES.includes(m));
-  const deadline = Date.now() + GENERATION_DEADLINE_MS;
+  const deadline = Date.now() + PRACTICE_DEADLINE_MS;
   const avoid = req.avoid ?? [];
   const seen = new Set(avoid.map(normalizedQuestion));
   const accepted: PracticeItem[] = [];
@@ -418,7 +422,9 @@ export async function generatePractice(req: PracticeRequest): Promise<GeneratedP
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
     const needed = req.count - accepted.length;
     // Some drafts will fail validation or repeat; ask for a couple of spares.
-    const drafts = Math.min(MAX_PRACTICE_ITEMS + 3, needed + (attempt === 0 ? 2 : 3));
+    // Drag-and-drop rounds are the longest to write, so they get one spare, not two.
+    const spares = req.kind === "drag_drop" ? 1 : attempt === 0 ? 2 : 3;
+    const drafts = Math.min(MAX_PRACTICE_ITEMS + 3, needed + spares);
     const repair = attempt > 0
       ? `\n\nThe previous response did not have enough valid items. Return exactly ${drafts} new ones, checking each against the rules. Do not repeat these accepted items:\n${accepted.map(itemText).join("\n")}`
       : "";

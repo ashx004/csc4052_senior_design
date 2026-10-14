@@ -4,7 +4,7 @@ import { Fragment, useMemo, useRef, useState } from "react";
 import { ArrowRight, Lightbulb } from "lucide-react";
 import { gradeFillBlank, type BlankGrade } from "@/src/library/practice/grading";
 import { BLANK_MARKER, type FillBlankItem, type ItemResult } from "@/src/library/practice/types";
-import { PRIMARY_BUTTON, ProgressDots, QuestionPanel, Verdict } from "./PracticeShell";
+import { MarkCorrectButton, PRIMARY_BUTTON, ProgressDots, QuestionPanel, Verdict } from "./PracticeShell";
 
 /** One fill-in-the-blank question at a time: type, check, read the explanation, move on. */
 export default function FillBlankRunner({ items, onFinish }: { items: FillBlankItem[]; onFinish: (results: ItemResult[]) => void }) {
@@ -12,6 +12,7 @@ export default function FillBlankRunner({ items, onFinish }: { items: FillBlankI
   const [results, setResults] = useState<ItemResult[]>([]);
   const [inputs, setInputs] = useState<string[]>([]);
   const [graded, setGraded] = useState<{ score: number; perBlank: BlankGrade[] } | null>(null);
+  const [overridden, setOverridden] = useState(false);
   const [hintsShown, setHintsShown] = useState<Record<number, boolean>>({});
   const firstInput = useRef<HTMLInputElement>(null);
 
@@ -26,6 +27,15 @@ export default function FillBlankRunner({ items, onFinish }: { items: FillBlankI
     setResults((all) => [...all, { itemId: item.id, score: result.score, response: item.blanks.map((_, i) => inputs[i] ?? "") }]);
   }
 
+  // The student overrides the checker (a synonym, an alternate spelling): the
+  // question counts as fully correct.
+  function markCorrect() {
+    if (!graded || graded.score >= 1) return;
+    setGraded({ score: 1, perBlank: graded.perBlank.map(() => ({ correct: true, typo: false })) });
+    setResults((all) => all.map((r, i) => (i === all.length - 1 ? { ...r, score: 1 } : r)));
+    setOverridden(true);
+  }
+
   function next() {
     if (index + 1 >= items.length) {
       onFinish(results);
@@ -34,6 +44,7 @@ export default function FillBlankRunner({ items, onFinish }: { items: FillBlankI
     setIndex(index + 1);
     setInputs([]);
     setGraded(null);
+    setOverridden(false);
     setHintsShown({});
     // Focus the first blank of the next question once it has rendered.
     setTimeout(() => firstInput.current?.focus(), 0);
@@ -127,6 +138,8 @@ export default function FillBlankRunner({ items, onFinish }: { items: FillBlankI
                 </p>
               ))}
               {item.explanation && <p className="pt-1 opacity-90">{item.explanation}</p>}
+              {overridden && <p className="pt-1 text-xs italic opacity-80">Marked correct by you.</p>}
+              {graded.score < 1 && <MarkCorrectButton onClick={markCorrect} />}
             </Verdict>
           )}
 
