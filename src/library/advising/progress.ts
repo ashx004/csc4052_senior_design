@@ -75,6 +75,8 @@ export interface ProgressSummary {
   creditsRequired: number | null;
   /** 0-100 of the degree's credits earned, or null when the sheet gave no total. */
   percentEarned: number | null;
+  /** 0-100 of the requirements that are done. Credits can pass the total while required courses remain, so this is the headline. */
+  percentRequirementsDone: number | null;
   gpa: number | null;
   requirements: RequirementProgress[];
   counts: Record<RequirementState, number>;
@@ -133,11 +135,72 @@ function findConcentration(curriculum: CurriculumData, name: string | null | und
     ?? null;
 }
 
+/** What the transcript already says about the rules that are about credits, grades and GPA. */
+interface Standing {
+  courses: TranscriptCourse[];
+  creditsEarned: number;
+  creditsInProgress: number;
+}
+
+const GRADE_ORDER = ["F", "D-", "D", "D+", "C-", "C", "C+", "B-", "B", "B+", "A-", "A", "A+"];
+
+const subjectOf = (text: string) => /\b(?:for|in|of)\s+(?:all\s+)?([A-Z]{2,5})\s+(?:[Cc]ourses?|[Cc]lasses)\b/.exec(text)?.[1] ?? null;
+const inSubject = (course: TranscriptCourse, subject: string) => normalizeCourseCode(course.courseCode).startsWith(subject);
+
+/**
+ * Rules the transcript can settle by itself: total credits, a minimum grade or
+ * a minimum GPA in one subject. Returns null when the rule isn't one of those or
+ * the sheet doesn't give a number to check against, so it stays "to plan".
+ */
+function evaluateStanding(requirement: CurriculumRequirement, standing: Standing, totalRequired: number | null): Omit<RequirementProgress, "id" | "name" | "group"> | null {
+  const text = `${requirement.requirementName} ${requirement.description ?? ""}`;
+
+  if (/total\s+(?:credit|hours)/i.test(requirement.requirementName)) {
+    const needed = requirement.creditsRequired ?? totalRequired;
+    if (!needed) return null;
+    const { creditsEarned, creditsInProgress } = standing;
+    if (creditsEarned >= needed) return { state: "done", detail: `${creditsEarned} of ${needed} credits earned`, matched: [] };
+    if (creditsEarned + creditsInProgress >= needed) return { state: "in-progress", detail: `${creditsEarned} earned and ${creditsInProgress} in progress, of ${needed} credits`, matched: [] };
+    return { state: "remaining", detail: `${needed - creditsEarned - creditsInProgress} more credits needed (${creditsEarned} earned of ${needed})`, matched: [] };
+  }
+
+  const subject = subjectOf(text);
+  if (!subject) return null;
+  const inScope = standing.courses.filter((c) => inSubject(c, subject));
+
+  if (/\bGPA\b/i.test(requirement.requirementName)) {
+    const minimum = Number(/(\d(?:\.\d+)?)/.exec(requirement.description ?? "")?.[1]);
+    if (!Number.isFinite(minimum) || minimum <= 0 || minimum > 4) return null;
+    const graded = inScope.filter((c) => (c.status === "completed" || c.status === "failed") && gradePoints(c.grade) !== null && (c.creditHours ?? 0) > 0);
+    const credits = graded.reduce((sum, c) => sum + (c.creditHours ?? 0), 0);
+    if (credits === 0) return null;
+    const gpa = Math.round((graded.reduce((sum, c) => sum + gradePoints(c.grade)! * (c.creditHours ?? 0), 0) / credits) * 100) / 100;
+    return gpa >= minimum
+      ? { state: "done", detail: `Your ${subject} GPA is ${gpa.toFixed(2)} (needs ${minimum.toFixed(2)})`, matched: [] }
+      : { state: "remaining", detail: `Your ${subject} GPA is ${gpa.toFixed(2)}, below the ${minimum.toFixed(2)} needed`, matched: [] };
+  }
+
+  if (/\bgrade\b/i.test(requirement.requirementName)) {
+    const minimum = /\b([A-D][+-]?)["'\u201d\u2019]?\s+or\s+(?:higher|better|above)/i.exec(requirement.description ?? "")?.[1]?.toUpperCase();
+    if (!minimum || !GRADE_ORDER.includes(minimum)) return null;
+    const graded = inScope.filter((c) => earnedCredit(c) || c.status === "failed").filter((c) => GRADE_ORDER.includes(cleanGrade(c.grade)));
+    if (graded.length === 0) return null;
+    const below = graded.filter((c) => GRADE_ORDER.indexOf(cleanGrade(c.grade)) < GRADE_ORDER.indexOf(minimum));
+    return below.length === 0
+      ? { state: "done", detail: `All ${graded.length} of your ${subject} courses so far are ${minimum} or higher`, matched: [] }
+      : { state: "remaining", detail: `Below ${minimum}: ${below.map((c) => `${c.courseCode} (${cleanGrade(c.grade)})`).join(", ")}`, matched: below.map((c) => c.courseCode) };
+  }
+
+  return null;
+}
+
 function evaluate(
   requirement: CurriculumRequirement,
   group: RequirementProgress["group"],
   earned: Map<string, TranscriptCourse>,
   inProgress: Map<string, TranscriptCourse>,
+  standing: Standing,
+  totalRequired: number | null,
 ): RequirementProgress {
   const base = { id: requirement.requirementId, name: requirement.requirementName, group };
   const label = (code: string) => (earned.get(code) ?? inProgress.get(code))?.courseCode ?? code;
@@ -160,6 +223,11 @@ function evaluate(
     const left = need - done.length - ongoing.length;
     return { ...base, state: "remaining", detail: `Choose ${left} more from ${options.length} options${matched.length ? ` (have ${matched.join(", ")})` : ""}`, matched };
   }
+
+  const standingResult = requirement.requirementType === "credit-requirement" || requirement.requirementType === "other" || requirement.requirementType === "open-elective"
+    ? evaluateStanding(requirement, standing, totalRequired)
+    : null;
+  if (standingResult) return { ...base, ...standingResult };
 
   const credits = requirement.creditsRequired ? `${requirement.creditsRequired} credits` : requirement.numberRequired ? `${requirement.numberRequired} courses` : null;
   return { ...base, state: "review", detail: credits ? `${credits} - Catalyst can't tell which courses count, so plan this one yourself` : "Check this one against your curriculum sheet", matched: [] };
@@ -200,9 +268,11 @@ export function summarizeProgress(transcript: TranscriptData, curriculum: Curric
   const gpa = gradedCredits > 0 ? graded.reduce((sum, c) => sum + gradePoints(c.grade)! * (c.creditHours ?? 0), 0) / gradedCredits : null;
 
   const concentration = findConcentration(curriculum, transcript.concentration);
+  const standing: Standing = { courses, creditsEarned, creditsInProgress };
+  const totalRequired = curriculum.totalDegreeCredits && curriculum.totalDegreeCredits > 0 ? curriculum.totalDegreeCredits : null;
   const requirements = [
-    ...curriculum.requirements.map((r) => evaluate(r, "program", earned, inProgress)),
-    ...(concentration?.requirements ?? []).map((r) => evaluate(r, "concentration", earned, inProgress)),
+    ...curriculum.requirements.map((r) => evaluate(r, "program", earned, inProgress, standing, totalRequired)),
+    ...(concentration?.requirements ?? []).map((r) => evaluate(r, "concentration", earned, inProgress, standing, totalRequired)),
   ];
   const counts: Record<RequirementState, number> = { done: 0, "in-progress": 0, remaining: 0, review: 0 };
   for (const requirement of requirements) counts[requirement.state] += 1;
@@ -217,6 +287,7 @@ export function summarizeProgress(transcript: TranscriptData, curriculum: Curric
     creditsEarned,
     creditsInProgress,
     creditsRequired,
+    percentRequirementsDone: requirements.length > 0 ? Math.round((counts.done / requirements.length) * 100) : null,
     percentEarned: creditsRequired ? Math.min(100, Math.round((creditsEarned / creditsRequired) * 100)) : null,
     gpa: gpa === null ? null : Math.round(gpa * 100) / 100,
     requirements,
