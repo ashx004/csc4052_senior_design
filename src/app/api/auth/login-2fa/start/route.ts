@@ -13,6 +13,13 @@ import { sendEmail } from "@/src/library/email/resend";
 import { emailVerificationTemplate, loginTwoFactorTemplate } from "@/src/library/email/templates";
 import { generateVerificationLink } from "@/src/library/email/firebaseAuthActions";
 import { checkRateLimit } from "@/src/library/rateLimit";
+import {
+  TRUSTED_DEVICE_COOKIE,
+  TRUSTED_DEVICE_MAX_AGE_SECONDS,
+  describeDevice,
+  readTrustedDeviceCookie,
+  trustedDeviceCookieValue,
+} from "@/src/library/trustedDevices";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -95,6 +102,30 @@ export async function POST(request: NextRequest) {
       );
     }
     const config = getEmailOtpConfig();
+
+    // A device that already passed the emailed code skips it, as long as the password
+    // was right (checked above) and the device hasn't been removed in Settings.
+    const trustedDeviceId = readTrustedDeviceCookie(request.cookies.get(TRUSTED_DEVICE_COOKIE)?.value, uid, config.secret);
+    if (trustedDeviceId) {
+      const deviceRef = adminDb.collection("users").doc(uid).collection("trustedDevices").doc(trustedDeviceId);
+      if ((await deviceRef.get()).exists) {
+        await deviceRef.update({
+          lastSeenAt: FieldValue.serverTimestamp(),
+          label: describeDevice(request.headers.get("user-agent")),
+        });
+        const customToken = await adminAuth.createCustomToken(uid, { second_factor: "trusted_device" });
+        const trusted = NextResponse.json({ customToken, trustedDevice: true });
+        // Renewed on each use, so a device in regular use stays trusted.
+        trusted.cookies.set(TRUSTED_DEVICE_COOKIE, trustedDeviceCookieValue(uid, trustedDeviceId, config.secret), {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/api/auth",
+          maxAge: TRUSTED_DEVICE_MAX_AGE_SECONDS,
+        });
+        return trusted;
+      }
+    }
 
     const challengeId = createLoginChallengeId();
     const code = createEmailOtpCode();

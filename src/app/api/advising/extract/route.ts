@@ -10,6 +10,11 @@ import { transcriptExtractionSchema, curriculumExtractionSchema, } from "@/src/l
 import { cleanTranscriptTextForOllama } from "@/src/library/advisingTranscriptCleanup";
 import { findTermCreditMismatches } from "@/src/library/advisingTranscriptChecks";
 import { checkRateLimit } from "@/src/library/rateLimit";
+import { createHash } from "node:crypto";
+
+// Identifies what a PDF said, so re-running on the same files can reuse the
+// last result instead of asking the AI to read them all over again.
+const textHash = (text: string) => createHash("sha256").update(text).digest("hex");
 
 const EXTRACT_RATE_LIMIT_WINDOW_MS = 60_000;
 const EXTRACT_RATE_LIMIT_MAX = 5; // one real upload plus a couple of retries, generously
@@ -93,46 +98,70 @@ async function processExtraction(request: NextRequest) {
 
     const rawTranscriptText = await extractPdfTextFromUrl(transcriptUrl);
     const curriculumText = await extractPdfTextFromUrl(curriculumUrl);
+    const transcriptHash = textHash(rawTranscriptText);
+    const curriculumHash = textHash(curriculumText);
 
-    // Advising-specific cleanup (PII redaction, summary-noise stripping)
-    const transcriptText = cleanTranscriptTextForOllama(rawTranscriptText);
+    // firestore document locations
+    const transcriptRef =
+      adminDb.collection("users").doc(userId).collection("transcript").doc("data");
 
+    const curriculumRef =
+      adminDb.collection("users").doc(userId).collection("curriculum").doc("data");
 
-    // ask ollama to extract the data
-    const transcriptResponse = await extractTranscriptWithOllama(transcriptText);
-    const curriculumResponse = await extractCurriculumWithOllama(curriculumText);
+    // A file that reads the same as last time keeps its saved result: the slow
+    // AI reads are only repeated for a document that actually changed.
+    const [previousTranscript, previousCurriculum] = await Promise.all([
+      transcriptRef.get().then((snap) => snap.data()),
+      curriculumRef.get().then((snap) => snap.data()),
+    ]);
 
-    // convert ollama's json strings into javascript objects
-    const rawTranscriptData = JSON.parse(transcriptResponse);
-    const rawCurriculumData = JSON.parse(curriculumResponse);
-
-    /* validate the objects against the structures defined in advisingSchema.ts.
-       if Ollama returns the wrong structure, .parse() throws an error and nothing
-       gets saved to Firestore. */
-
-    const transcriptData = transcriptExtractionSchema.parse(rawTranscriptData);
-    const creditMismatches = findTermCreditMismatches(rawTranscriptText, transcriptData.courses);
-
-    // "B R" becomes "B". A lone "R" is not a grade.
-    for (const course of transcriptData.courses) {
-      if (!course.grade) continue;
-      const cleaned = course.grade.trim().replace(/\s+R$/i, "");
-      course.grade = cleaned === "" || cleaned.toUpperCase() === "R" ? null : cleaned;
-
-      // An "IP" grade always means the course is being taken now. The model
-      // occasionally labels it something else, and then the course counts as
-      // not taken yet and the schedule starts in the current quarter.
-      if (course.grade?.toUpperCase() === "IP") course.status = "in-progress";
+    let transcriptData: ReturnType<typeof transcriptExtractionSchema.parse> | null = null;
+    if (previousTranscript?.sourceHash === transcriptHash) {
+      const reused = transcriptExtractionSchema.safeParse(previousTranscript);
+      if (reused.success && reused.data.courses.length > 0) transcriptData = reused.data;
     }
 
-    transcriptData.warnings.push(...creditMismatches);
+    if (!transcriptData) {
+      // Advising-specific cleanup (PII redaction, summary-noise stripping)
+      const transcriptText = cleanTranscriptTextForOllama(rawTranscriptText);
 
-    // Never save an empty read over good data.
-    if (transcriptData.courses.length === 0) {
-      throw new Error("No courses could be read from your transcript. Please check that you uploaded the right file.");
+      // ask ollama to extract the data, then convert its json string into an object
+      const rawTranscriptData = JSON.parse(await extractTranscriptWithOllama(transcriptText));
+
+      /* validate the object against the structures defined in advisingSchema.ts.
+         if Ollama returns the wrong structure, .parse() throws an error and nothing
+         gets saved to Firestore. */
+      transcriptData = transcriptExtractionSchema.parse(rawTranscriptData);
+      const creditMismatches = findTermCreditMismatches(rawTranscriptText, transcriptData.courses);
+
+      // "B R" becomes "B". A lone "R" is not a grade.
+      for (const course of transcriptData.courses) {
+        if (!course.grade) continue;
+        const cleaned = course.grade.trim().replace(/\s+R$/i, "");
+        course.grade = cleaned === "" || cleaned.toUpperCase() === "R" ? null : cleaned;
+
+        // An "IP" grade always means the course is being taken now. The model
+        // occasionally labels it something else, and then the course counts as
+        // not taken yet and the schedule starts in the current quarter.
+        if (course.grade?.toUpperCase() === "IP") course.status = "in-progress";
+      }
+
+      transcriptData.warnings.push(...creditMismatches);
+
+      // Never save an empty read over good data.
+      if (transcriptData.courses.length === 0) {
+        throw new Error("No courses could be read from your transcript. Please check that you uploaded the right file.");
+      }
     }
 
-    const curriculumData = curriculumExtractionSchema.parse(rawCurriculumData);
+    let curriculumData: ReturnType<typeof curriculumExtractionSchema.parse> | null = null;
+    if (previousCurriculum?.sourceHash === curriculumHash) {
+      const reused = curriculumExtractionSchema.safeParse(previousCurriculum);
+      if (reused.success) curriculumData = reused.data;
+    }
+    if (!curriculumData) {
+      curriculumData = curriculumExtractionSchema.parse(JSON.parse(await extractCurriculumWithOllama(curriculumText)));
+    }
 
     // Detect the structured marker so the frontend can prompt the student
     // to manually enter transfer credit that couldn't be read from the PDF
@@ -157,27 +186,20 @@ async function processExtraction(request: NextRequest) {
     const unreadableTransfer = findUnreadableTransferWarning(transcriptData.warnings);
 
 
-    console.log(`Extracted ${transcriptData.courses.length} courses, ${curriculumData.requirements.length} requirements, ${creditMismatches.length} credit warnings`);
-
-
-    // firestore document locations
-    const transcriptRef =
-      adminDb.collection("users").doc(userId).collection("transcript").doc("data");
-
-    const curriculumRef =
-      adminDb.collection("users").doc(userId).collection("curriculum").doc("data");
-
+    console.log(`Extracted ${transcriptData.courses.length} courses, ${curriculumData.requirements.length} requirements (transcript ${previousTranscript?.sourceHash === transcriptHash ? "reused" : "read"}, curriculum ${previousCurriculum?.sourceHash === curriculumHash ? "reused" : "read"})`);
 
     // save the validated data. marge false means the old document is completely replaced
     await Promise.all([
       transcriptRef.set({
         ...transcriptData,
+        sourceHash: transcriptHash,
         updatedAt:
           FieldValue.serverTimestamp(),
       }),
 
       curriculumRef.set({
         ...curriculumData,
+        sourceHash: curriculumHash,
         updatedAt:
           FieldValue.serverTimestamp(),
       }),

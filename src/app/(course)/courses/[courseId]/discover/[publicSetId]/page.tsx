@@ -1,5 +1,6 @@
 'use client';
 
+import { useClaimAiPanel } from "@/src/context/AIPageContext";
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
@@ -73,6 +74,7 @@ export default function DiscoverSetPreviewPage() {
   }, [authLoading, user, router]);
 
   const catalystChatContext = useChatContext(user?.uid, user?.email);
+  useClaimAiPanel(!!catalystChatContext);
 
   // Read-only load of the public set.
   useEffect(() => {

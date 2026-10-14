@@ -122,7 +122,7 @@ export default function ExportMenu({
         const rendered = [];
         for (const page of pages) {
           const canvas = await renderExportPage(page, true);
-          rendered.push({ jpeg: await bytesOf(await canvasBlob(canvas, "image/jpeg")), pixelWidth: canvas.width, pixelHeight: canvas.height, width: page.width, height: page.height });
+          rendered.push({ jpeg: await bytesOf(await canvasBlob(canvas, "image/jpeg")), pixelWidth: canvas.width, pixelHeight: canvas.height, width: page.width, height: page.height, text: page.text });
         }
         downloadBlob(names.pdf, jpegPdf(rendered));
       } else if (action === "png") {

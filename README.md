@@ -1,4 +1,4 @@
-# csc4052_senior_design
+# <picture><source media="(prefers-color-scheme: dark)" srcset="public/app-logo-dark.svg"><img src="public/app-logo.svg" alt="Catalyst logo" height="32"></picture> Catalyst
 
 # To run: 
 

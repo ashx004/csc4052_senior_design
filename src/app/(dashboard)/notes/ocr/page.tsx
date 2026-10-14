@@ -795,14 +795,14 @@ function NotesContent() {
       <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 md:py-8">
         {/* md:pl-12 clears the site's fixed menu button (Sidebar.tsx) when the sidebar is collapsed. */}
         <header className="mb-6 md:pl-12" data-tutorial="notes-heading">
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex min-h-[2.75rem] items-center justify-between gap-4">
             <h1 className="text-3xl font-semibold tracking-tight text-text-main">Notes</h1>
           </div>
           <nav className="mt-4 flex gap-1 border-b border-border-light" aria-label="Notes sections">
             <Link href={requestedCourseId ? `/courses/${requestedCourseId}/notes` : "/notes"} className="border-b-2 border-transparent px-3 py-2 text-sm text-text-muted hover:text-text-main">Notes</Link>
             <Link href={requestedCourseId ? `/notes/ocr?courseId=${requestedCourseId}` : "/notes/ocr"} className="border-b-2 border-primary px-3 py-2 text-sm font-medium text-primary" aria-current="page">OCR</Link>
           </nav>
-          <p className="mt-1.5 max-w-xl text-sm text-text-muted">
+          <p className="mt-2 min-h-10 max-w-xl text-sm text-text-muted">
             Upload documents to have them scanned in, and come back here to review everything
             you&apos;ve already scanned. Each upload is tied to a class, so it also shows up in
             that class&apos;s resources.

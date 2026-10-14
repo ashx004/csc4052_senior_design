@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import AdvisingPermissionModal from "@/src/components/advising/AdvisingPermissionModal";
 import AdvisingUploadModal from "@/src/components/advising/AdvisingUploadModal";
-import ExistingDocumentsModal from "@/src/components/advising/ExistingDocumentsModal";
+import AdvisingProgress from "@/src/components/advising/AdvisingProgress";
 import TransferCreditForm from "@/src/components/advising/TransferCreditForm";
 import AdvisingDocumentsViewer from "@/src/components/advising/AdvisingDocumentsViewer";
 import { useAuth } from "@/src/context/AuthContext";
@@ -71,9 +71,9 @@ export default function AdvisingPage() {
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [showUploadModal, setShowUploadModal] = useState<boolean>(false);
   const [uploadSuccess, setUploadSuccess] = useState<boolean>(false);
-  const [showExistingModal, setShowExistingModal] = useState<boolean>(false);
   const [isCheckingDocuments, setIsCheckingDocuments] = useState<boolean>(true);
-  const [usingExistingDocuments, setUsingExistingDocuments] = useState<boolean>(false);
+  // Bumped when new results are saved, so the results view reloads them.
+  const [resultsKey, setResultsKey] = useState<number>(0);
   const { user, loading } = useAuth();
   const [documentsReady, setDocumentsReady] = useState<boolean>(false);
   const [generatedSchedule, setGeneratedSchedule,] = useState<GeneratedSchedule | null>(null);
@@ -201,12 +201,12 @@ export default function AdvisingPage() {
             );
         }
 
+        // Returning students go straight to their results; "Replace files" is there
+        // if they want to start over, so there's no question to answer first.
         if (data.hasDocuments) {
-            setShowExistingModal(true);
-            setShowPermissionModal(false);
+            setDocumentsReady(true);
         } else {
             setShowPermissionModal(true);
-            setShowExistingModal(false);
         }
         } catch (error) {
         setErrorMessage(
@@ -269,304 +269,6 @@ export default function AdvisingPage() {
           Loading...
         </p>
       </div>
-    );
-  }
-
-  if (documentsReady) {
-  return (
-    <main
-      className="min-h-screen bg-bg-main px-6 pt-4 pb-12 text-text-main" >
-      <PageTutorial id="advising_new" steps={advisingNewSteps} />
-      <div className="mx-auto w-full max-w-4xl py-8">
-
-        {/* Welcome Section */}
-        <section
-          className="rounded-2xl border border-border-light bg-bg-container p-8 shadow-sm"
-          data-tutorial="advising-new-welcome" >
-          <h1 className="text-3xl font-semibold">
-            Welcome to Advising
-          </h1>
-
-          <p className="mt-4 text-sm leading-6 text-text-muted">
-            Catalyst's advising feature helps you understand your academic progress and plan
-            the courses you may need to take next.
-          </p>
-
-          <p className="mt-3 text-sm leading-6 text-text-muted">
-            Using your transcript and curriculum sheet, Catalyst can review the courses you
-            have already taken and the courses that remain in your degree requirements to
-            create a suggested schedule for your remaining time at the university.
-          </p>
-
-          <button
-            type="button"
-            onClick={generateSchedule}
-            disabled={isGeneratingSchedule}
-            data-tutorial="advising-new-generate"
-            className="mt-8 rounded-lg bg-primary px-6 py-3 text-sm font-medium
-            text-text-inverse transition hover:bg-primary-hover disabled:cursor-not-allowed
-            disabled:opacity-60" >
-
-            {isGeneratingSchedule ? "Generating Schedule..." : "Generate Schedule"}
-
-          </button>
-
-               {isGeneratingSchedule && (
-                  <JobProgressIndicator
-                    className="mt-4"
-                    kind="advising"
-                    status={scheduleJobStatus ?? PUBLIC_JOB_STATUS.inProgress}
-                  />
-                )}
-
-               {isGeneratingSchedule && (
-                  <p className="mt-3 text-sm text-text-muted">
-                    This can take a minute. Feel free to leave this page — you'll get a notification when your schedule is ready.
-                  </p>
-                )}
-
-               {errorMessage && !isGeneratingSchedule && (
-                  <div className="mt-4 rounded-lg border border-alert-error bg-alert-error-bg px-4 py-3 text-sm text-alert-error">
-                    {errorMessage}
-                  </div>
-                )}
-
-               {scheduleNeedsRegeneration && (
-                  <p className="mt-3 text-sm text-primary">
-                    Your courses were updated. Click <strong>Generate Schedule</strong> again to see the changes reflected.
-                  </p>
-                )}
-        </section>
-
-        {(transferReviewInfo || showManualCourseForm) && (
-          <section className="mt-8">
-            <TransferCreditForm
-              expectedRowCount={transferReviewInfo?.rowCount}
-              expectedTotalCreditHours={transferReviewInfo?.totalCreditHours}
-              heading={transferReviewInfo ? undefined : "Add a completed course"}
-              description={
-                transferReviewInfo ? undefined : "Add a course you've already completed elsewhere — transfer credit, AP credit, or anything not reflected above — so it counts toward your remaining requirements."
-              }
-              dismissLabel={transferReviewInfo ? "Skip for now" : "Close"}
-              onSaved={() => {
-                setTransferReviewInfo(null);
-                setShowManualCourseForm(false);
-                setScheduleNeedsRegeneration(true);
-              }}
-              onDismiss={() => {
-                setTransferReviewInfo(null);
-                setShowManualCourseForm(false);
-              }}
-            />
-          </section>
-        )}
-
-        {!transferReviewInfo && !showManualCourseForm && (
-          <section className="mt-8">
-            <button
-              type="button"
-              onClick={() => setShowManualCourseForm(true)}
-              className="text-sm font-medium text-primary hover:text-primary-hover hover:underline"
-            >
-              + Add a completed course
-            </button>
-          </section>
-        )}
-
-        {/* Uploaded documents list + PDF preview */}
-        {user && <AdvisingDocumentsViewer user={user} />}
-
-        {/* Previous Schedule Section */}
-        <section 
-          className="mt-8 rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light">
-          <div className="flex items-center justify-between gap-4">
-
-            <div>
-              <h2 className="text-xl font-semibold">
-                Generate Schedule
-              </h2>
-
-              <p className="mt-2 text-sm text-text-muted">
-                Your suggested schedule will appear below after generation.
-              </p>
-            </div>
-          </div>
-
-            {/* Schedule preview area */}
-          <div
-            className="
-              min-h-[320px]
-              rounded-lg
-              border
-              border-border-light
-              bg-bg-main
-              p-5
-            "
-            data-tutorial="advising-new-preview"
-          >
-
-            {!generatedSchedule && (
-              <p className="text-sm text-text-muted">
-                Your generated schedule will appear here.
-              </p>
-            )}
-
-
-            {generatedSchedule && (
-              <div className="space-y-6">
-
-
-                {generatedSchedule.terms
-                  .filter((term) => term.courses.length > 0)
-                  .map(
-                    (term) => (
-                      <section key={`${term.term}-${term.year}`}
-                      className="
-                        rounded-xl
-                        border
-                        border-border-light
-                        bg-bg-container
-                        p-5
-                      "
-                    >
-
-                      <h3
-                        className="
-                          text-lg
-                          font-semibold
-                        "
-                      >
-                        {term.term} {term.year}
-                      </h3>
-
-
-                      <div className="mt-4 space-y-3">
-
-                        {term.courses.map(
-                          (course) => (
-
-                            <div
-                              key={
-                                `${term.term}-${term.year}-${course.courseCode}`
-                              }
-                              className="
-                                flex
-                                items-center
-                                justify-between
-                                gap-4
-                                rounded-lg
-                                border
-                                border-border-light
-                                px-4
-                                py-3
-                              "
-                            >
-
-                              <div>
-
-                                <p
-                                  className="
-                                    text-sm
-                                    font-semibold
-                                  "
-                                >
-                                  {course.courseCode}
-                                </p>
-
-
-                                {course.courseTitle && (
-
-                                  <p
-                                    className="
-                                      mt-1
-                                      text-xs
-                                      text-text-muted
-                                    "
-                                  >
-                                    {course.courseTitle}
-                                  </p>
-
-                                )}
-
-                              </div>
-
-
-                              {course.creditHours !== null && (
-
-                                <span
-                                  className="
-                                    whitespace-nowrap
-                                    text-xs
-                                    text-text-muted
-                                  "
-                                >
-                                  {course.creditHours} credits
-                                </span>
-
-                              )}
-
-                            </div>
-                          )
-                        )}
-
-                      </div>
-
-                    </section>
-
-                  )
-                )}
-
-
-                {generatedSchedule.warnings.length > 0 && (
-
-                  <section
-                    className="
-                      rounded-lg
-                      border
-                      border-border-hover
-                      bg-bg-warm
-                      p-4
-                    "
-                  >
-
-                    <h3 className="text-sm font-semibold">
-                      Advising Notes
-                    </h3>
-
-
-                    <ul
-                      className="
-                        mt-2
-                        list-disc
-                        space-y-1
-                        pl-5
-                        text-sm
-                      "
-                    >
-
-                      {generatedSchedule.warnings.map(
-                        (warning, index) => (
-
-                          <li key={index}>
-                            {warning}
-                          </li>
-
-                        )
-                      )}
-
-                    </ul>
-
-                  </section>
-
-                )}
-
-              </div>
-            )}
-
-          </div>
-        </section>
-      </div>
-    </main>
     );
   }
 
@@ -760,74 +462,303 @@ export default function AdvisingPage() {
     }
   }
 
+  const showFiles = documentsReady;
+
   return (
-    <div
-      className="min-h-screen bg-bg-main text-text-main" >
+    <div className="min-h-screen bg-bg-main text-text-main">
+      {documentsReady && !showPermissionModal && <PageTutorial id="advising_new" steps={advisingNewSteps} />}
 
-      <header
-        className="relative flex h-[73px] items-center justify-center border-b 
-        border-border-light bg-bg-container px-6" >
+      <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
+        <header className="flex flex-wrap items-start justify-between gap-4" data-tutorial="advising-new-welcome">
+          <div className="min-w-0">
+            <h1 className="text-3xl font-semibold tracking-tight">Advising</h1>
+            <p className="mt-1.5 max-w-xl text-sm leading-6 text-text-muted">
+              Add your transcript and curriculum sheet to see how far along you are, what&apos;s left, and a suggested schedule for the rest of your time here.
+            </p>
+          </div>
+          {showFiles && (
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setShowManualCourseForm(true)}
+                disabled={showManualCourseForm}
+                className="rounded-lg border border-border-light bg-bg-container px-3.5 py-2 text-sm font-medium text-text-main transition hover:bg-bg-warm disabled:opacity-50"
+              >
+                Add a completed course
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setErrorMessage("");
+                  setShowPermissionModal(true);
+                }}
+                disabled={isExtracting}
+                className="rounded-lg border border-border-light bg-bg-container px-3.5 py-2 text-sm font-medium text-text-main transition hover:bg-bg-warm disabled:opacity-50"
+              >
+                Replace files
+              </button>
+            </div>
+          )}
+        </header>
 
-        <h1 className="text-lg font-semibold"> Advising. </h1>
-
-      </header>
-
-      <main className="mx-auto w-3/4 py-8">
-        <button
-          type="button"
-          onClick={() => {
-            setErrorMessage("");
-            setShowPermissionModal(true);
-          }}
-          className="rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-text-inverse transition hover:bg-primary-hover"
-        >
-          Add progress files
-        </button>
-      
         {errorMessage && (
-          <div
-            className="
-              w-full max-w-full overflow-hidden break-words whitespace-pre-wrap
-              rounded-lg border border-alert-error bg-alert-error-bg px-4 py-3 text-sm text-alert-error" >
+          <div role="alert" className="mt-5 w-full overflow-hidden break-words whitespace-pre-wrap rounded-lg border border-alert-error bg-alert-error-bg px-4 py-3 text-sm text-alert-error">
             {errorMessage}
           </div>
         )}
 
-        {uploadSuccess && (
-            <div className="mt-4 rounded-lg border border-alert-success bg-alert-success-bg px-4 py-3
-            text-sm text-alert-success">
-                Your transcript and curriculum sheet were uploaded successfully!
-            </div>
-            )}
+        {uploadSuccess && !isExtracting && (
+          <div className="mt-5 rounded-lg border border-alert-success bg-alert-success-bg px-4 py-3 text-sm text-alert-success">
+            Your files were uploaded and read. Your results are below.
+          </div>
+        )}
 
         {isExtracting && (
-          <>
-            <JobProgressIndicator
-              className="mt-4"
-              kind="advising"
-              status={extractionJobStatus ?? PUBLIC_JOB_STATUS.inProgress}
+          <section className="mt-5 rounded-xl border border-border-light bg-bg-container p-5" aria-live="polite">
+            <JobProgressIndicator kind="advising" status={extractionJobStatus ?? PUBLIC_JOB_STATUS.inProgress} />
+            <p className="mt-3 text-sm text-text-muted">
+              Reading your transcript and curriculum sheet. This can take a few minutes, and you can leave this page: it keeps going and you&apos;ll get a notification when it&apos;s done.
+            </p>
+          </section>
+        )}
+
+        {!showFiles && !isExtracting && (
+          <section className="mt-8 rounded-2xl border border-border-light bg-bg-container p-8 shadow-sm">
+            <h2 className="text-lg font-semibold">Get started in two steps</h2>
+            <ol className="mt-4 space-y-3 text-sm text-text-main">
+              <li className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-bg-warm text-xs font-semibold text-primary">1</span><span><span className="font-medium">Add two PDFs.</span> <span className="text-text-muted">Your unofficial transcript and your program&apos;s curriculum sheet.</span></span></li>
+              <li className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-bg-warm text-xs font-semibold text-primary">2</span><span><span className="font-medium">Review what we found.</span> <span className="text-text-muted">See your progress and requirements, then generate a suggested schedule.</span></span></li>
+            </ol>
+            <button
+              type="button"
+              onClick={() => {
+                setErrorMessage("");
+                setShowPermissionModal(true);
+              }}
+              className="mt-6 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-text-inverse transition hover:bg-primary-hover"
+            >
+              Add your files
+            </button>
+          </section>
+        )}
+
+        {showFiles && !isExtracting && user && <AdvisingProgress uid={user.uid} refreshKey={resultsKey} />}
+
+        {showFiles && (transferReviewInfo || showManualCourseForm) && (
+          <section className="mt-8">
+            <TransferCreditForm
+              expectedRowCount={transferReviewInfo?.rowCount}
+              expectedTotalCreditHours={transferReviewInfo?.totalCreditHours}
+              heading={transferReviewInfo ? undefined : "Add a completed course"}
+              description={
+                transferReviewInfo ? undefined : "Add a course you've already completed elsewhere (transfer credit, AP credit, or anything not on your transcript) so it counts toward your remaining requirements."
+              }
+              dismissLabel={transferReviewInfo ? "Skip for now" : "Close"}
+              onSaved={() => {
+                setTransferReviewInfo(null);
+                setShowManualCourseForm(false);
+                setScheduleNeedsRegeneration(true);
+                setResultsKey((key) => key + 1);
+              }}
+              onDismiss={() => {
+                setTransferReviewInfo(null);
+                setShowManualCourseForm(false);
+              }}
             />
-            <div className="mt-4 rounded-lg border border-border-light bg-bg-container px-4 py-3
-            text-sm text-text-muted">
-                Reading your transcript and curriculum sheet — this can take a few minutes.
-                Feel free to leave this page; you'll get a notification when it's done.
+          </section>
+        )}
+
+        {showFiles && !isExtracting && (
+          <section className="mt-8 rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0">
+                <h2 className="text-xl font-semibold">Suggested schedule</h2>
+                <p className="mt-1.5 max-w-xl text-sm text-text-muted">
+                  A plan for your remaining terms, built from the requirements above. It takes about a minute.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={generateSchedule}
+                disabled={isGeneratingSchedule}
+                data-tutorial="advising-new-generate"
+                className="shrink-0 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-text-inverse transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isGeneratingSchedule ? "Generating..." : generatedSchedule ? "Regenerate schedule" : "Generate schedule"}
+              </button>
             </div>
-          </>
+
+            {isGeneratingSchedule && (
+              <div aria-live="polite">
+                <JobProgressIndicator className="mt-4" kind="advising" status={scheduleJobStatus ?? PUBLIC_JOB_STATUS.inProgress} />
+                <p className="mt-3 text-sm text-text-muted">You can leave this page. You&apos;ll get a notification when your schedule is ready.</p>
+              </div>
             )}
 
-        {usingExistingDocuments && (
-            <div className="mt-4 rounded-lg border border-alert-success bg-alert-success-bg px-4 py-3
-            text-sm text-alert-success">
-                Your previously uploaded transcript and curriculum sheet
-                will be used.
+            {scheduleNeedsRegeneration && !isGeneratingSchedule && (
+              <p className="mt-3 text-sm text-primary">Your courses changed. Regenerate the schedule to see the update.</p>
+            )}
+
+            <div className="mt-5 rounded-lg border border-border-light bg-bg-main p-5" data-tutorial="advising-new-preview">
+              {!generatedSchedule && <p className="text-sm text-text-muted">Your suggested schedule will appear here.</p>}
+            {generatedSchedule && (
+              <div className="space-y-6">
+
+
+                {generatedSchedule.terms
+                  .filter((term) => term.courses.length > 0)
+                  .map(
+                    (term) => (
+                      <section key={`${term.term}-${term.year}`}
+                      className="
+                        rounded-xl
+                        border
+                        border-border-light
+                        bg-bg-container
+                        p-5
+                      "
+                    >
+
+                      <h3
+                        className="
+                          text-lg
+                          font-semibold
+                        "
+                      >
+                        {term.term} {term.year}
+                      </h3>
+
+
+                      <div className="mt-4 space-y-3">
+
+                        {term.courses.map(
+                          (course) => (
+
+                            <div
+                              key={
+                                `${term.term}-${term.year}-${course.courseCode}`
+                              }
+                              className="
+                                flex
+                                items-center
+                                justify-between
+                                gap-4
+                                rounded-lg
+                                border
+                                border-border-light
+                                px-4
+                                py-3
+                              "
+                            >
+
+                              <div>
+
+                                <p
+                                  className="
+                                    text-sm
+                                    font-semibold
+                                  "
+                                >
+                                  {course.courseCode}
+                                </p>
+
+
+                                {course.courseTitle && (
+
+                                  <p
+                                    className="
+                                      mt-1
+                                      text-xs
+                                      text-text-muted
+                                    "
+                                  >
+                                    {course.courseTitle}
+                                  </p>
+
+                                )}
+
+                              </div>
+
+
+                              {course.creditHours !== null && (
+
+                                <span
+                                  className="
+                                    whitespace-nowrap
+                                    text-xs
+                                    text-text-muted
+                                  "
+                                >
+                                  {course.creditHours} credits
+                                </span>
+
+                              )}
+
+                            </div>
+                          )
+                        )}
+
+                      </div>
+
+                    </section>
+
+                  )
+                )}
+
+
+                {generatedSchedule.warnings.length > 0 && (
+
+                  <section
+                    className="
+                      rounded-lg
+                      border
+                      border-border-hover
+                      bg-bg-warm
+                      p-4
+                    "
+                  >
+
+                    <h3 className="text-sm font-semibold">
+                      Advising Notes
+                    </h3>
+
+
+                    <ul
+                      className="
+                        mt-2
+                        list-disc
+                        space-y-1
+                        pl-5
+                        text-sm
+                      "
+                    >
+
+                      {generatedSchedule.warnings.map(
+                        (warning, index) => (
+
+                          <li key={index}>
+                            {warning}
+                          </li>
+
+                        )
+                      )}
+
+                    </ul>
+
+                  </section>
+
+                )}
+
+              </div>
+            )}
             </div>
-            )}            
+          </section>
+        )}
+
+        {showFiles && user && <AdvisingDocumentsViewer user={user} />}
       </main>
 
-      {/* Students without documents only ever see this prompt, so they get
-          their own short tour of it; the main advising_new tour plays once
-          their documents are ready. Mounted only while the prompt is open,
-          so returning students never get a tour waiting on absent targets. */}
+      {/* Students without documents get a short tour of the prompt; the main tour plays once their results are ready. */}
       {showPermissionModal && <PageTutorial id="advising-setup" steps={advisingSetupSteps} />}
 
       <AdvisingPermissionModal
@@ -836,40 +767,22 @@ export default function AdvisingPage() {
         onDecline={handleDeclineUpload}
       />
 
-     <ExistingDocumentsModal
-        isOpen={showExistingModal}
-        onUseExisting={async () => {
-          setShowExistingModal(false);
-          setUsingExistingDocuments(true);
-          setUploadSuccess(false);
-          setErrorMessage("");
-          setDocumentsReady(true);
-        }}
-        onReplace={() => {
-            setShowExistingModal(false);
-            setGeneratedSchedule(null); // was built from the documents being replaced
-            setShowUploadModal(true);
-            setUploadSuccess(false);
-            setUsingExistingDocuments(false);
-            setErrorMessage("");
-        }}
-        onClose={() => setShowExistingModal(false)}
-        />
-
-        {showUploadModal && user && (
+      {showUploadModal && user && (
         <AdvisingUploadModal
-            userId={user.uid}
-            isOpen={showUploadModal}
-            onClose={() => setShowUploadModal(false)}
-            onUploaded={async () => {
-              setShowUploadModal(false);
-              setUploadSuccess(true);
-              setGeneratedSchedule(null);
-              setUsingExistingDocuments(false);
-              setErrorMessage("");
-              const success = await extractDocuments();
-              if (success) { setDocumentsReady(true); }
-            }}
+          userId={user.uid}
+          isOpen={showUploadModal}
+          onClose={() => setShowUploadModal(false)}
+          onUploaded={async () => {
+            setShowUploadModal(false);
+            setUploadSuccess(true);
+            setGeneratedSchedule(null); // built from the documents just replaced
+            setErrorMessage("");
+            const success = await extractDocuments();
+            if (success) {
+              setDocumentsReady(true);
+              setResultsKey((key) => key + 1);
+            }
+          }}
         />
       )}
     </div>

@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, use } from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
-import { Pencil, Loader2, X, Sparkles, FileText, CalendarDays } from 'lucide-react';
+import { Pencil, Loader2, X, Sparkles, FileText, CalendarDays, CalendarPlus } from 'lucide-react';
 import CircleIconButton from '@/src/components/resourceManagement/CircleIconButton';
 import { deleteField, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
@@ -17,6 +17,7 @@ import courseSteps from '@/src/library/tutorials/steps/course';
 import { DATA_CHANGED_EVENT, notifyDataChanged } from '@/src/library/dataChanged';
 import { buildCourseIdentityUpdate, MAX_COURSE_CODE_LENGTH, MAX_COURSE_NAME_LENGTH } from '@/src/library/courseIdentity';
 import SyllabusModal from '@/src/components/course/SyllabusModal';
+import GradingChart from '@/src/components/course/GradingChart';
 
 // Lazy-loaded: pulls in docx-preview, pdfjs-dist, xlsx, and syntax
 // highlighting — heavy, and not needed until this section actually renders.
@@ -102,7 +103,7 @@ export default function CourseOverview({
     const [editValues, setEditValues] = useState<Record<string, string>>({});
     const [savingEdit, setSavingEdit] = useState(false);
     const [editError, setEditError] = useState<string | null>(null);
-    const [syllabusOpen, setSyllabusOpen] = useState<false | 'import' | 'edit'>(false);
+    const [syllabusOpen, setSyllabusOpen] = useState<false | 'import' | 'edit' | 'dates'>(false);
 
     // "Ask Catalyst" floating panel — same pattern as the flashcards/quiz
     // pages, briefed with a plain-text summary of this course page (see
@@ -123,6 +124,8 @@ export default function CourseOverview({
                 if (user?.uid) {
                     const courseData = await getEnrollment(user.uid, courseId);
                     setEnrollment(courseData);
+                    // The calendar page links here (?calendar=1) to add this course's dates.
+                    if (courseData && new URLSearchParams(window.location.search).get('calendar') === '1') setSyllabusOpen('dates');
                 } else {
                     setEnrollment(null);
                 }
@@ -295,6 +298,14 @@ export default function CourseOverview({
                             <FileText size={15} className="text-primary" />
                             {enrollment.syllabus ? "Update course info from syllabus" : "Course info from syllabus"}
                         </button>
+                        <button
+                            type="button"
+                            onClick={() => setSyllabusOpen('dates')}
+                            className="inline-flex items-center gap-2 rounded-lg border border-border-light bg-bg-container px-3.5 py-2 text-sm font-medium text-text-main shadow-sm transition hover:bg-bg-warm"
+                        >
+                            <CalendarPlus size={15} className="text-primary" />
+                            Course calendar
+                        </button>
                         {enrollment.syllabus && (
                             <button
                                 type="button"
@@ -337,7 +348,7 @@ export default function CourseOverview({
                             ] as const).filter(([, value]) => value).map(([label, value]) => (
                                 <div key={label} className={label === "Grading" ? "sm:col-span-2" : ""}>
                                     <dt className="text-xs text-text-muted">{label}</dt>
-                                    <dd className="mt-0.5 text-text-main">{value}</dd>
+                                    {label === "Grading" ? <dd><GradingChart grading={value} /></dd> : <dd className="mt-0.5 text-text-main">{value}</dd>}
                                 </div>
                             ))}
                         </dl>

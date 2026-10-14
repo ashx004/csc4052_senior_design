@@ -16,7 +16,7 @@ import { MAX_PAGES_PER_NOTE, PAGE_HEIGHT, PAGE_WIDTH, type Note } from "@/src/li
 import AnnotationItems from "./AnnotationItems";
 import ExportMenu, { type ExportSource } from "./ExportMenu";
 import { useExportRegistration } from "./noteExportSlot";
-import { captureElement, sliceCapture } from "./markupCanvas";
+import { captureElement, collectTextRuns, sliceCapture } from "./markupCanvas";
 import InkLayer from "./InkLayer";
 import { useMarkShortcuts } from "./useMarkShortcuts";
 import NotesToolbar, { EMPTY_FORMAT, type FormatAction, type ListKind, type TextFormatState } from "./NotesToolbar";
@@ -433,10 +433,13 @@ export default function TypedNoteEditor({
       shot ??= await captureElement(el);
       return sliceCapture(shot, i, PAGE_WIDTH, PAGE_HEIGHT);
     };
+    // The words stay selectable in the exported PDF: they are laid invisibly under the picture.
+    const words = el ? collectTextRuns(el, PAGE_HEIGHT, pages) : [];
     return Array.from({ length: pages }, (_, i) => ({
       width: PAGE_WIDTH,
       height: PAGE_HEIGHT,
       annotations: tools.page(i),
+      text: words[i],
       base: () => base(i),
     }));
   }

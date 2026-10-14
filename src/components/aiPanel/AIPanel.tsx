@@ -2,16 +2,18 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { MessageSquare, X, Send, Square } from "lucide-react";
+import { MessageSquare, X, Send, Square, Eraser } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import { useAuth } from "@/src/context/AuthContext";
+import { pageHasOwnAiPanel } from "@/src/library/aiPanelRoutes";
+import { describePage } from "@/src/library/pageDescriptions";
 import { useSpeechToText } from "@/src/library/useSpeechToText";
 import MicButton from "@/src/components/aiAssistant/MicButton";
-import { useAIPageContext } from "@/src/context/AIPageContext";
+import { useAIPageContext, useOwnAiPanelShown } from "@/src/context/AIPageContext";
 import { useAIPanelChat } from "./useAIPanelChat";
 import QuickActions from "@/src/components/aiAssistant/QuickActions";
 import ConfirmActionCard from "@/src/components/aiAssistant/ConfirmActionCard";
@@ -33,11 +35,14 @@ function buildGreeting(): string {
   return "Hi! I'm Catalyst — ask me anything about your classes, studies, or what's on this page.";
 }
 
-export default function AIPanel() {
+export default function AIPanel({ courseName }: { courseName?: string | null }) {
   const pathname = usePathname();
   const { user } = useAuth();
-  const pageContext = useAIPageContext();
-  const { messages, isSending, toolStatus, activity, errorText, sendMessage, stop } = useAIPanelChat(user?.uid, user?.email ?? undefined);
+  // A page that describes its own live content wins; otherwise a description of the page's purpose
+  // keeps the assistant aware of where the student is on every screen.
+  const pageContext = useAIPageContext() ?? describePage(pathname, courseName);
+  const ownPanelShown = useOwnAiPanelShown();
+  const { messages, isSending, toolStatus, activity, errorText, sendMessage, clear, stop } = useAIPanelChat(user?.uid, user?.email ?? undefined);
   // Follows new text and Confirm cards unless the student has scrolled up.
   const { attach: scrollRef, onScroll: onChatScroll, stick: stickToBottom } = useStickToBottom<HTMLDivElement>([messages, toolStatus, activity, errorText]);
   const [isOpen, setIsOpen] = useState(false);
@@ -62,10 +67,9 @@ export default function AIPanel() {
     if (typeof window !== "undefined") window.localStorage.setItem(STORAGE_KEY, String(next));
   }
 
-  // The full dedicated chat experience already lives at /ai-assistant —
-  // showing the floating panel there too would stack two chat UIs on the
-  // same page for no benefit.
-  if (pathname === "/ai-assistant") return null;
+  // The full chat lives at /ai-assistant, and some course pages carry their own
+  // contextual panel; the floating one would stack a second chat UI there.
+  if (pageHasOwnAiPanel(pathname) || ownPanelShown) return null;
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -101,13 +105,26 @@ export default function AIPanel() {
         <div className="flex h-full w-screen flex-col md:w-auto md:min-w-[24rem]">
           <div className="flex items-center justify-between border-b border-border-light px-4 py-4">
             <h2 className="text-sm font-semibold tracking-[0.2em] text-text-main">CATALYST</h2>
-            <button
-              onClick={() => toggleOpen(false)}
-              className="rounded-full p-1.5 text-text-muted transition-colors hover:text-text-main"
-              aria-label="Close AI assistant panel"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              {messages.length > 0 && (
+                <button
+                  onClick={clear}
+                  disabled={isSending}
+                  title="Clear chat"
+                  className="rounded-full p-1.5 text-text-muted transition-colors hover:text-text-main disabled:opacity-50"
+                  aria-label="Clear chat"
+                >
+                  <Eraser className="h-4 w-4" />
+                </button>
+              )}
+              <button
+                onClick={() => toggleOpen(false)}
+                className="rounded-full p-1.5 text-text-muted transition-colors hover:text-text-main"
+                aria-label="Close AI assistant panel"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
           <div ref={scrollRef} onScroll={onChatScroll} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">

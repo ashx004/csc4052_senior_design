@@ -9,11 +9,19 @@ import {
 } from "@/src/library/authEmailOtp";
 import { adminAuth, adminDb } from "@/src/library/firebaseAdmin";
 import { checkRateLimit } from "@/src/library/rateLimit";
+import { randomUUID } from "node:crypto";
+import {
+  TRUSTED_DEVICE_COOKIE,
+  TRUSTED_DEVICE_MAX_AGE_SECONDS,
+  describeDevice,
+  devicesToPrune,
+  trustedDeviceCookieValue,
+} from "@/src/library/trustedDevices";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const VerifySchema = z.object({ code: z.string().trim() });
+const VerifySchema = z.object({ code: z.string().trim(), trustDevice: z.boolean().optional() });
 
 type ChallengeData = {
   uid?: unknown;
@@ -125,6 +133,32 @@ export async function POST(request: NextRequest) {
     }
     const customToken = await adminAuth.createCustomToken(result.uid, { second_factor: "email_otp" });
     const response = NextResponse.json({ customToken });
+    // Remember this browser so the next password sign-in here skips the code. Opt out
+    // with trustDevice: false (a shared computer); it can also be removed in Settings.
+    if (parsed.data.trustDevice !== false) {
+      try {
+        const devices = adminDb.collection("users").doc(result.uid).collection("trustedDevices");
+        const deviceId = randomUUID();
+        await devices.doc(deviceId).set({
+          label: describeDevice(request.headers.get("user-agent")),
+          createdAt: FieldValue.serverTimestamp(),
+          lastSeenAt: FieldValue.serverTimestamp(),
+        });
+        const all = await devices.get();
+        const stale = devicesToPrune(all.docs.map((d) => ({ id: d.id, lastSeenAtMs: (d.get("lastSeenAt") as Timestamp | undefined)?.toMillis() ?? 0 })));
+        await Promise.all(stale.map((id) => devices.doc(id).delete()));
+        response.cookies.set(TRUSTED_DEVICE_COOKIE, trustedDeviceCookieValue(result.uid, deviceId, config.secret), {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/api/auth",
+          maxAge: TRUSTED_DEVICE_MAX_AGE_SECONDS,
+        });
+      } catch (error) {
+        // Signing in still works; the next sign-in on this device just asks for a code again.
+        console.error("[auth/login-2fa/verify] Couldn't remember this device:", error);
+      }
+    }
     response.cookies.set(LOGIN_2FA_CHALLENGE_COOKIE, "", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
