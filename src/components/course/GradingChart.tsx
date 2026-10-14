@@ -1,8 +1,18 @@
 import { parseGradingBreakdown } from "@/src/library/gradingBreakdown";
 
-// Distinct without relying on the theme: each slice also appears in the legend
-// with its name and percentage, so colour is never the only cue.
-const COLORS = ["#2563eb", "#d97706", "#16a34a", "#9333ea", "#dc2626", "#0891b2", "#ca8a04", "#db2777"];
+// Drawn from the app's own palette (gold primary, navy, sage, coral, brown, ...)
+// via theme variables so it follows light/dark. Each slice also appears in the
+// legend with its name and percentage, so colour is never the only cue.
+const COLORS = [
+  "var(--color-primary)",
+  "var(--color-navy, #1A1A30)",
+  "var(--color-alert-success)",
+  "var(--color-alert-error)",
+  "var(--color-brown-label, #B49080)",
+  "var(--color-text-muted)",
+  "var(--color-border-hover)",
+  "var(--color-gray-secondary, #54555C)",
+];
 const RADIUS = 40;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 

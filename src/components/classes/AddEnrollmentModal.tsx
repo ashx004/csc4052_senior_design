@@ -223,7 +223,7 @@ export default function AddEnrollmentModal({
           </button>
           <button
             onClick={onToggleDeleteMode}
-            className={`absolute top-4 right-16 flex h-8 w-8 items-center justify-center rounded-md shadow transition-colors ${
+            className={`absolute top-4 right-20 flex h-8 w-8 items-center justify-center rounded-md shadow transition-colors ${
                 deleteMode ? "bg-alert-error text-text-inverse" : "border border-border-light bg-bg-container text-text-muted hover:bg-bg-warm"
             }`}
             aria-label="Toggle delete mode"
