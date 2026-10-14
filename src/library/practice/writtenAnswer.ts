@@ -19,15 +19,26 @@ export interface WrittenGrade {
 
 const GraderReply = z.object({
   verdict: z.enum(["correct", "partial", "incorrect"]),
-  feedback: z.string().trim().min(1).max(600),
+  feedback: z.string().trim().min(1),
 });
 
 const SCORES: Record<Verdict, number> = { correct: 1, partial: 0.5, incorrect: 0 };
 
+const MAX_FEEDBACK_CHARS = 900;
+
+/** Long feedback is cut at a sentence end (or a word), never mid-sentence. */
+function clipFeedback(text: string): string {
+  if (text.length <= MAX_FEEDBACK_CHARS) return text;
+  const head = text.slice(0, MAX_FEEDBACK_CHARS);
+  const sentenceEnd = Math.max(head.lastIndexOf(". "), head.lastIndexOf("! "), head.lastIndexOf("? "));
+  if (sentenceEnd > MAX_FEEDBACK_CHARS / 2) return head.slice(0, sentenceEnd + 1);
+  return `${head.slice(0, head.lastIndexOf(" "))}...`;
+}
+
 export function parseGraderReply(raw: unknown): WrittenGrade | null {
   const parsed = GraderReply.safeParse(raw);
   if (!parsed.success) return null;
-  return { verdict: parsed.data.verdict, score: SCORES[parsed.data.verdict], feedback: parsed.data.feedback.slice(0, 280) };
+  return { verdict: parsed.data.verdict, score: SCORES[parsed.data.verdict], feedback: clipFeedback(parsed.data.feedback) };
 }
 
 /** Blank or token answers need no model: they are simply not an answer. */

@@ -15,6 +15,7 @@ import {
 import { ArrowRight, Check, Clock, Minus, Play, X } from "lucide-react";
 import { usePracticeCountdown } from "@/src/hooks/usePracticeCountdown";
 import {
+  fixDirections,
   formatClock,
   isComplete,
   placeTile,
@@ -211,7 +212,7 @@ function RoundView({
         <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
           Round {roundNumber} of {totalRounds}
         </p>
-        <h3 className="mt-2 text-lg font-bold text-text-main">{item.instructions}</h3>
+        <h3 className="mt-2 text-lg font-bold text-text-main">{fixDirections(item.instructions)}</h3>
         <p className="mt-2 flex items-center justify-center gap-2 text-sm text-text-muted">
           <Clock size={15} /> {formatClock(item.timeLimitSeconds)} on the clock &middot; {item.tiles.length} tiles
         </p>
@@ -248,7 +249,7 @@ function RoundView({
           <div className={`h-full rounded-full transition-[width] duration-300 ${urgent ? "bg-rose-500" : "bg-primary"}`} style={{ width: `${percentLeft}%` }} />
         </div>
 
-        <h3 className="mb-4 text-base font-bold text-text-main">{item.instructions}</h3>
+        <h3 className="mb-4 text-base font-bold text-text-main">{fixDirections(item.instructions)}</h3>
 
         <Tray active={!checked}>
           {tray.length === 0 ? (

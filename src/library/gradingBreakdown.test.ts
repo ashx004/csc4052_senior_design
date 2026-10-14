@@ -19,6 +19,17 @@ describe("parseGradingBreakdown", () => {
     ]);
   });
 
+  it("charts points as shares of the total and ignores a trailing grade scale", () => {
+    expect(
+      parseGradingBreakdown("Exams 300 pts, Homework 60 pts, WebWork 20 pts; Scale: A>=90%, B>=80%, C>=70%, D>=60%, F<60%")
+    ).toEqual([
+      { label: "Exams", percent: 78.9 },
+      { label: "Homework", percent: 15.8 },
+      { label: "WebWork", percent: 5.3 },
+    ]);
+    expect(parseGradingBreakdown("Exams 40%, Homework 60 pts")).toBeNull();
+  });
+
   it("gives up on text that is not a clean list of weights", () => {
     expect(parseGradingBreakdown("Graded on a curve")).toBeNull();
     expect(parseGradingBreakdown("Exams 40%")).toBeNull();

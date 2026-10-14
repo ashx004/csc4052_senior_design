@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, use } from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
-import { Pencil, Loader2, X, Sparkles, FileText, CalendarDays, CalendarPlus } from 'lucide-react';
+import { Pencil, Loader2, X, Sparkles, FileText, CalendarDays, CalendarPlus, ChevronDown } from 'lucide-react';
 import CircleIconButton from '@/src/components/resourceManagement/CircleIconButton';
 import { deleteField, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/src/library/firebase';
@@ -57,6 +57,14 @@ async function getEnrollment(
     };
 }
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Earliest first; entries with no exact day ("Week 3") keep their order after the dated ones. */
+function sortSyllabusDates<T extends { date: string }>(dates: T[]): T[] {
+    const dated = dates.filter((d) => ISO_DATE.test(d.date)).sort((a, b) => a.date.localeCompare(b.date));
+    return [...dated, ...dates.filter((d) => !ISO_DATE.test(d.date))];
+}
+
 function formatPhoneNumber(phone?: string): string {
     if (!phone) return "Not provided";
     const digits = phone.replace(/\D/g, "");
@@ -103,6 +111,7 @@ export default function CourseOverview({
     const [editValues, setEditValues] = useState<Record<string, string>>({});
     const [savingEdit, setSavingEdit] = useState(false);
     const [editError, setEditError] = useState<string | null>(null);
+    const [scheduleOpen, setScheduleOpen] = useState(true);
     const [syllabusOpen, setSyllabusOpen] = useState<false | 'import' | 'edit' | 'dates'>(false);
 
     // "Ask Catalyst" floating panel — same pattern as the flashcards/quiz
@@ -333,41 +342,6 @@ export default function CourseOverview({
                     </div>
                 )}
 
-                {enrollment.syllabus && (
-                    <div className="mb-6 rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light" data-tutorial="course-syllabus">
-                        <div className="flex items-center gap-2">
-                            <CalendarDays size={16} className="text-primary" />
-                            <h2 className="text-sm font-semibold text-text-main">Schedule &amp; key dates</h2>
-                            <span className="min-w-0 truncate text-xs text-text-muted">from {enrollment.syllabus.name}</span>
-                        </div>
-                        <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-                            {([
-                                ["Office hours", enrollment.syllabus.officeHours],
-                                ["Textbooks", enrollment.syllabus.textbooks],
-                                ["Grading", enrollment.syllabus.grading],
-                            ] as const).filter(([, value]) => value).map(([label, value]) => (
-                                <div key={label} className={label === "Grading" ? "sm:col-span-2" : ""}>
-                                    <dt className="text-xs text-text-muted">{label}</dt>
-                                    {label === "Grading" ? <dd><GradingChart grading={value} /></dd> : <dd className="mt-0.5 text-text-main">{value}</dd>}
-                                </div>
-                            ))}
-                        </dl>
-                        {enrollment.syllabus.dates?.length > 0 && (
-                            <ul className="mt-4 divide-y divide-border-light rounded-lg border border-border-light">
-                                {enrollment.syllabus.dates.map((d, i) => (
-                                    <li key={`${d.date}-${i}`} className="flex items-center gap-3 px-3 py-2 text-sm">
-                                        <span className="w-28 shrink-0 text-xs tabular-nums text-text-muted">{d.date}</span>
-                                        <span className="min-w-0 flex-1 text-text-main">{d.title}</span>
-                                        {d.kind !== "other" && (
-                                            <span className="shrink-0 rounded bg-bg-warm px-1.5 py-0.5 text-[10px] font-medium capitalize text-text-muted">{d.kind}</span>
-                                        )}
-                                    </li>
-                                ))}
-                            </ul>
-                        )}
-                    </div>
-                )}
-
                 {/* Info cards */}
                 <div className="grid gap-4 sm:grid-cols-2">
                     <div className="rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light" data-tutorial="course-details">
@@ -441,6 +415,61 @@ export default function CourseOverview({
                         </dl>
                     </div>
                 </div>
+
+                {enrollment.syllabus && (
+                    <div className="mt-4 rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light" data-tutorial="course-syllabus">
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setScheduleOpen((open) => !open)}
+                                aria-expanded={scheduleOpen}
+                                aria-controls="course-schedule-body"
+                                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                            >
+                                <CalendarDays size={16} className="shrink-0 text-primary" />
+                                <h2 className="text-sm font-semibold text-text-main">Schedule &amp; key dates</h2>
+                                <span className="min-w-0 truncate text-xs text-text-muted">from {enrollment.syllabus.name}</span>
+                                <ChevronDown size={16} className={`ml-auto shrink-0 text-text-muted transition-transform ${scheduleOpen ? "" : "-rotate-90"}`} />
+                            </button>
+                            <CircleIconButton
+                                icon={<Pencil size={14} />}
+                                ariaLabel="Edit dates"
+                                size="sm"
+                                onClick={() => setSyllabusOpen('dates')}
+                            />
+                        </div>
+                        {scheduleOpen && (
+                        <div id="course-schedule-body">
+                        <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                            {([
+                                ["Office hours", enrollment.syllabus.officeHours],
+                                ["Textbooks", enrollment.syllabus.textbooks],
+                                ["Grading", enrollment.syllabus.grading],
+                            ] as const).filter(([, value]) => value).map(([label, value]) => (
+                                <div key={label} className={label === "Grading" ? "sm:col-span-2" : ""}>
+                                    <dt className="text-xs text-text-muted">{label}</dt>
+                                    {label === "Grading" ? <dd><GradingChart grading={value} /></dd> : <dd className="mt-0.5 text-text-main">{value}</dd>}
+                                </div>
+                            ))}
+                        </dl>
+                        {enrollment.syllabus.dates?.length > 0 && (
+                            <ul className="mt-4 divide-y divide-border-light rounded-lg border border-border-light">
+                                {sortSyllabusDates(enrollment.syllabus.dates).map((d, i) => (
+                                    <li key={`${d.date}-${i}`} className="flex items-center gap-3 px-3 py-2 text-sm">
+                                        <span className="w-28 shrink-0 text-xs tabular-nums text-text-muted">{d.date}</span>
+                                        <span className="min-w-0 flex-1 text-text-main">{d.title}</span>
+                                        {d.kind !== "other" && (
+                                            <span className="shrink-0 rounded bg-bg-warm px-1.5 py-0.5 text-[10px] font-medium capitalize text-text-muted">{d.kind}</span>
+                                        )}
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                        </div>
+                        )}
+                    </div>
+                )}
+
 
                 {/* Course Resources */}
                 <div className="mt-6 rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light" data-tutorial="course-resources">
