@@ -1,5 +1,6 @@
 import { extractPdfTextFromUrl, fetchInternal } from "./pdfExtract";
 import { ocrImage } from "./ocrClient";
+import { parsePptxSlides, pptxSlidesToText } from "./pptxSlides";
 
 // Plain-text/code types — same set the upload/preview flow already accepts
 // (see CODE_TYPES in ResourcePreview.tsx), just read as raw text, no parser
@@ -18,7 +19,7 @@ export const IMAGE_FILE_TYPES = ["png", "jpg", "jpeg", "webp"];
 // File types the AI assistant can actually read/index. Kept in sync with the
 // extraction dispatch below — anything not listed here degrades to a clear
 // "not supported yet" message instead of silently failing.
-export const SUPPORTED_DOCUMENT_TYPES = ["pdf", "docx", "xlsx", "xls", ...PLAIN_TEXT_TYPES, ...IMAGE_FILE_TYPES];
+export const SUPPORTED_DOCUMENT_TYPES = ["pdf", "docx", "pptx", "xlsx", "xls", ...PLAIN_TEXT_TYPES, ...IMAGE_FILE_TYPES];
 
 
 async function extractDocxText(fullUrl: string): Promise<string> {
@@ -30,6 +31,14 @@ async function extractDocxText(fullUrl: string): Promise<string> {
   const arrayBuffer = await fileResponse.arrayBuffer();
   const result = await mammoth.extractRawText({ buffer: Buffer.from(arrayBuffer) });
   return result.value.trim();
+}
+
+async function extractPptxText(fullUrl: string): Promise<string> {
+  const fileResponse = await fetchInternal(fullUrl);
+  if (!fileResponse.ok) {
+    throw new Error(`Failed to download presentation (${fileResponse.status})`);
+  }
+  return pptxSlidesToText(await parsePptxSlides(await fileResponse.arrayBuffer()));
 }
 
 async function extractXlsxText(fullUrl: string): Promise<string> {
@@ -66,7 +75,7 @@ async function extractImageText(fullUrl: string): Promise<string> {
 }
 
 // Dispatches to the right extractor by file type — pdf-parse for PDFs
-// (already used elsewhere), mammoth for Word docs, SheetJS for spreadsheets,
+// (already used elsewhere), mammoth for Word docs, JSZip for PowerPoint slides, SheetJS for spreadsheets,
 // plain-text read for code/txt files, and the OCR vision model for images.
 // Same libraries the resource viewer already uses client-side, just run
 // server-side here so the AI can read/search/index the same file types.
@@ -76,6 +85,8 @@ export async function extractDocumentText(fullUrl: string, fileType: string): Pr
       return extractPdfTextFromUrl(fullUrl);
     case "docx":
       return extractDocxText(fullUrl);
+    case "pptx":
+      return extractPptxText(fullUrl);
     case "xlsx":
     case "xls":
       return extractXlsxText(fullUrl);
