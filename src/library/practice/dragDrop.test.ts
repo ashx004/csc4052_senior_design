@@ -167,3 +167,14 @@ describe("the clock", () => {
     expect(timeLimitFor("match", 100)).toBe(180);
   });
 });
+
+describe("fixDirections", () => {
+  it("rewords left/right instructions to match the tray-above layout", async () => {
+    const { fixDirections } = await import("./dragDrop");
+    expect(fixDirections("Drag each term from the left column to its definition on the right side.")).toBe(
+      "Drag each term from the tray above to its definition below."
+    );
+    expect(fixDirections("Match the items on the left to the right column.")).toContain("below");
+    expect(fixDirections("Drag each term onto its match.")).toBe("Drag each term onto its match.");
+  });
+});
