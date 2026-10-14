@@ -105,6 +105,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ topicName: result.topicName, items: result.items });
     } catch (error) {
       console.error("Practice generation failed:", error);
+      const timedOut =
+        (error instanceof DOMException && (error.name === "TimeoutError" || error.name === "AbortError")) ||
+        (error instanceof Error && error.message.startsWith("Generation timed out"));
+      if (timedOut) {
+        return NextResponse.json(
+          { error: "The AI took too long to build this practice. Try fewer rounds or questions, or try again in a minute." },
+          { status: 504 }
+        );
+      }
       return NextResponse.json(
         { error: error instanceof Error && error.message.startsWith("Couldn't build") ? error.message : "The assistant returned an unexpected response. Please try again." },
         { status: 502 }

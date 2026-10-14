@@ -40,6 +40,22 @@ interface RoundBase {
 }
 
 /** Terms to drag onto their definitions. */
+/**
+ * The tiles sit in a tray above the drop zones, so instructions that say
+ * "left" and "right" (from the model, or from sets saved earlier) are reworded.
+ */
+export function fixDirections(text: string): string {
+  return text
+    .replace(/\bon\s+the\s+right(?:[- ]hand)?(?:\s+(?:side|column|list))?\b/gi, "below")
+    .replace(/\bon\s+the\s+left(?:[- ]hand)?(?:\s+(?:side|column|list))?\b/gi, "above")
+    .replace(/\b(?:from\s+)?the\s+left(?:[- ]hand)?\s+(?:side|column|list|items?|terms?)\b/gi, (m) => (/^from/i.test(m) ? "from the tray above" : "the tray above"))
+    .replace(/\b(?:onto|into|to|in)\s+the\s+right(?:[- ]hand)?\s+(?:side|column|list|items?|definitions?|descriptions?)\b/gi, (m) => m.replace(/the\s+right(?:[- ]hand)?\s+\w+/i, "the boxes below"))
+    .replace(/\bthe\s+right(?:[- ]hand)?\s+(?:side|column|list|items?|definitions?|descriptions?)\b/gi, "the boxes below")
+    .replace(/\bleft\s+(?:to|and|&)\s+right\b/gi, "top to bottom")
+    .replace(/\bleft[- ]?(?:hand)?\s+(?:side|column)\b/gi, "tray above")
+    .replace(/\bright[- ]?(?:hand)?\s+(?:side|column)\b/gi, "boxes below");
+}
+
 export function buildMatchRound(input: RoundBase & { pairs: { left: string; right: string }[] }, id: string, rng: Rng = Math.random): DragDropItem | null {
   const seenLeft = new Set<string>();
   const seenRight = new Set<string>();
@@ -61,7 +77,7 @@ export function buildMatchRound(input: RoundBase & { pairs: { left: string; righ
     id,
     kind: "drag_drop",
     mode: "match",
-    instructions: clean(input.instructions, 160) || "Drag each term onto its match.",
+    instructions: fixDirections(clean(input.instructions, 160)) || "Drag each term onto its match.",
     tiles: shuffleAwayFromSolution(tiles, rng),
     zones: shuffled(zones, rng),
     solution,
@@ -101,7 +117,7 @@ export function buildCategorizeRound(input: RoundBase & { categories: { name: st
     id,
     kind: "drag_drop",
     mode: "categorize",
-    instructions: clean(input.instructions, 160) || "Sort each item into the right category.",
+    instructions: fixDirections(clean(input.instructions, 160)) || "Sort each item into the right category.",
     tiles: shuffled(tiles, rng),
     zones,
     solution,
@@ -131,7 +147,7 @@ export function buildSequenceRound(input: RoundBase & { steps: string[] }, id: s
     id,
     kind: "drag_drop",
     mode: "sequence",
-    instructions: clean(input.instructions, 160) || "Drag the steps into the correct order.",
+    instructions: fixDirections(clean(input.instructions, 160)) || "Drag the steps into the correct order.",
     tiles: shuffleAwayFromSolution(tiles, rng),
     zones,
     solution,
