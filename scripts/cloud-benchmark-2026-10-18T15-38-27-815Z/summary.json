@@ -1,0 +1,27 @@
+{
+  "generatedAt": "2026-10-18T15:41:06.263Z",
+  "context": 16384,
+  "parallel": 4,
+  "results": [
+    {
+      "model": "openrouter:qwen/qwen3-vl-8b-instruct",
+      "hallucination": "—",
+      "tools": "—",
+      "flashcardsSeconds": null,
+      "quizSeconds": null,
+      "advisingValid": false,
+      "advisingSeconds": null,
+      "parallelTokensPerSecond": null,
+      "ocrWordRecall": 1,
+      "ocrCharErrorRate": 0,
+      "ocrHandwritingFacts": 0.741,
+      "errors": 0,
+      "runCostUsd": 0.006047,
+      "per1000ChatTurns": null,
+      "per1000FlashcardSets": null,
+      "per1000Quizzes": null,
+      "per1000AdvisingPlans": null,
+      "per1000OcrPages": 0.86
+    }
+  ]
+}
