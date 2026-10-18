@@ -6,8 +6,26 @@
 // A model id names its provider: "openrouter:<openrouter model id>" or
 // "google:<gemini model id>".
 
+import { currentAiUser } from "./usageScope";
+
+// AI_BACKEND:
+//   cloud    every request goes to the cloud models
+//   testers  only the accounts in AI_CLOUD_TESTERS (comma-separated uids) do,
+//            everyone else stays on Ollama: for trying cloud AI and its
+//            metering on the live site before the paywall exists
+//   ollama   (or unset) nobody does
+// "testers" needs the route to have called enterAiUser() first, which every
+// AI route does right after verifying the student.
 export function isCloudBackend(): boolean {
-  return process.env.AI_BACKEND === "cloud";
+  const mode = process.env.AI_BACKEND;
+  if (mode === "cloud") return true;
+  if (mode !== "testers") return false;
+  const uid = currentAiUser();
+  return Boolean(uid && cloudTesters().includes(uid));
+}
+
+function cloudTesters(): string[] {
+  return (process.env.AI_CLOUD_TESTERS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 }
 
 export type FeatureGroup = "default" | "generation" | "ocr" | "light";

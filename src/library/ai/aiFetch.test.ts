@@ -117,4 +117,16 @@ describe("aiFetch", () => {
     await reader.cancel();
     expect(events).toEqual([expect.objectContaining({ uid: "student-c", requestId: "gen-3", incomplete: true })]);
   });
+
+  it("in testers mode sends only listed accounts to the cloud", async () => {
+    process.env.AI_BACKEND = "testers";
+    process.env.AI_CLOUD_TESTERS = "tester-1, tester-2";
+    fetchMock.mockImplementation(async () => completion("x", 0.000001));
+    await runAsAiUser("tester-2", () => aiFetch("http://ollama/api/chat", ollamaInit("chat", { messages: [] })));
+    await runAsAiUser("student-z", () => aiFetch("http://ollama/api/chat", ollamaInit("chat", { messages: [] })));
+    await aiFetch("http://ollama/api/chat", ollamaInit("chat", { messages: [] }));
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(["https://openrouter.ai/api/v1/chat/completions", "http://ollama/api/chat", "http://ollama/api/chat"]);
+    expect(events).toHaveLength(1);
+    delete process.env.AI_CLOUD_TESTERS;
+  });
 });
