@@ -1,6 +1,5 @@
 import PDFDocument from "pdfkit";
-import { PutObjectCommand } from "@aws-sdk/client-s3";
-import { getMinioClient } from "@/src/library/minioClient";
+import { putObject } from "@/src/library/gcsStorage";
 
 // Minimal inline-markdown renderer (bold only) — chains styled segments on
 // one pdfkit line via `continued`, since pdfkit has no rich-text markup input.
@@ -107,15 +106,7 @@ export async function generateAndUploadPdfToCourse(
   const fileName = `${sanitizeFilename(title)}.pdf`;
   const storagePath = `users/${userId}/classes/${courseId}/${Date.now()}_${fileName}`;
 
-  const s3Client = await getMinioClient();
-  await s3Client.send(
-    new PutObjectCommand({
-      Bucket: "studora",
-      Key: storagePath,
-      Body: buffer,
-      ContentType: "application/pdf",
-    })
-  );
+  await putObject(storagePath, buffer, "application/pdf");
 
   return { name: fileName, url: `/api/download?key=${encodeURIComponent(storagePath)}`, storagePath };
 }
@@ -129,15 +120,7 @@ export async function generateAndUploadPdf(
   const fileName = `${sanitizeFilename(title)}.pdf`;
   const storagePath = `users/${userId}/generated/${Date.now()}_${fileName}`;
 
-  const s3Client = await getMinioClient();
-  await s3Client.send(
-    new PutObjectCommand({
-      Bucket: "studora",
-      Key: storagePath,
-      Body: buffer,
-      ContentType: "application/pdf",
-    })
-  );
+  await putObject(storagePath, buffer, "application/pdf");
 
   return {
     name: fileName,

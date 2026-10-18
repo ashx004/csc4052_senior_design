@@ -112,7 +112,7 @@ export async function listChunksForUser(userId: string): Promise<ChunkPoint["pay
 
 // LAN-direct when reachable, falling back to the public tunneled URL
 // (QDRANT_FALLBACK_URL) for callers off the home/school LAN — same
-// primary/fallback pattern as ollamaClient.ts and minioClient.ts.
+// primary/fallback pattern as ollamaClient.ts.
 async function baseUrl(): Promise<string> {
   if (!process.env.QDRANT_URL) throw new Error("QDRANT_URL is not configured.");
   const headers = process.env.QDRANT_API_KEY ? { "api-key": process.env.QDRANT_API_KEY } : undefined;

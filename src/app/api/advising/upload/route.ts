@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PutObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
-import { getMinioClient } from "@/src/library/minioClient";
+import { putObject, headObject } from "@/src/library/gcsStorage";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
 
 /* Basically in here the transcript and curriculum sheet are being received.
 Its being checked the both files are pdfs. These files are being uploaded into 
-MinIO. Being returned are the MinIO paths to the page. */
+Google Cloud Storage. Being returned are the Google Cloud Storage paths to the page. */
 
-const BUCKET_NAME = "studora";
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
 function validatePdf(file: File, label: string): string | null {
@@ -38,34 +36,14 @@ async function uploadPdf(
 ): Promise<string> {
   const fileBuffer = Buffer.from(await file.arrayBuffer());
   const storagePath = `users/${userId}/advising/${documentType}.pdf`;
-  const minioClient = await getMinioClient();
-
-  await minioClient.send(
-    new PutObjectCommand({
-      Bucket: BUCKET_NAME,
-      Key: storagePath,
-      Body: fileBuffer,
-      ContentType: "application/pdf",
-    })
-  );
+  await putObject(storagePath, fileBuffer, "application/pdf");
 
   return storagePath;
 }
 
 
 async function objectExists(storagePath: string): Promise<boolean> {
-  const minioClient = await getMinioClient();
-
-  const result = await minioClient.send(
-    new ListObjectsV2Command({
-      Bucket: BUCKET_NAME,
-      Prefix: storagePath,
-    })
-  );
-
-  return result.Contents?.some(
-    (object) => object.Key === storagePath
-  ) ?? false;
+  return (await headObject(storagePath)) !== null;
 }
 
 const UPLOAD_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -87,7 +65,7 @@ async function authorize(
   return { userId: auth.uid };
 }
 
-// receive docs, validates them, & upload or replace them in MinIO
+// receive docs, validates them, & upload or replace them in Google Cloud Storage
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
@@ -165,7 +143,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// checks if the user alr has a Tr or Cu sheet stored in MinIO
+// checks if the user alr has a Tr or Cu sheet stored in Google Cloud Storage
 export async function GET(request: NextRequest) {
   try {
     const authorized = await authorize(request, request.nextUrl.searchParams.get("userId"));

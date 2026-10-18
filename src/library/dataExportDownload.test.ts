@@ -21,10 +21,10 @@ describe("requestDataExport", () => {
 
   it("surfaces the endpoint's safe error message", async () => {
     const fetcher = vi.fn().mockResolvedValue(Response.json(
-      { error: "Catalyst file storage (MinIO) is unavailable. Please try again later." },
+      { error: "Catalyst file storage (Google Cloud Storage) is unavailable. Please try again later." },
       { status: 503 }
     ));
 
-    await expect(requestDataExport("fresh-token", fetcher)).rejects.toThrow("Catalyst file storage (MinIO) is unavailable.");
+    await expect(requestDataExport("fresh-token", fetcher)).rejects.toThrow("Catalyst file storage (Google Cloud Storage) is unavailable.");
   });
 });

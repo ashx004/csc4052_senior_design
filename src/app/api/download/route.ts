@@ -1,8 +1,7 @@
 // src/app/api/download/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { verifyRequestAuth, isInternalRequest } from "@/src/library/verifyAuth";
-import { getMinioClient } from "@/src/library/minioClient";
+import { getObject } from "@/src/library/gcsStorage";
 import { isAccountDeletionInProgress } from "@/src/library/accountDeletionGuard";
 
 export const dynamic = 'force-dynamic';
@@ -30,14 +29,10 @@ export async function GET(req: NextRequest) {
     }
 
     try {
-        const s3Client = await getMinioClient();
-        const result = await s3Client.send(
-            new GetObjectCommand({ Bucket: "studora", Key: key })
-        );
-        const body = await result.Body!.transformToByteArray();
-        return new NextResponse(Buffer.from(body), {
+        const result = await getObject(key);
+        return new NextResponse(new Uint8Array(result.body), {
             headers: {
-                "Content-Type": result.ContentType || "application/octet-stream",
+                "Content-Type": result.contentType || "application/octet-stream",
                 "Cache-Control": "private, no-store",
             },
         });
