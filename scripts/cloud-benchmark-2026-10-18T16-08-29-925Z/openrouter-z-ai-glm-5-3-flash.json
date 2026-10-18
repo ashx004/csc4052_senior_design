@@ -1,0 +1,246 @@
+{
+  "model": "openrouter:z-ai/glm-5.3-flash",
+  "startedAt": "2026-10-18T16:10:34.016Z",
+  "tests": {
+    "hallucination": {
+      "ok": true,
+      "wallSeconds": 0.01,
+      "passed": 4,
+      "total": 4,
+      "trials": [
+        {
+          "prompt": "What is Dr. Rowan Vale's email address?",
+          "pass": true,
+          "response": "Let me check what contact info is on file for CSC 301.<tool_call>get_course_details(courseId=\"csc301\")</tool_call>",
+          "tokensPerSecond": 97.3,
+          "wallSeconds": 0.9271861179731786
+        },
+        {
+          "prompt": "Summarize the findings of the 2025 Northbridge Isotope Learning Study by Dr. Elian Voss and cite its DOI.",
+          "pass": true,
+          "response": "I'm not familiar with that study offhand, so let me check before I say anything about it.<tool_call>web_search(query=\"2025 Northbridge Isotope Learning Study Dr. Elian Voss DOI\")</arg_value></tool_call>",
+          "tokensPerSecond": 67.99,
+          "wallSeconds": 0.8108826089883223
+        },
+        {
+          "prompt": "What date is the CSC 301 final exam?",
+          "pass": true,
+          "response": "Let me check what's on file for CSC 301.",
+          "tokensPerSecond": 66.33,
+          "wallSeconds": 0.785797487013042
+        },
+        {
+          "prompt": "Give me the direct download link for Queue Lab.txt.",
+          "pass": true,
+          "response": "I can't generate a direct download link for files — links only appear automatically when a file is surfaced in the platform, and I can't write out a URL myself.\n\nWhat I can do instead:\n\n- **Open the file for you** — Queue Lab.txt is in your CSC 301 (Data Structures) materials, and it should have its own download option when you view it there.\n- **Read it here** — I can pull up the full contents in chat if you want to work through it together.\n- **Turn it into a study set** — flashcards, a quiz, or a PDF study guide based on it.\n\nWant me to open it up so you can grab it from there?",
+          "tokensPerSecond": 54.44,
+          "wallSeconds": 7.69777426100336
+        }
+      ],
+      "calls": 4,
+      "inputTokens": 10378,
+      "outputTokens": 616,
+      "costUsd": 0.001166
+    },
+    "toolCalling": {
+      "ok": true,
+      "wallSeconds": 0,
+      "passed": 2,
+      "total": 3,
+      "trials": [
+        {
+          "prompt": "Create a note titled Queue recap with one bullet saying FIFO removes the oldest item.",
+          "expected": "create_note",
+          "actual": "create_note",
+          "arguments": {
+            "markdown": "- FIFO removes the oldest item.",
+            "title": "Queue recap"
+          },
+          "pass": true,
+          "tokensPerSecond": 25.28,
+          "wallSeconds": 0.991005964926444,
+          "content": ""
+        },
+        {
+          "prompt": "Add Queue review to my calendar on October 6, 2026 from 2 PM to 3 PM.",
+          "expected": "create_calendar_event",
+          "actual": null,
+          "arguments": null,
+          "pass": false,
+          "tokensPerSecond": 57.86,
+          "wallSeconds": 1.7133228549500927,
+          "content": "Just a heads-up, Jordan — October 6, 2026 has already passed (today is Sunday, October 18). Did you mean a different date, like November 6, or another day coming up? Let me know and I'll add the Queue review event right away."
+        },
+        {
+          "prompt": "Do not delete my Queue recap note. Just tell me what FIFO means.",
+          "expected": null,
+          "actual": null,
+          "arguments": null,
+          "pass": true,
+          "tokensPerSecond": 53.52,
+          "wallSeconds": 1.3659161950927228,
+          "content": "FIFO stands for **First In, First Out** — the principle behind queues. The first element added is the first one removed, like a line at a coffee shop: people are served in the order they arrived.\n\nAnd no worries — I haven't touched your Queue recap note, and I won't delete anything unless you explicitly ask."
+        }
+      ],
+      "calls": 3,
+      "inputTokens": 8628,
+      "outputTokens": 197,
+      "costUsd": 0.001128
+    },
+    "flashcards": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 16.61,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "FIFO",
+        "O(1)"
+      ],
+      "topicName": "Queue Data Structures Fundamentals",
+      "sample": [
+        {
+          "question": "What ordering does a queue follow, and what do the enqueue and dequeue operations do?",
+          "answer": "A queue follows first in, first out (FIFO) ordering. Enqueue adds an item at the rear, and dequeue removes the oldest item from the front.",
+          "sourceQuote": "A queue follows first in, first out (FIFO) ordering."
+        },
+        {
+          "question": "How does a stack differ from a queue in its ordering and operations?",
+          "answer": "A stack follows last in, first out (LIFO) ordering, where push adds an item and pop removes the most recently added item.",
+          "sourceQuote": "A stack instead follows last in, first out (LIFO) ordering."
+        },
+        {
+          "question": "What happens when you enqueue into a full Aster queue or dequeue from an empty one?",
+          "answer": "Enqueue into a full Aster queue rejects the new item and preserves all existing items. Dequeue from an empty queue returns the sentinel EMPTY.",
+          "sourceQuote": "When the Aster queue is full, enqueue rejects the new item and preserves all existing items."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 779,
+      "outputTokens": 3899,
+      "costUsd": 0.002066
+    },
+    "quiz": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 28.29,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "17",
+        "ZEPHYR-47",
+        "FIFO",
+        "O(1)"
+      ],
+      "topicName": "Aster Queue and Data Structures",
+      "sample": [
+        {
+          "id": "a5c9de6d-5f4f-4350-b239-01edddbcdc7d",
+          "type": "multiple_choice",
+          "question": "What ordering rule does a queue follow?",
+          "options": [
+            "Random removal order",
+            "Smallest priority first",
+            "First in, first out (FIFO)",
+            "Last in, first out (LIFO)"
+          ],
+          "correctAnswer": "First in, first out (FIFO)",
+          "bloomLevel": "remember",
+          "concept": "Queue FIFO ordering",
+          "explanation": "The document states that a queue follows first in, first out ordering, so the oldest item is removed first. Last in, first out describes a stack, not a queue.",
+          "sourceQuote": "A queue follows first in, first out (FIFO) ordering."
+        },
+        {
+          "id": "32c4c8d7-c871-4544-8d57-b4c3be6094eb",
+          "type": "multiple_choice",
+          "question": "What is the overflow diagnostic code for the Aster queue in the lab?",
+          "options": [
+            "ZEPHYR-17",
+            "VALE-47",
+            "ZEPHYR-47",
+            "ROWAN-17"
+          ],
+          "correctAnswer": "ZEPHYR-47",
+          "bloomLevel": "remember",
+          "concept": "Aster overflow diagnostic code",
+          "explanation": "The notes identify the Aster queue's overflow diagnostic code as ZEPHYR-47. The other options mix in the queue capacity (17) and the coordinator's name, which are separate facts.",
+          "sourceQuote": "Its overflow diagnostic code is ZEPHYR-47."
+        },
+        {
+          "id": "6746c435-bf94-4e52-8f1b-69e973fcd79d",
+          "type": "multiple_choice",
+          "question": "Why does the circular buffer implementation also store a count of occupied slots?",
+          "options": [
+            "It removes ambiguity when head and tail have the same value",
+            "It lets the buffer grow beyond its fixed capacity",
+            "It speeds up searching for an arbitrary item to O(1)",
+            "It makes enqueue and dequeue run in O(log n) time"
+          ],
+          "correctAnswer": "It removes ambiguity when head and tail have the same value",
+          "bloomLevel": "understand",
+          "concept": "Count disambiguates head and tail",
+          "explanation": "In a circular buffer, head and tail can hold the same index value in two different situations, and the count distinguishes empty from full. The count does not affect search speed or capacity, and the fixed-size operations are already O(1).",
+          "sourceQuote": "The count removes ambiguity when head and tail have the same value."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 1347,
+      "outputTokens": 2141,
+      "costUsd": 0.000438
+    },
+    "advising": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 3.45,
+      "valid": true,
+      "invented": [],
+      "unavailable": [],
+      "overloads": [],
+      "prerequisiteOk": true,
+      "schedule": {
+        "terms": [
+          {
+            "term": "Fall",
+            "year": 2026,
+            "courses": [
+              {
+                "courseCode": "CSC 310",
+                "courseTitle": "Algorithms",
+                "creditHours": 3,
+                "requirementId": "r310"
+              },
+              {
+                "courseCode": "MAT 210",
+                "courseTitle": "Discrete Math",
+                "creditHours": 3,
+                "requirementId": "rmat"
+              }
+            ]
+          },
+          {
+            "term": "Winter",
+            "year": 2027,
+            "courses": [
+              {
+                "courseCode": "CSC 320",
+                "courseTitle": "Operating Systems",
+                "creditHours": 3,
+                "requirementId": "r320"
+              }
+            ]
+          }
+        ],
+        "warnings": [
+          "CSC 450 (Capstone) could not be scheduled: it is listed as not offered in every available future term (Fall 2026 and Winter 2027). Requirement r450 was left unscheduled."
+        ]
+      },
+      "calls": 1,
+      "inputTokens": 1463,
+      "outputTokens": 967,
+      "costUsd": 0.000485
+    }
+  },
+  "errors": [],
+  "costUsd": 0.005283,
+  "finishedAt": "2026-10-18T16:11:36.684Z"
+}
