@@ -66,3 +66,17 @@ provide the same `INTERNAL_API_SECRET` used by the web application.
 ## Usage analytics and administrator dashboard
 
 See [docs/analytics.md](docs/analytics.md) for opt-in tracking, isolated test collection, GA4 reporting setup, and granting/revoking administrator access. The dashboard is available at `/admin/analytics` after configuration.
+
+## Production deploys
+
+Pushing to `main` runs `.github/workflows/deploy-image.yml`, which builds the
+`Dockerfile` on GitHub's runners and pushes `ghcr.io/ashx004/csc4052_senior_design`.
+The server only pulls that image (its `deploy-watch.sh` checks every 3 minutes,
+health-checks the new version and rolls back if it fails) - it never runs
+`npm install` or `next build` itself.
+
+- `NEXT_PUBLIC_*` values are baked into the browser bundle at build time. Keep
+  them, one `KEY=value` per line, in the `NEXT_PUBLIC_ENV` repository secret.
+- Server-only secrets stay in the server's `.env`, mounted into the container
+  at runtime. If a module needs a value just to be imported during the build,
+  add a dummy for it to `docker/build-placeholders.env`.
