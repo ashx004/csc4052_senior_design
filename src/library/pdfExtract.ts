@@ -11,14 +11,19 @@ type PositionedText = {
 
 
 export function resolveInternalUrl(request: NextRequest, relativeUrl: string): string {
-  const host = request.headers.get("host");
+  /*
+    In production, call this same server directly over loopback. Building the
+    URL from the incoming Host header broke both ways: the OCR/advising
+    workers call in at http://catalyst-site:3000, which became
+    https://catalyst-site:3000 (TLS against plain HTTP), and public requests
+    looped back out through Cloudflare, whose 100s limit cut long jobs off
+    with a 524.
+  */
+  if (process.env.NODE_ENV !== "development") {
+    return `http://127.0.0.1:${process.env.PORT ?? 3000}${relativeUrl}`;
+  }
 
-  const protocol =
-    process.env.NODE_ENV === "development"
-      ? "http"
-      : "https";
-
-  return `${protocol}://${host}${relativeUrl}`;
+  return `http://${request.headers.get("host")}${relativeUrl}`;
 }
 
 export function fetchInternal(
