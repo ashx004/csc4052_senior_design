@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
 import type { DocumentReference } from "firebase-admin/firestore";
-import { PutObjectCommand } from "@aws-sdk/client-s3";
 import {
   getIdToken,
   firestoreGet,
@@ -10,7 +9,7 @@ import {
   firestoreListCollection,
 } from "@/src/library/firestoreRest";
 import { adminDb } from "@/src/library/firebaseAdmin";
-import { getMinioClient } from "@/src/library/minioClient";
+import { putObject } from "@/src/library/gcsStorage";
 import { resolveInternalUrl } from "@/src/library/pdfExtract";
 import { extractDocumentText, IMAGE_FILE_TYPES, SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
 import { chunkText } from "@/src/library/chunking";
@@ -45,7 +44,6 @@ const INDEXING_TIMEOUT_MS = 3.5 * 60 * 1000;
 // while read_document still has its own separate cap for full reads.
 const MAX_INDEXABLE_CHARS = 100000;
 
-const MINIO_BUCKET = "studora";
 
 type SourceSnapshot = {
   url: string;
@@ -145,15 +143,7 @@ async function persistImageTranscript(opts: {
   // another orphaned object in storage.
   const transcriptStoragePath = `users/${userId}/classes/${courseId}/ocr/${resourceId}_${txtName}`;
 
-  const s3Client = await getMinioClient();
-  await s3Client.send(
-    new PutObjectCommand({
-      Bucket: MINIO_BUCKET,
-      Key: transcriptStoragePath,
-      Body: Buffer.from(transcript, "utf8"),
-      ContentType: "text/plain",
-    })
-  );
+  await putObject(transcriptStoragePath, transcript, "text/plain");
 
   const transcriptUrl = `/api/download?key=${encodeURIComponent(transcriptStoragePath)}`;
   const updated = await updateResource({
@@ -190,13 +180,7 @@ async function persistOcrDocumentTranscript(opts: {
 }): Promise<void> {
   const { userId, courseId, resourceId, transcript, pageManifestVersion, pageCount, updateResource } = opts;
   const transcriptStoragePath = `users/${userId}/classes/${courseId}/ocr/${resourceId}_transcript.txt`;
-  const s3Client = await getMinioClient();
-  await s3Client.send(new PutObjectCommand({
-    Bucket: MINIO_BUCKET,
-    Key: transcriptStoragePath,
-    Body: Buffer.from(transcript, "utf8"),
-    ContentType: "text/plain",
-  }));
+  await putObject(transcriptStoragePath, transcript, "text/plain");
 
   const transcriptUrl = `/api/download?key=${encodeURIComponent(transcriptStoragePath)}`;
   const updated = await updateResource({

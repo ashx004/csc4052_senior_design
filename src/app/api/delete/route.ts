@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { deleteChunksForResource } from "@/src/library/vectorStore";
-import { getMinioClient } from "@/src/library/minioClient";
+import { deleteObject } from "@/src/library/gcsStorage";
 import { forgetDocumentText } from "@/src/library/documentTextCache";
 import { isAccountDeletionInProgress } from "@/src/library/accountDeletionGuard";
 
@@ -24,8 +23,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     try {
-        const s3Client = await getMinioClient();
-        await s3Client.send(new DeleteObjectCommand({ Bucket: "studora", Key: key }));
+        await deleteObject(key);
 
         // Optional: clean up this resource's Qdrant vectors too (hygiene —
         // orphaned points are otherwise harmless, never matched since

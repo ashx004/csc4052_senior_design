@@ -34,7 +34,7 @@ authorized GPU reset or reboot before both GPUs can be used again.
 ## Catalyst end-to-end results
 
 Each run used a disposable Firebase student, synthetic CSC 301 course, a real
-MinIO document, deliberately misleading vector text, and the real Catalyst API
+Google Cloud Storage document, deliberately misleading vector text, and the real Catalyst API
 routes/tool loop. The suite cleans up the account, Firestore data, vectors, and
 objects in `finally`.
 

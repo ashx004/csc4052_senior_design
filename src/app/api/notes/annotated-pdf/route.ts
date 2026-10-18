@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import PDFDocument from "pdfkit";
-import { PutObjectCommand } from "@aws-sdk/client-s3";
-import { getMinioClient } from "@/src/library/minioClient";
+import { putObject } from "@/src/library/gcsStorage";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 
 export async function POST(request: NextRequest) {
@@ -48,8 +47,7 @@ export async function POST(request: NextRequest) {
     doc.end();
     await complete;
     const key = `users/${auth.uid}/notes/${noteId}/annotated.pdf`;
-    const client = await getMinioClient();
-    await client.send(new PutObjectCommand({ Bucket: "studora", Key: key, Body: Buffer.concat(chunks), ContentType: "application/pdf" }));
+    await putObject(key, Buffer.concat(chunks), "application/pdf");
     return NextResponse.json({ url: `/api/download?key=${encodeURIComponent(key)}` });
   } catch (error) {
     console.error("Annotated PDF export failed:", error);

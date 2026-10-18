@@ -1,7 +1,7 @@
 // Turns the sources a student ticked into budgeted text per source.
 //
 // Dependencies are injected rather than imported so this is unit-testable
-// without Qdrant, Ollama or MinIO. The route wires the real ones.
+// without Qdrant, Ollama or object storage. The route wires the real ones.
 
 import { selectChunks, type ChunkCandidate } from "@/src/library/generation/selectChunks";
 import { SourceSelectionError } from "./errors";

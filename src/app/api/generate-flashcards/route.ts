@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     try {
       resolved = await resolveSources(resolveDepsFor(request, auth.uid, courseId), sourceInput);
     } catch (error) {
-      // Only a message written for the student becomes a 400; a MinIO or
+      // Only a message written for the student becomes a 400; a object storage or
       // Qdrant failure is not the caller's fault and keeps the generic 500.
       if (!isSourceSelectionError(error)) throw error;
       return NextResponse.json({ error: error.message }, { status: 400 });

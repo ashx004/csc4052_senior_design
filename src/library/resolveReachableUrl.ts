@@ -1,8 +1,8 @@
 // Shared LAN-direct/public-tunnel-fallback resolver for every self-hosted
-// service this app talks to (Ollama, MinIO, Qdrant): probe the LAN endpoint
+// service this app talks to (Ollama, object storage, Qdrant): probe the LAN endpoint
 // cheaply and fall back to the public Cloudflare-tunneled URL when it's
 // unreachable (e.g. a teammate developing remotely, or the LAN box itself
-// being down). Was duplicated verbatim in ollamaClient.ts and minioClient.ts;
+// being down). Was duplicated verbatim in ollamaClient.ts;
 // centralized here rather than adding a third copy for Qdrant.
 //
 // Deliberately a separate fast *reachability* probe rather than a shared

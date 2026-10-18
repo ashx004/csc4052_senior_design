@@ -22,7 +22,7 @@ interface SanitizeStudySetParams {
 // Builds a safe, self-contained public snapshot from an owner-scoped quiz or
 // flashcard set document. Deliberately does NOT spread the raw set data —
 // only the fields explicitly read below ever reach the returned object, so
-// sourceDocKey (a MinIO key that embeds the owner's uid) and every other
+// sourceDocKey (a object storage key that embeds the owner's uid) and every other
 // owner-private field (pinned, createdAt, updatedAt, questionTypes, uid-ish
 // fields, etc.) are excluded by construction, not by a blocklist.
 export function sanitizeStudySet(
