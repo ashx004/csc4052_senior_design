@@ -21,14 +21,23 @@ _Effective October 18, 2026. Last updated October 18, 2026._
 
 | Service | Why | What it receives |
 |---|---|---|
-| OpenRouter and the AI model hosts it routes to; Google (Gemini API) | Running AI features you start | The prompt for that request: your message and the relevant parts of your notes or documents, or the image for OCR |
+| OpenRouter, Inc. | Routing each AI request you start to a model host | The prompt for that request: your message and the relevant parts of your notes or documents, or the image for OCR |
+| Model hosts selected by OpenRouter (its subprocessors) | Running the AI model for that request | The same prompt, passed on by OpenRouter |
+| Google (Gemini API) | Backup AI provider, used only if OpenRouter is unavailable | The same prompt |
+| ZonoCSC-operated servers | Building the document search index (embeddings) | Text from documents you upload, and your chat question |
+| Cloudflare | Secure network tunnel to ZonoCSC-operated servers | Traffic to those servers when the direct connection is unavailable |
 | Google Cloud / Firebase | Hosting, sign-in, database, file storage | Everything above |
 | Stripe | Payments and receipts | Email, payment details, amount |
 | Resend | Reminder and notice emails | Email address, message content |
 | Google Calendar (if you connect it) | Syncing events | Calendar events you choose to sync |
 
-**AI providers and training.** We configure AI requests to go only to providers
-that **do not train on your data** and keep it for the shortest time available.
+**AI providers and training.** OpenRouter processes AI requests under its Data
+Processing Agreement and passes each one to a model host acting as its
+subprocessor. OpenRouter publishes its current list of model hosts and their
+data policies. We configure every request to go only to hosts that **do not
+train on your data** and keep it for the shortest time available. We do not
+send your name or email address with AI requests, only the content needed for
+that request.
 
 If you use **your own API key (BYOK)**, the requests go to that provider under
 your own agreement with them.
