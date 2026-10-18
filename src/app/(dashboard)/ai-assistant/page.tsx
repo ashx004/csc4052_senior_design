@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { FileDown, History, Paperclip, BookOpen, ListChecks, NotebookText, Wrench, Volume2, Square } from "lucide-react";
@@ -8,11 +8,6 @@ import { isSpeechSupported, speak, stopSpeaking } from "@/src/library/tts";
 import { useSpeechToText } from "@/src/library/useSpeechToText";
 import MicButton from "@/src/components/aiAssistant/MicButton";
 import ToolboxPanel from "@/src/components/aiAssistant/ToolboxPanel";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
-import "katex/dist/katex.min.css";
 import { useAuth } from "@/src/context/AuthContext";
 import { buildChatContext, ChatContext } from "@/src/library/chatContext";
 import {
@@ -22,8 +17,6 @@ import {
   StoredChatMessage,
 } from "@/src/library/chatMemory";
 import { deriveChatTitle } from "@/src/library/chatTitle";
-import ChatUploadModal from "@/src/components/aiAssistant/ChatUploadModal";
-import ChatHistoryPanel from "@/src/components/aiAssistant/ChatHistoryPanel";
 import { readChatStream } from "@/src/library/chatStream";
 import { toolRunningLabel } from "@/src/library/toolActivity";
 import type { LiveActivity } from "@/src/library/chatLive";
@@ -38,6 +31,13 @@ import QuickActions from "@/src/components/aiAssistant/QuickActions";
 import ThinkingIndicator from "@/src/components/aiAssistant/ThinkingIndicator";
 import ConfirmActionCard from "@/src/components/aiAssistant/ConfirmActionCard";
 import { useStickToBottom } from "@/src/hooks/useStickToBottom";
+
+// Loaded on demand rather than with the page: the markdown/math renderer is
+// only needed once there is an assistant reply, and the two panels only when
+// opened. Together they made first entry to this page noticeably laggy.
+const AssistantMarkdown = lazy(() => import("@/src/components/aiAssistant/AssistantMarkdown"));
+const ChatUploadModal = lazy(() => import("@/src/components/aiAssistant/ChatUploadModal"));
+const ChatHistoryPanel = lazy(() => import("@/src/components/aiAssistant/ChatHistoryPanel"));
 
 type ChatMessage = StoredChatMessage;
 
@@ -86,9 +86,9 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
 
           <div className="flex items-start gap-3">
             <div className="prose prose-sm max-w-none rounded-2xl bg-bg-container px-5 py-4 leading-relaxed shadow-sm ring-1 ring-border-light prose-headings:mb-2 prose-headings:mt-3 prose-headings:text-text-main prose-p:my-1.5 prose-p:text-text-main prose-strong:text-text-main prose-a:text-primary prose-blockquote:border-primary prose-blockquote:text-text-muted prose-code:rounded prose-code:bg-bg-warm prose-code:px-1 prose-code:py-0.5 prose-code:text-text-main prose-code:before:content-none prose-code:after:content-none prose-pre:bg-bg-warm prose-pre:text-text-main prose-ol:text-text-main prose-ul:text-text-main prose-li:my-0.5 prose-table:text-text-main prose-th:text-text-main">
-              <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
-                {message.text}
-              </ReactMarkdown>
+              <Suspense fallback={<p className="whitespace-pre-wrap">{message.text}</p>}>
+                <AssistantMarkdown text={message.text} />
+              </Suspense>
             </div>
 
             <div className="mt-2 flex flex-col gap-1.5">
@@ -325,6 +325,18 @@ function AIAssistantPageContent() {
 
   useEffect(() => {
     return () => generatingWatchRef.current?.();
+  }, []);
+
+  // Fetch the lazily loaded markdown renderer once the page is idle, so the
+  // first reply renders formatted without making first entry pay for it.
+  useEffect(() => {
+    const prefetch = () => void import("@/src/components/aiAssistant/AssistantMarkdown");
+    if (typeof window.requestIdleCallback === "function") {
+      const id = window.requestIdleCallback(prefetch, { timeout: 4000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const timer = window.setTimeout(prefetch, 1500);
+    return () => window.clearTimeout(timer);
   }, []);
 
   // Distinct from chatContext itself (which is legitimately null both
@@ -950,6 +962,7 @@ function AIAssistantPageContent() {
         </div>
       </main>
 
+      <Suspense fallback={null}>
       {showUploadModal && user && (
         <ChatUploadModal
           userId={user.uid}
@@ -967,6 +980,7 @@ function AIAssistantPageContent() {
           onSelect={loadSession}
         />
       )}
+      </Suspense>
     </section>
   );
 }

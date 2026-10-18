@@ -138,36 +138,39 @@ export function browserTimeZone(): string | undefined {
 // server-side via the read_document tool). A one-time snapshot; screens that
 // stay open while files change use useChatContext (src/hooks) instead.
 export async function buildChatContext(userId: string, email: string): Promise<ChatContext> {
-  let name = "";
-  let college = "";
-  try {
-    const userDoc = await getDoc(doc(db, "users", userId));
-    if (userDoc.exists()) {
-      const userData = userDoc.data();
-      name = userData.name ?? "";
-      college = userData.college ?? "";
-    }
-  } catch (error) {
-    console.error("Error fetching user profile for chat context:", error);
-  }
+  // The profile, the enrollment list and each class's resources are fetched
+  // in parallel; one after another they were a waterfall of 2 + (number of
+  // classes) round trips before the AI assistant could show its starters.
+  const profilePromise = getDoc(doc(db, "users", userId))
+    .then((userDoc) => {
+      const userData = userDoc.exists() ? userDoc.data() : {};
+      return { name: userData.name ?? "", college: userData.college ?? "" };
+    })
+    .catch((error) => {
+      console.error("Error fetching user profile for chat context:", error);
+      return { name: "", college: "" };
+    });
 
-  const classes: ChatClass[] = [];
-  try {
-    const enrollmentSnap = await getDocs(collection(db, "users", userId, "enrollment"));
+  const classesPromise = getDocs(collection(db, "users", userId, "enrollment"))
+    .then((enrollmentSnap) =>
+      Promise.all(
+        enrollmentSnap.docs.map(async (enrollmentDoc) => {
+          const documents: ChatDocument[] = [];
+          try {
+            const resourcesSnap = await getDocs(collection(db, "users", userId, "enrollment", enrollmentDoc.id, "resources"));
+            resourcesSnap.forEach((resourceDoc) => documents.push(toChatDocument(resourceDoc.id, resourceDoc.data())));
+          } catch (error) {
+            console.error(`Error fetching resources for class ${enrollmentDoc.id}:`, error);
+          }
+          return toChatClass(enrollmentDoc.id, enrollmentDoc.data(), documents);
+        })
+      )
+    )
+    .catch((error): ChatClass[] => {
+      console.error("Error fetching enrollments for chat context:", error);
+      return [];
+    });
 
-    for (const enrollmentDoc of enrollmentSnap.docs) {
-      const documents: ChatDocument[] = [];
-      try {
-        const resourcesSnap = await getDocs(collection(db, "users", userId, "enrollment", enrollmentDoc.id, "resources"));
-        resourcesSnap.forEach((resourceDoc) => documents.push(toChatDocument(resourceDoc.id, resourceDoc.data())));
-      } catch (error) {
-        console.error(`Error fetching resources for class ${enrollmentDoc.id}:`, error);
-      }
-      classes.push(toChatClass(enrollmentDoc.id, enrollmentDoc.data(), documents));
-    }
-  } catch (error) {
-    console.error("Error fetching enrollments for chat context:", error);
-  }
-
+  const [{ name, college }, classes] = await Promise.all([profilePromise, classesPromise]);
   return { userId, email, name, college, classes, timeZone: browserTimeZone() };
 }
