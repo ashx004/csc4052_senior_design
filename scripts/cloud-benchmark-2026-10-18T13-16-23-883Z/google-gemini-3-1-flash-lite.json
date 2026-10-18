@@ -1,0 +1,224 @@
+{
+  "model": "google:gemini-3.1-flash-lite",
+  "startedAt": "2026-10-18T13:28:52.897Z",
+  "tests": {
+    "hallucination": {
+      "ok": false,
+      "wallSeconds": 19.97,
+      "error": "Ollama 503: [{\"error\":{\"code\":503,\"message\":\"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.\",\"status\":\"UNAVAILABLE\"}}]",
+      "calls": 2,
+      "inputTokens": 2769,
+      "outputTokens": 449,
+      "costUsd": 0.001366
+    },
+    "toolCalling": {
+      "ok": false,
+      "wallSeconds": 1.71,
+      "error": "Ollama 503: [{\"error\":{\"code\":503,\"message\":\"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.\",\"status\":\"UNAVAILABLE\"}}]",
+      "calls": 3,
+      "inputTokens": 5915,
+      "outputTokens": 98,
+      "costUsd": 0.001626
+    },
+    "flashcards": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 1.89,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "17",
+        "FIFO",
+        "O(1)"
+      ],
+      "topicName": "Queue Data Structures and Algorithms",
+      "sample": [
+        {
+          "question": "What is the fundamental ordering principle of a queue?",
+          "answer": "A queue follows first in, first out (FIFO) ordering.",
+          "sourceQuote": "A queue follows first in, first out (FIFO) ordering."
+        },
+        {
+          "question": "How many items can the Aster queue hold?",
+          "answer": "The Aster queue is designed to hold exactly 17 items.",
+          "sourceQuote": "In our fictional lab implementation, the Aster queue holds exactly 17 items."
+        },
+        {
+          "question": "What happens when you attempt to dequeue from an empty Aster queue?",
+          "answer": "The dequeue operation returns the sentinel value EMPTY.",
+          "sourceQuote": "When it is empty, dequeue returns the sentinel EMPTY."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 788,
+      "outputTokens": 693,
+      "costUsd": 0.001236
+    },
+    "quiz": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 4.61,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "17",
+        "ZEPHYR-47",
+        "FIFO",
+        "O(1)",
+        "O(V + E)"
+      ],
+      "topicName": "Queue Data Structures and Algorithms",
+      "sample": [
+        {
+          "id": "4665c914-8f75-49ff-b94b-2171b23b64e1",
+          "type": "multiple_choice",
+          "question": "What is the specific overflow diagnostic code for the Aster queue?",
+          "options": [
+            "ZEPHYR-47",
+            "VALE-01",
+            "ASTER-17",
+            "FIFO-47"
+          ],
+          "correctAnswer": "ZEPHYR-47",
+          "bloomLevel": "remember",
+          "concept": "Aster queue diagnostic code",
+          "explanation": "The document explicitly identifies ZEPHYR-47 as the diagnostic code for the Aster queue overflow. Other options are fabricated or misinterpret the lab name.",
+          "sourceQuote": "Its overflow diagnostic code is ZEPHYR-47."
+        },
+        {
+          "id": "c0e110c6-d079-4cf5-96ce-719455f8af6a",
+          "type": "multiple_choice",
+          "question": "What is the maximum capacity of the Aster queue?",
+          "options": [
+            "47 items",
+            "17 items",
+            "10 items",
+            "Zero items"
+          ],
+          "correctAnswer": "17 items",
+          "bloomLevel": "remember",
+          "concept": "Aster queue capacity",
+          "explanation": "The text states the Aster queue holds exactly 17 items. The number 47 is associated with the diagnostic code, not the capacity.",
+          "sourceQuote": "In our fictional lab implementation, the Aster queue holds exactly 17 items."
+        },
+        {
+          "id": "32843e75-aea4-4758-9179-d814810f2d58",
+          "type": "multiple_choice",
+          "question": "How does a queue differ from a stack in terms of item removal?",
+          "options": [
+            "Queues remove the oldest item, while stacks remove the most recently added item.",
+            "Queues remove the most recently added item, while stacks remove the oldest item.",
+            "Queues remove items in O(log n) time, while stacks remove items in O(1) time.",
+            "Queues remove items based on priority, while stacks remove items based on arrival time."
+          ],
+          "correctAnswer": "Queues remove the oldest item, while stacks remove the most recently added item.",
+          "bloomLevel": "understand",
+          "concept": "Queue vs stack ordering",
+          "explanation": "Queues follow FIFO (first in, first out) logic, meaning the oldest item is removed, whereas stacks follow LIFO (last in, first out) logic, removing the most recent item.",
+          "sourceQuote": "Dequeue removes the oldest item from the front."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 1386,
+      "outputTokens": 1959,
+      "costUsd": 0.003285
+    },
+    "advising": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 101.51,
+      "valid": true,
+      "invented": [],
+      "unavailable": [],
+      "overloads": [],
+      "prerequisiteOk": true,
+      "schedule": {
+        "terms": [
+          {
+            "term": "Fall",
+            "year": 2026,
+            "courses": [
+              {
+                "courseCode": "CSC 310",
+                "courseTitle": "Algorithms",
+                "creditHours": 3,
+                "requirementId": "r310"
+              },
+              {
+                "courseCode": "MAT 210",
+                "courseTitle": "Discrete Math",
+                "creditHours": 3,
+                "requirementId": "rmat"
+              }
+            ]
+          },
+          {
+            "term": "Winter",
+            "year": 2027,
+            "courses": [
+              {
+                "courseCode": "CSC 320",
+                "courseTitle": "Operating Systems",
+                "creditHours": 3,
+                "requirementId": "r320"
+              }
+            ]
+          }
+        ],
+        "warnings": [
+          "CSC 450 cannot be scheduled because it is not offered in Fall 2026 or Winter 2027."
+        ]
+      },
+      "calls": 3,
+      "inputTokens": 1603,
+      "outputTokens": 267,
+      "costUsd": 0.000801
+    },
+    "parallelThroughput": {
+      "ok": false,
+      "wallSeconds": 10.58,
+      "error": "Ollama 503: [{\"error\":{\"code\":503,\"message\":\"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.\",\"status\":\"UNAVAILABLE\"}}]",
+      "calls": 2,
+      "inputTokens": 547,
+      "outputTokens": 174,
+      "costUsd": 0.000398
+    },
+    "ocr": {
+      "ok": true,
+      "wallSeconds": 0,
+      "trials": [
+        {
+          "file": "lecture-clean.png",
+          "seconds": 1.4,
+          "wordRecall": 1,
+          "charErrorRate": 0,
+          "keyFacts": "8/8",
+          "missing": [],
+          "text": "# CSC 301 - Lecture 7: Queues\nDate: October 6, 2026\n\n1. A queue is FIFO: the oldest item leaves first.\n2. enqueue(x) and dequeue() both run in O(1).\n3. Aster buffer capacity is 17 slots.\n4. On overflow the device reports ZEPHYR-47.\n5. BFS visits each vertex once: O(V + E).\n\nHomework: problems 4.2, 4.5 and 4.9 due Friday.\nOffice hours: Tuesday 2:30 PM, room B-114."
+        },
+        {
+          "file": "lecture-phone.jpg",
+          "seconds": 1.18,
+          "wordRecall": 0.955,
+          "charErrorRate": 0.011,
+          "keyFacts": "8/8",
+          "missing": [],
+          "text": "# CSC 301 - Lecture 7: Queues\nDate: October 6, 2026\n\n1. A queue is FIFO: the oldest item leaves first.\n2. enqueue(x) and dequeue() both run in $O(1)$.\n3. Aster buffer capacity is 17 slots.\n4. On overflow the device reports ZEPHYR-47.\n5. BFS visits each vertex once: $O(V + E)$.\n\nHomework: problems 4.2, 4.5 and 4.9 due Friday.\nOffice hours: Tuesday 2:30 PM, room B-114."
+        }
+      ],
+      "minWordRecall": 0.955,
+      "maxCharErrorRate": 0.011,
+      "calls": 2,
+      "inputTokens": 2623,
+      "outputTokens": 278,
+      "costUsd": 0.001073
+    }
+  },
+  "errors": [
+    "hallucination: Ollama 503: [{\"error\":{\"code\":503,\"message\":\"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.\",\"status\":\"UNAVAILABLE\"}}]",
+    "toolCalling: Ollama 503: [{\"error\":{\"code\":503,\"message\":\"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.\",\"status\":\"UNAVAILABLE\"}}]",
+    "parallelThroughput: Ollama 503: [{\"error\":{\"code\":503,\"message\":\"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.\",\"status\":\"UNAVAILABLE\"}}]"
+  ],
+  "costUsd": 0.009785,
+  "finishedAt": "2026-10-18T13:31:15.761Z"
+}

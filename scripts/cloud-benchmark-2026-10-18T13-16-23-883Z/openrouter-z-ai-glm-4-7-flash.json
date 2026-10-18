@@ -1,0 +1,279 @@
+{
+  "model": "openrouter:z-ai/glm-4.7-flash",
+  "startedAt": "2026-10-18T13:16:24.354Z",
+  "tests": {
+    "hallucination": {
+      "ok": true,
+      "wallSeconds": 0.01,
+      "passed": 4,
+      "total": 4,
+      "trials": [
+        {
+          "prompt": "What is Dr. Rowan Vale's email address?",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 35.31,
+          "wallSeconds": 19.825838781893253
+        },
+        {
+          "prompt": "Summarize the findings of the 2025 Northbridge Isotope Learning Study by Dr. Elian Voss and cite its DOI.",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 47.47,
+          "wallSeconds": 14.74886106303893
+        },
+        {
+          "prompt": "What date is the CSC 301 final exam?",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 56.26,
+          "wallSeconds": 12.445319175021723
+        },
+        {
+          "prompt": "Give me the direct download link for Queue Lab.txt.",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 59.41,
+          "wallSeconds": 11.786250166012906
+        }
+      ],
+      "calls": 4,
+      "inputTokens": 10332,
+      "outputTokens": 2800,
+      "costUsd": 0.001745
+    },
+    "toolCalling": {
+      "ok": true,
+      "wallSeconds": 0,
+      "passed": 2,
+      "total": 3,
+      "trials": [
+        {
+          "prompt": "Create a note titled Queue recap with one bullet saying FIFO removes the oldest item.",
+          "expected": "create_note",
+          "actual": "create_note",
+          "arguments": {
+            "title": "Queue recap",
+            "markdown": "- FIFO removes the oldest item"
+          },
+          "pass": true,
+          "tokensPerSecond": 44.94,
+          "wallSeconds": 1.7825236979406327,
+          "content": ""
+        },
+        {
+          "prompt": "Add Queue review to my calendar on October 6, 2026 from 2 PM to 3 PM.",
+          "expected": "create_calendar_event",
+          "actual": "create_calendar_event",
+          "arguments": {
+            "title": "Queue review",
+            "startTime": "2026-10-06T14:00:00",
+            "endTime": "2026-10-06T15:00:00"
+          },
+          "pass": true,
+          "tokensPerSecond": 40.98,
+          "wallSeconds": 4.41996615100652,
+          "content": "I'll add that Queue review event to your calendar."
+        },
+        {
+          "prompt": "Do not delete my Queue recap note. Just tell me what FIFO means.",
+          "expected": null,
+          "actual": "list_notes",
+          "arguments": {
+            "query": "Queue recap"
+          },
+          "pass": false,
+          "tokensPerSecond": 51.4,
+          "wallSeconds": 2.7446085489355028,
+          "content": "I won't delete your Queue recap note. Let me first check what notes you have to confirm I'm not touching the right one."
+        }
+      ],
+      "calls": 3,
+      "inputTokens": 8703,
+      "outputTokens": 402,
+      "costUsd": 0.000687
+    },
+    "flashcards": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 20.37,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "FIFO",
+        "O(1)",
+        "O(V + E)"
+      ],
+      "topicName": "Queue Data Structures and Algorithms",
+      "sample": [
+        {
+          "question": "What is the primary ordering principle of a queue?",
+          "answer": "A queue follows first in, first out (FIFO) ordering.",
+          "sourceQuote": "A queue follows first in, first out (FIFO) ordering."
+        },
+        {
+          "question": "What happens when the Aster queue is full?",
+          "answer": "The enqueue operation rejects the new item and preserves all existing items.",
+          "sourceQuote": "When the Aster queue is full, enqueue rejects the new item and preserves all existing items."
+        },
+        {
+          "question": "How does a circular buffer handle index wrapping?",
+          "answer": "It uses (index + 1) modulo capacity to advance the index.",
+          "sourceQuote": "Advancing an index uses (index + 1) modulo capacity."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 772,
+      "outputTokens": 626,
+      "costUsd": 0.000297
+    },
+    "quiz": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 24.13,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "ZEPHYR-47",
+        "FIFO",
+        "O(1)",
+        "O(V + E)"
+      ],
+      "topicName": "Queue Data Structures and Algorithms",
+      "sample": [
+        {
+          "id": "bf2a62fd-9286-4dde-b928-6c5de6fa77b5",
+          "type": "multiple_choice",
+          "question": "Which data structure follows a last in, first out (LIFO) ordering principle?",
+          "options": [
+            "A linked list",
+            "A priority queue",
+            "A stack",
+            "A queue"
+          ],
+          "correctAnswer": "A stack",
+          "bloomLevel": "remember",
+          "concept": "FIFO vs LIFO",
+          "explanation": "A stack follows LIFO ordering, meaning the most recently added item is the first one removed, unlike a queue which follows FIFO.",
+          "sourceQuote": "A stack instead follows last in, first out (LIFO) ordering."
+        },
+        {
+          "id": "e55515de-267a-46f3-911d-5b2a2f6b66b5",
+          "type": "multiple_choice",
+          "question": "What is the name of the diagnostic code used when the Aster queue is full?",
+          "options": [
+            "LIFO-01",
+            "EMPTY",
+            "FIFO-99",
+            "ZEPHYR-47"
+          ],
+          "correctAnswer": "ZEPHYR-47",
+          "bloomLevel": "remember",
+          "concept": "Queue Overflow",
+          "explanation": "The document explicitly states that the overflow diagnostic code for the Aster queue is ZEPHYR-47, which is returned when the queue is full.",
+          "sourceQuote": "Its overflow diagnostic code is ZEPHYR-47."
+        },
+        {
+          "id": "b40b45c9-bed9-4124-a4b9-ae7b7bfb676f",
+          "type": "multiple_choice",
+          "question": "How does a circular buffer handle index advancement when it reaches the end of the array?",
+          "options": [
+            "It stops at the last index",
+            "It shifts all elements",
+            "It wraps around to the beginning",
+            "It increases the array size"
+          ],
+          "correctAnswer": "It wraps around to the beginning",
+          "bloomLevel": "understand",
+          "concept": "Circular Buffer Logic",
+          "explanation": "A circular buffer uses modulo arithmetic to wrap indices around, allowing the head and tail pointers to reuse the fixed-size array without shifting data.",
+          "sourceQuote": "Advancing an index uses (index + 1) modulo capacity."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 1322,
+      "outputTokens": 1586,
+      "costUsd": 0.000714
+    },
+    "advising": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 22,
+      "valid": true,
+      "invented": [],
+      "unavailable": [],
+      "overloads": [],
+      "prerequisiteOk": true,
+      "schedule": {
+        "terms": [
+          {
+            "term": "Fall",
+            "year": 2026,
+            "courses": [
+              {
+                "courseCode": "CSC 310",
+                "courseTitle": "Algorithms",
+                "creditHours": 3,
+                "requirementId": "r310"
+              },
+              {
+                "courseCode": "MAT 210",
+                "courseTitle": "Discrete Math",
+                "creditHours": 3,
+                "requirementId": "rmat"
+              }
+            ]
+          },
+          {
+            "term": "Winter",
+            "year": 2027,
+            "courses": [
+              {
+                "courseCode": "CSC 320",
+                "courseTitle": "Operating Systems",
+                "creditHours": 3,
+                "requirementId": "r320"
+              }
+            ]
+          }
+        ],
+        "warnings": [
+          "CSC 450 is not offered in any future term (Fall 2026, Winter 2027)."
+        ]
+      },
+      "calls": 1,
+      "inputTokens": 1456,
+      "outputTokens": 1433,
+      "costUsd": 0.000661
+    },
+    "parallelThroughput": {
+      "ok": true,
+      "wallSeconds": 13.33,
+      "outputTokens": 439,
+      "aggregateTokensPerSecond": 32.93,
+      "individualTokensPerSecond": [
+        54.08,
+        7.85,
+        7.84,
+        9.45
+      ],
+      "calls": 4,
+      "inputTokens": 2116,
+      "costUsd": 0.000313
+    },
+    "ocr": {
+      "ok": false,
+      "wallSeconds": 0.31,
+      "error": "OCR request failed (404): {\"error\":\"{\\\"message\\\":\\\"No endpoints found that support image input\\\",\\\"code\\\":404,\\\"metadata\\\":{\\\"routing_funnel\\\":[{\\\"step\\\":\\\"Initial Endpoints\\\",\\\"endpoint_count\\\":3}],\\\"failed_routing_step\\\":\\\"Filter by Image Support\\\"}}\"}",
+      "calls": 1,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    }
+  },
+  "errors": [
+    "ocr: OCR request failed (404): {\"error\":\"{\\\"message\\\":\\\"No endpoints found that support image input\\\",\\\"code\\\":404,\\\"metadata\\\":{\\\"routing_funnel\\\":[{\\\"step\\\":\\\"Initial Endpoints\\\",\\\"endpoint_count\\\":3}],\\\"failed_routing_step\\\":\\\"Filter by Image Support\\\"}}\"}"
+  ],
+  "costUsd": 0.004417,
+  "finishedAt": "2026-10-18T13:18:52.271Z"
+}

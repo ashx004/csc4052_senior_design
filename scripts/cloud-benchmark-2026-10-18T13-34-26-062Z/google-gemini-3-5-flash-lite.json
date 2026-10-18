@@ -1,0 +1,112 @@
+{
+  "model": "google:gemini-3.5-flash-lite",
+  "startedAt": "2026-10-18T13:34:26.521Z",
+  "tests": {
+    "flashcards": {
+      "ok": true,
+      "wallSeconds": 0.01,
+      "generationSeconds": 2.38,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "17",
+        "ZEPHYR-47",
+        "FIFO",
+        "O(1)"
+      ],
+      "topicName": "Queue Lab and Data Structures",
+      "sample": [
+        {
+          "question": "What ordering principle does a queue follow?",
+          "answer": "A queue follows first in, first out (FIFO) ordering.",
+          "sourceQuote": "A queue follows first in, first out (FIFO) ordering."
+        },
+        {
+          "question": "What does the enqueue operation do?",
+          "answer": "Enqueue adds an item at the rear of the queue.",
+          "sourceQuote": "Enqueue adds an item at the rear."
+        },
+        {
+          "question": "What does the dequeue operation do when the Aster queue is empty?",
+          "answer": "When the Aster queue is empty, dequeue returns the sentinel EMPTY.",
+          "sourceQuote": "When it is empty, dequeue returns the sentinel EMPTY."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 788,
+      "outputTokens": 673,
+      "costUsd": 0.001919
+    },
+    "quiz": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 7.23,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "17",
+        "ZEPHYR-47",
+        "FIFO",
+        "O(1)"
+      ],
+      "topicName": "Queue Lab Data Structures",
+      "sample": [
+        {
+          "id": "55fc90f0-76ce-4ad5-b150-f8e10d8a3e49",
+          "type": "multiple_choice",
+          "question": "What is the overflow diagnostic code designated for the Aster queue?",
+          "options": [
+            "ZEPHYR-47",
+            "ZEPHYR-88",
+            "DELTA-47",
+            "ZEPHYR-17"
+          ],
+          "correctAnswer": "ZEPHYR-47",
+          "bloomLevel": "remember",
+          "concept": "Aster queue overflow code",
+          "explanation": "The text explicitly states that the overflow diagnostic code for the Aster queue is ZEPHYR-47, making ZEPHYR-17 an incorrect distractor. ZEPHYR-47 matches the recorded lab specification.",
+          "sourceQuote": "Its overflow diagnostic code is ZEPHYR-47."
+        },
+        {
+          "id": "cdaae9ed-0d12-4acd-8654-98f42cdf1542",
+          "type": "multiple_choice",
+          "question": "Which specific value is returned when a dequeue operation is performed on an empty Aster queue?",
+          "options": [
+            "NULL",
+            "NONE",
+            "EMPTY",
+            "ZERO"
+          ],
+          "correctAnswer": "EMPTY",
+          "bloomLevel": "remember",
+          "concept": "Empty queue sentinel",
+          "explanation": "According to the notes, when the queue is empty, dequeue returns the sentinel EMPTY rather than NULL or zero. This ensures a consistent programmatic response for empty states.",
+          "sourceQuote": "When it is empty, dequeue returns the sentinel EMPTY."
+        },
+        {
+          "id": "38aacf82-4602-4d0d-b9df-694e427e64a5",
+          "type": "multiple_choice",
+          "question": "How does a stack's removal behavior differ fundamentally from that of a queue?",
+          "options": [
+            "A stack removes the most recently added item, whereas a queue removes the oldest item.",
+            "A stack removes items randomly, whereas a queue removes items in strict reverse order.",
+            "A stack removes items in arrival order, whereas a queue removes items based on priority.",
+            "A stack removes the oldest item from the front, whereas a queue removes the newest item."
+          ],
+          "correctAnswer": "A stack removes the most recently added item, whereas a queue removes the oldest item.",
+          "bloomLevel": "understand",
+          "concept": "Stack versus queue removal",
+          "explanation": "A queue follows first in, first out ordering by removing the oldest item, while a stack follows last in, first out by using pop to remove the most recently added item. Confusing the two reverses their fundamental data structure definitions.",
+          "sourceQuote": "A queue follows first in, first out (FIFO) ordering."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 1386,
+      "outputTokens": 2415,
+      "costUsd": 0.006453
+    }
+  },
+  "errors": [],
+  "costUsd": 0.008372,
+  "finishedAt": "2026-10-18T13:34:36.153Z"
+}

@@ -1,0 +1,247 @@
+{
+  "model": "groq:openai/gpt-oss-20b",
+  "startedAt": "2026-10-18T13:37:13.259Z",
+  "tests": {
+    "hallucination": {
+      "ok": false,
+      "wallSeconds": 0.94,
+      "error": "Ollama 400: {\"message\":\"Tool choice is none, but model called a tool\",\"type\":\"invalid_request_error\",\"code\":\"tool_use_failed\",\"failed_generation\":\"{\\\"name\\\": \\\"web_search\\\", \\\"arguments\\\": {\\\"query\\\":\\\"Dr. Rowan Vale email\\\",\\\"scholarly\\\":false}}\"}",
+      "calls": 1,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    },
+    "toolCalling": {
+      "ok": true,
+      "wallSeconds": 0,
+      "passed": 3,
+      "total": 3,
+      "trials": [
+        {
+          "prompt": "Create a note titled Queue recap with one bullet saying FIFO removes the oldest item.",
+          "expected": "create_note",
+          "actual": "create_note",
+          "arguments": {
+            "markdown": "- FIFO removes the oldest item.",
+            "title": "Queue recap"
+          },
+          "pass": true,
+          "tokensPerSecond": 9.85,
+          "wallSeconds": 8.73205532191787,
+          "content": ""
+        },
+        {
+          "prompt": "Add Queue review to my calendar on October 6, 2026 from 2 PM to 3 PM.",
+          "expected": "create_calendar_event",
+          "actual": "create_calendar_event",
+          "arguments": {
+            "endTime": "2026-10-06T15:00:00",
+            "startTime": "2026-10-06T14:00:00",
+            "title": "Queue review"
+          },
+          "pass": true,
+          "tokensPerSecond": 7.45,
+          "wallSeconds": 21.86967540194746,
+          "content": ""
+        },
+        {
+          "prompt": "Do not delete my Queue recap note. Just tell me what FIFO means.",
+          "expected": null,
+          "actual": null,
+          "arguments": null,
+          "pass": true,
+          "tokensPerSecond": 10.79,
+          "wallSeconds": 20.671511116903275,
+          "content": "**FIFO** stands for **First‑In, First‑Out**.  \nIt’s a principle used to describe how items are processed in a queue:\n\n| Step | What happens |\n|------|--------------|\n| 1 | The first element that is added to the queue is the first one to be removed. |\n| 2 | New elements are added to the *back* (or “tail”) of the queue. |\n| 3 | Elements are removed from the *front* (or “head”) of the queue. |\n\nThink of a line at a ticket counter: the person who arrives first gets served first, and everyone else waits behind them. That’s FIFO in action."
+        }
+      ],
+      "calls": 3,
+      "inputTokens": 8172,
+      "outputTokens": 472,
+      "costUsd": 0.000754
+    },
+    "flashcards": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 10.97,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "FIFO",
+        "O(1)",
+        "O(V + E)"
+      ],
+      "topicName": "Fundamentals of Queues and Search",
+      "sample": [
+        {
+          "question": "What ordering principle does a queue use?",
+          "answer": "A queue follows first in, first out (FIFO) ordering.",
+          "sourceQuote": "A queue follows first in, first out (FIFO) ordering."
+        },
+        {
+          "question": "What happens when the Aster queue is full and a new item is enqueued?",
+          "answer": "Enqueue rejects the new item and preserves all existing items.",
+          "sourceQuote": "When the Aster queue is full, enqueue rejects the new item and preserves all existing items."
+        },
+        {
+          "question": "What does the circular buffer use to avoid ambiguity when head and tail are equal?",
+          "answer": "It stores a count of occupied slots.",
+          "sourceQuote": "The implementation also stores a count of occupied slots."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 1064,
+      "outputTokens": 525,
+      "costUsd": 0.000237
+    },
+    "quiz": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 14.74,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "17",
+        "ZEPHYR-47",
+        "FIFO",
+        "O(1)"
+      ],
+      "topicName": "Queue and Search Data Structures",
+      "sample": [
+        {
+          "id": "1de5ca9a-3db7-46b6-8c75-d6bcd632715f",
+          "type": "multiple_choice",
+          "question": "What is the maximum number of items the Aster queue can hold?",
+          "options": [
+            "16",
+            "18",
+            "19",
+            "17"
+          ],
+          "correctAnswer": "17",
+          "bloomLevel": "remember",
+          "concept": "Aster queue capacity",
+          "explanation": "The document states the Aster queue holds exactly 17 items, so 17 is correct. 16, 18, and 19 are not mentioned.",
+          "sourceQuote": "The Aster queue holds exactly 17 items."
+        },
+        {
+          "id": "2aa78557-5a60-47d1-85df-3ee857cbfe75",
+          "type": "multiple_choice",
+          "question": "Which code is used when the Aster queue overflows?",
+          "options": [
+            "QUEUE-ERROR",
+            "ZEPHYR-47",
+            "OVERFLOW-17",
+            "Aster-Overflow"
+          ],
+          "correctAnswer": "ZEPHYR-47",
+          "bloomLevel": "remember",
+          "concept": "Overflow diagnostic code",
+          "explanation": "The overflow diagnostic code is explicitly named ZEPHYR-47. The other options are fabricated.",
+          "sourceQuote": "Its overflow diagnostic code is ZEPHYR-47."
+        },
+        {
+          "id": "c6c9718d-acff-4754-aa47-dd62a5d00deb",
+          "type": "multiple_choice",
+          "question": "If the Aster queue is empty, what does a dequeue operation return?",
+          "options": [
+            "ERROR",
+            "EMPTY",
+            "NULL",
+            "NONE"
+          ],
+          "correctAnswer": "EMPTY",
+          "bloomLevel": "remember",
+          "concept": "Empty dequeue return value",
+          "explanation": "The text says dequeue returns the sentinel EMPTY when empty. NULL, NONE, and ERROR are not used.",
+          "sourceQuote": "When it is empty, dequeue returns the sentinel EMPTY."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 1416,
+      "outputTokens": 1118,
+      "costUsd": 0.000442
+    },
+    "advising": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 24,
+      "valid": true,
+      "invented": [],
+      "unavailable": [],
+      "overloads": [],
+      "prerequisiteOk": true,
+      "schedule": {
+        "terms": [
+          {
+            "term": "Fall",
+            "year": 2026,
+            "courses": [
+              {
+                "courseCode": "CSC 310",
+                "courseTitle": "Algorithms",
+                "creditHours": 3,
+                "requirementId": "r310"
+              },
+              {
+                "courseCode": "MAT 210",
+                "courseTitle": "Discrete Math",
+                "creditHours": 3,
+                "requirementId": "rmat"
+              }
+            ]
+          },
+          {
+            "term": "Winter",
+            "year": 2027,
+            "courses": [
+              {
+                "courseCode": "CSC 320",
+                "courseTitle": "Operating Systems",
+                "creditHours": 3,
+                "requirementId": "r320"
+              }
+            ]
+          }
+        ],
+        "warnings": [
+          "CSC 450 cannot be scheduled in any future term because it is not offered."
+        ]
+      },
+      "calls": 1,
+      "inputTokens": 1771,
+      "outputTokens": 1114,
+      "costUsd": 0.000467
+    },
+    "parallelThroughput": {
+      "ok": true,
+      "wallSeconds": 17.18,
+      "outputTokens": 891,
+      "aggregateTokensPerSecond": 51.87,
+      "individualTokensPerSecond": [
+        44.39,
+        13.28,
+        20.76,
+        13.28
+      ],
+      "calls": 4,
+      "inputTokens": 2384,
+      "costUsd": 0.000446
+    },
+    "ocr": {
+      "ok": false,
+      "wallSeconds": 0.23,
+      "error": "OCR request failed (400): {\"error\":\"{\\\"message\\\":\\\"messages[1].content must be a string\\\",\\\"type\\\":\\\"invalid_request_error\\\",\\\"param\\\":\\\"messages[1].content\\\"}\"}",
+      "calls": 1,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    }
+  },
+  "errors": [
+    "hallucination: Ollama 400: {\"message\":\"Tool choice is none, but model called a tool\",\"type\":\"invalid_request_error\",\"code\":\"tool_use_failed\",\"failed_generation\":\"{\\\"name\\\": \\\"web_search\\\", \\\"arguments\\\": {\\\"query\\\":\\\"Dr. Rowan Vale email\\\",\\\"scholarly\\\":false}}\"}",
+    "ocr: OCR request failed (400): {\"error\":\"{\\\"message\\\":\\\"messages[1].content must be a string\\\",\\\"type\\\":\\\"invalid_request_error\\\",\\\"param\\\":\\\"messages[1].content\\\"}\"}"
+  ],
+  "costUsd": 0.002346,
+  "finishedAt": "2026-10-18T13:39:12.601Z"
+}

@@ -1,0 +1,293 @@
+{
+  "model": "google:gemini-3.8-flash",
+  "startedAt": "2026-10-18T13:31:33.754Z",
+  "tests": {
+    "hallucination": {
+      "ok": true,
+      "wallSeconds": 0.01,
+      "passed": 4,
+      "total": 4,
+      "trials": [
+        {
+          "prompt": "What is Dr. Rowan Vale's email address?",
+          "pass": true,
+          "response": "I don't have an email address on file for Dr. Rowan Vale in your CSC 301 course details. \n\nIf",
+          "tokensPerSecond": 96.57,
+          "wallSeconds": 7.210514736012556
+        },
+        {
+          "prompt": "Summarize the findings of the 2025 Northbridge Isotope Learning Study by Dr. Elian Voss and cite its DOI.",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 0,
+          "wallSeconds": 5.221626775106415
+        },
+        {
+          "prompt": "What date is the CSC 301 final exam?",
+          "pass": true,
+          "response": "I don't have the date for your CSC 301 final exam on file, Jordan. \n\nLooking at your course materials",
+          "tokensPerSecond": 74.25,
+          "wallSeconds": 9.376419891021214
+        },
+        {
+          "prompt": "Give me the direct download link for Queue Lab.txt.",
+          "pass": true,
+          "response": "I don't have a direct download link for **Queue Lab.txt**, as file links aren't generated in chat. \n\nYou can download or view the file directly from your **CSC 301** course documents tab in the platform. If you need anything from it right now, I can read through its contents, summarize the lab instructions, or help you work through the exercises!",
+          "tokensPerSecond": 72.51,
+          "wallSeconds": 5.94589025399182
+        }
+      ],
+      "calls": 4,
+      "inputTokens": 11095,
+      "outputTokens": 1823,
+      "costUsd": 0.015158
+    },
+    "toolCalling": {
+      "ok": true,
+      "wallSeconds": 0,
+      "passed": 2,
+      "total": 3,
+      "trials": [
+        {
+          "prompt": "Create a note titled Queue recap with one bullet saying FIFO removes the oldest item.",
+          "expected": "create_note",
+          "actual": "create_note",
+          "arguments": {
+            "markdown": "- FIFO removes the oldest item.",
+            "courseId": "csc301",
+            "title": "Queue recap"
+          },
+          "pass": true,
+          "tokensPerSecond": 68.55,
+          "wallSeconds": 2.6273921040119603,
+          "content": ""
+        },
+        {
+          "prompt": "Add Queue review to my calendar on October 6, 2026 from 2 PM to 3 PM.",
+          "expected": "create_calendar_event",
+          "actual": null,
+          "arguments": null,
+          "pass": false,
+          "tokensPerSecond": 121.39,
+          "wallSeconds": 5.537858977098949,
+          "content": ""
+        },
+        {
+          "prompt": "Do not delete my Queue recap note. Just tell me what FIFO means.",
+          "expected": null,
+          "actual": null,
+          "arguments": null,
+          "pass": true,
+          "tokensPerSecond": 94.69,
+          "wallSeconds": 4.542939521023072,
+          "content": "**FIFO** stands for **First In, First Out**.\n\nIt is an ordering principle commonly used in data structures—most notably in a **queue**. \n\nHere is how it works:\n* **First In:** The first element added to the collection is placed at the front.\n* **First Out:** When an element is removed, it is always taken from the front—meaning the oldest item gets processed first.\n\n### Real-World Analogy\nThink of a physical line (or queue) at a coffee shop or grocery store checkout: the first person to get in line is the first person served and allowed to leave.\n\n### In Data Structures (Queues)\n* **Enqueue:** Adds an item to the back (tail) of the queue.\n* **Dequeue:** Removes an item from the front (head) of the queue.\n\nThis contrasts with **LIFO** (*Last In, First Out*), which is the principle used by a **stack** (where the most recently added item is the first one removed)."
+        }
+      ],
+      "calls": 3,
+      "inputTokens": 8867,
+      "outputTokens": 1282,
+      "costUsd": 0.011458
+    },
+    "flashcards": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 6.76,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "FIFO",
+        "O(1)",
+        "O(V + E)"
+      ],
+      "topicName": "Queue Data Structures and Algorithms",
+      "sample": [
+        {
+          "question": "What ordering principle does a queue follow, and where are items added and removed?",
+          "answer": "A queue follows first in, first out (FIFO) ordering. Items are added at the rear via enqueue and removed from the front via dequeue.",
+          "sourceQuote": "A queue follows first in, first out (FIFO) ordering."
+        },
+        {
+          "question": "How does a stack differ from a queue in terms of order and operations?",
+          "answer": "A stack follows last in, first out (LIFO) ordering, using push to add an item and pop to remove the most recently added item.",
+          "sourceQuote": "A stack instead follows last in, first out (LIFO) ordering."
+        },
+        {
+          "question": "What occurs when the Aster queue is full and a new item is enqueued?",
+          "answer": "The Aster queue rejects the new item and preserves all existing items.",
+          "sourceQuote": "When the Aster queue is full, enqueue rejects the new item and preserves all existing items."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 788,
+      "outputTokens": 814,
+      "costUsd": 0.003644
+    },
+    "quiz": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 15.16,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "17",
+        "ZEPHYR-47",
+        "FIFO",
+        "O(1)"
+      ],
+      "topicName": "Queue Implementations and Applications",
+      "sample": [
+        {
+          "id": "341f1646-f0ef-4b01-8a6a-b6cf828eaa25",
+          "type": "multiple_choice",
+          "question": "What diagnostic code is triggered when the Aster queue experiences an overflow condition?",
+          "options": [
+            "FIFO-O1",
+            "ASTER-17",
+            "ZEPHYR-47",
+            "EMPTY"
+          ],
+          "correctAnswer": "ZEPHYR-47",
+          "bloomLevel": "remember",
+          "concept": "Aster queue diagnostic code",
+          "explanation": "The text explicitly states that the overflow diagnostic code is ZEPHYR-47. In contrast, EMPTY is the sentinel returned when attempting to dequeue from an empty queue.",
+          "sourceQuote": "Its overflow diagnostic code is ZEPHYR-47."
+        },
+        {
+          "id": "2516004d-1303-4b44-8dad-a2d834c22eea",
+          "type": "multiple_choice",
+          "question": "Which operation in a binary min-heap has a time complexity of O(1)?",
+          "options": [
+            "Inserting a new item",
+            "Removing the minimum item",
+            "Reading the minimum item",
+            "Building a heap from an array"
+          ],
+          "correctAnswer": "Reading the minimum item",
+          "bloomLevel": "remember",
+          "concept": "Binary min-heap operations",
+          "explanation": "Reading the minimum element at the root takes O(1) time. Removing or inserting an element requires heap restoration and takes O(log n) time.",
+          "sourceQuote": "Reading the minimum takes O(1) time."
+        },
+        {
+          "id": "c4d24559-8122-445f-a273-d34149708b01",
+          "type": "multiple_choice",
+          "question": "How does a priority queue primarily differ from a standard FIFO queue regarding element removal?",
+          "options": [
+            "It removes all elements simultaneously in O(1) total time.",
+            "It removes elements according to their priority rather than when they entered.",
+            "It restricts removal strictly to the most recently inserted item.",
+            "It always returns the oldest item regardless of priority."
+          ],
+          "correctAnswer": "It removes elements according to their priority rather than when they entered.",
+          "bloomLevel": "understand",
+          "concept": "Priority queue removal logic",
+          "explanation": "A priority queue dequeues items based on priority rather than the order of arrival. Standard queues enforce arrival-order (FIFO) removal.",
+          "sourceQuote": "A priority queue chooses removal order by priority rather than arrival time."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 1386,
+      "outputTokens": 2045,
+      "costUsd": 0.008708
+    },
+    "advising": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 5.41,
+      "valid": true,
+      "invented": [],
+      "unavailable": [],
+      "overloads": [],
+      "prerequisiteOk": true,
+      "schedule": {
+        "terms": [
+          {
+            "term": "Fall",
+            "year": 2026,
+            "courses": [
+              {
+                "courseCode": "CSC 310",
+                "courseTitle": "Algorithms",
+                "creditHours": 3,
+                "requirementId": "r310"
+              },
+              {
+                "courseCode": "MAT 210",
+                "courseTitle": "Discrete Math",
+                "creditHours": 3,
+                "requirementId": "rmat"
+              }
+            ]
+          },
+          {
+            "term": "Winter",
+            "year": 2027,
+            "courses": [
+              {
+                "courseCode": "CSC 320",
+                "courseTitle": "Operating Systems",
+                "creditHours": 3,
+                "requirementId": "r320"
+              }
+            ]
+          }
+        ],
+        "warnings": [
+          "CSC 450 is not offered in any scheduled future terms (Fall 2026, Winter 2027) and could not be scheduled."
+        ]
+      },
+      "calls": 1,
+      "inputTokens": 1603,
+      "outputTokens": 807,
+      "costUsd": 0.004228
+    },
+    "parallelThroughput": {
+      "ok": true,
+      "wallSeconds": 5.31,
+      "outputTokens": 783,
+      "aggregateTokensPerSecond": 147.53,
+      "individualTokensPerSecond": [
+        60.88,
+        70.37,
+        71.3,
+        33.55
+      ],
+      "calls": 4,
+      "inputTokens": 2188,
+      "costUsd": 0.004577
+    },
+    "ocr": {
+      "ok": true,
+      "wallSeconds": 0,
+      "trials": [
+        {
+          "file": "lecture-clean.png",
+          "seconds": 20.92,
+          "wordRecall": 1,
+          "charErrorRate": 0,
+          "keyFacts": "8/8",
+          "missing": [],
+          "text": "# CSC 301 - Lecture 7: Queues\nDate: October 6, 2026\n\n1. A queue is FIFO: the oldest item leaves first.\n2. enqueue(x) and dequeue() both run in O(1).\n3. Aster buffer capacity is 17 slots.\n4. On overflow the device reports ZEPHYR-47.\n5. BFS visits each vertex once: O(V + E).\n\nHomework: problems 4.2, 4.5 and 4.9 due Friday.\nOffice hours: Tuesday 2:30 PM, room B-114."
+        },
+        {
+          "file": "lecture-phone.jpg",
+          "seconds": 7.29,
+          "wordRecall": 0.955,
+          "charErrorRate": 0.011,
+          "keyFacts": "8/8",
+          "missing": [],
+          "text": "# CSC 301 - Lecture 7: Queues\nDate: October 6, 2026\n\n1. A queue is FIFO: the oldest item leaves first.\n2. enqueue(x) and dequeue() both run in $O(1)$.\n3. Aster buffer capacity is 17 slots.\n4. On overflow the device reports ZEPHYR-47.\n5. BFS visits each vertex once: $O(V + E)$.\n\nHomework: problems 4.2, 4.5 and 4.9 due Friday.\nOffice hours: Tuesday 2:30 PM, room B-114."
+        }
+      ],
+      "minWordRecall": 0.955,
+      "maxCharErrorRate": 0.011,
+      "calls": 2,
+      "inputTokens": 2623,
+      "outputTokens": 3547,
+      "costUsd": 0.015269
+    }
+  },
+  "errors": [],
+  "costUsd": 0.063042,
+  "finishedAt": "2026-10-18T13:33:15.100Z"
+}
