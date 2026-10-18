@@ -1,0 +1,94 @@
+{
+  "model": "google:gemini-3.8-flash",
+  "startedAt": "2026-10-18T15:56:43.643Z",
+  "tests": {
+    "ocr": {
+      "ok": true,
+      "wallSeconds": 0.01,
+      "trials": [
+        {
+          "file": "lecture-clean.png",
+          "seconds": 15.8,
+          "wordRecall": 0.955,
+          "charErrorRate": 0.011,
+          "keyFacts": "8/8",
+          "missing": [],
+          "text": "# CSC 301 - Lecture 7: Queues\n\nDate: October 6, 2026\n\n1. A queue is FIFO: the oldest item leaves first.\n2. enqueue(x) and dequeue() both run in $O(1)$.\n3. Aster buffer capacity is 17 slots.\n4. On overflow the device reports ZEPHYR-47.\n5. BFS visits each vertex once: $O(V + E)$.\n\nHomework: problems 4.2, 4.5 and 4.9 due Friday.\nOffice hours: Tuesday 2:30 PM, room B-114."
+        },
+        {
+          "file": "lecture-phone.jpg",
+          "seconds": 7.99,
+          "wordRecall": 0.955,
+          "charErrorRate": 0.011,
+          "keyFacts": "8/8",
+          "missing": [],
+          "text": "# CSC 301 - Lecture 7: Queues\nDate: October 6, 2026\n\n1. A queue is FIFO: the oldest item leaves first.\n2. enqueue(x) and dequeue() both run in $O(1)$.\n3. Aster buffer capacity is 17 slots.\n4. On overflow the device reports ZEPHYR-47.\n5. BFS visits each vertex once: $O(V + E)$.\n\nHomework: problems 4.2, 4.5 and 4.9 due Friday.\nOffice hours: Tuesday 2:30 PM, room B-114."
+        }
+      ],
+      "realTrials": [
+        {
+          "file": "20261018_102705.jpg",
+          "seconds": 45.52,
+          "facts": "22/22",
+          "found": 22,
+          "total": 22,
+          "missing": [],
+          "text": "Google Assistant - Combined tecnologies to provide live\nsemi-instant translation\n\n# Game playing\n- overtime\n  - chess, checkers, go\nsolved\n\"minimax\"\n\nGo conqured in March 2026 by AlphaGo\n- won 4 games to 1 in AG's favor\n\nMonte Carlo Tree Search $\\leftarrow$ algorithm to predict best\nmove by predicting opponent next move\n\n# **Final/Current Period**\n\n## ERA of Large Language Models 2020-Present\n\nGoogle's 2017 \"Attention is all you need\" introduced transformers\nmatrix arrays allowed for much longer context\nmemory\n\nJune 2018 - GPT1\nJune 2019 - GPT2 - 1.5 billion parameters\nJune 2020 - GPT3- 175 billion parameters (100x larger)\nNov 2022 - ChatGPT - GPT-3.5\n- Chat attached to GPT-3\nMarch 2023 - GPT4 - 500 billion- 1 trillion parameters\nMay 2024 - GPT-4o - GPT4 $\\rightarrow$ multimodal\n2024 GPT o1\n2025 GPT5 $\\longrightarrow$ 2026: GPT \"astra\"\n2026 Anthropic:\nMythos, Fable, Opus, sonnet"
+        },
+        {
+          "file": "20261018_102712.jpg",
+          "seconds": 13.74,
+          "facts": "15/15",
+          "found": 15,
+          "total": 15,
+          "missing": [],
+          "text": "# Physical Symbol system hypothesis\n- generating intelligent responses\n- manipulated by characters & rules\n- intelligent behavior != intelligence\n\n## LLMs are just Stochastic Parrots\n\nnot intentional, no goals\n- just accomplishing goals we provide\n\n**Strong AI** - AGI system w/ intelligence\n**Weak AI** - displays intelligence, not real\n\n**philosophy** - people are quick to accept new technology\n\n**Chinese room**- guy in box w/ rules to convert english $\\rightarrow$\nchinese doesn't actually know chinese\n$\\rightarrow$ the actual translation wasn't semantic,\n**Searle's** - chinese room argument"
+        },
+        {
+          "file": "20261018_102715.jpg",
+          "seconds": 17.46,
+          "facts": "19/20",
+          "found": 19,
+          "total": 20,
+          "missing": [
+            "<1,1,1>"
+          ],
+          "text": "EX: we're training a perceptron\non the given dataset with a learning rate of 0.22,\nthreshold of $\\theta = 3$ and weights $(0, 1)$\n\n**Training set (labeled):**\n\nClassification 0:         Class 1:\n(should not fire)         (fires)\na) $(1, 1)$               e) $(3, 1)$\nb) $(1, 2)$               f) $(3, 2)$\nc) $(2, 1)$\nd) $(2, 4)$\n\n**Graphically:**\n\n[diagram: Perceptron network diagram showing inputs $x_1$ with weight $w_1=0$ and $x_2$ with weight $w_2=1$ going into a summation block $\\sum$, followed by a step function block labeled \"step func\", with output $y \\in \\{0, 1\\}$]\n\n**Inputs Plotted**\n\n[diagram: 2D Cartesian plane of $x_2$ vs $x_1$ with labeled tick marks and points plotted as circles and filled circles]\n\no is class 0\n$\\bullet$ is class 1\n\nConverted to a fixed threshold perceptron:\n**Inputs in class 0:**\n$\\vec{a} = \\langle \\overset{x_0}{1}, \\overset{x_1}{1}, \\overset{x_2}{1} \\rangle \\quad\\quad \\vec{c} = \\langle 1, 2, 1 \\rangle$\n$\\vec{b} = \\langle 1, 1, 2 \\rangle \\quad\\quad \\vec{d} = \\langle 1, 2, 4 \\rangle$"
+        },
+        {
+          "file": "20261018_102720.jpg",
+          "seconds": 43.58,
+          "facts": "12/13",
+          "found": 12,
+          "total": 13,
+          "missing": [
+            "should be 0"
+          ],
+          "text": "**Inputs in class 1:**\n$\\vec{e} = \\langle 1, 3, 1 \\rangle$\n$\\vec{f} = \\langle 1, 3, 2 \\rangle$\n\n**Weights:** $-\\theta$\n[diagram: arrow pointing from $-\\theta$ to $-3$]\n$\\vec{w} = \\langle -3, 0, 1 \\rangle$\n\n**Training Process:**\n**$1^\\text{st}$ set of forward passes:**\n**for $\\vec{a}$:** $\\vec{a} \\cdot \\vec{w} = \\langle 1, 1, 1 \\rangle$\n$\\cdot \\langle -3, 0, 1 \\rangle$\n$- 3 + 0 + 1 = -2$\n\n$y = f(\\vec{a}) = 0\\text{ b/c } -2 < 0$\n\n$\\Rightarrow$ **True Negative (gave 0, in class 0)**\n\n**for b:** $\\vec{b} \\cdot \\vec{w} = \\langle 1, 1, 2 \\rangle$\n$\\cdot \\langle -3, 0, 1 \\rangle$\n$-3 + 0 + 2 = -1 < 0$\n\n$\\Rightarrow y = f(\\vec{b}) = 0\\text{ b/c } -1 < 0$\n\n[diagram: curved arrow from \"True Negative (gave 0, in class 0)\" pointing to \"True Negative\"]\n**True Negative** $\\leftarrow$\n\"perceptron outputs zero, in class zero\"\n(what we ideally want)\n\n$\\text{for } \\vec{c}: \\vec{c} \\cdot \\vec{w} = -2 < 0 \\Rightarrow y = f(\\vec{c}) = 0$ **True Neg**\n\n[drawing: stars in margin]\n$\\text{for } \\vec{d}: \\vec{d} \\cdot \\vec{w} = 1 > 0 \\Rightarrow y = f(\\vec{d}) = 1$\n$\\Rightarrow y\\text{ should be } 0$\n$\\Rightarrow$ **False Positive**"
+        },
+        {
+          "file": "20261018_102724.jpg",
+          "seconds": 33.14,
+          "facts": "10/11",
+          "found": 10,
+          "total": 11,
+          "missing": [
+            "set of forward passes"
+          ],
+          "text": "For $\\vec{e} : \\Rightarrow$ **False Negative**\nFor $\\vec{f} : \\nearrow$\n\n[diagram: Flowchart depicting a cycle of forward passes with a conditional branch to \"PLR\" on \"no\" looping back to the input, and an \"end\" state]\n\n**Apply the learning rule:** \"Perceptron learning Rule\"\n\n1) $\\sum\\vec{FN} = \\vec{f} + \\vec{e} \\quad \\leftarrow$ **STEP 1:** Sum of False Neg\n$= \\langle 1, 3, 2 \\rangle + \\langle 1, 3, 1 \\rangle$\n$= \\langle 2, 6, 3 \\rangle$\n\n**STEP 2:** Sum of False Pos\n2) $\\sum\\vec{FP} = \\vec{d} = \\langle 1, 2, 4 \\rangle$\n\n3) $\\vec{v} = \\sum\\vec{FN} - \\sum\\vec{FP}$\n$= \\langle 2, 6, 3 \\rangle - \\langle 1, 2, 4 \\rangle$\n$= \\langle 2-1, 6-2, 3-4 \\rangle$\n$= \\langle 1, 4, -1 \\rangle$\n\n4) $\\vec{\\Delta} = \\eta \\cdot \\vec{v} \\quad$ learning rate $* v$\n$= 0.22 * \\langle 1, 4, -1 \\rangle$\n$= \\langle 0.22, 0.88, -0.22 \\rangle$\n\n5)\n$\\vec{w}_{new} = \\vec{w}_{old} + \\vec{\\Delta}$\n\n$= \\langle -3, 0, 1 \\rangle + \\langle 0.22, 0.88, -0.22 \\rangle$\n$= \\langle -2.78, 0.88, 0.78 \\rangle$"
+        }
+      ],
+      "realFactRecall": 0.963,
+      "pages": 7,
+      "minWordRecall": 0.955,
+      "maxCharErrorRate": 0.011,
+      "calls": 7,
+      "inputTokens": 9113,
+      "outputTokens": 19509,
+      "costUsd": 0.079993
+    }
+  },
+  "errors": [],
+  "costUsd": 0.079993,
+  "finishedAt": "2026-10-18T15:59:40.909Z"
+}

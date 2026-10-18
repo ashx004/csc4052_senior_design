@@ -10,7 +10,7 @@
  * (default 3) per model, and records cost per test.
  */
 import { execFileSync, spawn } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const CLOUD = process.env.BENCHMARK_CLOUD === "1";
@@ -29,6 +29,16 @@ function safeName(model: string) { return model.replace(/[^a-z0-9]+/gi, "-").rep
 function errText(error: unknown) { return error instanceof Error ? error.message : String(error); }
 // OCR scoring ignores case, markdown and spacing; the content is what counts.
 function normalizeOcr(text: string) { return text.toLowerCase().replace(/[*_#`>|]/g, "").replace(/\s+/g, " ").trim(); }
+// Fact matching for handwritten math: spacing, LaTeX and Unicode variants of
+// the same symbol (⟨ \langle <, ≠ \neq !=, θ \theta, ₁ _1) all compare equal.
+function normalizeOcrCompact(text: string) {
+  return text.normalize("NFKC").toLowerCase()
+    .replace(/\\left|\\right|\\vec|\\mathbf|\\text|\\mathrm|\\overrightarrow/g, "")
+    .replace(/\\langle|⟨|〈/g, "<").replace(/\\rangle|⟩|〉/g, ">")
+    .replace(/\\neq?\b|≠/g, "!=").replace(/\\theta|theta/g, "θ").replace(/\\in\b/g, "∈")
+    .replace(/[–—−]/g, "-").replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
+    .replace(/[\\$*_#`^]/g, "").replace(/\s+/g, "");
+}
 function wordRecall(truth: string, text: string) {
   const got = new Set(normalizeOcr(text).split(" "));
   const want = normalizeOcr(truth).split(" ");
@@ -192,7 +202,22 @@ async function runWorker(model: string) {
       const found = keyFacts.filter((f) => normalizeOcr(text).includes(normalizeOcr(f)));
       trials.push({ file, seconds: Number((now() - started).toFixed(2)), wordRecall: wordRecall(truth, text), charErrorRate: charErrorRate(truth, text), keyFacts: `${found.length}/${keyFacts.length}`, missing: keyFacts.filter((f) => !found.includes(f)), text });
     }
-    return { trials, minWordRecall: Math.min(...trials.map((t) => t.wordRecall)), maxCharErrorRate: Math.max(...trials.map((t) => t.charErrorRate)) };
+    // Real handwritten pages (kept out of git): scored on facts as written, see real/facts.json.
+    const realDir = new URL("./fixtures/ocr/real/", import.meta.url);
+    const facts: Record<string, string[]> = existsSync(new URL("facts.json", realDir)) ? JSON.parse(readFileSync(new URL("facts.json", realDir), "utf8")) : {};
+    const realTrials = [];
+    for (const [file, expected] of Object.entries(facts)) {
+      if (file.startsWith("_") || !existsSync(new URL(file, realDir))) continue;
+      const started = now();
+      // A page that times out or loops scores zero but doesn't hide the other pages.
+      let text = "", error: string | undefined;
+      try { text = await ocrImage(readFileSync(new URL(file, realDir))); } catch (e) { error = errText(e); }
+      const compact = normalizeOcrCompact(text);
+      const missing = expected.filter((f) => !compact.includes(normalizeOcrCompact(f)));
+      realTrials.push({ file, seconds: Number((now() - started).toFixed(2)), facts: `${expected.length - missing.length}/${expected.length}`, found: expected.length - missing.length, total: expected.length, missing, error, text });
+    }
+    const realFound = realTrials.reduce((n, t) => n + t.found, 0), realTotal = realTrials.reduce((n, t) => n + t.total, 0);
+    return { trials, realTrials, realFactRecall: realTotal ? Number((realFound / realTotal).toFixed(3)) : null, pages: trials.length + realTrials.length, minWordRecall: Math.min(...trials.map((t) => t.wordRecall)), maxCharErrorRate: Math.max(...trials.map((t) => t.charErrorRate)) };
   });
 
   if (!CLOUD) {
@@ -242,10 +267,10 @@ async function main() {
   const perThousand = (t: any) => typeof t?.costUsd === "number" ? Number((t.costUsd * 1000).toFixed(2)) : null;
   // "—" is a test BENCHMARK_TESTS skipped; "FAIL" is one that ran and threw, or a worker that died.
   const score = (r: any, t: any) => !r.tests ? "FAIL" : !t ? "—" : t.ok ? `${t.passed}/${t.total}` : "FAIL";
-  const summary = results.map((r: any) => ({ model: r.model, hallucination: score(r, r.tests?.hallucination), tools: score(r, r.tests?.toolCalling), flashcardsSeconds: r.tests?.flashcards?.generationSeconds ?? null, quizSeconds: r.tests?.quiz?.generationSeconds ?? null, advisingValid: r.tests?.advising?.valid ?? false, advisingSeconds: r.tests?.advising?.generationSeconds ?? null, parallelTokensPerSecond: r.tests?.parallelThroughput?.aggregateTokensPerSecond ?? null, ocrWordRecall: r.tests?.ocr?.minWordRecall ?? null, ocrCharErrorRate: r.tests?.ocr?.maxCharErrorRate ?? null, errors: r.errors?.length ?? 1,
-    ...(CLOUD ? { runCostUsd: r.costUsd ?? null, per1000ChatTurns: perThousand(r.tests?.hallucination && { costUsd: r.tests.hallucination.costUsd / (r.tests.hallucination.calls || 1) }), per1000FlashcardSets: perThousand(r.tests?.flashcards), per1000Quizzes: perThousand(r.tests?.quiz), per1000AdvisingPlans: perThousand(r.tests?.advising), per1000OcrPages: perThousand(r.tests?.ocr && { costUsd: r.tests.ocr.costUsd / 2 }) } : {}) }));
+  const summary = results.map((r: any) => ({ model: r.model, hallucination: score(r, r.tests?.hallucination), tools: score(r, r.tests?.toolCalling), flashcardsSeconds: r.tests?.flashcards?.generationSeconds ?? null, quizSeconds: r.tests?.quiz?.generationSeconds ?? null, advisingValid: r.tests?.advising?.valid ?? false, advisingSeconds: r.tests?.advising?.generationSeconds ?? null, parallelTokensPerSecond: r.tests?.parallelThroughput?.aggregateTokensPerSecond ?? null, ocrWordRecall: r.tests?.ocr?.minWordRecall ?? null, ocrCharErrorRate: r.tests?.ocr?.maxCharErrorRate ?? null, ocrHandwritingFacts: r.tests?.ocr?.realFactRecall ?? null, errors: r.errors?.length ?? 1,
+    ...(CLOUD ? { runCostUsd: r.costUsd ?? null, per1000ChatTurns: perThousand(r.tests?.hallucination && { costUsd: r.tests.hallucination.costUsd / (r.tests.hallucination.calls || 1) }), per1000FlashcardSets: perThousand(r.tests?.flashcards), per1000Quizzes: perThousand(r.tests?.quiz), per1000AdvisingPlans: perThousand(r.tests?.advising), per1000OcrPages: perThousand(r.tests?.ocr && { costUsd: r.tests.ocr.costUsd / (r.tests.ocr.pages || 2) }) } : {}) }));
   writeFileSync(`${outDir}/summary.json`, JSON.stringify({ generatedAt: new Date().toISOString(), context: 16384, parallel: 4, results: summary }, null, 2));
-  const columns: [string, string][] = [["model", "Model"], ["hallucination", "Hallucination"], ["tools", "Tools"], ["flashcardsSeconds", "Flashcards s"], ["quizSeconds", "Quiz s"], ["advisingValid", "Advising valid"], ["advisingSeconds", "Advising s"], ["parallelTokensPerSecond", "Parallel tok/s"], ["ocrWordRecall", "OCR word recall"], ["ocrCharErrorRate", "OCR CER"], ["errors", "Errors"],
+  const columns: [string, string][] = [["model", "Model"], ["hallucination", "Hallucination"], ["tools", "Tools"], ["flashcardsSeconds", "Flashcards s"], ["quizSeconds", "Quiz s"], ["advisingValid", "Advising valid"], ["advisingSeconds", "Advising s"], ["parallelTokensPerSecond", "Parallel tok/s"], ["ocrWordRecall", "OCR word recall"], ["ocrCharErrorRate", "OCR CER"], ["ocrHandwritingFacts", "Handwriting facts"], ["errors", "Errors"],
     ...(CLOUD ? [["runCostUsd", "Run $"], ["per1000ChatTurns", "$/1k chat turns"], ["per1000FlashcardSets", "$/1k flashcard sets"], ["per1000Quizzes", "$/1k quizzes"], ["per1000AdvisingPlans", "$/1k advising plans"], ["per1000OcrPages", "$/1k OCR pages"]] as [string, string][] : [])];
   const cell = (v: unknown) => v === true ? "yes" : v === false ? "no" : v ?? "—";
   const target = CLOUD ? "hosted providers through scripts/cloudOllamaShim.ts (tok/s is end-to-end wall time, including network)" : "Ollama with 16,384-token context and four parallel slots";

@@ -53,3 +53,56 @@ cheaper still on some features, but each missed one tool case. If OCR stays a
 separate model, qwen3-vl-8b and mistral-small-2603 were also perfect. The
 Gemini models are reliable and fast but cost 3-10x more per feature than the
 open models.
+
+## Round 2: real handwriting and repeat runs (2026-10-18)
+
+### OCR on 5 real notebook photos
+
+The photos are handwriting, highlighter, vector math and diagrams. They are kept
+out of git; `fixtures/ocr/real/facts.json` lists the 81 facts each transcription
+is checked for, as written. Page 1 says "March 2026" for AlphaGo (really
+2016), so a model that silently "corrects" it fails that fact.
+
+| Model | Facts found | Kept "2026" as written | $/1k pages |
+|---|---|---|---|
+| **GLM-5.3-Flash** | **100%** | yes | 0.82 |
+| Qwen3.6-35B | 100% | yes | 2.51 |
+| Gemini 3.1 Flash-Lite | 98.8% | no | 0.74 |
+| Gemini 3.5 Flash-Lite | 98.8% | no | 1.04 |
+| Qwen3.7-Flash | 98.8% | no | 0.56 |
+| qwen3-vl-30b | 97.5% | no | 0.67 |
+| Gemini 3.8 Flash | 96.3% | yes | 11.43 |
+| Gemma 4 26B | 95.1% (looped once in an earlier run) | yes | 0.13 |
+| Mistral Small 2603 | 66.7% (failed one page) | no | 0.38 |
+| qwen3-vl-8b | 74.1% (looped on one page) | no | 0.86 |
+
+**A loop is billed in full.** Gemma and qwen3-vl-8b each produced the 8,192-token
+maximum on a diagram page and hit the 120s timeout. Cloud OCR must cap output
+(about 3,000 tokens is plenty for a dense page).
+
+### Repeats (3-4 runs each, leading models)
+
+| Model | Hallucination | Tools | Flashcards | Quiz | Advising | $/1k chat turns | $/1k quizzes | $/1k flashcard sets |
+|---|---|---|---|---|---|---|---|---|
+| **Gemma 4 26B** | 12/12 | **9/9** | 3/3 | 3/3 | 3/3 | 0.28 | 0.88 | 0.24 |
+| Qwen3.7-Flash | 16/16 | 10/12 | 4/4 | 4/4 | 4/4 | **0.10** | **0.33** | **0.13** |
+| GLM-5.3-Flash | 12/12 | 6/9 | 3/3 | 3/3 | 3/3 | 0.33 | 0.56 | 1.52 |
+| Gemini 3.1 Flash-Lite | 12/12 | 9/9 | 3/3 | 3/3 | 3/3 | 0.92 | 3.29 | 1.24 |
+| Gemini 3.5 Flash-Lite | 12/12 | 9/9 | 3/5 | 3/5 | 3/3 | 1.27 | 6.16 | 1.95 |
+
+The tool misses are all the calendar case:
+- **GLM-5.3** answered in text instead of calling the tool (3 of 3 runs).
+- **Qwen3.7** once sent "October 6, 2026 2:00 PM" instead of an ISO time. The
+  benchmark's tool schema doesn't state the format. The production schema
+  should, which may fix this.
+
+### Recommended per-feature models
+
+| Feature | Model | Why |
+|---|---|---|
+| Chat with tools, advising | **Gemma 4 26B** (OpenRouter) | Only model at 100% on chat, tools and advising across every repeat; about $0.28 per 1,000 turns |
+| Quiz, flashcards, practice | **Qwen3.7-Flash** (OpenRouter) | Every generation passed; cheapest by 2-3x |
+| OCR | **GLM-5.3-Flash** (OpenRouter) | Perfect on real handwriting, faithful to what's written; under $0.001 a page |
+| Fallback if OpenRouter is down | Gemini 3.1 Flash-Lite (Google direct) | Reliable everywhere, 3-4x the price |
+
+**Total benchmark spend for both rounds: about $0.38.**
