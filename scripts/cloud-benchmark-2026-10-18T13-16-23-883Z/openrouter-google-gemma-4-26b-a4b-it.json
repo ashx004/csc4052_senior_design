@@ -1,0 +1,296 @@
+{
+  "model": "openrouter:google/gemma-4-26b-a4b-it",
+  "startedAt": "2026-10-18T13:25:11.799Z",
+  "tests": {
+    "hallucination": {
+      "ok": true,
+      "wallSeconds": 0.01,
+      "passed": 4,
+      "total": 4,
+      "trials": [
+        {
+          "prompt": "What is Dr. Rowan Vale's email address?",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 100.44,
+          "wallSeconds": 3.1992787830531597
+        },
+        {
+          "prompt": "Summarize the findings of the 2025 Northbridge Isotope Learning Study by Dr. Elian Voss and cite its DOI.",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 50.75,
+          "wallSeconds": 5.12484487099573
+        },
+        {
+          "prompt": "What date is the CSC 301 final exam?",
+          "pass": true,
+          "response": "<|tool_call>call:get_course_details(courseId='csc301')<tool_call|>",
+          "tokensPerSecond": 58.92,
+          "wallSeconds": 1.800420337007381
+        },
+        {
+          "prompt": "Give me the direct download link for Queue Lab.txt.",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 87.58,
+          "wallSeconds": 7.995758846052922
+        }
+      ],
+      "calls": 4,
+      "inputTokens": 11158,
+      "outputTokens": 1387,
+      "costUsd": 0.001121
+    },
+    "toolCalling": {
+      "ok": true,
+      "wallSeconds": 0,
+      "passed": 3,
+      "total": 3,
+      "trials": [
+        {
+          "prompt": "Create a note titled Queue recap with one bullet saying FIFO removes the oldest item.",
+          "expected": "create_note",
+          "actual": "create_note",
+          "arguments": {
+            "markdown": "- FIFO removes the oldest item.",
+            "title": "Queue recap"
+          },
+          "pass": true,
+          "tokensPerSecond": 30.87,
+          "wallSeconds": 6.577097800094634,
+          "content": ""
+        },
+        {
+          "prompt": "Add Queue review to my calendar on October 6, 2026 from 2 PM to 3 PM.",
+          "expected": "create_calendar_event",
+          "actual": "create_calendar_event",
+          "arguments": {
+            "endTime": "2026-10-06T15:00:00",
+            "startTime": "2026-10-06T14:00:00",
+            "title": "Queue review"
+          },
+          "pass": true,
+          "tokensPerSecond": 85.26,
+          "wallSeconds": 5.679436445003375,
+          "content": ""
+        },
+        {
+          "prompt": "Do not delete my Queue recap note. Just tell me what FIFO means.",
+          "expected": null,
+          "actual": null,
+          "arguments": null,
+          "pass": true,
+          "tokensPerSecond": 64.92,
+          "wallSeconds": 8.073318434064277,
+          "content": "FIFO stands for **First-In, First-Out**.\n\nIn the context of the data structures you're studying in CSC 301, it describes the order in which elements are processed in a **Queue**: the first element added to the queue is the very first one to be removed. \n\nThink of it like a line at a coffee shop—the person who gets in line first is the first one served!"
+        }
+      ],
+      "calls": 3,
+      "inputTokens": 8915,
+      "outputTokens": 1211,
+      "costUsd": 0.000792
+    },
+    "flashcards": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 6.24,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "FIFO",
+        "O(1)",
+        "O(V + E)"
+      ],
+      "topicName": "Queue and Data Structure Fundamentals",
+      "sample": [
+        {
+          "question": "What is the fundamental ordering principle of a queue?",
+          "answer": "A queue follows the first in, first out (FIFO) ordering principle.",
+          "sourceQuote": "A queue follows first in, first out (FIFO) ordering."
+        },
+        {
+          "question": "How does a stack differ from a queue in terms of ordering?",
+          "answer": "A stack follows last in, first out (LIFO) ordering, whereas a queue follows FIFO.",
+          "sourceQuote": "A stack instead follows last in, first out (LIFO) ordering."
+        },
+        {
+          "question": "What are the specific operations used to add and remove items from a stack?",
+          "answer": "Push is used to add an item to a stack, and pop is used to remove the most recently added item.",
+          "sourceQuote": "Push adds an item to a stack and pop removes the most recently added item."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 1071,
+      "outputTokens": 729,
+      "costUsd": 0.000205
+    },
+    "quiz": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 23.53,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "17",
+        "ZEPHYR-47",
+        "FIFO",
+        "O(1)"
+      ],
+      "topicName": "Aster Queue and Data Structures",
+      "sample": [
+        {
+          "id": "9b340b1c-64fe-4c8a-818b-c357b85eb6ba",
+          "type": "multiple_choice",
+          "question": "What is the specific error code triggered when the Aster queue reaches its maximum capacity?",
+          "options": [
+            "EMPTY",
+            "FIFO-17",
+            "ZEPHYR-47",
+            "LIFO-47"
+          ],
+          "correctAnswer": "ZEPHYR-47",
+          "bloomLevel": "remember",
+          "concept": "Aster queue overflow code",
+          "explanation": "The document explicitly identifies ZEPHYR-47 as the overflow diagnostic code, whereas EMPTY is the sentinel returned when the queue is empty.",
+          "sourceQuote": "Its overflow diagnostic code is ZEPHYR-47."
+        },
+        {
+          "id": "a9bd1c2a-c368-41e4-8b47-102b254acc1f",
+          "type": "multiple_choice",
+          "question": "Who is the individual in charge of the lab coordination?",
+          "options": [
+            "Dr. Rowan Vale",
+            "Dr. Zephyr",
+            "Dr. FIFO",
+            "Dr. Aster Queue"
+          ],
+          "correctAnswer": "Dr. Rowan Vale",
+          "bloomLevel": "remember",
+          "concept": "Lab coordinator identity",
+          "explanation": "The text names Dr. Rowan Vale as the lab coordinator, while the other names are derived from queue terminology or error codes.",
+          "sourceQuote": "The lab coordinator is Dr. Rowan Vale."
+        },
+        {
+          "id": "a2f68c27-1b13-45bc-8f4a-d4fa8ebdfcd6",
+          "type": "multiple_choice",
+          "question": "How does the behavior of a queue differ from that of a stack?",
+          "options": [
+            "A queue uses a circular buffer while a stack uses a linked list.",
+            "A queue uses LIFO while a stack uses FIFO.",
+            "A queue uses FIFO while a stack uses LIFO.",
+            "A queue uses O(1) time while a stack uses O(n) time."
+          ],
+          "correctAnswer": "A queue uses FIFO while a stack uses LIFO.",
+          "bloomLevel": "understand",
+          "concept": "Queue vs Stack ordering",
+          "explanation": "Queues follow first in, first out (FIFO) logic, whereas stacks follow last in, first out (LIFO) logic.",
+          "sourceQuote": "A queue follows first in, first out (FIFO) ordering."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 1403,
+      "outputTokens": 1951,
+      "costUsd": 0.000728
+    },
+    "advising": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 2.29,
+      "valid": true,
+      "invented": [],
+      "unavailable": [],
+      "overloads": [],
+      "prerequisiteOk": true,
+      "schedule": {
+        "terms": [
+          {
+            "term": "Fall",
+            "year": 2026,
+            "courses": [
+              {
+                "courseCode": "CSC 310",
+                "courseTitle": "Algorithms",
+                "creditHours": 3,
+                "requirementId": "r310"
+              },
+              {
+                "courseCode": "MAT 210",
+                "courseTitle": "Discrete Math",
+                "creditHours": 3,
+                "requirementId": "rmat"
+              }
+            ]
+          },
+          {
+            "term": "Winter",
+            "year": 2027,
+            "courses": [
+              {
+                "courseCode": "CSC 320",
+                "courseTitle": "Operating Systems",
+                "creditHours": 3,
+                "requirementId": "r320"
+              }
+            ]
+          }
+        ],
+        "warnings": [
+          "CSC 450 (Capstone) cannot be scheduled because it is not offered in any of the available future terms."
+        ]
+      },
+      "calls": 1,
+      "inputTokens": 1618,
+      "outputTokens": 178,
+      "costUsd": 0.000174
+    },
+    "parallelThroughput": {
+      "ok": true,
+      "wallSeconds": 2.58,
+      "outputTokens": 634,
+      "aggregateTokensPerSecond": 245.7,
+      "individualTokensPerSecond": [
+        66.3,
+        68.44,
+        62.45,
+        65.9
+      ],
+      "calls": 4,
+      "inputTokens": 2232,
+      "costUsd": 0.000364
+    },
+    "ocr": {
+      "ok": true,
+      "wallSeconds": 0,
+      "trials": [
+        {
+          "file": "lecture-clean.png",
+          "seconds": 3.28,
+          "wordRecall": 1,
+          "charErrorRate": 0,
+          "keyFacts": "8/8",
+          "missing": [],
+          "text": "# CSC 301 - Lecture 7: Queues\n\nDate: October 6, 2026\n\n1. A queue is FIFO: the oldest item leaves first.\n2. enqueue(x) and dequeue() both run in O(1).\n3. Aster buffer capacity is 17 slots.\n4. On overflow the device reports ZEPHYR-47.\n5. BFS visits each vertex once: O(V + E).\n\nHomework: problems 4.2, 4.5 and 4.9 due Friday.\n\nOffice hours: Tuesday 2:30 PM, room B-114."
+        },
+        {
+          "file": "lecture-phone.jpg",
+          "seconds": 10.85,
+          "wordRecall": 1,
+          "charErrorRate": 0,
+          "keyFacts": "8/8",
+          "missing": [],
+          "text": "# CSC 301 - Lecture 7: Queues\nDate: October 6, 2026\n\n1. A queue is FIFO: the oldest item leaves first.\n2. enqueue(x) and dequeue() both run in O(1).\n3. Aster buffer capacity is 17 slots.\n4. On overflow the device reports ZEPHYR-47.\n5. BFS visits each vertex once: O(V + E).\n\nHomework: problems 4.2, 4.5 and 4.9 due Friday.\nOffice hours: Tuesday 2:30 PM, room B-114."
+        }
+      ],
+      "minWordRecall": 1,
+      "maxCharErrorRate": 0,
+      "calls": 2,
+      "inputTokens": 1022,
+      "outputTokens": 278,
+      "costUsd": 0.000192
+    }
+  },
+  "errors": [],
+  "costUsd": 0.003576,
+  "finishedAt": "2026-10-18T13:26:39.056Z"
+}

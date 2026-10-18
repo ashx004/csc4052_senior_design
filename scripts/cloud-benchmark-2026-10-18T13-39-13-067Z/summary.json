@@ -1,0 +1,26 @@
+{
+  "generatedAt": "2026-10-18T13:39:32.516Z",
+  "context": 16384,
+  "parallel": 4,
+  "results": [
+    {
+      "model": "google:gemini-3.1-flash-lite",
+      "hallucination": "4/4",
+      "tools": "3/3",
+      "flashcardsSeconds": null,
+      "quizSeconds": null,
+      "advisingValid": false,
+      "advisingSeconds": null,
+      "parallelTokensPerSecond": null,
+      "ocrWordRecall": null,
+      "ocrCharErrorRate": null,
+      "errors": 0,
+      "runCostUsd": 0.006142,
+      "per1000ChatTurns": 0.9,
+      "per1000FlashcardSets": null,
+      "per1000Quizzes": null,
+      "per1000AdvisingPlans": null,
+      "per1000OcrPages": null
+    }
+  ]
+}

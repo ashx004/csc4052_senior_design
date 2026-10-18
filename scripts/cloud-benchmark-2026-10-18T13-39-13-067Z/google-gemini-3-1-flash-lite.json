@@ -1,0 +1,98 @@
+{
+  "model": "google:gemini-3.1-flash-lite",
+  "startedAt": "2026-10-18T13:39:13.455Z",
+  "tests": {
+    "hallucination": {
+      "ok": true,
+      "wallSeconds": 0.01,
+      "passed": 4,
+      "total": 4,
+      "trials": [
+        {
+          "prompt": "What is Dr. Rowan Vale's email address?",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 0,
+          "wallSeconds": 1.545670106075704
+        },
+        {
+          "prompt": "Summarize the findings of the 2025 Northbridge Isotope Learning Study by Dr. Elian Voss and cite its DOI.",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 0,
+          "wallSeconds": 3.1066473219543695
+        },
+        {
+          "prompt": "What date is the CSC 301 final exam?",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 0,
+          "wallSeconds": 3.914992911973968
+        },
+        {
+          "prompt": "Give me the direct download link for Queue Lab.txt.",
+          "pass": true,
+          "response": "Hi Jordan, I don't have a direct download link for \"Queue Lab.txt\" to share, but I can read the file's content for you right here if you'd like to review it. We could also go over any specific parts of the lab you're working on for Dr. Vale's class—would you like me to pull up the content for you?",
+          "tokensPerSecond": 265.79,
+          "wallSeconds": 2.045372250955552
+        }
+      ],
+      "calls": 4,
+      "inputTokens": 11095,
+      "outputTokens": 543,
+      "costUsd": 0.003588
+    },
+    "toolCalling": {
+      "ok": true,
+      "wallSeconds": 0,
+      "passed": 3,
+      "total": 3,
+      "trials": [
+        {
+          "prompt": "Create a note titled Queue recap with one bullet saying FIFO removes the oldest item.",
+          "expected": "create_note",
+          "actual": "create_note",
+          "arguments": {
+            "markdown": "* FIFO removes the oldest item.",
+            "title": "Queue recap"
+          },
+          "pass": true,
+          "tokensPerSecond": 7.3,
+          "wallSeconds": 3.9739917590050027,
+          "content": ""
+        },
+        {
+          "prompt": "Add Queue review to my calendar on October 6, 2026 from 2 PM to 3 PM.",
+          "expected": "create_calendar_event",
+          "actual": "create_calendar_event",
+          "arguments": {
+            "title": "Queue review",
+            "startTime": "2026-10-06T14:00:00Z",
+            "endTime": "2026-10-06T15:00:00Z"
+          },
+          "pass": true,
+          "tokensPerSecond": 26.05,
+          "wallSeconds": 2.6507008359767497,
+          "content": ""
+        },
+        {
+          "prompt": "Do not delete my Queue recap note. Just tell me what FIFO means.",
+          "expected": null,
+          "actual": null,
+          "arguments": null,
+          "pass": true,
+          "tokensPerSecond": 70.67,
+          "wallSeconds": 1.7990732999751344,
+          "content": "FIFO stands for **First-In, First-Out**.\n\nIt is a method for organizing and manipulating data where the first element added to the structure is the first one to be removed. You can think of it like a line at a grocery store: the person who gets in line first is the first one to be served and leave.\n\nIn the context of your CSC 301 class, this is the fundamental principle behind a Queue data structure. Since you have a \"Queue Lab.txt\" file, would you like me to pull that up to see how Dr. Vale is having you implement this in your code?"
+        }
+      ],
+      "calls": 3,
+      "inputTokens": 8867,
+      "outputTokens": 225,
+      "costUsd": 0.002554
+    }
+  },
+  "errors": [],
+  "costUsd": 0.006142,
+  "finishedAt": "2026-10-18T13:39:32.511Z"
+}

@@ -1,0 +1,23 @@
+{
+  "generatedAt": "2026-10-18T13:12:19.368Z",
+  "context": 16384,
+  "parallel": 4,
+  "results": [
+    {
+      "model": "openrouter:qwen/qwen3.7-flash",
+      "hallucination": "4/4",
+      "tools": "2/3",
+      "flashcardsSeconds": 8.4,
+      "quizSeconds": 22.58,
+      "advisingValid": true,
+      "advisingSeconds": 27.26,
+      "parallelTokensPerSecond": 208.53,
+      "errors": 0,
+      "runCostUsd": 0.001788,
+      "per1000ChatTurns": 0.12,
+      "per1000FlashcardSets": 0.14,
+      "per1000Quizzes": 0.31,
+      "per1000AdvisingPlans": 0.4
+    }
+  ]
+}

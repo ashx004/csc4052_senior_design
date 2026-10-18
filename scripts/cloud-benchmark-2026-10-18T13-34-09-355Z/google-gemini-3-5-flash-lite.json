@@ -1,0 +1,30 @@
+{
+  "model": "google:gemini-3.5-flash-lite",
+  "startedAt": "2026-10-18T13:34:09.814Z",
+  "tests": {
+    "flashcards": {
+      "ok": false,
+      "wallSeconds": 0.33,
+      "error": "AI generation service returned HTTP 400.",
+      "calls": 1,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    },
+    "quiz": {
+      "ok": false,
+      "wallSeconds": 0.23,
+      "error": "AI generation service returned HTTP 400.",
+      "calls": 1,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    }
+  },
+  "errors": [
+    "flashcards: AI generation service returned HTTP 400.",
+    "quiz: AI generation service returned HTTP 400."
+  ],
+  "costUsd": 0,
+  "finishedAt": "2026-10-18T13:34:10.379Z"
+}
