@@ -29,11 +29,17 @@ a legal review yet: see `docs/LAUNCH_CHECKLIST.md`.
 ## Values in use
 
 - Effective October 18, 2026. Planned end of service March 18, 2027.
-- AI providers: OpenRouter and its model hosts, and Google Gemini API. Update this
-  if the final model choice changes (`scripts/cloud-benchmark-results.md`).
-- **Engineering must make true:** requests go only to providers that don't train on
-  data. Set OpenRouter's provider `data_collection: "deny"` on every request, and use
-  Google's paid tier, whose terms exclude training.
+- AI providers: OpenRouter, Inc. (processor, under its non-negotiable Data
+  Processing Agreement) and the model hosts it routes to (its subprocessors),
+  with Google Gemini API as the backup. Embeddings stay on ZonoCSC-operated
+  servers, reached directly, over Tailscale, or through the Cloudflare tunnel
+  (Cloudflare listed because it decrypts tunnel traffic; Tailscale doesn't).
+  Update the privacy policy's table if this changes.
+- **Engineering must make true:**
+  - requests go only to providers that don't train on data: OpenRouter
+    `provider.data_collection: "deny"` on every request, and Google's paid tier
+  - no name or email in AI prompts (the chat system prompt currently includes the
+    student's name; review before launch)
 
 ## Still worth a qualified review
 
