@@ -7,6 +7,7 @@ import { resolveOllamaBaseUrl, resolveModelFromKey, mainModelContextOption } fro
 import { thinkField } from "./thinkMode";
 import { stripThinkLeak } from "./stripThinkLeak";
 import { getDocumentText } from "./documentTextCache";
+import { aiFetch } from "@/src/library/ai/aiFetch";
 
 // Bounds on how much document text feeds one summary call — this only needs
 // enough material to characterize what the course covers, not the full
@@ -31,7 +32,7 @@ async function callOllamaForSummary(prompt: string): Promise<string> {
   const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${baseUrl}/api/chat`, {
+    const response = await aiFetch(`${baseUrl}/api/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

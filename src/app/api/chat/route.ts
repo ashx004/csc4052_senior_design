@@ -59,6 +59,7 @@ import { ChatStoppedError, enterChatStopScope, registerChatRun, releaseChatRun, 
 import { createGuardedThoughtRelay } from "@/src/library/thoughtRelay";
 import { thoughtSummarizerFromEnv } from "@/src/library/thoughtSummary";
 import { toolDetail } from "@/src/library/toolActivity";
+import { aiFetch } from "@/src/library/ai/aiFetch";
 
 const CHAT_RATE_LIMIT_WINDOW_MS = 60_000;
 const CHAT_RATE_LIMIT_MAX = 15; // per user per window — generous for real use, catches runaway/abusive callers
@@ -1588,7 +1589,7 @@ async function callOllama(
   const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
 
   try {
-    return await fetch(`${target.baseUrl}/api/chat`, {
+    return await aiFetch(`${target.baseUrl}/api/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1664,7 +1665,7 @@ async function streamOllamaRound(
   live?.signal?.addEventListener("abort", stopListener, { once: true });
 
   try {
-    const response = await fetch(`${target.baseUrl}/api/chat`, {
+    const response = await aiFetch(`${target.baseUrl}/api/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
