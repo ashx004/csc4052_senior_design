@@ -160,6 +160,8 @@ export class StreamTranslator {
   private toolCalls: OpenAiToolCall[] = [];
   private finishReason: string | undefined;
   usage: Usage = { inputTokens: 0, outputTokens: 0, costUsd: null };
+  /** The provider's id for this generation, for matching against its dashboard. */
+  requestId: string | undefined;
 
   constructor(private model: string) {}
 
@@ -174,9 +176,10 @@ export class StreamTranslator {
   private handleEvent(event: string): string[] {
     const data = event.split(/\r?\n/).filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).join("");
     if (!data || data === "[DONE]") return [];
-    let chunk: { error?: { message?: string }; usage?: Parameters<typeof readUsage>[0]; choices?: { finish_reason?: string | null; delta?: { content?: string | null; reasoning?: string | null; reasoning_content?: string | null; tool_calls?: OpenAiToolCall[] } }[] };
+    let chunk: { id?: string; error?: { message?: string }; usage?: Parameters<typeof readUsage>[0]; choices?: { finish_reason?: string | null; delta?: { content?: string | null; reasoning?: string | null; reasoning_content?: string | null; tool_calls?: OpenAiToolCall[] } }[] };
     try { chunk = JSON.parse(data); } catch { return []; }
     if (chunk.error) return [JSON.stringify({ error: chunk.error.message ?? "AI provider error" })];
+    if (chunk.id) this.requestId ??= chunk.id;
     if (chunk.usage) this.usage = readUsage(chunk.usage);
     const lines: string[] = [];
     for (const choice of chunk.choices ?? []) {

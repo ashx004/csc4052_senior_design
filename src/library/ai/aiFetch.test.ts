@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { aiFetch, setUsageSink, type UsageEvent } from "./aiFetch";
+import { runAsAiUser } from "./usageScope";
 
 const fetchMock = vi.fn();
 const events: UsageEvent[] = [];
@@ -88,5 +89,32 @@ describe("aiFetch", () => {
     const lines = (await res.text()).trim().split("\n").map((l) => JSON.parse(l));
     expect(lines).toHaveLength(1);
     expect(lines[0].message.tool_calls[0].function.name).toBe("create_note");
+  });
+
+  it("bills the student whose route started the request, with the provider's request id", async () => {
+    fetchMock.mockImplementation(async () => Response.json({ id: "gen-1", choices: [{ message: { content: "x" } }], usage: { prompt_tokens: 1, completion_tokens: 1, cost: 0.000001 } }));
+    await runAsAiUser("student-a", () => aiFetch("http://x/api/chat", ollamaInit("quiz-generation", { messages: [] })));
+    await aiFetch("http://x/api/chat", ollamaInit("quiz-generation", { messages: [] }));
+    expect(events[0]).toMatchObject({ uid: "student-a", requestId: "gen-1" });
+    expect(events[1].uid).toBeUndefined();
+  });
+
+  it("keeps the student on a stream read after the route's scope is gone", async () => {
+    const sse = '{"id":"gen-2","choices":[{"delta":{"content":"Hi"}}]}\n\n';
+    fetchMock.mockResolvedValue(new Response(`data: ${sse}data: {"choices":[{"finish_reason":"stop","delta":{}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"cost":0.000001}}\n\n`));
+    const res = await runAsAiUser("student-b", () => aiFetch("http://x/api/chat", ollamaInit("chat", { stream: true, messages: [] })));
+    await res.text();
+    expect(events).toEqual([expect.objectContaining({ uid: "student-b", requestId: "gen-2", costMicros: 1 })]);
+    expect(events[0].incomplete).toBeUndefined();
+  });
+
+  it("reports a stopped stream once, as incomplete, so its real cost can be looked up", async () => {
+    const body = new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('data: {"id":"gen-3","choices":[{"delta":{"content":"Hi"}}]}\n\n')); } });
+    fetchMock.mockResolvedValue(new Response(body));
+    const res = await runAsAiUser("student-c", () => aiFetch("http://x/api/chat", ollamaInit("chat", { stream: true, messages: [] })));
+    const reader = res.body!.getReader();
+    await reader.read();
+    await reader.cancel();
+    expect(events).toEqual([expect.objectContaining({ uid: "student-c", requestId: "gen-3", incomplete: true })]);
   });
 });

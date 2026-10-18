@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { resolveOllamaBaseUrl } from '@/src/library/ollamaClient';
 import { verifyRequestAuth } from '@/src/library/verifyAuth';
+import { enterAiUser } from "@/src/library/ai/usageScope";
 import { checkRateLimit } from '@/src/library/rateLimit';
 import {
   generateQuizWithValidation,
@@ -35,6 +36,7 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       );
     }
+    enterAiUser(auth.uid);
 
     const rateLimit = checkRateLimit(auth.uid, QUIZ_RATE_LIMIT_WINDOW_MS, QUIZ_RATE_LIMIT_MAX);
     if (!rateLimit.allowed) {

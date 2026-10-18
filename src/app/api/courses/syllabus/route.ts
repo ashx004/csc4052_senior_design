@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { firestoreGet, getIdToken } from "@/src/library/firestoreRest";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
+import { enterAiUser } from "@/src/library/ai/usageScope";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import { extractSyllabusInfo } from "@/src/library/syllabusExtract";
 import { SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
@@ -15,6 +16,7 @@ export async function POST(request: NextRequest) {
     const auth = await verifyRequestAuth(request);
     const idToken = getIdToken(request);
     if (!auth || !idToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    enterAiUser(auth.uid);
 
     const limit = checkRateLimit(`syllabus:${auth.uid}`, RATE_WINDOW_MS, RATE_MAX);
     if (!limit.allowed) {

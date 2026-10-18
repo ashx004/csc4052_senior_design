@@ -19,6 +19,7 @@ import { resolveModelFromKey } from "@/src/library/ollamaClient";
 import { deleteChunksForResource, upsertChunks, chunkPointId } from "@/src/library/vectorStore";
 import { createTimeoutSignal } from "@/src/library/withTimeout";
 import { isInternalRequest, verifyRequestAuth } from "@/src/library/verifyAuth";
+import { enterAiUser } from "@/src/library/ai/usageScope";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import { isAccountDeletionInProgress } from "@/src/library/accountDeletionGuard";
 import { generateCourseSummary } from "@/src/library/courseSummary";
@@ -250,6 +251,8 @@ export async function POST(request: NextRequest) {
     if (!internal && userId !== userAuth!.uid) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    // Checked against the token above, or from the server-written job record when internal.
+    enterAiUser(userId);
 
     if (await isAccountDeletionInProgress(userId)) {
       return NextResponse.json({ error: "This account is being deleted." }, { status: 410 });

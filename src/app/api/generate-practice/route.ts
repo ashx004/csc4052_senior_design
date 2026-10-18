@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveOllamaBaseUrl } from "@/src/library/ollamaClient";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
+import { enterAiUser } from "@/src/library/ai/usageScope";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import { acquireSlot } from "@/src/library/concurrencyLimit";
 import { getDocumentText } from "@/src/library/documentTextCache";
@@ -33,6 +34,7 @@ export async function POST(request: NextRequest) {
   try {
     const auth = await verifyRequestAuth(request);
     if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    enterAiUser(auth.uid);
 
     const limit = checkRateLimit(`practice-generate:${auth.uid}`, RATE_WINDOW_MS, RATE_MAX);
     if (!limit.allowed) {

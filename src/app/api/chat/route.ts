@@ -22,6 +22,7 @@ import { completeKeys, notebookSetFields, plainSetFields } from "@/src/library/s
 import { warnIfSlowGeneration } from "@/src/library/ollamaHealthCheck";
 import { getStudentProfile, maybeUpdateStudentProfile, StudentProfile } from "@/src/library/studentProfile";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
+import { enterAiUser } from "@/src/library/ai/usageScope";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import {pageContextSchema,buildPageContextPrompt,type PageContext,} from "@/src/library/Contextual_AI/contextualAi";
 import { ChatContext, ChatClass, ChatDocument, buildSystemPrompt, categoryLabel } from "@/src/library/systemPrompt";
@@ -2003,6 +2004,7 @@ export async function POST(request: NextRequest) {
   if (!auth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  enterAiUser(auth.uid);
 
   const rateLimit = checkRateLimit(auth.uid, CHAT_RATE_LIMIT_WINDOW_MS, CHAT_RATE_LIMIT_MAX);
   if (!rateLimit.allowed) {
