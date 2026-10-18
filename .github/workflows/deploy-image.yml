@@ -1,7 +1,7 @@
 name: Build deploy image
 
 # Builds the production Docker image on GitHub's runners and pushes it to
-# GHCR. The server's deploy/deploy-watch.sh polls for a new :latest and
+# GHCR. deploy-watch.sh on the server (/srv/SITE) polls for a new :latest and
 # restarts onto it, so nothing heavy ever runs on the server.
 
 on:
