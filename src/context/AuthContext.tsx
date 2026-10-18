@@ -76,7 +76,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const tokenResult = await currentUser.getIdTokenResult();
         if (authUpdate !== latestAuthUpdate) return;
         setIsAdmin(tokenResult.claims.admin === true);
-        document.cookie = `${SESSION_COOKIE}=${token}; path=/; max-age=3600; SameSite=Lax`;
+        // Secure on HTTPS so the token never travels in clear text; plain-http
+        // LAN/dev access keeps working because the flag is only added there.
+        const secure = window.location.protocol === "https:" ? "; Secure" : "";
+        document.cookie = `${SESSION_COOKIE}=${token}; path=/; max-age=3600; SameSite=Lax${secure}`;
       } else {
         document.cookie = `${SESSION_COOKIE}=; path=/; max-age=0`;
         clearRememberCookie();

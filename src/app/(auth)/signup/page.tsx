@@ -15,6 +15,10 @@ import {
   setDoc,
   serverTimestamp,
 } from "firebase/firestore";
+import PasswordInput from "@/src/components/PasswordInput";
+
+// Bump when the legal docs change materially; stored on the user doc at signup.
+const TERMS_VERSION = "2026-10-18";
 
 export default function Signup() {
   const router = useRouter();
@@ -24,6 +28,9 @@ export default function Signup() {
   const [name, setName] = useState("");
   const [college, setCollege] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Age and terms confirmation (docs/legal/terms-of-service.md section 1).
+  // Required for every signup method, so the social buttons stay disabled until it's ticked.
+  const [agreed, setAgreed] = useState(false);
 
   const greeting: string = "C a t a l y s t .";
 
@@ -69,6 +76,8 @@ export default function Signup() {
             email: email,
             college: college,
             joinedAt: serverTimestamp(),
+            termsAcceptedAt: serverTimestamp(),
+            termsVersion: TERMS_VERSION,
           });
           profileSaved = true;
         } catch (error) {
@@ -161,6 +170,8 @@ export default function Signup() {
 
         <div className="flex flex-col gap-4 w-full mt-8">
 
+          {/* A real form so Enter in any field creates the account. */}
+          <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); void handleSignup(); }}>
           <input
             type="name"
             placeholder="name"
@@ -177,8 +188,7 @@ export default function Signup() {
             onChange={(e) => setEmail(e.target.value)}
           />
 
-          <input
-            type="password"
+          <PasswordInput
             placeholder="password"
             className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded font-mono text-sm"
             value={password}
@@ -193,13 +203,31 @@ export default function Signup() {
             onChange={(e) => setCollege(e.target.value)}
           />
 
+          <label className="flex items-start gap-2 text-xs text-text-muted">
+            <input
+              type="checkbox"
+              required
+              checked={agreed}
+              onChange={(e) => setAgreed(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              I am 13 or older, and if I am under 18 I have a parent or guardian&apos;s permission.
+              I agree to the{" "}
+              <a href="/legal/terms" target="_blank" rel="noreferrer" className="text-primary underline">Terms of Service</a>,{" "}
+              <a href="/legal/privacy" target="_blank" rel="noreferrer" className="text-primary underline">Privacy Policy</a> and{" "}
+              <a href="/legal/credits" target="_blank" rel="noreferrer" className="text-primary underline">AI Credits terms</a>.
+            </span>
+          </label>
+
           <button
-            onClick={handleSignup}
-            disabled={isSubmitting}
+            type="submit"
+            disabled={isSubmitting || !agreed}
             className="bg-primary text-text-inverse py-1.5 px-4 rounded
                       hover:bg-primary-hover disabled:opacity-50" >
             Create account
           </button>
+          </form>
 
           <div className="flex items-center gap-2 text-xs text-text-muted">
             <div className="h-px flex-1 bg-border-light" />
@@ -210,7 +238,7 @@ export default function Signup() {
           <button
             type="button"
             onClick={handleGoogleSignup}
-            disabled={isSubmitting}
+            disabled={isSubmitting || !agreed}
             className="flex items-center justify-center gap-2 rounded border
                       border-border-light bg-bg-container py-1.5 px-4 text-sm
                       text-text-main hover:bg-bg-warm disabled:opacity-50"
@@ -222,7 +250,7 @@ export default function Signup() {
           <button
             type="button"
             onClick={handleAppleSignup}
-            disabled={isSubmitting}
+            disabled={isSubmitting || !agreed}
             className="flex items-center justify-center gap-2 rounded border
                       border-border-light bg-bg-container py-1.5 px-4 text-sm
                       text-text-main hover:bg-bg-warm disabled:opacity-50"

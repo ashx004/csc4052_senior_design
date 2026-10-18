@@ -90,13 +90,31 @@ service cloud.firestore {
     }
 
     // ── Course offering cache: shared, non-user catalog data ────────────
-    // KNOWN GAP, deliberately out of scope for this batch: cache.ts writes
-    // this via the plain client SDK from server routes with no Firebase
-    // Auth session attached, so it can't be locked to request.auth without
-    // breaking course search/advising. Left open — no worse than today (no
-    // rules existed at all before this file), just not improved today.
+    // Server only: courseOfferings/cache.ts and advisingOfferingCache.ts use
+    // the Admin SDK, which bypasses these rules. No browser may read or write.
     match /courseOfferingCache/{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
+    }
+
+    // ── AI credit wallets ───────────────────────────────────────────────
+    // Deliberately NOT under users/{uid}, where the owner can write anything.
+    // A user may read their own balance and ledger. Every change (Stripe
+    // credit, AI charge, refund) is made by the server through the Admin SDK
+    // inside a transaction (src/library/billing/wallet.ts), never by a client.
+    match /wallets/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+      match /ledger/{entryId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+      match /holds/{holdId} {
+        allow read, write: if false;
+      }
+    }
+    // Stripe events already applied, so a retried webhook never credits twice.
+    match /stripeEvents/{eventId} {
+      allow read, write: if false;
     }
 
     // ── Default deny ─────────────────────────────────────────────────────

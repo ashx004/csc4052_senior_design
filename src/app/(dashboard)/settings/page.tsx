@@ -45,6 +45,7 @@ import { getSidebarAutoCollapse, setSidebarAutoCollapse } from "@/src/library/si
 import { downloadDataExport, requestDataExport } from "@/src/library/dataExportDownload";
 import { ACCOUNT_DELETION_CONFIRMATION } from "@/src/library/accountDeletionConsent";
 import { setStoredSearchBarEnabled, useSearchBarEnabled } from "@/src/library/searchBarPreference";
+import PasswordInput from "@/src/components/PasswordInput";
 
 const EMAIL_REMINDER_OFFSET_OPTIONS = [
     { minutes: 10_080, label: "1 week before" },
@@ -1198,8 +1199,7 @@ export default function Settings() {
                     <label className="flex flex-col gap-1 text-sm">
                         Current Password
 
-                        <input
-                            type="password"
+                        <PasswordInput
                             value={currentPassword}
                             onChange={(event) =>
                                 setCurrentPassword(event.target.value)
@@ -1214,8 +1214,7 @@ export default function Settings() {
                     <label className="flex flex-col gap-1 text-sm">
                         New Password
 
-                        <input
-                            type="password"
+                        <PasswordInput
                             value={newPassword}
                             onChange={(event) =>
                                 setNewPassword(event.target.value)
@@ -1230,8 +1229,7 @@ export default function Settings() {
                     <label className="flex flex-col gap-1 text-sm">
                         Confirm New Password
 
-                        <input
-                            type="password"
+                        <PasswordInput
                             value={confirmPassword}
                             onChange={(event) =>
                                 setConfirmPassword(event.target.value)
@@ -1314,8 +1312,7 @@ export default function Settings() {
                     <label className="flex flex-col gap-1 text-sm">
                         Current Password
 
-                        <input
-                            type="password"
+                        <PasswordInput
                             value={currentPassword}
                             onChange={(event) =>
                                 setCurrentPassword(event.target.value)
@@ -1516,8 +1513,7 @@ export default function Settings() {
                         {auth.currentUser?.providerData.some((provider) => provider.providerId === "password") && (
                             <label className="mt-4 flex flex-col gap-1 text-sm text-text-main">
                                 Current password
-                                <input
-                                    type="password"
+                                <PasswordInput
                                     value={deletionPassword}
                                     onChange={(event) => setDeletionPassword(event.target.value)}
                                     disabled={isDeletingAccount}

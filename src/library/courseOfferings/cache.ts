@@ -1,5 +1,5 @@
-import { collection, doc, getDoc, getDocs, query, orderBy, writeBatch, Timestamp } from "firebase/firestore";
-import { db } from "@/src/library/firebase";
+import { Timestamp } from "firebase-admin/firestore";
+import { adminDb } from "@/src/library/firebaseAdmin";
 import { CourseOfferingRecord, CourseOfferingSnapshot, CourseOfferingSource } from "./types";
 
 const FIRESTORE_TTL_MS = 24 * 60 * 60 * 1000; // 24h — the source page changes rarely, no need to re-scrape often
@@ -15,14 +15,15 @@ const CHUNK_SIZE = 300;
 type MemoryEntry = { snapshot: CourseOfferingSnapshot; expiresAt: number };
 const memoryCache = new Map<string, MemoryEntry>();
 
+// Admin SDK on purpose: only the server reads and writes this cache, so
+// firestore.rules can deny every browser client (it used to be world-writable).
 async function readFirestoreCache(sourceId: string): Promise<CourseOfferingSnapshot | null> {
-  const metaRef = doc(db, "courseOfferingCache", sourceId);
-  const metaSnap = await getDoc(metaRef);
-  if (!metaSnap.exists()) return null;
+  const metaRef = adminDb.collection("courseOfferingCache").doc(sourceId);
+  const metaSnap = await metaRef.get();
+  if (!metaSnap.exists) return null;
 
-  const meta = metaSnap.data();
-  const chunksRef = collection(db, "courseOfferingCache", sourceId, "chunks");
-  const chunksSnap = await getDocs(query(chunksRef, orderBy("index")));
+  const meta = metaSnap.data() ?? {};
+  const chunksSnap = await metaRef.collection("chunks").orderBy("index").get();
   const courses: CourseOfferingRecord[] = chunksSnap.docs.flatMap((d) => d.data().courses ?? []);
 
   return {
@@ -39,8 +40,8 @@ async function writeFirestoreCache(snapshot: CourseOfferingSnapshot): Promise<vo
     chunks.push(snapshot.courses.slice(i, i + CHUNK_SIZE));
   }
 
-  const batch = writeBatch(db);
-  const metaRef = doc(db, "courseOfferingCache", snapshot.sourceId);
+  const batch = adminDb.batch();
+  const metaRef = adminDb.collection("courseOfferingCache").doc(snapshot.sourceId);
   batch.set(metaRef, {
     sourceUrl: snapshot.sourceUrl,
     fetchedAt: Timestamp.fromDate(snapshot.fetchedAt),
@@ -49,7 +50,7 @@ async function writeFirestoreCache(snapshot: CourseOfferingSnapshot): Promise<vo
   });
 
   chunks.forEach((courses, index) => {
-    const chunkRef = doc(db, "courseOfferingCache", snapshot.sourceId, "chunks", `chunk_${index}`);
+    const chunkRef = metaRef.collection("chunks").doc(`chunk_${index}`);
     batch.set(chunkRef, { index, courses });
   });
 
