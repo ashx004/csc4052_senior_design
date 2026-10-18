@@ -1,0 +1,64 @@
+name: Build deploy image
+
+# Builds the production Docker image on GitHub's runners and pushes it to
+# GHCR. The server's deploy/deploy-watch.sh polls for a new :latest and
+# restarts onto it, so nothing heavy ever runs on the server.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-image
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Browser-side config (NEXT_PUBLIC_* lines only) has to be present at
+      # build time. Store it as one multi-line repository secret.
+      - name: Write public build env
+        env:
+          NEXT_PUBLIC_ENV: ${{ secrets.NEXT_PUBLIC_ENV }}
+        run: |
+          if [ -z "$NEXT_PUBLIC_ENV" ]; then
+            echo "::error::NEXT_PUBLIC_ENV secret is not set"
+            exit 1
+          fi
+          printf '%s\n' "$NEXT_PUBLIC_ENV" > .env.production
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lowercase image name
+        run: echo "IMAGE=${IMAGE,,}" >> "$GITHUB_ENV"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+          # Read by the server's deploy-watch.sh to log which commit is live.
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

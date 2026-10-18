@@ -1,0 +1,12 @@
+node_modules
+.next
+dist
+.git
+.github
+.env
+.env.local
+docs
+scripts/model-benchmark-*
+scripts/*.tmpcmp*.ts
+scripts/quiz-eval-results
+scripts/fixtures/quiz-eval
