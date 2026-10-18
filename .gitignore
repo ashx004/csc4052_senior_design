@@ -49,3 +49,4 @@ scripts/fixtures/quiz-eval/
 scripts/fixtures/ocr/real/*.jpg
 Stripe.txt
 memories-*.zip
+AI*.txt
