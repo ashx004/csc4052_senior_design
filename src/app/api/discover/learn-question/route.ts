@@ -10,6 +10,7 @@ import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import { stripThinkLeak, extractFirstJsonObject } from "@/src/library/stripThinkLeak";
 import { z } from "zod";
+import { aiFetch } from "@/src/library/ai/aiFetch";
 
 // --- Config ---
 const OLLAMA_TIMEOUT_MS = 120_000;
@@ -111,7 +112,7 @@ async function callOllama(prompt: string, count: number): Promise<string> {
   const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
 
   try {
-    const res = await fetch(`${baseUrl.replace(/\/$/, "")}/api/chat`, {
+    const res = await aiFetch(`${baseUrl.replace(/\/$/, "")}/api/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

@@ -2,6 +2,8 @@ import { z } from "zod";
 import { Agent, fetch as undiciFetch } from "undici";
 import { resolveOllamaBaseUrl, resolveModelFromKey, mainModelContextOption } from "@/src/library/ollamaClient";
 import { thinkField } from "@/src/library/thinkMode";
+import { aiFetch } from "@/src/library/ai/aiFetch";
+import { isCloudBackend } from "@/src/library/ai/cloudModels";
 import {
   transcriptExtractionSchema,
   curriculumExtractionSchema,
@@ -207,8 +209,7 @@ async function callAdvisingOllamaOnce(
       : new TransientOllamaError(`connection failed: ${error.message}`);
 
   try {
-    const response = await undiciFetch(`${baseUrl}/api/chat`, {
-      dispatcher: ollamaAgent,
+    const request = {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -228,7 +229,12 @@ async function callAdvisingOllamaOnce(
         },
       }),
       signal: controller.signal,
-    }).catch((error) => { throw toTransient(error); });
+    };
+    // Cloud mode goes through aiFetch; the long-timeout undici agent only matters for a self-hosted Ollama.
+    const response = await (isCloudBackend()
+      ? aiFetch(`${baseUrl}/api/chat`, request)
+      : undiciFetch(`${baseUrl}/api/chat`, { ...request, dispatcher: ollamaAgent })
+    ).catch((error) => { throw toTransient(error); });
 
     if (!response.ok || !response.body) {
       const errorText = await response.text();
