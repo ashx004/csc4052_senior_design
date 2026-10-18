@@ -8,9 +8,8 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { getAuth } from "firebase-admin/auth";
-import { PutObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } from "@aws-sdk/client-s3";
 import { adminDb } from "../src/library/firebaseAdmin";
-import { getMinioClient } from "../src/library/minioClient";
+import { putObject, listObjects, deleteObject } from "../src/library/gcsStorage";
 import { embedTexts } from "../src/library/ollamaEmbeddings";
 import { chunkPointId, deleteChunksForResource, upsertChunks } from "../src/library/vectorStore";
 import { generatePdfBuffer } from "../src/library/pdfGenerate";
@@ -27,7 +26,7 @@ const root = adminDb.doc(`users/${uid}`);
 const results: { name: string; ok: boolean; seconds: number; error?: string; details?: unknown }[] = [];
 let token = "";
 let createdUser = false;
-let s3: Awaited<ReturnType<typeof getMinioClient>> | undefined;
+let storageUsed = false;
 const document = { resourceId, name: "Queue Lab.txt", fileType: "txt", category: "notes", url: docUrl, vectorIndexed: true, indexStatus: "complete" };
 const context = {
   userId: uid, name: "Regression Student", email: "fixture@example.invalid", college: "Synthetic Test College", timeZone: "America/Chicago",
@@ -100,14 +99,9 @@ async function cleanup() {
   // Wait for any completed route's final persistence before removing fixtures.
   const errors: string[] = [];
   try { await deleteChunksForResource(uid, resourceId); } catch (e) { errors.push(`vectors: ${String(e)}`); }
-  if (s3) {
+  if (storageUsed) {
     try {
-      let continuation: string | undefined;
-      do {
-        const listing = await s3.send(new ListObjectsV2Command({ Bucket: "studora", Prefix: `users/${uid}/`, ContinuationToken: continuation }));
-        if (listing.Contents?.length) await s3.send(new DeleteObjectsCommand({ Bucket: "studora", Delete: { Objects: listing.Contents.map((o) => ({ Key: o.Key! })) } }));
-        continuation = listing.NextContinuationToken;
-      } while (continuation);
+      for (const object of await listObjects(`users/${uid}/`)) await deleteObject(object.key);
     } catch (e) { errors.push(`objects: ${String(e)}`); }
   }
   try { await adminDb.recursiveDelete(root); } catch (e) { errors.push(`database: ${String(e)}`); }
@@ -124,7 +118,7 @@ async function main() {
     await root.set({ name: context.name, email: context.email });
     const { documents: _, ...course } = context.classes[0]; await root.collection("enrollment").doc(courseId).set(course);
     await root.collection("enrollment").doc(courseId).collection("resources").doc(resourceId).set(document);
-    s3 = await getMinioClient(); await s3.send(new PutObjectCommand({ Bucket: "studora", Key: key, Body: source, ContentType: "text/plain" }));
+    storageUsed = true; await putObject(key, source, "text/plain");
     const [vector] = await embedTexts([source]);
     await upsertChunks([{ id: chunkPointId(resourceId, 0), vector, payload: { userId: uid, courseId, resourceId, chunkIndex: 0, text: "Generated search context: capacity is 999.", rawText: source, page: 1 } }]);
 
@@ -223,7 +217,7 @@ async function main() {
     await check("discover/blocks generation from cards", async () => { const d = await json("/api/discover/learn-question", { count: 3, courses: [{ courseCode: "CSC 301", courseName: "Data Structures", cardsToTest: [{ question: "What capacity does the Aster queue have?", answer: "17 items" }, { question: "What code indicates overflow?", answer: "ZEPHYR-47" }, { question: "What order does a queue use?", answer: "FIFO" }] }] }); assert.equal(d.questions.length, 3); for (const q of d.questions) assert.ok(q.options.includes(q.correctAnswer)); return d; });
     await check("PDF generation and authenticated download", async () => {
       const pdfKey = `users/${uid}/fixture.pdf`; const buffer = await generatePdfBuffer("Queue Lab", source);
-      await s3!.send(new PutObjectCommand({ Bucket: "studora", Key: pdfKey, Body: buffer, ContentType: "application/pdf" }));
+      await putObject(pdfKey, buffer, "application/pdf");
       const res = await fetch(`${base}/api/download?key=${encodeURIComponent(pdfKey)}`, { headers: { Authorization: `Bearer ${token}` } });
       assert.equal(res.status, 200); assert.ok((await res.arrayBuffer()).byteLength > 1000);
       const d = await json("/api/generate-quiz", { docUrl: `/api/download?key=${encodeURIComponent(pdfKey)}`, docName: "fixture.pdf", questionCount: 3, questionTypes: { multipleChoice: true } });

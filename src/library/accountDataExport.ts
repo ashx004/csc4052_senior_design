@@ -1,18 +1,16 @@
 import { createHash } from "node:crypto";
 import JSZip from "jszip";
-import { GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import type { DocumentSnapshot, Firestore } from "firebase-admin/firestore";
 import type { UserRecord } from "firebase-admin/auth";
-import { getMinioClient } from "@/src/library/minioClient";
+import { getObject, listObjects } from "@/src/library/gcsStorage";
 import { listChunksForUser } from "@/src/library/vectorStore";
 import { encodeAccountExportValue, objectArchivePath } from "./accountDataExportFormat";
 
-const MINIO_BUCKET = "studora";
 const DEFAULT_MAX_EXPORT_BYTES = 100 * 1024 * 1024;
 
 /** Keep the complete export as the production default. Setting this to false
  * is a temporary, visibly incomplete mode for environments where Firebase
- * Admin/Firestore is unavailable but MinIO and Qdrant need validation. */
+ * Admin/Firestore is unavailable but file storage and Qdrant need validation. */
 export function shouldIncludeFirebaseData(value = process.env.ACCOUNT_DATA_EXPORT_INCLUDE_FIREBASE): boolean {
   return value?.trim().toLowerCase() !== "false";
 }
@@ -29,9 +27,9 @@ export class AccountDataExportError extends Error {
 }
 
 function serviceStatus(error: unknown): number | null {
-  if (!error || typeof error !== "object" || !("$metadata" in error)) return null;
-  const metadata = (error as { $metadata?: { httpStatusCode?: unknown } }).$metadata;
-  return typeof metadata?.httpStatusCode === "number" ? metadata.httpStatusCode : null;
+  if (!error || typeof error !== "object") return null;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "number" ? code : null;
 }
 
 function firebaseExportError(error: unknown): AccountDataExportError {
@@ -44,16 +42,16 @@ function qdrantExportError(error: unknown): AccountDataExportError {
   return new AccountDataExportError(503, "Catalyst indexed context (Qdrant) is unavailable. Please try again later.", error);
 }
 
-function minioExportError(error: unknown): AccountDataExportError {
+function storageExportError(error: unknown): AccountDataExportError {
   if (error instanceof AccountDataExportError) return error;
   const status = serviceStatus(error);
   if (status === 401 || status === 403) {
-    return new AccountDataExportError(503, "Catalyst file storage (MinIO) access is unavailable. Please try again later.", error);
+    return new AccountDataExportError(503, "Catalyst file storage (Google Cloud Storage) access is unavailable. Please try again later.", error);
   }
   if (status === 404) {
-    return new AccountDataExportError(503, "Catalyst file storage (MinIO) bucket is unavailable. Please try again later.", error);
+    return new AccountDataExportError(503, "Catalyst file storage (Google Cloud Storage) bucket is unavailable. Please try again later.", error);
   }
-  return new AccountDataExportError(503, "Catalyst file storage (MinIO) is unavailable. Please try again later.", error);
+  return new AccountDataExportError(503, "Catalyst file storage (Google Cloud Storage) is unavailable. Please try again later.", error);
 }
 
 type ExportedDocument = {
@@ -142,35 +140,11 @@ async function userOwnedGlobalRecords(db: Firestore, uid: string): Promise<Recor
 }
 
 async function listUserObjects(uid: string): Promise<Array<{ key: string; size: number; lastModified: Date | null; etag: string | null }>> {
-  const client = await getMinioClient();
   const prefix = `users/${uid}/`;
-  const objects: Array<{ key: string; size: number; lastModified: Date | null; etag: string | null }> = [];
-  let continuationToken: string | undefined;
-
-  do {
-    const page = await client.send(new ListObjectsV2Command({
-      Bucket: MINIO_BUCKET,
-      Prefix: prefix,
-      ContinuationToken: continuationToken,
-    }));
-    for (const item of page.Contents ?? []) {
-      if (item.Key?.startsWith(prefix)) {
-        objects.push({
-          key: item.Key,
-          size: item.Size ?? 0,
-          lastModified: item.LastModified ?? null,
-          etag: item.ETag ?? null,
-        });
-      }
-    }
-    continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
-  } while (continuationToken);
-
-  return objects;
+  return (await listObjects(prefix)).filter((object) => object.key.startsWith(prefix));
 }
 
 async function addUserFiles(zip: JSZip, uid: string): Promise<ExportedFile[]> {
-  const client = await getMinioClient();
   const objects = await listUserObjects(uid);
   const files: ExportedFile[] = [];
   let totalBytes = 0;
@@ -183,9 +157,8 @@ async function addUserFiles(zip: JSZip, uid: string): Promise<ExportedFile[]> {
         "Your stored files exceed the current export size limit. Please contact support for a large-data export."
       );
     }
-    const response = await client.send(new GetObjectCommand({ Bucket: MINIO_BUCKET, Key: object.key }));
-    if (!response.Body) throw new Error("MinIO returned an unreadable object.");
-    const bytes = Buffer.from(await response.Body.transformToByteArray());
+    const response = await getObject(object.key);
+    const bytes = response.body;
     if (totalBytes + bytes.length > maxBytes) {
       throw new AccountDataExportError(
         413,
@@ -199,7 +172,7 @@ async function addUserFiles(zip: JSZip, uid: string): Promise<ExportedFile[]> {
     files.push({
       archivePath,
       objectKey: object.key,
-      contentType: response.ContentType ?? null,
+      contentType: response.contentType ?? null,
       bytes: bytes.length,
       sha256: createHash("sha256").update(bytes).digest("hex"),
       lastModified: object.lastModified?.toISOString() ?? null,
@@ -248,7 +221,7 @@ export async function buildAccountDataExport(uid: string): Promise<Buffer> {
     listChunksForUser(uid).catch((error: unknown) => { throw qdrantExportError(error); }),
   ]);
 
-  const files = await addUserFiles(zip, uid).catch((error: unknown) => { throw minioExportError(error); });
+  const files = await addUserFiles(zip, uid).catch((error: unknown) => { throw storageExportError(error); });
   const generatedAt = new Date().toISOString();
 
   if (firebaseData) {
@@ -265,7 +238,7 @@ export async function buildAccountDataExport(uid: string): Promise<Buffer> {
       : "This temporary archive contains original uploaded files and derived indexed context only.",
     "It excludes credentials, OAuth tokens, password hashes, one-time login challenges, and server secrets.",
     ...(firebaseData ? [] : ["Additional account records were not included in this temporary export."]),
-    "The files/objects paths are safe archive names; their original MinIO keys are recorded in manifest.json.",
+    "The files/objects paths are safe archive names; their original storage keys are recorded in manifest.json.",
     "A future Catalyst restore imports this data into a newly authenticated account and rebuilds document indexing.",
     "",
   ].join("\n"));
@@ -275,7 +248,7 @@ export async function buildAccountDataExport(uid: string): Promise<Buffer> {
     uid,
     includedServices: {
       accountRecords: Boolean(firebaseData),
-      minio: true,
+      storage: true,
       qdrant: true,
     },
     files,

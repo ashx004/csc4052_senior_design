@@ -1,16 +1,13 @@
-import { DeleteObjectsCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import type { Firestore, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { adminAuth, adminDb } from "@/src/library/firebaseAdmin";
-import { getMinioClient } from "@/src/library/minioClient";
+import { deleteObject, listObjects } from "@/src/library/gcsStorage";
 import { deleteChunksForUser } from "@/src/library/vectorStore";
 import { ACCOUNT_DELETION_GUARDS } from "@/src/library/accountDeletionGuard";
-
-const MINIO_BUCKET = "studora";
 
 export class AccountDeletionError extends Error {
   constructor(
     public readonly publicMessage: string,
-    public readonly category: "Firebase" | "MinIO" | "Qdrant" | "unknown",
+    public readonly category: "Firebase" | "Storage" | "Qdrant" | "unknown",
     public readonly phase: string,
     public readonly errorCode: string,
     cause?: unknown
@@ -39,8 +36,8 @@ function deletionFailure(phase: string, cause: unknown): AccountDeletionError {
   }
   if (phase === "stored-files") {
     return new AccountDeletionError(
-      "Catalyst file storage (MinIO) is unavailable. Your account is protected from new writes; please try again later.",
-      "MinIO",
+      "Catalyst file storage (Google Cloud Storage) is unavailable. Your account is protected from new writes; please try again later.",
+      "Storage",
       phase,
       errorCode,
       cause
@@ -77,36 +74,15 @@ async function setPhase(uid: string, phase: string, extra: Record<string, unknow
   }, { merge: true });
 }
 
-async function deleteMinioObjects(uid: string): Promise<void> {
-  const client = await getMinioClient();
+async function deleteStorageObjects(uid: string): Promise<void> {
   const prefix = `users/${uid}/`;
-  let continuationToken: string | undefined;
+  const objects = await listObjects(prefix);
+  for (const object of objects) {
+    if (object.key.startsWith(prefix)) await deleteObject(object.key);
+  }
 
-  do {
-    const page = await client.send(new ListObjectsV2Command({
-      Bucket: MINIO_BUCKET,
-      Prefix: prefix,
-      ContinuationToken: continuationToken,
-    }));
-    const objects = (page.Contents ?? [])
-      .map((item) => item.Key)
-      .filter((key): key is string => Boolean(key?.startsWith(prefix)))
-      .map((Key) => ({ Key }));
-    if (objects.length > 0) {
-      const result = await client.send(new DeleteObjectsCommand({
-        Bucket: MINIO_BUCKET,
-        Delete: { Objects: objects, Quiet: true },
-      }));
-      if ((result.Errors?.length ?? 0) > 0) {
-        throw new Error("MinIO refused to delete one or more account objects.");
-      }
-    }
-    continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
-  } while (continuationToken);
-
-  const remaining = await client.send(new ListObjectsV2Command({ Bucket: MINIO_BUCKET, Prefix: prefix, MaxKeys: 1 }));
-  if ((remaining.Contents?.length ?? 0) > 0) {
-    throw new Error("MinIO account deletion verification found remaining objects.");
+  if ((await listObjects(prefix)).length > 0) {
+    throw new Error("Storage account deletion verification found remaining objects.");
   }
 }
 
@@ -191,7 +167,7 @@ export async function deleteAccountData(uid: string): Promise<void> {
 
     phase = "stored-files";
     await setPhase(uid, phase);
-    await deleteMinioObjects(uid);
+    await deleteStorageObjects(uid);
 
     phase = "application-records";
     await setPhase(uid, phase);

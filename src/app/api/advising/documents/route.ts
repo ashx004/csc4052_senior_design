@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { HeadObjectCommand } from "@aws-sdk/client-s3";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
-import { getMinioClient } from "@/src/library/minioClient";
+import { headObject } from "@/src/library/gcsStorage";
 
 /* Lists the advising documents (transcript and curriculum sheet) the signed-in
-student has uploaded to MinIO. Each entry says whether the file is actually
+student has uploaded to Google Cloud Storage. Each entry says whether the file is actually
 there, so the page can show a "not available" message for a missing one. The
 file itself is fetched through /api/download, which checks ownership. */
 
 export const dynamic = "force-dynamic";
 
-const BUCKET_NAME = "studora";
 
 const ADVISING_DOCUMENTS = [
   { type: "transcript", label: "Transcript" },
@@ -33,27 +31,24 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const minioClient = await getMinioClient();
-
     const documents: AdvisingDocument[] = await Promise.all(
       ADVISING_DOCUMENTS.map(async ({ type, label }) => {
         const storagePath = `users/${auth.uid}/advising/${type}.pdf`;
 
         try {
-          const head = await minioClient.send(
-            new HeadObjectCommand({ Bucket: BUCKET_NAME, Key: storagePath })
-          );
+          const head = await headObject(storagePath);
+          if (!head) throw new Error("not found");
 
           return {
             type,
             label,
             storagePath,
             available: true,
-            size: head.ContentLength ?? null,
-            lastModified: head.LastModified?.toISOString() ?? null,
+            size: head.size,
+            lastModified: head.lastModified?.toISOString() ?? null,
           };
         } catch {
-          // HeadObject throws when the object doesn't exist.
+          // A missing object counts as unavailable; the object doesn't exist.
           return {
             type,
             label,
