@@ -1,7 +1,6 @@
-import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/src/library/firebaseAdmin";
-import { getMinioClient } from "@/src/library/minioClient";
+import { getObject } from "@/src/library/gcsStorage";
 import { SHARE_COOKIE, hasValidShareCookie } from "@/src/library/notes/shareCookie";
 
 export async function GET(request: NextRequest) {
@@ -14,7 +13,7 @@ export async function GET(request: NextRequest) {
   const key = url ? new URL(url, request.nextUrl.origin).searchParams.get("key") : null;
   if (!key || !key.startsWith("users/")) return NextResponse.json({ error: "File unavailable." }, { status: 404 });
   try {
-    const result = await (await getMinioClient()).send(new GetObjectCommand({ Bucket: "studora", Key: key }));
-    return new NextResponse(Buffer.from(await result.Body!.transformToByteArray()), { headers: { "Content-Type": result.ContentType || "application/octet-stream", "Content-Disposition": "inline" } });
+    const result = await getObject(key);
+    return new NextResponse(new Uint8Array(result.body), { headers: { "Content-Type": result.contentType || "application/octet-stream", "Content-Disposition": "inline" } });
   } catch { return NextResponse.json({ error: "File unavailable." }, { status: 404 }); }
 }

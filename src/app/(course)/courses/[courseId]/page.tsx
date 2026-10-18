@@ -474,7 +474,7 @@ export default function CourseOverview({
                 {/* Course Resources */}
                 <div className="mt-6 rounded-xl bg-bg-container p-6 shadow-sm ring-1 ring-border-light" data-tutorial="course-resources">
                     <h2 className="text-sm font-semibold text-text-main mb-4">Course Resources</h2>
-                    {/* PASSING DOWN DYNAMIC CURRENT USER ID TO CLEANLY REROUTE CAROUSEL MINIO FETCHES */}
+                    {/* PASSING DOWN DYNAMIC CURRENT USER ID TO CLEANLY REROUTE CAROUSEL STORAGE FETCHES */}
                     <ResourcePreview
                         userId={user.uid}
                         courseId={courseId}

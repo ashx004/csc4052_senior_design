@@ -1,8 +1,7 @@
 // src/app/api/upload/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
-import { getMinioClient } from "@/src/library/minioClient";
+import { putObject } from "@/src/library/gcsStorage";
 import { isAccountDeletionInProgress } from "@/src/library/accountDeletionGuard";
 import { checkRateLimit } from "@/src/library/rateLimit";
 
@@ -15,7 +14,6 @@ const UPLOAD_RATE_LIMIT_MAX = 60;
 
 export async function POST(req: NextRequest) {
     try {
-        const bucketName = "studora";
         const storagePath = req.headers.get('x-storage-path');
         const contentType = req.headers.get('content-type') || 'application/octet-stream';
 
@@ -54,15 +52,7 @@ export async function POST(req: NextRequest) {
         }
         const buffer = Buffer.from(arrayBuffer);
 
-        const s3Client = await getMinioClient();
-        await s3Client.send(
-            new PutObjectCommand({
-                Bucket: bucketName,
-                Key: storagePath,
-                Body: buffer,
-                ContentType: contentType,
-            })
-        );
+        await putObject(storagePath, buffer, contentType);
 
         return NextResponse.json({ success: true }, { status: 200 });
     } catch (error: any) {

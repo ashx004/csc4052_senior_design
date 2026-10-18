@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getIdToken, firestoreGet, firestoreUpdate } from "@/src/library/firestoreRest";
-import { getMinioClient } from "@/src/library/minioClient";
+import { putObject } from "@/src/library/gcsStorage";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 
 const MAX_TRANSCRIPT_CHARS = 1_000_000;
@@ -60,13 +59,7 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ error: `Transcript must be at most ${MAX_TRANSCRIPT_CHARS.toLocaleString()} characters` }, { status: 400 });
       }
       const transcriptStoragePath = `users/${userId}/classes/${courseId}/ocr/${resourceId}_transcript.txt`;
-      const s3Client = await getMinioClient();
-      await s3Client.send(new PutObjectCommand({
-        Bucket: "studora",
-        Key: transcriptStoragePath,
-        Body: Buffer.from(transcript, "utf8"),
-        ContentType: "text/plain",
-      }));
+      await putObject(transcriptStoragePath, transcript, "text/plain");
 
       const priorRevision = typeof resource.manualTranscriptVersion === "number"
         ? resource.manualTranscriptVersion
