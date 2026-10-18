@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveOllamaBaseUrl, resolveModelFromKey, mainModelContextOption } from "@/src/library/ollamaClient";
 import { thinkField } from "@/src/library/thinkMode";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
+import { enterAiUser } from "@/src/library/ai/usageScope";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import { stripThinkLeak, extractFirstJsonObject } from "@/src/library/stripThinkLeak";
 import { z } from "zod";
@@ -179,6 +180,7 @@ export async function POST(req: NextRequest) {
   if (!auth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  enterAiUser(auth.uid);
 
   const rateLimit = checkRateLimit(auth.uid, LEARN_QUESTION_RATE_LIMIT_WINDOW_MS, LEARN_QUESTION_RATE_LIMIT_MAX);
   if (!rateLimit.allowed) {

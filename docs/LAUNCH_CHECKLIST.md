@@ -37,13 +37,31 @@ is tracked separately on branch `cloud_ai_billing`.
 
 ## AI providers
 
+- [x] **OpenRouter privacy:** Settings → Privacy, providers that may train on inputs
+      disabled (done 2026-10-18).
 - [ ] **OpenRouter:**
   - keep credits topped up; this is the money students' usage draws from
   - set a monthly key limit as a safety net
-  - Settings → Privacy: **disable providers that may train on inputs**
-    (the privacy policy promises this)
-- [ ] **Google AI Studio:** if Gemini is used, enable billing on the project. Paid-tier
-      terms exclude training on data; free tier does not.
+  - **create a separate key used only by the site** (e.g. "catalyst-prod"). The dry-run
+    report compares logged cost with the key's usage, and the current key also
+    carries the benchmark spend.
+- [x] **Google AI Studio billing enabled** (done 2026-10-18).
+- [ ] **Google AI Studio credits:** Gemini is prepaid. With $0 credit it answers
+      "prepayment credits are depleted" (checked 2026-10-18), so the backup model
+      can't step in when OpenRouter is down. $5 covers years of backup use.
+
+## Billing dry run (log-only metering, in code since 2026-10-18)
+
+- [ ] On the server, set `AI_BACKEND=cloud`, the `AI_MODEL_*` lines from `env.example`,
+      and `BILLING_MODE=log`, then restart.
+- [ ] Use the site normally for a few days: chat, quizzes, flashcards, an OCR upload,
+      advising.
+- [ ] Run `npm run billing:report -- --resolve` and compare **"openrouter <day>"** with
+      the OpenRouter Activity page for the same UTC day. They should agree to within
+      a cent.
+- [ ] Check the **Unattributed** section is empty. Anything there is a feature that
+      would not be charged to anyone.
+- [ ] Tell Claude the result. Then Stripe Checkout gets built and charging turns on.
 
 ## Legal and organization
 

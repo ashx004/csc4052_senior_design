@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyRequestAuth, isInternalRequest } from "@/src/library/verifyAuth";
+import { enterAiUser } from "@/src/library/ai/usageScope";
 import { extractPdfTextFromUrl, resolveInternalUrl, } from "@/src/library/pdfExtract";
 import { EXTRACTION_JOBS, enqueueAdvisingJob, readAdvisingJob } from "@/src/library/advisingJobs";
 import { JOB_STATUS, toPublicJob } from "@/src/library/jobStatus";
@@ -87,6 +88,8 @@ async function processExtraction(request: NextRequest) {
     if (!userId) {
       return NextResponse.json({ error: "userId is required" }, { status: 400 });
     }
+    // Internal-only path: userId comes from the server-written job record.
+    enterAiUser(userId);
 
     const transcriptPath = `users/${userId}/advising/transcript.pdf`;
     const curriculumPath = `users/${userId}/advising/curriculum.pdf`;

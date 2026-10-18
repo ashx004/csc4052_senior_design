@@ -19,6 +19,7 @@
     "worker:advising": "tsx scripts/advisingWorker.ts",
     "eval:chat": "node --env-file=.env scripts/chatEval.mjs",
     "admin:access": "tsx scripts/setAdmin.ts",
+    "billing:report": "tsx scripts/usageReport.ts",
     "analytics:check": "node --conditions=react-server --import tsx scripts/checkAnalytics.ts"
   },
   "dependencies": {

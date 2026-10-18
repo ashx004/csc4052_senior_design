@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
+import { enterAiUser } from "@/src/library/ai/usageScope";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import { resolveOllamaBaseUrl } from "@/src/library/ollamaClient";
 import { generateFlashcardsWithRetry } from "@/src/library/flashcardGeneration";
@@ -30,6 +31,7 @@ export async function POST(request: NextRequest) {
   try {
     const auth = await verifyRequestAuth(request);
     if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    enterAiUser(auth.uid);
 
     const rate = checkRateLimit(auth.uid, RATE_LIMIT_WINDOW_MS, RATE_LIMIT_MAX);
     if (!rate.allowed) {

@@ -1,5 +1,6 @@
 import { fallbackModel, featureGroup, isCloudBackend, modelForFeature, outputCap } from "./cloudModels";
 import { rateFor } from "./cloudRates";
+import { currentAiUser } from "./usageScope";
 import { StreamTranslator, buildCloudRequest, fromCompletion, readUsage, relaxRequest, type OllamaChatBody, type Provider, type Usage } from "./cloudTranslate";
 
 // Drop-in for fetch(`${ollamaBaseUrl}/api/chat`, init). With AI_BACKEND=ollama
@@ -8,17 +9,21 @@ import { StreamTranslator, buildCloudRequest, fromCompletion, readUsage, relaxRe
 // so every caller's parsing stays exactly as it was. The base URL is ignored
 // in cloud mode; the model comes from the feature (cloudModels.ts).
 
-export type UsageEvent = { feature: string; model: string; inputTokens: number; outputTokens: number; costMicros: number; costSource: "provider" | "rate-table" | "unknown"; rateId?: string; fallback: boolean };
+export type UsageEvent = { uid?: string; requestId?: string; incomplete?: boolean; feature: string; model: string; inputTokens: number; outputTokens: number; costMicros: number; costSource: "provider" | "rate-table" | "unknown"; rateId?: string; fallback: boolean };
 
-// Usage sink. Log-only until the wallet is switched on: one greppable line per
-// request, so real costs can be compared with the provider dashboards first.
-let usageSink: (event: UsageEvent) => void = (event) => console.info(`[ai-usage] ${JSON.stringify(event)}`);
+// Usage sink: billing/usageMeter.ts records each request against its student.
+// Imported lazily so this module stays free of Firebase Admin (tests swap the sink).
+let usageSink: (event: UsageEvent) => void = (event) => {
+  import("../billing/usageMeter").then(({ meterUsage }) => meterUsage(event)).catch((error) => console.error("[ai-usage] meter unavailable:", error));
+};
 export function setUsageSink(sink: (event: UsageEvent) => void) { usageSink = sink; }
 
 export async function aiFetch(url: string, init: RequestInit): Promise<Response> {
   if (!isCloudBackend() || !url.replace(/\/$/, "").endsWith("/api/chat")) return fetch(url, init);
 
   const feature = new Headers(init.headers).get("X-Catalyst-Feature") || "chat";
+  // Read now: a stream's later chunks may run outside the route's async scope.
+  const uid = currentAiUser();
   const body = JSON.parse(String(init.body ?? "{}")) as OllamaChatBody;
 
   // Cloud models are always loaded; warming one up would just bill a reply nobody reads.
@@ -42,11 +47,19 @@ export async function aiFetch(url: string, init: RequestInit): Promise<Response>
   if (!response.ok) return new Response(JSON.stringify({ error: (await response.text()).slice(0, 500) }), { status: response.status, headers: { "Content-Type": "application/json" } });
 
   const started = attempt.started;
-  const report = (usage: Usage) => usageSink(toUsageEvent(feature, model, usage, model !== primary));
+  let reported = false;
+  // incomplete: the stream ended before the provider sent usage (Stop, or a
+  // dropped connection), yet it bills what was written. The requestId lets the
+  // real cost be looked up afterwards (scripts/usageReport.mts).
+  const report = (usage: Usage, requestId?: string, incomplete = false) => {
+    if (reported) return;
+    reported = true;
+    usageSink({ uid, ...(requestId ? { requestId } : {}), ...(incomplete ? { incomplete } : {}), ...toUsageEvent(feature, model, usage, model !== primary) });
+  };
 
   if (!body.stream) {
     const data = await response.json();
-    report(readUsage(data.usage));
+    report(readUsage(data.usage), data.id);
     return Response.json(fromCompletion(model, data, (performance.now() - started) / 1000));
   }
 
@@ -65,7 +78,7 @@ export async function aiFetch(url: string, init: RequestInit): Promise<Response>
           if (done) {
             for (const line of translator.push(decoder.decode() + "\n\n")) controller.enqueue(encoder.encode(line + "\n"));
             controller.enqueue(encoder.encode(translator.finish((performance.now() - started) / 1000) + "\n"));
-            report(translator.usage);
+            report(translator.usage, translator.requestId);
             controller.close();
             return;
           }
@@ -75,12 +88,15 @@ export async function aiFetch(url: string, init: RequestInit): Promise<Response>
         }
       } catch (error) {
         // Ollama reports mid-stream failures as an {"error"} line; callers already handle that.
-        report(translator.usage);
+        report(translator.usage, translator.requestId, true);
         controller.enqueue(encoder.encode(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }) + "\n"));
         controller.close();
       }
     },
-    cancel(reason) { return upstream.cancel(reason); },
+    cancel(reason) {
+      report(translator.usage, translator.requestId, true);
+      return upstream.cancel(reason);
+    },
   });
   return new Response(stream, { status: 200, headers: { "Content-Type": "application/x-ndjson" } });
 }
