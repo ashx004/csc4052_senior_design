@@ -44,3 +44,8 @@ scripts/*.report-*.json
 # quiz quality eval (scripts/quizQualityEval.ts): run output and class documents
 scripts/quiz-eval-results/
 scripts/fixtures/quiz-eval/
+
+# Real notebook photos used by the OCR benchmark - personal, never committed
+scripts/fixtures/ocr/real/*.jpg
+Stripe.txt
+memories-*.zip

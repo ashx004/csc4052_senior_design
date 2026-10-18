@@ -9,6 +9,7 @@ import { useAuth } from "@/src/context/AuthContext";
 import { touchRememberCookie } from "@/src/library/session";
 import AppleLogo from "@/src/components/icons/AppleLogo";
 import AppLogo from "@/src/components/AppLogo";
+import PasswordInput from "@/src/components/PasswordInput";
 
 function LoginForm() {
   const router = useRouter();
@@ -291,6 +292,8 @@ function LoginForm() {
               {loginError}
             </p>
           )}
+          {/* A real form so Enter in either field logs in. */}
+          <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); void handleLogin(); }}>
           <input
             type="email"
             placeholder="email"
@@ -299,8 +302,7 @@ function LoginForm() {
             onChange={(e) => setEmail(e.target.value)}
           />
 
-          <input
-            type="password"
+          <PasswordInput
             placeholder="password"
             className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded font-mono text-sm"
             value={password}
@@ -308,12 +310,13 @@ function LoginForm() {
           />
 
           <button
-            onClick={handleLogin}
+            type="submit"
             disabled={isSubmitting}
             className="bg-primary text-text-inverse py-1.5 px-4 rounded
                       hover:bg-primary-hover disabled:opacity-50" >
             Log In
           </button>
+          </form>
 
           <button
             type="button"
@@ -370,6 +373,15 @@ function LoginForm() {
             <AppleLogo className="h-4 w-4 text-text-main" />
             Continue with Apple
           </button>
+
+          {/* Google/Apple can create a new account from here, so the terms apply to this page too. */}
+          <p className="text-center text-xs text-text-muted">
+            By continuing you confirm you are 13 or older (under 18 with a parent or guardian&apos;s
+            permission) and agree to the{" "}
+            <a href="/legal/terms" target="_blank" rel="noreferrer" className="text-primary underline">Terms</a>,{" "}
+            <a href="/legal/privacy" target="_blank" rel="noreferrer" className="text-primary underline">Privacy Policy</a> and{" "}
+            <a href="/legal/credits" target="_blank" rel="noreferrer" className="text-primary underline">AI Credits terms</a>.
+          </p>
         </div>
       </div>
     </div>
