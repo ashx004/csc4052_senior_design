@@ -18,6 +18,7 @@ import { DATA_CHANGED_EVENT, notifyDataChanged } from '@/src/library/dataChanged
 import { buildCourseIdentityUpdate, MAX_COURSE_CODE_LENGTH, MAX_COURSE_NAME_LENGTH } from '@/src/library/courseIdentity';
 import SyllabusModal from '@/src/components/course/SyllabusModal';
 import GradingChart from '@/src/components/course/GradingChart';
+import { submitOnEnter } from "@/src/library/submitOnEnter";
 
 // Lazy-loaded: pulls in docx-preview, pdfjs-dist, xlsx, and syntax
 // highlighting — heavy, and not needed until this section actually renders.
@@ -559,6 +560,7 @@ export default function CourseOverview({
                                                 onChange={(e) =>
                                                     setEditValues((prev) => ({ ...prev, [key]: e.target.value }))
                                                 }
+                                                onKeyDown={submitOnEnter(handleSaveEdit, savingEdit)}
                                                 disabled={savingEdit}
                                                 maxLength={editingSection === "course" ? (key === "classCode" ? MAX_COURSE_CODE_LENGTH : MAX_COURSE_NAME_LENGTH) : undefined}
                                                 className="w-full rounded-md border border-border-light bg-bg-container px-3 py-2 text-sm text-text-main outline-none focus:border-primary"
