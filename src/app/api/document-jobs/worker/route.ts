@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Agent, fetch as undiciFetch } from "undici";
 import type { DocumentData, UpdateData } from "firebase-admin/firestore";
 import { adminDb } from "@/src/library/firebaseAdmin";
 import { resolveInternalUrl } from "@/src/library/pdfExtract";
@@ -8,6 +9,10 @@ import { ACTIVE_JOB_STATUSES, JOB_STATUS } from "@/src/library/jobStatus";
 
 const JOB_COLLECTION = "documentProcessingJobs";
 const JOB_LEASE_MS = 10 * 60 * 1000;
+// Node's fetch gives up on a response after 5 minutes, so a big textbook
+// failed as "fetch failed" and restarted from page 1, three times. The
+// processing call may take as long as the lease (same fix as advising-jobs).
+const processingAgent = new Agent({ headersTimeout: JOB_LEASE_MS, bodyTimeout: JOB_LEASE_MS });
 
 type DocumentJob = {
   userId: string;
@@ -113,7 +118,8 @@ export async function POST(request: NextRequest) {
     // The processing route recognizes this server-only secret and performs
     // its Firestore reads/writes with Firebase Admin. No browser Firebase API
     // key or client token is needed for queued work.
-    const processingResponse = await fetch(resolveInternalUrl(request, "/api/embed-document"), {
+    const processingResponse = await undiciFetch(resolveInternalUrl(request, "/api/embed-document"), {
+      dispatcher: processingAgent,
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -121,7 +127,7 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify(job.data),
     });
-    const result = await processingResponse.json().catch(() => ({}));
+    const result = (await processingResponse.json().catch(() => ({}))) as { success?: boolean; superseded?: boolean; error?: string; reason?: string };
     if (!processingResponse.ok || result.success !== true) {
       throw new Error(result.error || result.reason || `Document processing failed (${processingResponse.status}).`);
     }
