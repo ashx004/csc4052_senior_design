@@ -40,7 +40,7 @@ export default function RootLayout({
     <html lang="en" className={jakarta.variable} suppressHydrationWarning>
       <body
         className="
-          min-h-screen
+          min-h-dvh
           bg-bg-main
           text-text-main
           antialiased

@@ -15,8 +15,10 @@
   :root { --topbar-h: 68px; }
   :root[data-topbar="spacer"] { --topbar-h: 0px; }
 }
-main .min-h-screen { min-height: calc(100vh - var(--topbar-h)); }
-main .h-screen { height: calc(100vh - var(--topbar-h)); }
+/* dvh is the height actually visible on phones (100vh includes space behind
+   the browser's bars, so pages scrolled too far); vh is the fallback. */
+main .min-h-screen { min-height: calc(100vh - var(--topbar-h)); min-height: calc(100dvh - var(--topbar-h)); }
+main .h-screen { height: calc(100vh - var(--topbar-h)); height: calc(100dvh - var(--topbar-h)); }
 
 /* ==========================================================================
    UNIFIED APP THEME
