@@ -13,16 +13,21 @@ import { StreamTranslator, buildCloudRequest, fromCompletion, readUsage, relaxRe
 export type UsageEvent = { uid?: string; requestId?: string; incomplete?: boolean; feature: string; model: string; inputTokens: number; outputTokens: number; costMicros: number; costSource: "provider" | "rate-table" | "unknown"; rateId?: string; fallback: boolean };
 
 // Metering: billing/usageMeter.ts holds credit before each request and
-// charges it after (or only records it, in the dry run). Imported lazily so
-// this module stays free of Firebase Admin; tests swap in their own meter.
+// charges it after (or only records it, in the dry run). The server registers
+// it at startup (src/instrumentation.ts) rather than this module importing it:
+// browser pages import modules that import this one, and the meter is
+// server-only. Kept on globalThis because Next.js can load this module more
+// than once. Tests register their own.
 export type MeterSession = { finish(event: UsageEvent): Promise<void>; abandon(): Promise<void> };
 export type Meter = { start(request: { uid?: string; feature: string; holdMicros: number }): Promise<MeterSession> };
 
-let meter: Meter | null = null;
-async function getMeter(): Promise<Meter> {
-  return (meter ??= (await import("../billing/usageMeter")).createMeter());
+const meterSlot = globalThis as typeof globalThis & { __catalystAiMeter?: Meter | null };
+function getMeter(): Meter {
+  // No meter means no way to charge: refuse rather than hand out free AI.
+  if (!meterSlot.__catalystAiMeter) throw new Error("AI usage meter is not registered (src/instrumentation.ts).");
+  return meterSlot.__catalystAiMeter;
 }
-export function setMeter(next: Meter | null) { meter = next; }
+export function setMeter(next: Meter | null) { meterSlot.__catalystAiMeter = next; }
 /** Test helper: a meter that only hands each finished request to `sink`. */
 export function setUsageSink(sink: (event: UsageEvent) => void) {
   setMeter({ start: async () => ({ finish: async (event) => sink(event), abandon: async () => {} }) });
@@ -58,7 +63,7 @@ export async function aiFetch(url: string, init: RequestInit): Promise<Response>
   const outputLimit = body.options?.num_predict && body.options.num_predict > 0 ? body.options.num_predict : maxTokens;
   let session: MeterSession;
   try {
-    session = await (await getMeter()).start({ uid, feature, holdMicros: holdFor(models, estimateInputTokens(body), outputLimit) });
+    session = await getMeter().start({ uid, feature, holdMicros: holdFor(models, estimateInputTokens(body), outputLimit) });
   } catch (error) {
     const name = error instanceof Error ? error.name : "";
     if (name === "InsufficientCreditError") return outOfCredit();
