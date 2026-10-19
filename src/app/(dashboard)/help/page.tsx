@@ -120,6 +120,19 @@ const sections: FaqSection[] = [
         question: "Does the assistant remember earlier conversations?",
         answer: [
           "Within a conversation, yes — it keeps the full thread and can also recall relevant parts of your past chats when it's genuinely useful for answering your current question, not just the messages you can currently scroll back through.",
+          "The ring under the chat box shows how full the conversation's memory is. When it fills, older messages are summarized automatically (the latest ones stay word for word), which keeps replies fast and cheap. Type /compact to do that yourself at any time.",
+        ],
+      },
+      {
+        question: "What are the slash commands?",
+        answer: [
+          "Type / in any chat box to see them: /compact summarizes older messages now, /new starts a fresh chat, /clear clears the conversation, /cost shows what the chat has cost, /speed switches between Fast, Balanced and Thorough, and /help lists them all.",
+        ],
+      },
+      {
+        question: "What do Fast, Balanced and Thorough do?",
+        answer: [
+          "They trade answer quality against speed and credit. Fast uses a quicker, cheaper model for simple questions. Balanced (the default) thinks when a question needs it. Thorough uses a stronger model that works problems through step by step; it's slower and costs more, so save it for hard math, proofs and tricky code.",
         ],
       },
       {
@@ -207,13 +220,43 @@ const sections: FaqSection[] = [
     ],
   },
   {
+    id: "ai-credit",
+    title: "AI Credit & Payments",
+    items: [
+      {
+        question: "Why does AI cost money?",
+        answer: [
+          "Every AI request costs our AI providers real money. Catalyst is run by ZonoCSC as a not-for-profit, so instead of a subscription you prepay credit and each request takes exactly what it cost, plus the providers' own payment fees and nothing else. Everything that isn't AI is free.",
+        ],
+      },
+      {
+        question: "How much does it cost?",
+        answer: [
+          "Very little per task: about a tenth of a cent for a chat message, and a few tenths of a cent for a quiz or flashcard set. The AI credit page (click your balance in the sidebar) lists typical costs and shows exactly where your credit went.",
+        ],
+      },
+      {
+        question: "What happens when my credit runs out?",
+        answer: [
+          "AI features pause and you're offered a top-up; nothing is ever charged without credit. Notes, calendar, your saved study sets and everything else keep working.",
+        ],
+      },
+      {
+        question: "How do I add credit, and can I get a refund?",
+        answer: [
+          "Press Add next to your balance in the sidebar. Top-ups are $5, $10 or $20, paid securely through Stripe, and a balance can hold up to $20. Credit you've used isn't refundable, but unused credit is: email contact@zonocsc.com from your account's email, and it goes back to your card minus the card processor's fee.",
+        ],
+      },
+    ],
+  },
+  {
     id: "troubleshooting",
     title: "Troubleshooting & Common Errors",
     items: [
       {
         question: '"The AI server took too long to start responding" — what does this mean?',
         answer: [
-          "The AI model was still loading (a cold start) when the connection timed out. This is a server-side hiccup, not something wrong with your request — wait a minute for it to finish loading and try again; it should respond much faster the second time.",
+          "The AI provider was slow or busy and the connection timed out. This is a hiccup on the AI side, not something wrong with your request, and you aren't charged for a request that never got an answer. Wait a moment and try again.",
         ],
       },
       {

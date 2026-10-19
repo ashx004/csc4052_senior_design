@@ -22,6 +22,7 @@ import { completeKeys, notebookSetFields, plainSetFields } from "@/src/library/s
 import { warnIfSlowGeneration } from "@/src/library/ollamaHealthCheck";
 import { getStudentProfile, maybeUpdateStudentProfile, StudentProfile } from "@/src/library/studentProfile";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
+import { isCloudBackend } from "@/src/library/ai/cloudModels";
 import { enterAiUser, setAiSpeed, trackAiSpend, type ChatSpeed } from "@/src/library/ai/usageScope";
 import { COMPACTION_CHAR_THRESHOLD, COMPACT_NOW_KEEP_MESSAGES, KEEP_RECENT_MESSAGES } from "@/src/library/chatCompactionLimits";
 import { aiCreditGate } from "@/src/library/billing/creditGate";
@@ -2489,7 +2490,8 @@ export async function POST(request: NextRequest) {
         // (fails open to the non-cold-boot label on any error) purely so a
         // student switching models on the settings page sees an honest
         // "this is going to take a bit" label instead of the generic one.
-        const modelAlreadyLoaded = await isModelLoaded(primaryTarget.baseUrl, primaryTarget.model);
+        // Cloud models are always loaded, and asking the Ollama box would only add a round trip.
+        const modelAlreadyLoaded = isCloudBackend() || (await isModelLoaded(primaryTarget.baseUrl, primaryTarget.model));
         send({
           type: "status",
           label: modelAlreadyLoaded

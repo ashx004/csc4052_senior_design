@@ -33,6 +33,7 @@ const HOLD_RATES: Record<string, { inputPerM: number; outputPerM: number }> = {
   "openrouter:google/gemma-4-26b-a4b-it": { inputPerM: 0.1, outputPerM: 0.35 },
   "openrouter:qwen/qwen3.7-flash": { inputPerM: 0.05, outputPerM: 0.2 },
   "openrouter:z-ai/glm-5.3-flash": { inputPerM: 0.08, outputPerM: 0.3 },
+  "openrouter:qwen/qwen3.6-35b-a3b": { inputPerM: 0.2, outputPerM: 1.2 },
   "google:gemini-3.1-flash-lite": { inputPerM: 0.25, outputPerM: 1.5 },
   "google:gemini-3.5-flash-lite": { inputPerM: 0.3, outputPerM: 2.5 },
 };
@@ -73,7 +74,7 @@ export function holdFor(models: string[], inputTokens: number, maxOutputTokens: 
 // added, rounded up and fee included. Replace with dry-run averages once
 // `npm run billing:report` has a few days of data.
 export const TASK_ESTIMATES: { task: string; typicalUsd: number; note?: string }[] = [
-  { task: "Chat message", typicalUsd: 0.002, note: "longer with documents attached or web search" },
+  { task: "Chat message", typicalUsd: 0.001, note: "more with documents, web search or Thorough speed" },
   { task: "Quiz (10 questions)", typicalUsd: 0.003 },
   { task: "Flashcard set", typicalUsd: 0.002 },
   { task: "Practice problems", typicalUsd: 0.003 },

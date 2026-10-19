@@ -6,6 +6,8 @@ import { useSearchParams } from "next/navigation";
 import { CheckCircle2, Loader2, Plus } from "lucide-react";
 import { useBilling } from "@/src/context/BillingContext";
 import { availableMicros, formatUsd, usdToMicros } from "@/src/library/billing/money";
+import PageTutorial from "@/src/components/tutorial/PageTutorial";
+import billingSteps from "@/src/library/tutorials/steps/billing";
 
 type Entry = { id: string; type: string; amountMicros: number; feature: string | null; model: string | null; at: string | null };
 
@@ -104,6 +106,7 @@ function BillingPage() {
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
+      <PageTutorial id="billing" steps={billingSteps} />
       <h1 className="text-2xl font-semibold tracking-tight text-text-main">AI credit</h1>
       <p className="mt-1 text-sm text-text-muted">
         Catalyst&apos;s AI runs on prepaid credit, charged at what each request actually costs our AI providers, with their fees passed on and nothing added.

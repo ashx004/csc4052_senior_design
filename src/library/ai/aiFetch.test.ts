@@ -166,7 +166,7 @@ describe("aiFetch", () => {
     expect(sentBody(0)).toMatchObject({ model: "qwen/qwen3.7-flash", reasoning: { enabled: false } });
     expect(sentBody(1).model).toBe("qwen/qwen3.7-flash"); // generation's own model, untouched by speed
     expect(sentBody(1).reasoning).toBeUndefined();
-    expect(sentBody(2)).toMatchObject({ model: "google/gemma-4-26b-a4b-it", reasoning: { effort: "high" }, max_tokens: 8192 });
+    expect(sentBody(2)).toMatchObject({ model: "google/gemma-4-26b-a4b-it", reasoning: { effort: "high" }, max_tokens: 12288 });
     expect(spend.micros).toBe(3000); // 945 micros reported + 5.5% fee, three times
     delete process.env.AI_MODEL_LIGHT;
   });
