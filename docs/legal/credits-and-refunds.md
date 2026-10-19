@@ -1,22 +1,26 @@
 # AI Credits, Refunds and End of Service
 
-_Effective October 18, 2026. Last updated October 18, 2026._
+_Effective October 18, 2026. Last updated October 19, 2026._
 
 Catalyst is run by ZonoCSC as a not-for-profit service. AI features
-cost us money every time they run, so we pass that cost to you **at cost**.
-We do not add a markup.
+cost us money every time they run, so we pass that cost to you **at cost**:
+what the AI provider charges, plus the payment fees described in section 2,
+and nothing else. We do not add a markup.
 
 ## 1. How AI credits work
 
 - **Credits are dollars.** Your balance is shown in US dollars. Each time you use an
   AI feature (chat, quizzes, flashcards, OCR, advising and similar), we deduct what
-  the AI provider charged us for that request, based on the tokens it reports.
+  the AI provider charged us for that request, based on the tokens it reports,
+  plus the provider's fee described in section 2.
 - **Prices follow the provider.** We charge the provider's current published rate
   at the time of the request. If a provider changes its prices, the same balance
   buys more or fewer AI requests. Credits are not a fixed number of tokens.
-- **Estimates before you act.** Before an AI action we show a rough estimate.
-  Estimates are approximate. You are charged the actual cost, which may be
-  slightly higher or lower.
+- **Estimates.** Your AI credit page shows what common tasks typically cost, and
+  your balance is always visible in the menu. Estimates are approximate. You are
+  charged the actual cost, which may be higher or lower.
+- **Stopping a reply.** If you stop a reply partway, you pay for the part the AI
+  had already written, since the provider charges us for it.
 - **Reserved, then settled.** While a request runs we temporarily hold a small
   amount of your balance. When it finishes we charge the actual cost and release
   the rest.
@@ -25,12 +29,21 @@ We do not add a markup.
 - **Minimum and maximum.** Top-ups start at $5. To limit how much money
   sits unused near the end of service, a balance cannot go above $20.
 
-## 2. Payment processing fee
+## 2. Fees we pass on
 
-Card payments go through Stripe, which charges a processing fee (currently 2.9%
-+ $0.30 per payment in the US). We do not absorb this fee. It is shown on the
-checkout screen before you pay. For example, a $10.00 payment adds about $9.41
-of credits. Larger top-ups lose a smaller share to the fixed part of the fee.
+We can only run at cost if we don't absorb anyone's fees, so two are passed on
+exactly, with nothing added:
+
+- **Card processing.** Card payments go through Stripe, which charges a
+  processing fee (currently 2.9% + $0.30 per payment in the US). It comes out of
+  your top-up and is shown before you pay. For example, a $10.00 payment adds
+  about $9.41 of credits. Larger top-ups lose a smaller share to the fixed part
+  of the fee.
+- **AI provider credit fee.** We buy AI from our provider, OpenRouter, with
+  prepaid credit, and OpenRouter keeps a fee on each purchase (currently 5.5%).
+  We add the same share to each request: a request that costs us $0.00100 in AI
+  usage is charged to you as about $0.00106. If the fee changes, the charge
+  follows it.
 
 ## 3. Bring your own key (BYOK)
 

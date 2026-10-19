@@ -30,3 +30,6 @@ export function formatUsd(micros: number): string {
   // Sub-cent amounts are normal for single AI requests; show them instead of "$0.00".
   return Math.abs(usd) < 0.01 && usd !== 0 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`;
 }
+
+/** Credit a student can spend now: the balance minus what running requests hold. */
+export const availableMicros = (wallet: { balanceMicros: number; heldMicros: number }) => wallet.balanceMicros - wallet.heldMicros;

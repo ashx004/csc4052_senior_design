@@ -18,6 +18,8 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "."),
+      // Next.js makes "server-only" a no-op on the server; under plain Node it throws.
+      "server-only": path.resolve(__dirname, "src/test/serverOnlyStub.ts"),
     },
   },
 });
