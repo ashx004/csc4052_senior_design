@@ -6,7 +6,7 @@ import { FileText, Loader2, Paperclip, X } from "lucide-react";
 import { useAuth } from "@/src/context/AuthContext";
 import { getEffectiveModelKey } from "@/src/library/chatMode";
 import { MAX_FILE_SIZE_BYTES } from "@/src/components/resourceManagement/fileUploadService";
-import { SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
+import { SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentTypes";
 import { QUIZ_DIFFICULTY_OPTIONS, DEFAULT_QUIZ_DIFFICULTY, type QuizDifficulty } from "@/src/library/quizDifficulty";
 import {
   CUSTOM_TYPES,
