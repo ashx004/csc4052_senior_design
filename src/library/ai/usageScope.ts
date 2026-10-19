@@ -13,7 +13,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 // Next.js can load this module more than once.
 
 export type ChatSpeed = "fast" | "balanced" | "thorough";
-export type SpendTracker = { micros: number; uid?: string };
+export type SpendTracker = { micros: number; uid?: string; /** The model that wrote the latest chat answer (a backup, if one stepped in). */ chatModel?: string };
 export type AiScope = { uid?: string; speed?: ChatSpeed; spend?: SpendTracker };
 
 function storage(): AsyncLocalStorage<AiScope | undefined> {

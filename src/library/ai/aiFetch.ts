@@ -104,6 +104,7 @@ export async function aiFetch(url: string, init: RequestInit): Promise<Response>
     if (scope.spend) {
       scope.spend.micros += chargeForCost(event.costMicros, model);
       scope.spend.uid ??= uid;
+      if (feature === "chat") scope.spend.chatModel = model;
     }
     session.finish({ uid, ...(requestId ? { requestId } : {}), ...(incomplete ? { incomplete } : {}), ...event })
       .catch((error) => console.error("[billing] metering failed:", error));
