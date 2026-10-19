@@ -5,7 +5,7 @@ import { aiCreditGate } from "@/src/library/billing/creditGate";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import { resolveOllamaBaseUrl } from "@/src/library/ollamaClient";
 import { generateFlashcardsWithRetry } from "@/src/library/flashcardGeneration";
-import { generateQuizWithValidation, MAX_QUIZ_QUESTIONS, type QuestionTypes } from "@/src/library/quizGeneration";
+import { generateQuizWithValidation, quizSpares, MAX_QUIZ_QUESTIONS, type QuestionTypes } from "@/src/library/quizGeneration";
 import { parseQuizDifficulty } from "@/src/library/quizDifficulty";
 import { generateAcrossSources } from "@/src/library/generation/orchestrator";
 import { sourcesFromBody } from "@/src/library/sources/requestSources";
@@ -148,7 +148,8 @@ async function handlePOST(request: NextRequest) {
                   baseUrl,
                   body.modelKey,
                   alreadyAsked,
-                  level
+                  level,
+                  { spares: quizSpares(quota) }
                 );
                 return { topicName: result.topicName, items: result.questions };
               },

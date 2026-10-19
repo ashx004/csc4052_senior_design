@@ -31,6 +31,19 @@ describe("quiz generation contract", () => {
     expect(content).toContain('"type": "multiple_choice"');
     expect(content).not.toContain('"true_false"');
   });
+  it("asks for spares in the same call and returns them, so a quote check later needs no second round", async () => {
+    request.mockResolvedValueOnce(reply([mc(1), mc(2), mc(3), mc(4)]));
+    const result = await generateQuizWithValidation("Source text", 3, { multipleChoice: true }, "http://ai", undefined, [], undefined, { spares: 1 });
+    expect(result.questions).toHaveLength(4);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(body(0).messages[1].content).toContain("exactly 4 quiz questions");
+  });
+  it("doesn't spend a repair call on missing spares once the quiz itself is full", async () => {
+    request.mockResolvedValueOnce(reply([mc(1), mc(2), mc(3)]));
+    const result = await generateQuizWithValidation("Source text", 3, { multipleChoice: true }, "http://ai", undefined, [], undefined, { spares: 2 });
+    expect(result.questions).toHaveLength(3);
+    expect(request).toHaveBeenCalledTimes(1);
+  });
   it("retains valid questions and repairs only the missing count", async () => {
     request.mockResolvedValueOnce(reply([mc(1), { ...mc(2), correctAnswer: "absent" }, mc(1)]));
     request.mockResolvedValueOnce(reply([mc(2), mc(3)]));

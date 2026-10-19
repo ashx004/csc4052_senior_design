@@ -6,7 +6,7 @@ import { enterAiUser } from "@/src/library/ai/usageScope";
 import { aiCreditGate } from "@/src/library/billing/creditGate";
 import { checkRateLimit } from '@/src/library/rateLimit';
 import {
-  generateQuizWithValidation,
+  generateQuizWithValidation, quizSpares,
   MAX_QUIZ_QUESTIONS,
   type QuestionTypes,
 } from '@/src/library/quizGeneration';
@@ -155,7 +155,8 @@ async function handlePOST(request: NextRequest) {
             baseUrl,
             modelKey,
             [...avoid, ...alreadyAsked],
-            level
+            level,
+            { spares: quizSpares(quota) }
           );
           return { topicName: result.topicName, items: result.questions };
         },
