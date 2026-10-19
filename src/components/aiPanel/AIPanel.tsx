@@ -16,7 +16,7 @@ import MicButton from "@/src/components/aiAssistant/MicButton";
 import { useAIPageContext, useOwnAiPanelShown } from "@/src/context/AIPageContext";
 import { useAIPanelChat } from "./useAIPanelChat";
 import { useChatCommands } from "@/src/hooks/useChatCommands";
-import ChatControls, { ChatNotice, SlashMenu } from "@/src/components/aiAssistant/ChatControls";
+import { ChatNotice, MemoryAndCost, SlashMenu, SpeedPicker } from "@/src/components/aiAssistant/ChatControls";
 import { memoryFill } from "@/src/library/chatCompactionLimits";
 import QuickActions from "@/src/components/aiAssistant/QuickActions";
 import ConfirmActionCard from "@/src/components/aiAssistant/ConfirmActionCard";
@@ -183,6 +183,8 @@ export default function AIPanel({ courseName }: { courseName?: string | null }) 
               defaultCourseId={courseMatch?.[1] ?? null}
               disabled={isSending}
               compact
+              leading={<MemoryAndCost memory={memoryFill(messages, summarizedCount)} summarized={summarizedCount > 0} costMicros={chatCost} cloudAi={commands.cloudAi} onCompact={messages.length ? () => void commands.compact() : undefined} compacting={commands.compacting} />}
+              trailing={commands.cloudAi ? <SpeedPicker speed={commands.speed} onSpeed={commands.changeSpeed} /> : null}
               onSend={(prompt) => {
                 stickToBottom();
                 void sendMessage(prompt, pageContext, commands.speed);
@@ -234,19 +236,6 @@ export default function AIPanel({ courseName }: { courseName?: string | null }) 
               </button>
             )}
           </form>
-          <div className="px-2 pb-2">
-            <ChatControls
-              compact
-              memory={memoryFill(messages, summarizedCount)}
-              summarized={summarizedCount > 0}
-              costMicros={chatCost}
-              cloudAi={commands.cloudAi}
-              speed={commands.speed}
-              onSpeed={commands.changeSpeed}
-              onCompact={messages.length ? () => void commands.compact() : undefined}
-              compacting={commands.compacting}
-            />
-          </div>
           {stt.error && (
             <p role="status" className="px-3 pb-3 text-xs text-alert-error">
               {stt.error}
