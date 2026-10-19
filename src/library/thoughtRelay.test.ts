@@ -10,6 +10,17 @@ function setup(overrides: Partial<Parameters<typeof createThoughtRelay>[0]> = {}
 }
 
 describe("createThoughtRelay", () => {
+  it("writes at most two summaries per turn, however long the reasoning", async () => {
+    let calls = 0;
+    const { relay, tick } = setup({ summarize: async () => `line ${++calls}`, summaryMinNewChars: 10, summaryMinIntervalMs: 100 });
+    for (let i = 0; i < 10; i++) {
+      relay.push("x".repeat(50));
+      tick(200);
+      await Promise.resolve();
+    }
+    expect(calls).toBe(2);
+  });
+
   it("batches small pieces until enough text or time has built up", () => {
     const { sent, relay, tick } = setup({ flushChars: 10, flushMs: 100 });
     relay.push("abc");

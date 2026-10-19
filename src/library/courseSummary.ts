@@ -97,6 +97,21 @@ export async function generateCourseSummary(
           data: doc.data() as Record<string, unknown>,
         }))
       : await firestoreListCollection(idToken!, resourceCollectionPath);
+    // Uploading several files queues several indexing jobs, and each one
+    // finishing used to rewrite the summary (an AI call the student pays
+    // for). While others are still indexing, the last to finish writes it,
+    // with every document in it.
+    // A document stuck "processing" (a crashed job) mustn't block it forever.
+    const startedAt = (v: unknown) => {
+      const t = typeof v === "string" ? Date.parse(v) : (v as { toDate?: () => Date } | null)?.toDate?.()?.getTime();
+      return typeof t === "number" && Number.isFinite(t) ? t : 0;
+    };
+    const stillIndexing = resourceDocs.some((d) =>
+      d.data.indexStatus === "queued" ||
+      (d.data.indexStatus === "processing" && Date.now() - startedAt(d.data.indexStartedAt) < 15 * 60_000)
+    );
+    if (stillIndexing) return;
+
     const supportedDocs = resourceDocs
       .map((d) => d.data)
       .filter((d) => typeof d.fileType === "string" && SUPPORTED_DOCUMENT_TYPES.includes(d.fileType))
