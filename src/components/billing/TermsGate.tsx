@@ -8,6 +8,7 @@ import { Loader2 } from "lucide-react";
 import { db } from "@/src/library/firebase";
 import { useAuth } from "@/src/context/AuthContext";
 import { TERMS_VERSION } from "@/src/library/legalVersion";
+import { useBilling } from "@/src/context/BillingContext";
 
 // Pages a student must be able to read without agreeing first.
 const EXEMPT = ["/legal/", "/login", "/signup", "/share/"];
@@ -19,7 +20,10 @@ const EXEMPT = ["/legal/", "/login", "/signup", "/share/"];
  */
 export default function TermsGate() {
   const { user } = useAuth();
+  const { wallet } = useBilling();
   const pathname = usePathname();
+  // Only talk about paid credit where AI actually costs this account something.
+  const paidAi = Boolean(wallet?.enforced);
   const [needed, setNeeded] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -62,11 +66,19 @@ export default function TermsGate() {
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
       <div role="dialog" aria-modal="true" aria-labelledby="terms-gate-title" className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-bg-container p-6 shadow-xl">
-        <h3 id="terms-gate-title" className="text-base font-semibold text-text-main">Catalyst&apos;s AI now runs on paid credit</h3>
+        <h3 id="terms-gate-title" className="text-base font-semibold text-text-main">
+          {paidAi ? "Catalyst's AI now runs on paid credit" : "Catalyst has terms of service"}
+        </h3>
         <ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm text-text-muted">
-          <li>AI features (chat, quizzes, flashcards, OCR, advising) use prepaid credit, charged at what the AI actually costs. Nothing else in Catalyst costs anything.</li>
-          <li>You choose if and when to add credit, from $5. There&apos;s no subscription.</li>
-          <li>Your messages are processed by our AI providers, who may not train on them.</li>
+          {paidAi ? (
+            <>
+              <li>AI features (chat, quizzes, flashcards, OCR, advising) use prepaid credit, charged at what the AI actually costs. Nothing else in Catalyst costs anything.</li>
+              <li>You choose if and when to add credit, from $5. There&apos;s no subscription.</li>
+            </>
+          ) : (
+            <li>Please read and accept them to keep using Catalyst. They cover how your data is handled and how AI credit will work if you ever buy any.</li>
+          )}
+          <li>Your messages to the AI are processed by our AI providers, who may not train on them.</li>
         </ul>
         <label className="mt-4 flex items-start gap-2.5 text-sm text-text-main">
           <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-primary)]" />
