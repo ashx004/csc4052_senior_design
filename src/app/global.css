@@ -412,3 +412,11 @@ a:hover {
 @media (prefers-reduced-motion: reduce) {
   .fade-up, .page-fade { animation: none; }
 }
+
+/* While a floating chat button is on screen (AIPanel, CatalystLauncher), phones
+   get room to scroll the end of the page out from under it. */
+@media (max-width: 767px) {
+  html[data-chat-bubble] main {
+    padding-bottom: 5rem;
+  }
+}

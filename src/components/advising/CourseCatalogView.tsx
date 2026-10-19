@@ -333,7 +333,7 @@ export default function CourseCatalogView({ onClose }: { onClose?: () => void })
   return (
     <div className="flex h-screen flex-col bg-bg-main text-text-main">
       <header className="relative flex h-[60px] shrink-0 items-center justify-between border-b border-border-light px-6">
-        <h1 className="absolute left-1/2 -translate-x-1/2 text-center whitespace-nowrap text-base font-semibold tracking-[0.2em] sm:text-lg sm:tracking-[0.45em] text-text-main">
+        <h1 className="min-w-0 truncate sm:absolute sm:left-1/2 sm:-translate-x-1/2 text-center whitespace-nowrap text-base font-semibold tracking-[0.2em] sm:text-lg sm:tracking-[0.45em] text-text-main">
           Course Catalog.
         </h1>
         {onClose && (

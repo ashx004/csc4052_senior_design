@@ -16,6 +16,7 @@ import MicButton from "@/src/components/aiAssistant/MicButton";
 import { useAIPageContext, useOwnAiPanelShown } from "@/src/context/AIPageContext";
 import { useAIPanelChat } from "./useAIPanelChat";
 import { useChatCommands } from "@/src/hooks/useChatCommands";
+import { useChatBubbleSpace } from "@/src/hooks/useChatBubbleSpace";
 import { ChatNotice, MemoryAndCost, SlashMenu, SpeedPicker } from "@/src/components/aiAssistant/ChatControls";
 import { memoryFill } from "@/src/library/chatCompactionLimits";
 import QuickActions from "@/src/components/aiAssistant/QuickActions";
@@ -79,9 +80,12 @@ export default function AIPanel({ courseName }: { courseName?: string | null }) 
     if (typeof window !== "undefined") window.localStorage.setItem(STORAGE_KEY, String(next));
   }
 
+  const hiddenHere = pageHasOwnAiPanel(pathname) || ownPanelShown;
+  useChatBubbleSpace(!hiddenHere && !isOpen);
+
   // The full chat lives at /ai-assistant, and some course pages carry their own
   // contextual panel; the floating one would stack a second chat UI there.
-  if (pageHasOwnAiPanel(pathname) || ownPanelShown) return null;
+  if (hiddenHere) return null;
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
