@@ -16,8 +16,8 @@ vi.mock("@/src/library/billing/creditGate", () => ({ aiCreditGate: async () => n
 vi.mock("@/src/library/studentProfile", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/src/library/studentProfile")>()),
   getStudentProfile: async () => ({ summary: "", messageCount: 0 }),
-  maybeUpdateStudentProfile: async () => {},
 }));
+vi.mock("@/src/library/studentProfileUpdate", () => ({ maybeUpdateStudentProfile: async () => {} }));
 
 // Saved chats live in Firestore; record what the route writes instead of calling it.
 const fs = vi.hoisted(() => ({ create: vi.fn(), get: vi.fn(), update: vi.fn(), del: vi.fn() }));
