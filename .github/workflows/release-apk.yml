@@ -1,0 +1,130 @@
+name: Release Android app
+
+# Builds the Android app (a Trusted Web Activity: the live site, full-screen
+# in Chrome) with Bubblewrap and publishes it as a GitHub Release. The site's
+# /api/app-version reads these releases to tell installed apps an update is out.
+#
+# Release by pushing a tag:   git tag app-v1.2.0 && git push origin app-v1.2.0
+# or run it from the Actions tab with a version number.
+on:
+  push:
+    tags: ["app-v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version, e.g. 1.2.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the version
+        id: v
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          V="${INPUT_VERSION:-${GITHUB_REF_NAME#app-v}}"
+          if ! [[ "$V" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::Version must look like 1.2.0 (got '$V')"
+            exit 1
+          fi
+          # Android requires each release's versionCode to be higher than the last.
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "code=$(( BASH_REMATCH[1] * 10000 + BASH_REMATCH[2] * 100 + BASH_REMATCH[3] ))" >> "$GITHUB_OUTPUT"
+
+      - name: Check signing secrets
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          for name in KEYSTORE PASSWORD ALIAS; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing signing secret (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD and ANDROID_KEY_ALIAS are all required)"
+              exit 1
+            fi
+          done
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install Bubblewrap and the Android build tools
+        run: |
+          npm install -g @bubblewrap/cli@1.25.0
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;36.1.0" "platforms;android-36" > /dev/null
+          mkdir -p ~/.bubblewrap
+          printf '{"jdkPath":"%s","androidSdkPath":"%s"}\n' "$JAVA_HOME" "$ANDROID_HOME" > ~/.bubblewrap/config.json
+
+      - name: Prepare the project
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          VERSION: ${{ steps.v.outputs.version }}
+          CODE: ${{ steps.v.outputs.code }}
+        run: |
+          mkdir build-android
+          printf '%s' "$KEYSTORE" | base64 -d > build-android/catalyst-release.keystore
+          # Icons come from this commit, so a release works even before the site is redeployed.
+          node -e '
+            const fs = require("fs");
+            const m = JSON.parse(fs.readFileSync("android/twa-manifest.json", "utf8"));
+            const icons = `https://raw.githubusercontent.com/${process.env.GITHUB_REPOSITORY}/${process.env.GITHUB_SHA}/public/app-icons`;
+            Object.assign(m, {
+              appVersion: process.env.VERSION,
+              appVersionCode: Number(process.env.CODE),
+              startUrl: `/?app=android&v=${process.env.VERSION}`,
+              iconUrl: `${icons}/icon-512.png`,
+              maskableIconUrl: `${icons}/maskable-512.png`,
+              signingKey: { path: "./catalyst-release.keystore", alias: process.env.ALIAS },
+            });
+            fs.writeFileSync("build-android/twa-manifest.json", JSON.stringify(m, null, 2));
+          '
+
+      - name: Build and sign
+        working-directory: build-android
+        env:
+          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          bubblewrap update --skipVersionUpgrade --manifest=./twa-manifest.json
+          bubblewrap build --skipPwaValidation --manifest=./twa-manifest.json
+          mv app-release-signed.apk "../catalyst-v${{ steps.v.outputs.version }}.apk"
+
+      # The site's /.well-known/assetlinks.json must list this key, or Android
+      # shows the app with a browser address bar.
+      - name: Check the signing key matches the site
+        run: |
+          APK="catalyst-v${{ steps.v.outputs.version }}.apk"
+          SIGNED=$("$ANDROID_HOME/build-tools/36.1.0/apksigner" verify --print-certs "$APK" | sed -n 's/.*certificate SHA-256 digest: //p' | head -1)
+          LISTED=$(node -e 'console.log(require("./public/.well-known/assetlinks.json")[0].target.sha256_cert_fingerprints[0].replace(/:/g, "").toLowerCase())')
+          echo "APK signed with: $SIGNED"
+          if [ "$SIGNED" != "$LISTED" ]; then
+            echo "::error::APK key ($SIGNED) doesn't match public/.well-known/assetlinks.json ($LISTED)"
+            exit 1
+          fi
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: app-v${{ steps.v.outputs.version }}
+          name: Catalyst Android ${{ steps.v.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          files: catalyst-v${{ steps.v.outputs.version }}.apk
+          body: |
+            **Install:** download `catalyst-v${{ steps.v.outputs.version }}.apk` below on your Android phone and open it. Android will ask you to allow installs from your browser the first time.
+
+            Already have the app? Installing this updates it in place. The app also tells you when a newer version is out.
+
+            iPhone: open https://catalyst.zonocsc.com in Safari, tap Share, then **Add to Home Screen**.

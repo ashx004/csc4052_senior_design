@@ -80,3 +80,18 @@ health-checks the new version and rolls back if it fails) - it never runs
 - Server-only secrets stay in the server's `.env`, mounted into the container
   at runtime. If a module needs a value just to be imported during the build,
   add a dummy for it to `docker/build-placeholders.env`.
+
+## Phone apps
+
+- **iPhone:** open the site in Safari → Share → **Add to Home Screen**. It runs full-screen with its own icon (`src/app/manifest.ts`, `public/sw.js`).
+- **Android:** Chrome offers **Install app** the same way, or download the APK from GitHub Releases.
+
+The APK is the live site in Chrome, full-screen (a Trusted Web Activity built with Bubblewrap from `android/twa-manifest.json`), so site deploys reach it without a new APK. A new APK is only needed when the icon, name or Android settings change. To release one:
+
+```bash
+git tag app-v1.2.0 && git push origin app-v1.2.0
+```
+
+`.github/workflows/release-apk.yml` builds and signs it and publishes the GitHub Release. It needs the `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD` and `ANDROID_KEY_ALIAS` repository secrets, and the key's SHA-256 fingerprint must match `public/.well-known/assetlinks.json` (the workflow checks). **Never lose the keystore:** installed apps can only be updated with the same key.
+
+Open tabs and installed apps check `/api/app-version`. They offer a refresh after a new deploy, and inside the Android app, a download when a newer APK is released.
