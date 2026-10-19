@@ -355,7 +355,7 @@ export default function CalendarPage() {
 
   function getViewButtonClass(buttonView: CalendarView) {
     const isActive = view === buttonView;
-    return `px-4 py-2 text-sm font-medium transition ${
+    return `flex-1 px-3 py-2 text-sm font-medium transition sm:flex-none sm:px-4 ${
       isActive
         ? "bg-primary text-text-inverse"
         : "text-text-main hover:bg-bg-warm"
@@ -365,13 +365,13 @@ export default function CalendarPage() {
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <section className="min-h-screen bg-bg-main px-4 py-8 text-text-main sm:px-8">
+    <section className="min-h-screen bg-bg-main px-4 py-4 text-text-main sm:px-8 sm:py-8">
       <PageTutorial id="calendar" steps={calendarSteps} />
       <div className="mx-auto max-w-7xl">
         {/* ── Page header ── */}
-        <header className="mb-7 flex items-start justify-between gap-6">
+        <header className="mb-5 flex flex-col gap-4 sm:mb-7 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
           <div>
-            <div className="mb-2 mt-9 flex items-center gap-2 text-xs text-text-muted">
+            <div className="mb-2 flex items-center gap-2 text-xs text-text-muted sm:mt-9">
               <CalendarDays size={15} strokeWidth={1.8} />
               <span>Dashboard</span>
               <span>/</span>
@@ -382,7 +382,7 @@ export default function CalendarPage() {
             </h1>
           </div>
 
-          <div className="relative flex items-center gap-3">
+          <div className="relative flex flex-wrap items-center gap-2 sm:gap-3">
             {classOptions.length > 0 && (
               <select
                 aria-label="Show one class"
@@ -418,7 +418,7 @@ export default function CalendarPage() {
               Filter
             </button>
             {showFilters && (
-              <div className="absolute right-0 top-11 z-20 w-64 rounded-lg border border-border-light bg-bg-container p-4 shadow-lg">
+              <div className="absolute left-0 top-full z-20 mt-2 w-64 rounded-lg sm:left-auto sm:right-0 border border-border-light bg-bg-container p-4 shadow-lg">
                 <p className="text-sm font-semibold text-text-main">Show</p>
                 <label className="mt-3 flex items-center gap-2 text-sm text-text-main"><input type="checkbox" checked={showLocal} onChange={(change) => setShowLocal(change.target.checked)} /> My events</label>
                 <label className="mt-2 flex items-center gap-2 text-sm text-text-main"><input type="checkbox" checked={showGoogle} onChange={(change) => setShowGoogle(change.target.checked)} /> Google Calendar</label>
@@ -451,11 +451,11 @@ export default function CalendarPage() {
         {syncMessage && <p className="mb-3 text-right text-sm text-text-muted">{syncMessage}</p>}
 
         {/* ── Calendar card ── */}
-        <div className="rounded-3xl border border-border-light bg-bg-container p-6 shadow-sm">
+        <div className="rounded-2xl border border-border-light bg-bg-container p-3 shadow-sm sm:rounded-3xl sm:p-6">
           {/* ── Toolbar ── */}
-          <div className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-border-light pb-4">
-            <div className="flex items-center gap-8">
-              <h2 className="text-xl font-semibold text-text-main">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-border-light pb-4 sm:mb-6 sm:gap-4">
+            <div className="flex flex-wrap items-center gap-3 sm:gap-8">
+              <h2 className="text-lg font-semibold text-text-main sm:text-xl">
                 {headerText}
               </h2>
 
@@ -491,8 +491,8 @@ export default function CalendarPage() {
 
             <div
               className="
-                flex overflow-hidden rounded-lg
-                border border-border-light bg-bg-container"
+                flex w-full overflow-hidden rounded-lg
+                border border-border-light bg-bg-container sm:w-auto"
               data-tutorial="calendar-view-toggle" >
               <button
                 type="button"

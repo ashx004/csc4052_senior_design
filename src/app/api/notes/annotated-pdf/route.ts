@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import PDFDocument from "pdfkit";
 import { putObject } from "@/src/library/gcsStorage";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
+import { MAX_ANNOTATED_SAVE_PAGES } from "@/src/library/notes/types";
 
 export async function POST(request: NextRequest) {
   const auth = await verifyRequestAuth(request);
@@ -10,7 +11,7 @@ export async function POST(request: NextRequest) {
     const form = await request.formData();
     const noteId = form.get("noteId");
     const pages = form.getAll("page").filter((item): item is File => item instanceof File);
-    if (typeof noteId !== "string" || !noteId || pages.length === 0 || pages.length > 50) return NextResponse.json({ error: "A note and 1–50 rendered pages are required." }, { status: 400 });
+    if (typeof noteId !== "string" || !noteId || pages.length === 0 || pages.length > MAX_ANNOTATED_SAVE_PAGES) return NextResponse.json({ error: `A note and 1–${MAX_ANNOTATED_SAVE_PAGES} rendered pages are required.` }, { status: 400 });
     // One optional JSON field per page: the words to lay invisibly under the picture.
     type TextLayer = { width?: number; runs: { text: string; x: number; y: number; width: number; height: number }[] };
     const texts = form.getAll("text").map((item): TextLayer => {
