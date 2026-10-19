@@ -7,7 +7,7 @@ import { downloadScanArchive } from "@/src/library/notes/notebookArchive";
 import { loadDocumentSource, saveDocumentNote } from "@/src/library/notes/notesStore";
 import { db } from "@/src/library/firebase";
 import { isActiveJobStatus, type ActiveJobStatus } from "@/src/library/jobStatus";
-import { MAX_PAGES_PER_NOTE, PAGE_WIDTH, type Note, type PageAnnotations } from "@/src/library/notes/types";
+import { MAX_ANNOTATED_SAVE_PAGES, MAX_DOCUMENT_PAGES, PAGE_WIDTH, type Note, type PageAnnotations } from "@/src/library/notes/types";
 import { STICKER_SIZE, drawSticker } from "@/src/library/notes/stickers";
 import AnnotationItems from "./AnnotationItems";
 import InkLayer, { drawInkStroke } from "./InkLayer";
@@ -24,37 +24,30 @@ import { usePaperScale } from "./usePaperScale";
 import { FloatingZoom, usePaperZoom } from "./PaperZoom";
 import { defaultToolState, type ToolState } from "./tools";
 import JobProgressIndicator from "@/src/components/jobs/JobProgressIndicator";
+import { drawPdfPage, openImagePages, openPdfPages, pageImage, useNearPages, type DocumentPages } from "./documentPages";
 
-type RenderedPage = { src: string; height: number };
+/** A page's own picture: the image, or the PDF page drawn into a canvas, but
+ *  only while the page is near the screen. Far-off pages give the memory back. */
+function PageBase({ pages, index, live }: { pages: DocumentPages; index: number; live: boolean }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-function loadImageSize(url: string): Promise<number> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve(img.naturalWidth ? Math.round((PAGE_WIDTH * img.naturalHeight) / img.naturalWidth) : PAGE_WIDTH);
-    img.onerror = () => resolve(Math.round(PAGE_WIDTH * 1.294)); // letter-shaped fallback
-    img.src = url;
-  });
-}
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (pages.kind !== "pdf" || !live || !canvas) return;
+    const draw = drawPdfPage(pages.pdf, index, canvas, Math.min(2, window.devicePixelRatio || 1));
+    draw.done.catch((e: unknown) => {
+      if ((e as { name?: string })?.name !== "RenderingCancelledException") console.error(e);
+    });
+    return () => {
+      draw.cancel();
+      canvas.width = 0;
+      canvas.height = 0;
+    };
+  }, [pages, index, live]);
 
-async function renderPdf(url: string, onProgress: (done: number, total: number) => void): Promise<{ pages: RenderedPage[]; truncated: boolean }> {
-  const pdfjsLib = await import("pdfjs-dist");
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `/pdf.worker.min.mjs?v=${pdfjsLib.version}`;
-  const pdf = await pdfjsLib.getDocument({ url }).promise;
-  const total = Math.min(pdf.numPages, MAX_PAGES_PER_NOTE);
-  const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
-  const pages: RenderedPage[] = [];
-  for (let n = 1; n <= total; n++) {
-    const page = await pdf.getPage(n);
-    const base = page.getViewport({ scale: 1 });
-    const viewport = page.getViewport({ scale: (PAGE_WIDTH / base.width) * pixelRatio });
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.ceil(viewport.width);
-    canvas.height = Math.ceil(viewport.height);
-    await page.render({ canvas, canvasContext: canvas.getContext("2d")!, viewport }).promise;
-    pages.push({ src: canvas.toDataURL("image/jpeg", 0.85), height: Math.round(viewport.height / pixelRatio) });
-    onProgress(n, total);
-  }
-  return { pages, truncated: pdf.numPages > MAX_PAGES_PER_NOTE };
+  if (pages.kind === "pdf") return <canvas ref={canvasRef} className="absolute inset-0 h-full w-full select-none" />;
+  // eslint-disable-next-line @next/next/no-img-element
+  return live ? <img src={pages.urls[index]} alt={`Page ${index + 1}`} className="absolute inset-0 h-full w-full select-none" draggable={false} /> : null;
 }
 
 /** A PDF, photo or scan in the Notes tab: its pages, with ink, highlights,
@@ -74,10 +67,9 @@ export default function DocumentAnnotator({
   const paperZoom = usePaperZoom();
   const scale = usePaperScale(scrollRef, 32, paperZoom.zoom);
   const [tool, setTool] = useState<ToolState>(defaultToolState);
-  const [rendered, setRendered] = useState<RenderedPage[] | null>(null);
+  const [rendered, setRendered] = useState<DocumentPages | null>(null);
   const [progress, setProgress] = useState<string>("Loading document...");
   const [error, setError] = useState<string | null>(null);
-  const [truncated, setTruncated] = useState(false);
   const [showSourceImages, setShowSourceImages] = useState(!note.scan);
   const [ocrJobStatus, setOcrJobStatus] = useState<ActiveJobStatus | null>(null);
   const [transcript, setTranscript] = useState<string | null>(null);
@@ -85,6 +77,7 @@ export default function DocumentAnnotator({
   const [downloadingScan, setDownloadingScan] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [reload, setReload] = useState(0);
+  const { near, observe } = useNearPages();
   const ink = usePageInk(uid, note.id);
   const tools = useAnnotationTools(ink, tool, setTool);
   useMarkShortcuts(ink.undo, ink.redo);
@@ -139,20 +132,12 @@ export default function DocumentAnnotator({
           ? { kind: "pdf" as const, url: current.annotatedUrl }
           : await loadDocumentSource(uid, current);
         if (source.kind === "unsupported") throw new Error(source.reason);
-        if (source.kind === "images") {
-          const urls = source.urls.slice(0, MAX_PAGES_PER_NOTE);
-          const heights = await Promise.all(urls.map(loadImageSize));
-          if (!cancelled) {
-            setRendered(urls.map((src, i) => ({ src, height: heights[i] })));
-            setTruncated(source.urls.length > MAX_PAGES_PER_NOTE);
-          }
-        } else {
-          const result = await renderPdf(source.url, (done, total) => !cancelled && setProgress(`Preparing page ${done} of ${total}...`));
-          if (!cancelled) {
-            setRendered(result.pages);
-            setTruncated(result.truncated);
-          }
-        }
+        const pages = source.kind === "images"
+          ? await openImagePages(source.urls)
+          : await openPdfPages(source.url, (done, total) => !cancelled && setProgress(`Reading page ${done} of ${total}...`));
+        if (cancelled) {
+          if (pages.kind === "pdf") pages.close();
+        } else setRendered(pages);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "This document couldn't be opened.");
       }
@@ -162,6 +147,11 @@ export default function DocumentAnnotator({
     };
   }, [uid, note.id, note.annotatedUrl, reload]);
 
+  // Release the previous PDF once a reload replaces it, and on leaving the note.
+  useEffect(() => () => {
+    if (rendered?.kind === "pdf") rendered.close();
+  }, [rendered]);
+
   const page = tools.page;
 
   /** The scan's transcript as invisible text for each page, so an exported PDF of the
@@ -169,19 +159,19 @@ export default function DocumentAnnotator({
    *  page rather than on the handwriting itself. */
   function transcriptRuns(): TextRun[][] {
     if (!rendered || !transcript || transcript === TRANSCRIPT_PENDING) return [];
-    return layoutTranscript(transcript, PAGE_WIDTH, Math.min(...rendered.map((pg) => pg.height)), rendered.length);
+    return layoutTranscript(transcript, PAGE_WIDTH, Math.min(...rendered.heights), rendered.heights.length);
   }
 
-  async function composePage(pg: RenderedPage, annotations: PageAnnotations): Promise<Blob> {
-    const image = new Image();
-    image.src = pg.src;
-    await image.decode();
+  async function composePage(pages: DocumentPages, index: number, annotations: PageAnnotations): Promise<Blob> {
+    const image = await pageImage(pages, index);
+    if (!image) throw new Error(`Couldn't load page ${index + 1}.`);
+    const height = pages.heights[index];
     const canvas = document.createElement("canvas");
     canvas.width = PAGE_WIDTH * 2;
-    canvas.height = pg.height * 2;
+    canvas.height = height * 2;
     const ctx = canvas.getContext("2d")!;
     ctx.scale(2, 2);
-    ctx.drawImage(image, 0, 0, PAGE_WIDTH, pg.height);
+    ctx.drawImage(image, 0, 0, PAGE_WIDTH, height);
     annotations.strokes.filter((s) => s.tool === "highlighter").forEach((s) => drawInkStroke(ctx, s, "#1f2328", false));
     annotations.strokes.filter((s) => s.tool !== "highlighter").forEach((s) => drawInkStroke(ctx, s, "#1f2328", false));
     ctx.fillStyle = "#1f2328";
@@ -192,16 +182,16 @@ export default function DocumentAnnotator({
   }
 
   async function saveAnnotatedPdf() {
-    if (!rendered) return;
+    if (!rendered || rendered.heights.length > MAX_ANNOTATED_SAVE_PAGES) return;
     setExporting(true);
     onSaveStateChange("saving");
     try {
       const form = new FormData();
       form.append("noteId", note.id);
       const words = transcriptRuns();
-      for (let index = 0; index < rendered.length; index++) {
-        form.append("page", await composePage(rendered[index], page(index)), `page-${index + 1}.jpg`);
-        form.append("text", JSON.stringify({ width: PAGE_WIDTH, height: rendered[index].height, runs: words[index] ?? [] }));
+      for (let index = 0; index < rendered.heights.length; index++) {
+        form.append("page", await composePage(rendered, index, page(index)), `page-${index + 1}.jpg`);
+        form.append("text", JSON.stringify({ width: PAGE_WIDTH, height: rendered.heights[index], runs: words[index] ?? [] }));
       }
       const response = await fetch("/api/notes/annotated-pdf", { method: "POST", body: form });
       const data = await response.json();
@@ -257,10 +247,10 @@ export default function DocumentAnnotator({
   }
 
   async function downloadScan() {
-    if (transcript === null || !rendered) return;
+    if (transcript === null || rendered?.kind !== "images") return;
     setDownloadingScan(true);
     try {
-      await downloadScanArchive(note.title, transcript, rendered);
+      await downloadScanArchive(note.title, transcript, rendered.urls.map((src) => ({ src })));
     } catch (error) {
       console.error(error);
       onSaveStateChange("error");
@@ -272,18 +262,13 @@ export default function DocumentAnnotator({
   async function exportPages(): Promise<ExportPage[]> {
     if (!rendered) throw new Error("The pages are still loading.");
     const words = transcriptRuns();
-    return rendered.map((pg, i) => ({
+    const pages = rendered;
+    return pages.heights.map((height, i) => ({
       width: PAGE_WIDTH,
-      height: pg.height,
+      height,
       annotations: page(i),
       text: words[i],
-      base: () =>
-        new Promise<CanvasImageSource | null>((resolve) => {
-          const img = new Image();
-          img.onload = () => resolve(img);
-          img.onerror = () => resolve(null);
-          img.src = pg.src;
-        }),
+      base: () => pageImage(pages, i),
     }));
   }
 
@@ -298,6 +283,7 @@ export default function DocumentAnnotator({
   // Export is offered through the note page's Share dialog once the pages have drawn.
   const exportSource = (): ExportSource | null => (rendered ? { uid, note, getPages: exportPages } : null);
   const inWorkspace = useExportRegistration(exportSource);
+  const tooLongToSave = (rendered?.heights.length ?? 0) > MAX_ANNOTATED_SAVE_PAGES;
 
   return (
     <div className="flex h-full flex-col">
@@ -318,7 +304,7 @@ export default function DocumentAnnotator({
           <button type="button" onClick={() => setShowSourceImages((show) => !show)} className="rounded-lg border border-border-light bg-bg-container px-3 py-1.5 text-xs font-medium text-text-main hover:bg-bg-warm">
             {showSourceImages ? "View transcript" : "View source images"}
           </button>
-          <button type="button" disabled={downloadingScan || transcript === null || !rendered} onClick={() => void downloadScan()} className="flex items-center gap-1.5 rounded-lg border border-border-light bg-bg-container px-3 py-1.5 text-xs font-medium text-text-main disabled:opacity-40">
+          <button type="button" disabled={downloadingScan || transcript === null || rendered?.kind !== "images"} onClick={() => void downloadScan()} className="flex items-center gap-1.5 rounded-lg border border-border-light bg-bg-container px-3 py-1.5 text-xs font-medium text-text-main disabled:opacity-40">
             <Download size={14} /> {downloadingScan ? "Preparing..." : "Download transcript & images"}
           </button>
         </div>
@@ -330,7 +316,7 @@ export default function DocumentAnnotator({
       )}
       {note.fileType === "pdf" && (
         <div className="flex justify-center gap-2 px-3 pb-2">
-          <button type="button" disabled={exporting || !rendered} onClick={() => void saveAnnotatedPdf()} className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-text-inverse disabled:opacity-40"><Save size={14} /> {exporting ? "Saving..." : "Save annotated PDF"}</button>
+          <button type="button" disabled={exporting || !rendered || tooLongToSave} title={tooLongToSave ? `Saving into the PDF works for files up to ${MAX_ANNOTATED_SAVE_PAGES} pages. Use Share → Export to download this one with your markup.` : undefined} onClick={() => void saveAnnotatedPdf()} className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-text-inverse disabled:opacity-40"><Save size={14} /> {exporting ? "Saving..." : "Save annotated PDF"}</button>
           <a href={note.annotatedUrl || note.url} download className="flex items-center gap-1.5 rounded-lg border border-border-light bg-bg-container px-3 py-1.5 text-xs font-medium text-text-main"><Download size={14} /> Download</a>
           {note.annotatedUrl && <button type="button" disabled={exporting} onClick={() => void resetPdf()} className="flex items-center gap-1.5 rounded-lg border border-border-light bg-bg-container px-3 py-1.5 text-xs font-medium text-text-main disabled:opacity-40"><RotateCcw size={14} /> Reset</button>}
         </div>
@@ -347,42 +333,49 @@ export default function DocumentAnnotator({
           </div>
         ) : (
           <div className="flex flex-col items-center gap-6">
-            {truncated && (
+            {rendered.totalPages > rendered.heights.length && (
               <p className="rounded-lg bg-bg-warm px-3 py-2 text-xs text-text-muted">
-                Showing the first {MAX_PAGES_PER_NOTE} pages - notes are limited to {MAX_PAGES_PER_NOTE} pages.
+                Showing the first {MAX_DOCUMENT_PAGES} of {rendered.totalPages} pages.
               </p>
             )}
-            {rendered.map((pg, i) => (
-              <div key={i} style={{ width: PAGE_WIDTH * scale, height: pg.height * scale }}>
-                <div
-                  data-doc-page={i}
-                  className="relative origin-top-left overflow-hidden rounded-sm bg-white shadow-[0_2px_18px_rgba(0,0,0,0.10)] ring-1 ring-border-light"
-                  style={{ width: PAGE_WIDTH, height: pg.height, transform: `scale(${scale})` }}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={pg.src} alt={`Page ${i + 1}`} className="absolute inset-0 h-full w-full select-none" draggable={false} />
-                  <InkLayer
-                    width={PAGE_WIDTH}
-                    height={pg.height}
-                    strokes={page(i).strokes}
-                    tool={tool}
-                    surface="document"
-                    onStrokesChange={(strokes) => tools.setStrokes(i, strokes)}
-                    onEraseAt={(x, y, r) => tools.eraseAt(i, x, y, r)}
-                    onPointerDownOther={(x, y) => tools.placeAt(i, x, y)}
-                  />
-                  <AnnotationItems
-                    height={pg.height}
-                    annotations={page(i)}
-                    tool={tool}
-                    editingId={tools.editingId}
-                    onEditingChange={tools.setEditingId}
-                    onChange={(next) => tools.setPage(i, next)}
-                  />
-                  <span className="pointer-events-none absolute bottom-3 right-5 text-xs tabular-nums text-black opacity-30">{i + 1}</span>
+            {rendered.heights.map((height, i) => {
+              // Ink and text layers also mount only near the screen, except a text box mid-edit.
+              const live = near.has(i) || (!!tools.editingId && page(i).texts.some((text) => text.id === tools.editingId));
+              return (
+                <div key={i} ref={observe} data-page-slot={i} style={{ width: PAGE_WIDTH * scale, height: height * scale }}>
+                  <div
+                    data-doc-page={i}
+                    className="relative origin-top-left overflow-hidden rounded-sm bg-white shadow-[0_2px_18px_rgba(0,0,0,0.10)] ring-1 ring-border-light"
+                    style={{ width: PAGE_WIDTH, height, transform: `scale(${scale})` }}
+                  >
+                    <PageBase pages={rendered} index={i} live={live} />
+                    {live && (
+                      <>
+                        <InkLayer
+                          width={PAGE_WIDTH}
+                          height={height}
+                          strokes={page(i).strokes}
+                          tool={tool}
+                          surface="document"
+                          onStrokesChange={(strokes) => tools.setStrokes(i, strokes)}
+                          onEraseAt={(x, y, r) => tools.eraseAt(i, x, y, r)}
+                          onPointerDownOther={(x, y) => tools.placeAt(i, x, y)}
+                        />
+                        <AnnotationItems
+                          height={height}
+                          annotations={page(i)}
+                          tool={tool}
+                          editingId={tools.editingId}
+                          onEditingChange={tools.setEditingId}
+                          onChange={(next) => tools.setPage(i, next)}
+                        />
+                      </>
+                    )}
+                    <span className="pointer-events-none absolute bottom-3 right-5 text-xs tabular-nums text-black opacity-30">{i + 1}</span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
         {!(note.scan && !showSourceImages) && <FileNotesEditor uid={uid} note={note} onSaveStateChange={onSaveStateChange} />}
