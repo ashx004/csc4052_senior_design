@@ -18,6 +18,7 @@
     "worker:reminders": "tsx scripts/reminderWorker.ts",
     "worker:advising": "tsx scripts/advisingWorker.ts",
     "eval:chat": "node --env-file=.env scripts/chatEval.mjs",
+    "eval:seed": "node --conditions=react-server --import tsx scripts/seedEvalAccount.ts",
     "admin:access": "tsx scripts/setAdmin.ts",
     "billing:report": "tsx scripts/usageReport.ts",
     "billing:refund": "node --conditions=react-server --import tsx scripts/refundCredit.ts",
