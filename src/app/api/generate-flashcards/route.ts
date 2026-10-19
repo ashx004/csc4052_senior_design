@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyRequestAuth } from '@/src/library/verifyAuth';
 import { enterAiUser } from "@/src/library/ai/usageScope";
+import { aiCreditGate } from "@/src/library/billing/creditGate";
 import { resolveOllamaBaseUrl } from '@/src/library/ollamaClient';
 import { checkRateLimit } from '@/src/library/rateLimit';
 import { generateFlashcardsWithRetry, MAX_FLASHCARDS } from '@/src/library/flashcardGeneration';
@@ -26,6 +27,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     enterAiUser(auth.uid);
+    const outOfCredit = await aiCreditGate(auth.uid);
+    if (outOfCredit) return outOfCredit;
 
     const rateLimit = checkRateLimit(auth.uid, FLASHCARD_RATE_LIMIT_WINDOW_MS, FLASHCARD_RATE_LIMIT_MAX);
     if (!rateLimit.allowed) {

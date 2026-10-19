@@ -1,6 +1,7 @@
 import { fallbackModel, featureGroup, isCloudBackend, modelForFeature, outputCap } from "./cloudModels";
 import { rateFor } from "./cloudRates";
 import { currentAiUser } from "./usageScope";
+import { estimateInputTokens, holdFor } from "../billing/pricing";
 import { StreamTranslator, buildCloudRequest, fromCompletion, readUsage, relaxRequest, type OllamaChatBody, type Provider, type Usage } from "./cloudTranslate";
 
 // Drop-in for fetch(`${ollamaBaseUrl}/api/chat`, init). With AI_BACKEND=ollama
@@ -11,12 +12,27 @@ import { StreamTranslator, buildCloudRequest, fromCompletion, readUsage, relaxRe
 
 export type UsageEvent = { uid?: string; requestId?: string; incomplete?: boolean; feature: string; model: string; inputTokens: number; outputTokens: number; costMicros: number; costSource: "provider" | "rate-table" | "unknown"; rateId?: string; fallback: boolean };
 
-// Usage sink: billing/usageMeter.ts records each request against its student.
-// Imported lazily so this module stays free of Firebase Admin (tests swap the sink).
-let usageSink: (event: UsageEvent) => void = (event) => {
-  import("../billing/usageMeter").then(({ meterUsage }) => meterUsage(event)).catch((error) => console.error("[ai-usage] meter unavailable:", error));
-};
-export function setUsageSink(sink: (event: UsageEvent) => void) { usageSink = sink; }
+// Metering: billing/usageMeter.ts holds credit before each request and
+// charges it after (or only records it, in the dry run). Imported lazily so
+// this module stays free of Firebase Admin; tests swap in their own meter.
+export type MeterSession = { finish(event: UsageEvent): Promise<void>; abandon(): Promise<void> };
+export type Meter = { start(request: { uid?: string; feature: string; holdMicros: number }): Promise<MeterSession> };
+
+let meter: Meter | null = null;
+async function getMeter(): Promise<Meter> {
+  return (meter ??= (await import("../billing/usageMeter")).createMeter());
+}
+export function setMeter(next: Meter | null) { meter = next; }
+/** Test helper: a meter that only hands each finished request to `sink`. */
+export function setUsageSink(sink: (event: UsageEvent) => void) {
+  setMeter({ start: async () => ({ finish: async (event) => sink(event), abandon: async () => {} }) });
+}
+
+/** The answer a route gets when the student's balance can't cover a request. Ollama-shaped, like every other error here. */
+export const OUT_OF_CREDIT_MESSAGE = "You're out of AI credit. Add credit to keep using AI features.";
+function outOfCredit(): Response {
+  return new Response(JSON.stringify({ error: OUT_OF_CREDIT_MESSAGE, code: "insufficient_credit" }), { status: 402, headers: { "Content-Type": "application/json" } });
+}
 
 export async function aiFetch(url: string, init: RequestInit): Promise<Response> {
   if (!isCloudBackend() || !url.replace(/\/$/, "").endsWith("/api/chat")) return fetch(url, init);
@@ -35,6 +51,19 @@ export async function aiFetch(url: string, init: RequestInit): Promise<Response>
   const think = featureGroup(feature) === "ocr" ? false : undefined;
   const maxTokens = outputCap(feature);
 
+  // Hold the most this request could cost, on whichever model may serve it.
+  const models = backup && backup !== primary ? [primary, backup] : [primary];
+  const outputLimit = body.options?.num_predict && body.options.num_predict > 0 ? body.options.num_predict : maxTokens;
+  let session: MeterSession;
+  try {
+    session = await (await getMeter()).start({ uid, feature, holdMicros: holdFor(models, estimateInputTokens(body), outputLimit) });
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "";
+    if (name === "InsufficientCreditError") return outOfCredit();
+    if (name === "UnattributedAiError") console.error(`[billing] refused unattributed ${feature} request: its route never called enterAiUser().`);
+    throw error;
+  }
+
   let attempt = await callProvider(primary, body, maxTokens, think, init.signal);
   let model = primary;
   if (shouldFallBack(attempt, init.signal) && backup && backup !== primary) {
@@ -42,9 +71,16 @@ export async function aiFetch(url: string, init: RequestInit): Promise<Response>
     attempt = await callProvider(backup, body, maxTokens, think, init.signal);
     model = backup;
   }
-  if (attempt.error) throw attempt.error;
+  // Failed requests aren't billed by the provider, so the hold goes back untouched.
+  if (attempt.error) {
+    await session.abandon();
+    throw attempt.error;
+  }
   const response = attempt.response!;
-  if (!response.ok) return new Response(JSON.stringify({ error: (await response.text()).slice(0, 500) }), { status: response.status, headers: { "Content-Type": "application/json" } });
+  if (!response.ok) {
+    await session.abandon();
+    return new Response(JSON.stringify({ error: (await response.text()).slice(0, 500) }), { status: response.status, headers: { "Content-Type": "application/json" } });
+  }
 
   const started = attempt.started;
   let reported = false;
@@ -54,11 +90,19 @@ export async function aiFetch(url: string, init: RequestInit): Promise<Response>
   const report = (usage: Usage, requestId?: string, incomplete = false) => {
     if (reported) return;
     reported = true;
-    usageSink({ uid, ...(requestId ? { requestId } : {}), ...(incomplete ? { incomplete } : {}), ...toUsageEvent(feature, model, usage, model !== primary) });
+    session.finish({ uid, ...(requestId ? { requestId } : {}), ...(incomplete ? { incomplete } : {}), ...toUsageEvent(feature, model, usage, model !== primary) })
+      .catch((error) => console.error("[billing] metering failed:", error));
   };
 
   if (!body.stream) {
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+    } catch (error) {
+      // Cut off mid-body: billed, but with no usage to read.
+      report({ inputTokens: 0, outputTokens: 0, costUsd: null }, undefined, true);
+      throw error;
+    }
     report(readUsage(data.usage), data.id);
     return Response.json(fromCompletion(model, data, (performance.now() - started) / 1000));
   }

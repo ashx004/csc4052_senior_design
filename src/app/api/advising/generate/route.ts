@@ -3,6 +3,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/src/library/firebaseAdmin";
 import { verifyRequestAuth, isInternalRequest } from "@/src/library/verifyAuth";
 import { enterAiUser } from "@/src/library/ai/usageScope";
+import { aiCreditGate } from "@/src/library/billing/creditGate";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import { SCHEDULE_JOBS, enqueueAdvisingJob, readAdvisingJob } from "@/src/library/advisingJobs";
 import { JOB_STATUS, toPublicJob } from "@/src/library/jobStatus";
@@ -433,6 +434,9 @@ async function enqueueGeneration(request: NextRequest) {
   if (!auth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  enterAiUser(auth.uid);
+  const outOfCredit = await aiCreditGate(auth.uid);
+  if (outOfCredit) return outOfCredit;
 
   const rateLimit = checkRateLimit(`generate:${auth.uid}`, GENERATE_RATE_LIMIT_WINDOW_MS, GENERATE_RATE_LIMIT_MAX);
   if (!rateLimit.allowed) {
