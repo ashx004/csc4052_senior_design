@@ -72,6 +72,10 @@ server (`docker logs catalyst-stripe-listen`).
   2. Put the live `sk_live_`/`pk_live_` keys and that endpoint's `whsec_` secret in
      the server's `.env`, and stop the test forwarder (`docker rm -f catalyst-stripe-listen`).
   3. Set `AI_BACKEND=cloud` so every account uses cloud AI and the paywall.
+- [ ] **Refund requests** (from contact@zonocsc.com): never refund from the Stripe dashboard.
+      Run `npm run billing:refund -- student@email` to see the plan, then add `--yes`.
+      It pauses the student's AI, refuses if a payment is disputed, refunds only unused
+      credit and records it once. Deleting an account refunds automatically.
 - [ ] After a few days of real use, ask Claude to run the usage report and compare it
       with the OpenRouter Activity page.
 - [ ] Before you top up OpenRouter, check the report's "students are owed" total: keep
