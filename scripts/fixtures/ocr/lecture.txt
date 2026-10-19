@@ -1,0 +1,11 @@
+CSC 301 - Lecture 7: Queues
+Date: October 6, 2026
+
+1. A queue is FIFO: the oldest item leaves first.
+2. enqueue(x) and dequeue() both run in O(1).
+3. Aster buffer capacity is 17 slots.
+4. On overflow the device reports ZEPHYR-47.
+5. BFS visits each vertex once: O(V + E).
+
+Homework: problems 4.2, 4.5 and 4.9 due Friday.
+Office hours: Tuesday 2:30 PM, room B-114.

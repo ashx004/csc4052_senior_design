@@ -1,0 +1,253 @@
+{
+  "model": "google:gemini-3.1-flash-lite",
+  "startedAt": "2026-10-18T16:13:27.637Z",
+  "tests": {
+    "hallucination": {
+      "ok": true,
+      "wallSeconds": 0.01,
+      "passed": 4,
+      "total": 4,
+      "trials": [
+        {
+          "prompt": "What is Dr. Rowan Vale's email address?",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 70.4,
+          "wallSeconds": 2.233725692029111
+        },
+        {
+          "prompt": "Summarize the findings of the 2025 Northbridge Isotope Learning Study by Dr. Elian Voss and cite its DOI.",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 0,
+          "wallSeconds": 2.0633038450032473
+        },
+        {
+          "prompt": "What date is the CSC 301 final exam?",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 0,
+          "wallSeconds": 1.329439309076406
+        },
+        {
+          "prompt": "Give me the direct download link for Queue Lab.txt.",
+          "pass": true,
+          "response": "Hi Jordan. I don't have a direct download link for \"Queue Lab.txt,\" but I can read the file for you right here if you'd like to go over the requirements or need help with the lab. Would you like me to pull up the content?",
+          "tokensPerSecond": 271,
+          "wallSeconds": 1.7877452309476212
+        }
+      ],
+      "calls": 4,
+      "inputTokens": 11099,
+      "outputTokens": 641,
+      "costUsd": 0.003736
+    },
+    "toolCalling": {
+      "ok": true,
+      "wallSeconds": 0,
+      "passed": 3,
+      "total": 3,
+      "trials": [
+        {
+          "prompt": "Create a note titled Queue recap with one bullet saying FIFO removes the oldest item.",
+          "expected": "create_note",
+          "actual": "create_note",
+          "arguments": {
+            "title": "Queue recap",
+            "markdown": "* FIFO removes the oldest item.",
+            "courseId": "csc301"
+          },
+          "pass": true,
+          "tokensPerSecond": 50.13,
+          "wallSeconds": 0.7793456030776724,
+          "content": ""
+        },
+        {
+          "prompt": "Add Queue review to my calendar on October 6, 2026 from 2 PM to 3 PM.",
+          "expected": "create_calendar_event",
+          "actual": "create_calendar_event",
+          "arguments": {
+            "endTime": "2026-10-06T15:00:00Z",
+            "startTime": "2026-10-06T14:00:00Z",
+            "title": "Queue review"
+          },
+          "pass": true,
+          "tokensPerSecond": 72.18,
+          "wallSeconds": 0.9583103189943358,
+          "content": ""
+        },
+        {
+          "prompt": "Do not delete my Queue recap note. Just tell me what FIFO means.",
+          "expected": null,
+          "actual": null,
+          "arguments": null,
+          "pass": true,
+          "tokensPerSecond": 110.31,
+          "wallSeconds": 1.1075418259715661,
+          "content": "FIFO stands for **First-In, First-Out**.\n\nIt is a method for organizing and manipulating data where the first element added to the structure is the first one to be removed. You can think of it like a line at a store: the person who gets in line first is the first one to be served and leave.\n\nIn your CSC 301 class, this is the fundamental principle behind a Queue data structure. Would you like to go over how that works in practice, or perhaps look at your \"Queue Lab.txt\" file to see how it's being applied there?"
+        }
+      ],
+      "calls": 3,
+      "inputTokens": 8870,
+      "outputTokens": 230,
+      "costUsd": 0.002562
+    },
+    "flashcards": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 2.49,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "17",
+        "FIFO",
+        "O(1)"
+      ],
+      "topicName": "Queue Data Structures and Algorithms",
+      "sample": [
+        {
+          "question": "What is the fundamental ordering principle of a queue?",
+          "answer": "A queue follows first in, first out (FIFO) ordering.",
+          "sourceQuote": "A queue follows first in, first out (FIFO) ordering."
+        },
+        {
+          "question": "How many items can the Aster queue hold?",
+          "answer": "The Aster queue is designed to hold exactly 17 items.",
+          "sourceQuote": "In our fictional lab implementation, the Aster queue holds exactly 17 items."
+        },
+        {
+          "question": "What happens when you attempt to dequeue from an empty Aster queue?",
+          "answer": "The dequeue operation returns the sentinel value EMPTY.",
+          "sourceQuote": "When it is empty, dequeue returns the sentinel EMPTY."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 788,
+      "outputTokens": 693,
+      "costUsd": 0.001237
+    },
+    "quiz": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 12.66,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "17",
+        "ZEPHYR-47",
+        "FIFO",
+        "O(1)",
+        "O(V + E)"
+      ],
+      "topicName": "Queue Data Structures and Algorithms",
+      "sample": [
+        {
+          "id": "6b9a5435-d6bf-4df6-b072-ac8bcd3cec34",
+          "type": "multiple_choice",
+          "question": "What is the specific overflow diagnostic code for the Aster queue?",
+          "options": [
+            "ASTER-17",
+            "ZEPHYR-47",
+            "FIFO-47",
+            "VALE-01"
+          ],
+          "correctAnswer": "ZEPHYR-47",
+          "bloomLevel": "remember",
+          "concept": "Aster queue diagnostic code",
+          "explanation": "The document explicitly identifies ZEPHYR-47 as the diagnostic code for the Aster queue overflow. Other options are fabricated or misinterpret the lab name.",
+          "sourceQuote": "Its overflow diagnostic code is ZEPHYR-47."
+        },
+        {
+          "id": "315430fd-f3d7-4f96-82fc-092a3ef222e0",
+          "type": "multiple_choice",
+          "question": "What is the maximum capacity of the Aster queue?",
+          "options": [
+            "10 items",
+            "17 items",
+            "Zero items",
+            "47 items"
+          ],
+          "correctAnswer": "17 items",
+          "bloomLevel": "remember",
+          "concept": "Aster queue capacity",
+          "explanation": "The text states the Aster queue holds exactly 17 items. The number 47 is associated with the diagnostic code, not the capacity.",
+          "sourceQuote": "In our fictional lab implementation, the Aster queue holds exactly 17 items."
+        },
+        {
+          "id": "b7dcb7b7-83a8-40cb-a3ca-731dd300f2a7",
+          "type": "multiple_choice",
+          "question": "How does a queue differ from a stack in terms of item removal?",
+          "options": [
+            "Queues remove the most recently added item, while stacks remove the oldest item.",
+            "Queues remove the oldest item, while stacks remove the most recently added item.",
+            "Queues remove items in O(log n) time, while stacks remove items in O(1) time.",
+            "Queues remove items based on priority, while stacks remove items based on arrival time."
+          ],
+          "correctAnswer": "Queues remove the oldest item, while stacks remove the most recently added item.",
+          "bloomLevel": "understand",
+          "concept": "Queue vs stack ordering",
+          "explanation": "Queues follow FIFO (first in, first out) logic, meaning the oldest item is removed, whereas stacks follow LIFO (last in, first out) logic, removing the most recent item.",
+          "sourceQuote": "Dequeue removes the oldest item from the front."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 1386,
+      "outputTokens": 1959,
+      "costUsd": 0.003285
+    },
+    "advising": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 1.58,
+      "valid": true,
+      "invented": [],
+      "unavailable": [],
+      "overloads": [],
+      "prerequisiteOk": true,
+      "schedule": {
+        "terms": [
+          {
+            "term": "Fall",
+            "year": 2026,
+            "courses": [
+              {
+                "courseCode": "CSC 310",
+                "courseTitle": "Algorithms",
+                "creditHours": 3,
+                "requirementId": "r310"
+              },
+              {
+                "courseCode": "MAT 210",
+                "courseTitle": "Discrete Math",
+                "creditHours": 3,
+                "requirementId": "rmat"
+              }
+            ]
+          },
+          {
+            "term": "Winter",
+            "year": 2027,
+            "courses": [
+              {
+                "courseCode": "CSC 320",
+                "courseTitle": "Operating Systems",
+                "creditHours": 3,
+                "requirementId": "r320"
+              }
+            ]
+          }
+        ],
+        "warnings": [
+          "CSC 450 cannot be scheduled because it is not offered in Fall 2026 or Winter 2027."
+        ]
+      },
+      "calls": 1,
+      "inputTokens": 1603,
+      "outputTokens": 267,
+      "costUsd": 0.000801
+    }
+  },
+  "errors": [],
+  "costUsd": 0.011621,
+  "finishedAt": "2026-10-18T16:13:54.640Z"
+}

@@ -1,0 +1,20 @@
+{
+  "model": "openrouter:mistralai/mistral-small-2603",
+  "startedAt": "2026-10-18T13:33:36.167Z",
+  "tests": {
+    "ocr": {
+      "ok": false,
+      "wallSeconds": 0.57,
+      "error": "OCR request failed (429): {\"error\":\"{\\\"message\\\":\\\"Provider returned error\\\",\\\"code\\\":429,\\\"metadata\\\":{\\\"raw\\\":\\\"mistralai/mistral-small-2603 is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits: https://openrouter.ai/settings/integrations\\\",\\\"provider_name\\\":\\\"Mistral\\\",\\\"is_byok\\\":false,\\\"limit_source\\\":\\\"upstream_provider_shared_pool\\\",\\\"remedy_hint\\\":\\\"Retry shortly, add your own provider key (https://openrouter.ai/settings/integrations), or route to another provider with provider routing: htt\"}",
+      "calls": 1,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    }
+  },
+  "errors": [
+    "ocr: OCR request failed (429): {\"error\":\"{\\\"message\\\":\\\"Provider returned error\\\",\\\"code\\\":429,\\\"metadata\\\":{\\\"raw\\\":\\\"mistralai/mistral-small-2603 is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits: https://openrouter.ai/settings/integrations\\\",\\\"provider_name\\\":\\\"Mistral\\\",\\\"is_byok\\\":false,\\\"limit_source\\\":\\\"upstream_provider_shared_pool\\\",\\\"remedy_hint\\\":\\\"Retry shortly, add your own provider key (https://openrouter.ai/settings/integrations), or route to another provider with provider routing: htt\"}"
+  ],
+  "costUsd": 0,
+  "finishedAt": "2026-10-18T13:33:36.748Z"
+}

@@ -20,7 +20,8 @@ export type TutorialId =
   | "course-discover"
   | "course-discover-set"
   | "course-blocks"
-  | "settings";
+  | "settings"
+  | "billing";
 
 export const ALL_TUTORIAL_IDS: TutorialId[] = [
   "dashboard",
@@ -41,6 +42,7 @@ export const ALL_TUTORIAL_IDS: TutorialId[] = [
   "course-discover-set",
   "course-blocks",
   "settings",
+  "billing",
 ];
 
 export type TutorialPlacement = "top" | "bottom" | "left" | "right" | "center";

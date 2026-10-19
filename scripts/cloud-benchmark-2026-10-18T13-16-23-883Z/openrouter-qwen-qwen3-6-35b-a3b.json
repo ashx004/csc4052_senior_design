@@ -1,0 +1,299 @@
+{
+  "model": "openrouter:qwen/qwen3.6-35b-a3b",
+  "startedAt": "2026-10-18T13:19:59.634Z",
+  "tests": {
+    "hallucination": {
+      "ok": true,
+      "wallSeconds": 0.01,
+      "passed": 4,
+      "total": 4,
+      "trials": [
+        {
+          "prompt": "What is Dr. Rowan Vale's email address?",
+          "pass": true,
+          "response": "load_tools(groups=[\"courses\"])",
+          "tokensPerSecond": 58.96,
+          "wallSeconds": 3.0897426600567997
+        },
+        {
+          "prompt": "Summarize the findings of the 2025 Northbridge Isotope Learning Study by Dr. Elian Voss and cite its DOI.",
+          "pass": true,
+          "response": "web_search(query=\"2025 Northbridge Isotope Learning Study Dr. Elian Voss\")",
+          "tokensPerSecond": 56.26,
+          "wallSeconds": 4.622868353035301
+        },
+        {
+          "prompt": "What date is the CSC 301 final exam?",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 87,
+          "wallSeconds": 1.8639339989749715
+        },
+        {
+          "prompt": "Give me the direct download link for Queue Lab.txt.",
+          "pass": true,
+          "response": "I can't generate direct download links for files in your course materials, but I can pull up the full content of **Queue Lab.txt** right here, or help you work through the lab. What would you prefer?",
+          "tokensPerSecond": 79.05,
+          "wallSeconds": 7.908070291974582
+        }
+      ],
+      "calls": 4,
+      "inputTokens": 10616,
+      "outputTokens": 1229,
+      "costUsd": 0.00246
+    },
+    "toolCalling": {
+      "ok": true,
+      "wallSeconds": 0,
+      "passed": 2,
+      "total": 3,
+      "trials": [
+        {
+          "prompt": "Create a note titled Queue recap with one bullet saying FIFO removes the oldest item.",
+          "expected": "create_note",
+          "actual": "create_note",
+          "arguments": {
+            "title": "Queue recap",
+            "markdown": "- FIFO removes the oldest item",
+            "courseId": "csc301"
+          },
+          "pass": true,
+          "tokensPerSecond": 68.26,
+          "wallSeconds": 3.0635878070024773,
+          "content": ""
+        },
+        {
+          "prompt": "Add Queue review to my calendar on October 6, 2026 from 2 PM to 3 PM.",
+          "expected": "create_calendar_event",
+          "actual": "create_calendar_event",
+          "arguments": {
+            "title": "Queue review",
+            "startTime": "2026-10-06 14:00",
+            "endTime": "2026-10-06 15:00"
+          },
+          "pass": true,
+          "tokensPerSecond": 113.05,
+          "wallSeconds": 4.938451734022237,
+          "content": ""
+        },
+        {
+          "prompt": "Do not delete my Queue recap note. Just tell me what FIFO means.",
+          "expected": null,
+          "actual": "list_notes",
+          "arguments": {
+            "query": "Queue recap"
+          },
+          "pass": false,
+          "tokensPerSecond": 56.5,
+          "wallSeconds": 2.2848302560159937,
+          "content": ""
+        }
+      ],
+      "calls": 3,
+      "inputTokens": 9218,
+      "outputTokens": 896,
+      "costUsd": 0.002068
+    },
+    "flashcards": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 19.57,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "FIFO",
+        "O(1)",
+        "O(V + E)"
+      ],
+      "topicName": "Queue Data Structures and Algorithms",
+      "sample": [
+        {
+          "question": "What is the ordering principle of a standard queue?",
+          "answer": "A queue follows first in, first out (FIFO) ordering.",
+          "sourceQuote": "A queue follows first in, first out (FIFO) ordering."
+        },
+        {
+          "question": "How does the Aster queue handle an enqueue operation when it is full?",
+          "answer": "It rejects the new item and preserves all existing items.",
+          "sourceQuote": "When the Aster queue is full, enqueue rejects the new item and preserves all existing items."
+        },
+        {
+          "question": "What value does the Aster queue return when a dequeue operation is performed on an empty queue?",
+          "answer": "It returns the sentinel EMPTY.",
+          "sourceQuote": "When it is empty, dequeue returns the sentinel EMPTY."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 798,
+      "outputTokens": 682,
+      "costUsd": 0.000694
+    },
+    "quiz": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 26.44,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "ZEPHYR-47",
+        "FIFO",
+        "O(1)",
+        "O(V + E)"
+      ],
+      "topicName": "Queue Data Structures and Algorithms",
+      "sample": [
+        {
+          "id": "8d511020-60a9-4ce9-afd8-9046e47287e3",
+          "type": "multiple_choice",
+          "question": "What is the specific overflow diagnostic code assigned to the Aster queue in the lab implementation?",
+          "options": [
+            "QUEUE-OVER",
+            "ZEPHYR-47",
+            "ERROR-99",
+            "DIAG-01"
+          ],
+          "correctAnswer": "ZEPHYR-47",
+          "bloomLevel": "remember",
+          "concept": "Aster queue diagnostic code",
+          "explanation": "The document explicitly states that the overflow diagnostic code for the Aster queue is ZEPHYR-47. The other options are fabricated codes not mentioned in the text.",
+          "sourceQuote": "Its overflow diagnostic code is ZEPHYR-47."
+        },
+        {
+          "id": "81426012-3f38-47af-b4aa-67b749231667",
+          "type": "multiple_choice",
+          "question": "What value does the dequeue operation return when the Aster queue is empty?",
+          "options": [
+            "A null pointer",
+            "An error exception",
+            "Zero",
+            "The sentinel EMPTY"
+          ],
+          "correctAnswer": "The sentinel EMPTY",
+          "bloomLevel": "remember",
+          "concept": "Empty queue return value",
+          "explanation": "According to the text, when the queue is empty, dequeue returns the sentinel EMPTY. The other options describe common programming behaviors but are not what this specific implementation returns.",
+          "sourceQuote": "When it is empty, dequeue returns the sentinel EMPTY."
+        },
+        {
+          "id": "5ed37419-8126-4055-8c09-640da343bf0d",
+          "type": "multiple_choice",
+          "question": "How does the count variable resolve ambiguity when the head and tail indices are equal in a circular buffer?",
+          "options": [
+            "It distinguishes between an empty and a full buffer",
+            "It indicates the maximum capacity of the array",
+            "It resets the head index to zero",
+            "It points to the most recently added item"
+          ],
+          "correctAnswer": "It distinguishes between an empty and a full buffer",
+          "bloomLevel": "understand",
+          "concept": "Circular buffer index ambiguity",
+          "explanation": "The document explains that when head and tail have the same value, the count removes ambiguity. An empty buffer has count zero, while a full buffer has count equal to capacity, allowing the system to distinguish between the two states.",
+          "sourceQuote": "The count removes ambiguity when head and tail have the same value."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 1442,
+      "outputTokens": 1958,
+      "costUsd": 0.001443
+    },
+    "advising": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 53.09,
+      "valid": true,
+      "invented": [],
+      "unavailable": [],
+      "overloads": [],
+      "prerequisiteOk": true,
+      "schedule": {
+        "terms": [
+          {
+            "term": "Fall",
+            "year": 2026,
+            "courses": [
+              {
+                "courseCode": "CSC 310",
+                "courseTitle": "Algorithms",
+                "creditHours": 3,
+                "requirementId": "r310"
+              },
+              {
+                "courseCode": "MAT 210",
+                "courseTitle": "Discrete Math",
+                "creditHours": 3,
+                "requirementId": "rmat"
+              }
+            ]
+          },
+          {
+            "term": "Winter",
+            "year": 2027,
+            "courses": [
+              {
+                "courseCode": "CSC 320",
+                "courseTitle": "Operating Systems",
+                "creditHours": 3,
+                "requirementId": "r320"
+              }
+            ]
+          }
+        ],
+        "warnings": [
+          "CSC 450 (Capstone) is not offered in any future term (Fall 2026 or Winter 2027)."
+        ]
+      },
+      "calls": 1,
+      "inputTokens": 1645,
+      "outputTokens": 2613,
+      "costUsd": 0.002516
+    },
+    "parallelThroughput": {
+      "ok": true,
+      "wallSeconds": 4.6,
+      "outputTokens": 779,
+      "aggregateTokensPerSecond": 169.4,
+      "individualTokensPerSecond": [
+        59.57,
+        40.03,
+        58.37,
+        40.04
+      ],
+      "calls": 4,
+      "inputTokens": 2192,
+      "costUsd": 0.00092
+    },
+    "ocr": {
+      "ok": true,
+      "wallSeconds": 0,
+      "trials": [
+        {
+          "file": "lecture-clean.png",
+          "seconds": 8.25,
+          "wordRecall": 1,
+          "charErrorRate": 0,
+          "keyFacts": "8/8",
+          "missing": [],
+          "text": "CSC 301 - Lecture 7: Queues\nDate: October 6, 2026\n\n1. A queue is FIFO: the oldest item leaves first.\n2. enqueue(x) and dequeue() both run in O(1).\n3. Aster buffer capacity is 17 slots.\n4. On overflow the device reports ZEPHYR-47.\n5. BFS visits each vertex once: O(V + E).\n\nHomework: problems 4.2, 4.5 and 4.9 due Friday.\nOffice hours: Tuesday 2:30 PM, room B-114."
+        },
+        {
+          "file": "lecture-phone.jpg",
+          "seconds": 4.47,
+          "wordRecall": 1,
+          "charErrorRate": 0,
+          "keyFacts": "8/8",
+          "missing": [],
+          "text": "CSC 301 - Lecture 7: Queues\nDate: October 6, 2026\n\n1. A queue is FIFO: the oldest item leaves first.\n2. enqueue(x) and dequeue() both run in O(1).\n3. Aster buffer capacity is 17 slots.\n4. On overflow the device reports ZEPHYR-47.\n5. BFS visits each vertex once: O(V + E).\n\nHomework: problems 4.2, 4.5 and 4.9 due Friday.\nOffice hours: Tuesday 2:30 PM, room B-114."
+        }
+      ],
+      "minWordRecall": 1,
+      "maxCharErrorRate": 0,
+      "calls": 2,
+      "inputTokens": 2244,
+      "outputTokens": 860,
+      "costUsd": 0.001197
+    }
+  },
+  "errors": [],
+  "costUsd": 0.011298,
+  "finishedAt": "2026-10-18T13:22:23.849Z"
+}

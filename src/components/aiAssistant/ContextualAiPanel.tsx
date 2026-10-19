@@ -26,6 +26,9 @@ import type { ChatClass } from "@/src/library/chatContext";
 import { useStickToBottom } from "@/src/hooks/useStickToBottom";
 import ConfirmActionCard, { type PendingActionCardData } from "./ConfirmActionCard";
 import { notifyDataChanged } from "@/src/library/dataChanged";
+import { useChatCommands } from "@/src/hooks/useChatCommands";
+import ChatControls, { ChatNotice, SlashMenu } from "./ChatControls";
+import { memoryFill } from "@/src/library/chatCompactionLimits";
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -33,6 +36,7 @@ type ChatMessage = {
   role: "user" | "assistant";
   pendingActions?: PendingActionCardData[];
   content: string;
+  costMicros?: number;
 };
 
 type Props = {
@@ -90,6 +94,16 @@ export default function ContextualAiPanel({
   // time the drawer is reopened for the same content.
   const loadedKeyRef = useRef<string | null>(null);
   const generatingWatchRef = useRef<(() => void) | null>(null);
+  // The conversation's running summary, sent back with every message like the
+  // main assistant does; without it a long panel chat was re-summarized
+  // (and paid for) on every turn.
+  const summaryRef = useRef("");
+  const [summarizedCount, setSummarizedCountState] = useState(0);
+  const summarizedCountRef = useRef(0);
+  const setSummarizedCount = (n: number) => {
+    summarizedCountRef.current = n;
+    setSummarizedCountState(n);
+  };
 
   const userId = typeof chatContext.userId === "string" ? chatContext.userId : undefined;
 
@@ -104,10 +118,12 @@ export default function ContextualAiPanel({
     getPanelChatSession(userId, panelContextKey)
       .then((session) => {
         if (!session || loadedKeyRef.current !== panelContextKey) return;
-        setMessages(session.messages.map((m) => ({ role: m.role, content: m.text, pendingActions: m.pendingActions })));
+        setMessages(session.messages.map((m) => ({ role: m.role, content: m.text, pendingActions: m.pendingActions, costMicros: m.costMicros })));
+        summaryRef.current = session.summary;
+        setSummarizedCount(session.summarizedCount);
         if (session.generating) {
           generatingWatchRef.current = subscribeToPanelChatSession(userId, panelContextKey, (updated) => {
-            setMessages(updated.messages.map((m) => ({ role: m.role, content: m.text, pendingActions: m.pendingActions })));
+            setMessages(updated.messages.map((m) => ({ role: m.role, content: m.text, pendingActions: m.pendingActions, costMicros: m.costMicros })));
             if (!updated.generating) {
               generatingWatchRef.current?.();
               generatingWatchRef.current = null;
@@ -147,6 +163,40 @@ export default function ContextualAiPanel({
   }, [open, onClose, launcherRef]);
 
   // ─── Send Message ───────────────────────────────────────────
+
+  // /compact: summarize all but the last few messages now; the server saves it to this panel's chat.
+  async function compactChat(): Promise<string> {
+    if (isStreaming) return "Wait for the reply to finish, then try again.";
+    if (messages.length < 6) return "This chat is still short; there's nothing to summarize yet.";
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        summary: summaryRef.current,
+        summarizedCount: summarizedCountRef.current,
+        panelContextKey,
+        compactOnly: true,
+      }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(data?.error || "Couldn't summarize right now. Please try again.");
+    if (!data.compacted) return "Nothing new to summarize yet.";
+    const folded = data.summarizedCount - summarizedCountRef.current;
+    summaryRef.current = data.summary;
+    setSummarizedCount(data.summarizedCount);
+    return `Summarized ${folded} older messages. The assistant still remembers them, in short form.`;
+  }
+
+  const chatCost = messages.reduce((sum, m) => sum + (m.costMicros ?? 0), 0);
+  // No /new or /clear here: this panel's chat is tied to what's on the page and saved on the server.
+  const commands = useChatCommands({
+    input,
+    setInput,
+    costMicros: chatCost,
+    replies: messages.filter((m) => m.role === "assistant" && m.costMicros).length,
+    onCompact: compactChat,
+  });
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -192,7 +242,10 @@ export default function ContextualAiPanel({
             context: withTimeZone(chatContext),
             pageContext,
             panelContextKey,
+            summary: summaryRef.current,
+            summarizedCount: summarizedCountRef.current,
             modelKey: getEffectiveModelKey("chat"),
+            speed: commands.speed,
             pendingActionIds: messages.flatMap((m) => m.pendingActions?.map((a) => a.id) ?? []),
           }),
           signal: controller.signal,
@@ -263,6 +316,16 @@ export default function ContextualAiPanel({
               if (event.type === "done") {
                 setToolStatus(null);
                 notifyDataChanged();
+                if (typeof event.summary === "string") summaryRef.current = event.summary;
+                if (typeof event.summarizedCount === "number") setSummarizedCount(event.summarizedCount);
+                if (typeof event.costMicros === "number" && event.costMicros > 0) {
+                  const cost = event.costMicros;
+                  setMessages((prev) => {
+                    const updated = [...prev];
+                    updated[updated.length - 1] = { ...updated[updated.length - 1], costMicros: cost };
+                    return updated;
+                  });
+                }
                 if (event.pendingActions?.length) {
                   setMessages((prev) => {
                     const updated = [...prev];
@@ -305,6 +368,7 @@ export default function ContextualAiPanel({
         abortRef.current = null;
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- commands.speed is read fresh each send
     [messages, isStreaming, chatContext, pageContext, panelContextKey, stopListening, stickToBottom]
   );
 
@@ -319,9 +383,13 @@ export default function ContextualAiPanel({
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   }, [input]);
 
-  const handleSubmit = () => sendMessage(input);
+  const handleSubmit = () => {
+    if (commands.runCommand()) return;
+    void sendMessage(input);
+  };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (commands.handleKeyDown(e)) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
@@ -548,10 +616,12 @@ export default function ContextualAiPanel({
         {/* ── Input bar ── */}
 <div className="border-t border-border-light px-4 py-3">
   <div
-    className={`mx-auto w-full ${
+    className={`relative mx-auto w-full ${
       isExpanded ? "max-w-4xl" : ""
     }`}
   >
+    {commands.notice && <ChatNotice onDismiss={commands.dismissNotice}>{commands.notice}</ChatNotice>}
+    <SlashMenu items={commands.suggestions} active={commands.activeSuggestion} onPick={commands.pick} />
     <QuickActions
       classes={(Array.isArray((chatContext as { classes?: unknown }).classes) ? (chatContext as { classes: ChatClass[] }).classes : [])}
       defaultCourseId={"courseId" in pageContext ? (pageContext.courseId as string | undefined) : undefined}
@@ -584,7 +654,7 @@ export default function ContextualAiPanel({
           setInput(e.target.value);
         }}
         onKeyDown={handleKeyDown}
-        placeholder={stt.listening ? "Listening..." : "Ask your study question here"}
+        placeholder={stt.listening ? "Listening..." : "Ask your study question, or type /"}
         rows={1}
         disabled={isStreaming}
         className="
@@ -639,9 +709,19 @@ export default function ContextualAiPanel({
       </p>
     )}
 
-    <p className="mt-2 text-center text-[10px] text-text-muted opacity-60">
-      Enhanced by AI
-    </p>
+    <div className="mt-1.5">
+      <ChatControls
+        compact
+        memory={memoryFill(messages, summarizedCount)}
+        summarized={summarizedCount > 0}
+        costMicros={chatCost}
+        cloudAi={commands.cloudAi}
+        speed={commands.speed}
+        onSpeed={commands.changeSpeed}
+        onCompact={messages.length ? () => void commands.compact() : undefined}
+        compacting={commands.compacting}
+      />
+    </div>
   </div>
 </div>
 

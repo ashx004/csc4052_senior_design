@@ -41,6 +41,8 @@ ENV NODE_ENV=production \
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 COPY --from=builder --chown=node:node /app/public ./public
+# /legal/[doc] reads these at render time.
+COPY --from=builder --chown=node:node /app/docs/legal ./docs/legal
 # Loaded by path at runtime, which standalone file tracing can't see:
 # pdfExtract.ts points PDF.js at node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs,
 # and pdfkit reads its data/*.afm font metrics relative to its own package dir.

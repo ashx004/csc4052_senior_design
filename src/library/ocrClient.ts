@@ -1,5 +1,6 @@
 import { resolveOllamaBaseUrl, secondaryContextOption } from "./ollamaClient";
 import { createTimeoutSignal } from "./withTimeout";
+import { aiFetch } from "@/src/library/ai/aiFetch";
 
 // Server-only: transcribes an image via a small dedicated vision model
 // (OLLAMA_MODEL_OCR) running on the SECONDARY box, not Primary. Deliberately
@@ -69,7 +70,7 @@ export async function ocrImage(imageBytes: Buffer, signal?: AbortSignal): Promis
   const combinedSignal = signal ? AbortSignal.any([timeoutSignal, signal]) : timeoutSignal;
 
   try {
-    const response = await fetch(`${baseUrl}/api/chat`, {
+    const response = await aiFetch(`${baseUrl}/api/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

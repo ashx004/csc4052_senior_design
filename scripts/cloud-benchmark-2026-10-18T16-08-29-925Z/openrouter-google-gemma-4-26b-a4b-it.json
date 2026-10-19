@@ -1,0 +1,251 @@
+{
+  "model": "openrouter:google/gemma-4-26b-a4b-it",
+  "startedAt": "2026-10-18T16:08:30.385Z",
+  "tests": {
+    "hallucination": {
+      "ok": true,
+      "wallSeconds": 0.01,
+      "passed": 4,
+      "total": 4,
+      "trials": [
+        {
+          "prompt": "What is Dr. Rowan Vale's email address?",
+          "pass": true,
+          "response": "<|tool_call>call:list_enrolled_classes()<tool_call|>",
+          "tokensPerSecond": 200.34,
+          "wallSeconds": 1.190957220038399
+        },
+        {
+          "prompt": "Summarize the findings of the 2025 Northbridge Isotope Learning Study by Dr. Elian Voss and cite its DOI.",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 53.48,
+          "wallSeconds": 3.7033992699580267
+        },
+        {
+          "prompt": "What date is the CSC 301 final exam?",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 52.97,
+          "wallSeconds": 5.459067763062194
+        },
+        {
+          "prompt": "Give me the direct download link for Queue Lab.txt.",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 57.56,
+          "wallSeconds": 12.164438150008209
+        }
+      ],
+      "calls": 4,
+      "inputTokens": 11161,
+      "outputTokens": 1425,
+      "costUsd": 0.001246
+    },
+    "toolCalling": {
+      "ok": true,
+      "wallSeconds": 0,
+      "passed": 3,
+      "total": 3,
+      "trials": [
+        {
+          "prompt": "Create a note titled Queue recap with one bullet saying FIFO removes the oldest item.",
+          "expected": "create_note",
+          "actual": "create_note",
+          "arguments": {
+            "courseId": "csc301",
+            "markdown": "- FIFO removes the oldest item.",
+            "title": "Queue recap"
+          },
+          "pass": true,
+          "tokensPerSecond": 52.08,
+          "wallSeconds": 5.4543711399892345,
+          "content": ""
+        },
+        {
+          "prompt": "Add Queue review to my calendar on October 6, 2026 from 2 PM to 3 PM.",
+          "expected": "create_calendar_event",
+          "actual": "create_calendar_event",
+          "arguments": {
+            "endTime": "2026-10-06T15:00:00",
+            "startTime": "2026-10-06T14:00:00",
+            "title": "Queue review"
+          },
+          "pass": true,
+          "tokensPerSecond": 49.17,
+          "wallSeconds": 8.951141943922266,
+          "content": ""
+        },
+        {
+          "prompt": "Do not delete my Queue recap note. Just tell me what FIFO means.",
+          "expected": null,
+          "actual": null,
+          "arguments": null,
+          "pass": true,
+          "tokensPerSecond": 29.08,
+          "wallSeconds": 13.93032821896486,
+          "content": "FIFO stands for **First-In, First-Out**.\n\nIn the context of the data structures you're studying in CSC 301, it describes the order in which elements are processed in a **queue**: the first element added to the queue is the very first one to be removed.\n\nA good way to visualize this is a line at a coffee shop—the person who gets in line first is the first one served."
+        }
+      ],
+      "calls": 3,
+      "inputTokens": 8918,
+      "outputTokens": 1129,
+      "costUsd": 0.000768
+    },
+    "flashcards": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 19.8,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "FIFO",
+        "O(V + E)"
+      ],
+      "topicName": "Queue and Data Structure Fundamentals",
+      "sample": [
+        {
+          "question": "What is the ordering principle of a queue?",
+          "answer": "A queue follows the first in, first out (FIFO) ordering principle.",
+          "sourceQuote": "A queue follows first in, first out (FIFO) ordering."
+        },
+        {
+          "question": "How does a stack differ from a queue in terms of ordering?",
+          "answer": "A stack follows last in, first out (LIFO) ordering, whereas a queue follows FIFO.",
+          "sourceQuote": "A stack instead follows last in, first out (LIFO) ordering."
+        },
+        {
+          "question": "What happens when an enqueue operation is performed on a full Aster queue?",
+          "answer": "The enqueue operation rejects the new item and preserves all existing items.",
+          "sourceQuote": "When the Aster queue is full, enqueue rejects the new item and preserves all existing items."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 804,
+      "outputTokens": 600,
+      "costUsd": 0.00026
+    },
+    "quiz": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 46.19,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "17",
+        "ZEPHYR-47",
+        "FIFO",
+        "O(1)"
+      ],
+      "topicName": "Aster Queue and Data Structures",
+      "sample": [
+        {
+          "id": "056e5147-5ecb-4755-b1f0-96388d9ce2bf",
+          "type": "multiple_choice",
+          "question": "What is the specific error code triggered when the Aster queue reaches its maximum capacity?",
+          "options": [
+            "ASTER-17",
+            "EMPTY",
+            "FIFO-47",
+            "ZEPHYR-47"
+          ],
+          "correctAnswer": "ZEPHYR-47",
+          "bloomLevel": "remember",
+          "concept": "Aster queue overflow code",
+          "explanation": "The document explicitly identifies ZEPHYR-47 as the overflow diagnostic code. EMPTY is the sentinel returned when the queue is empty, not an error code for overflow.",
+          "sourceQuote": "Its overflow diagnostic code is ZEPHYR-47."
+        },
+        {
+          "id": "df72a711-aca0-4820-aa96-e9d2922daea1",
+          "type": "multiple_choice",
+          "question": "Who is the individual responsible for coordinating this specific lab?",
+          "options": [
+            "Dr. FIFO",
+            "Dr. Aster Queue",
+            "Dr. Rowan Vale",
+            "Dr. Zephyr"
+          ],
+          "correctAnswer": "Dr. Rowan Vale",
+          "bloomLevel": "remember",
+          "concept": "Lab coordinator identity",
+          "explanation": "The text names Dr. Rowan Vale as the lab coordinator. The other names are derived from terms used elsewhere in the document.",
+          "sourceQuote": "The lab coordinator is Dr. Rowan Vale."
+        },
+        {
+          "id": "e28e67d0-6d9b-4327-aa87-93c38d7d467f",
+          "type": "multiple_choice",
+          "question": "How does the behavior of a queue differ from that of a stack?",
+          "options": [
+            "A queue removes the newest item while a stack removes the oldest",
+            "A queue uses LIFO while a stack uses FIFO",
+            "A queue adds at the front while a stack adds at the rear",
+            "A queue uses FIFO while a stack uses LIFO"
+          ],
+          "correctAnswer": "A queue uses FIFO while a stack uses LIFO",
+          "bloomLevel": "understand",
+          "concept": "Queue vs Stack ordering",
+          "explanation": "Queues follow first in, first out (FIFO) logic, whereas stacks follow last in, first out (LIFO) logic. The other options incorrectly swap these fundamental ordering principles.",
+          "sourceQuote": "A queue follows first in, first out (FIFO) ordering."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 1403,
+      "outputTokens": 2091,
+      "costUsd": 0.000565
+    },
+    "advising": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 6.63,
+      "valid": true,
+      "invented": [],
+      "unavailable": [],
+      "overloads": [],
+      "prerequisiteOk": true,
+      "schedule": {
+        "terms": [
+          {
+            "term": "Fall",
+            "year": 2026,
+            "courses": [
+              {
+                "courseCode": "CSC 310",
+                "courseTitle": "Algorithms",
+                "creditHours": 3,
+                "requirementId": "r310"
+              },
+              {
+                "courseCode": "MAT 210",
+                "courseTitle": "Discrete Math",
+                "creditHours": 3,
+                "requirementId": "rmat"
+              }
+            ]
+          },
+          {
+            "term": "Winter",
+            "year": 2027,
+            "courses": [
+              {
+                "courseCode": "CSC 320",
+                "courseTitle": "Operating Systems",
+                "creditHours": 3,
+                "requirementId": "r320"
+              }
+            ]
+          }
+        ],
+        "warnings": [
+          "CSC 450 (Capstone) cannot be scheduled because it is not offered in any of the available future terms."
+        ]
+      },
+      "calls": 1,
+      "inputTokens": 1618,
+      "outputTokens": 264,
+      "costUsd": 0.000316
+    }
+  },
+  "errors": [],
+  "costUsd": 0.003155,
+  "finishedAt": "2026-10-18T16:10:33.875Z"
+}

@@ -3,6 +3,7 @@ import { db } from "./firebase";
 import { firestoreGet, firestoreUpdate } from "./firestoreRest";
 import { resolveOllamaBaseUrl, secondaryContextOption } from "./ollamaClient";
 import { stripThinkLeak } from "./stripThinkLeak";
+import { aiFetch } from "@/src/library/ai/aiFetch";
 
 // The "Core memory" tier of a small, tiered memory system — a short,
 // always-loaded profile of durable facts about a student (academic/career
@@ -101,7 +102,7 @@ export async function maybeUpdateStudentProfile(
     const exchangeText = recentExchange.map((m) => `${m.role}: ${m.content}`).join("\n\n");
     const baseUrl = await resolveOllamaBaseUrl(process.env.OLLAMA_SECONDARY_URL, process.env.OLLAMA_SECONDARY_FALLBACK_URL);
 
-    const response = await fetch(`${baseUrl}/api/chat`, {
+    const response = await aiFetch(`${baseUrl}/api/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
