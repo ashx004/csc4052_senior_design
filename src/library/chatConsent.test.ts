@@ -26,4 +26,13 @@ describe("studentRequested", () => {
   it("doesn't let a yes to something else authorize a delete", () => {
     expect(studentRequested("delete", [u("quiz me"), a("Want me to make a quiz from L4?"), u("yes")])).toBe(false);
   });
+
+  it("accepts a reported change for class details only, never for deletes", () => {
+    const report = [u("Dr. Cherry's office moved to NETH 240 this term.")];
+    expect(studentRequested("edit", report, { acceptChangeReports: true })).toBe(true);
+    expect(studentRequested("edit", [u("we now meet at 2pm")], { acceptChangeReports: true })).toBe(true);
+    expect(studentRequested("edit", report)).toBe(false);
+    expect(studentRequested("delete", report, { acceptChangeReports: true })).toBe(false);
+    expect(studentRequested("edit", [u("I don't think his office moved")], { acceptChangeReports: true })).toBe(false);
+  });
 });
