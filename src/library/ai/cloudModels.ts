@@ -61,9 +61,18 @@ export function modelForFeature(feature: string): string {
   return model;
 }
 
-/** The backup model tried once when the primary provider is down, or "" for none. */
-export function fallbackModel(): string {
-  return process.env.AI_MODEL_FALLBACK ?? "";
+/**
+ * Backup models, tried in order when the one before fails (down, overloaded,
+ * erroring). AI_MODEL_FALLBACK is a comma-separated list. One backup wasn't
+ * enough: on 2026-10-19 OpenRouter's Gemma host returned 500 while Gemini
+ * answered 503 "high demand" at the same moment. A second OpenRouter model
+ * (another host) before Gemini covers that. The feature's own model is skipped.
+ */
+export function fallbackModels(primary: string): string[] {
+  return (process.env.AI_MODEL_FALLBACK ?? "")
+    .split(",")
+    .map((m) => m.trim())
+    .filter((m, i, all) => m && m !== primary && all.indexOf(m) === i);
 }
 
 // Output caps for callers that don't set num_predict. Every cloud token is
