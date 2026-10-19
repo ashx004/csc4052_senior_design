@@ -5,6 +5,7 @@ import { Menu, Settings, ChevronLeft } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { TUTORIAL_OVERLAY_ATTR, TUTORIAL_TARGET_EVENT } from "@/src/components/tutorial/TutorialOverlay";
 import { getSidebarAutoCollapse, SIDEBAR_AUTO_COLLAPSE_EVENT } from "@/src/library/sidebarPreference";
+import CreditBadge from "@/src/components/billing/CreditBadge";
 
 // Below Tailwind's `md` breakpoint the panel slides in over the page instead
 // of sitting in the layout - a 288px column left a phone with ~100px for the
@@ -119,6 +120,10 @@ export default function Sidebar({ children }: SidebarProps) {
           <nav className="flex-1 overflow-y-auto px-3 py-4">
             {children}
           </nav>
+
+          <div className="mx-3">
+            <CreditBadge />
+          </div>
 
           <div className="mx-3 mb-4 rounded-2xl bg-white/10 px-4 py-4 text-xs leading-relaxed text-white/75">
             <strong className="mb-1 block text-white">Study companion</strong>

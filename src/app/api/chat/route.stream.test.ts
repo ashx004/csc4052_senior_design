@@ -10,6 +10,7 @@ import { NextRequest } from "next/server";
 // Only sign-in is stubbed; everything else in the route runs for real.
 
 vi.mock("@/src/library/verifyAuth", () => ({ verifyRequestAuth: async () => ({ uid: "test-user" }) }));
+vi.mock("@/src/library/billing/creditGate", () => ({ aiCreditGate: async () => null }));
 
 // The student's learning profile is also read from Firestore; give it an empty one.
 vi.mock("@/src/library/studentProfile", async (importOriginal) => ({
