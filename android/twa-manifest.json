@@ -21,7 +21,6 @@
   "appVersionCode": 1,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
-  "webManifestUrl": "https://catalyst.zonocsc.com/manifest.webmanifest",
   "fallbackType": "customtabs",
   "features": {},
   "enableSiteSettingsShortcut": true,
