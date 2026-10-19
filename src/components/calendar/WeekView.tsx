@@ -48,7 +48,7 @@ export default function WeekView({
 
   return (
     <div className="overflow-x-auto">
-      <div className="overflow-hidden rounded-2xl border border-border-light bg-bg-container">
+      <div className="min-w-[900px] overflow-hidden rounded-2xl border border-border-light bg-bg-container">
         {/* ── Day column headers ── */}
         <div className="grid min-w-[900px] grid-cols-[80px_repeat(7,minmax(110px,1fr))] border-b border-border-light">
           <div className="border-r border-border-light bg-bg-container" />
