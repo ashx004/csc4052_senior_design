@@ -79,3 +79,22 @@ const OUTPUT_CAPS: Record<FeatureGroup, number> = {
 export function outputCap(feature: string): number {
   return OUTPUT_CAPS[featureGroup(feature)];
 }
+
+// The student's chat speed (the Fast / Balanced / Thorough setting) changes
+// only the chat answer itself, never background work or study-set generation.
+//   fast      a quicker, cheaper model with thinking off
+//             (AI_MODEL_FAST, else AI_MODEL_LIGHT)
+//   balanced  the default model; the chat route's thinking router decides
+//             per question how much to think (chatThinking.ts)
+//   thorough  thinking always on at high effort, with room to finish
+//             (AI_MODEL_THOROUGH, else the default model)
+export type SpeedOverride = { model?: string; think?: boolean | "high"; maxTokensFactor?: number };
+
+export function speedOverride(feature: string, speed: "fast" | "balanced" | "thorough" | undefined): SpeedOverride {
+  if (feature !== "chat" || !speed || speed === "balanced") return {};
+  if (speed === "fast") {
+    const model = process.env.AI_MODEL_FAST || process.env.AI_MODEL_LIGHT;
+    return { ...(model ? { model } : {}), think: false };
+  }
+  return { ...(process.env.AI_MODEL_THOROUGH ? { model: process.env.AI_MODEL_THOROUGH } : {}), think: "high", maxTokensFactor: 2 };
+}

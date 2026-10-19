@@ -16,6 +16,7 @@ import AddCreditModal from "@/src/components/billing/AddCreditModal";
 export type TopUp = { usd: number; creditMicros: number; fits: boolean };
 export type Wallet = {
   enforced: boolean;
+  cloudAi: boolean;
   balanceMicros: number;
   heldMicros: number;
   minToStartMicros: number;

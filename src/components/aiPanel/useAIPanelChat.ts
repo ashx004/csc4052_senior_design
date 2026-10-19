@@ -11,12 +11,14 @@ import { useChatStatus } from "@/src/library/useChatStatus";
 import { getEffectiveModelKey } from "@/src/library/chatMode";
 import type { PageTextPageContext } from "@/src/library/Contextual_AI/contextualAi";
 import { withTimeZone } from "@/src/library/chatTime";
+import type { ChatSpeed } from "@/src/library/chatSpeed";
 
 export type PanelMessage = {
   id: number;
   role: "user" | "assistant";
   text: string;
   pendingActions?: { id: string; title: string; details: string[] }[];
+  costMicros?: number;
 };
 
 export function useAIPanelChat(userId: string | undefined, email: string | undefined) {
@@ -29,9 +31,15 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
   const nextId = useRef(1);
   const summaryRef = useRef("");
   const summarizedCountRef = useRef(0);
+  // Mirrors summarizedCountRef for the memory meter.
+  const [summarizedCount, setSummarizedCountState] = useState(0);
+  const setSummarizedCount = (n: number) => {
+    summarizedCountRef.current = n;
+    setSummarizedCountState(n);
+  };
 
   /** Resolves with whether the student pressed Stop, so the caller can put the question back to re-word. */
-  async function sendMessage(text: string, pageContext: PageAIContext | null): Promise<{ stopped: boolean }> {
+  async function sendMessage(text: string, pageContext: PageAIContext | null, speed?: ChatSpeed): Promise<{ stopped: boolean }> {
     if (!text.trim() || isSending) return { stopped: false };
 
     const userMessage: PanelMessage = { id: nextId.current++, role: "user", text };
@@ -83,6 +91,7 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
           currentSessionId: null, // panel conversations are ephemeral, never persisted as a chatMemory session
           ephemeral: true,
           modelKey: getEffectiveModelKey("chat"),
+          speed,
           pendingActionIds: nextMessages.flatMap((m) => m.pendingActions?.map((a) => a.id) ?? []),
           runId,
         }),
@@ -114,8 +123,9 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
           chatStatus.progress(event.label);
         } else if (event.type === "done") {
           if (typeof event.summary === "string") summaryRef.current = event.summary;
-          if (typeof event.summarizedCount === "number") summarizedCountRef.current = event.summarizedCount;
+          if (typeof event.summarizedCount === "number") setSummarizedCount(event.summarizedCount);
           if (event.pendingActions?.length) updateAssistant({ pendingActions: event.pendingActions });
+          if (typeof event.costMicros === "number" && event.costMicros > 0) updateAssistant({ costMicros: event.costMicros });
         } else if (event.type === "error") {
           streamError = event.error;
         }
@@ -155,7 +165,31 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
     setMessages([]);
     setErrorText(null);
     summaryRef.current = "";
-    summarizedCountRef.current = 0;
+    setSummarizedCount(0);
+  }
+
+  /** /compact: summarize all but the last few messages now. Resolves with what to tell the student. */
+  async function compact(): Promise<string> {
+    if (isSending) return "Wait for the reply to finish, then try again.";
+    if (messages.length < 6) return "This chat is still short; there's nothing to summarize yet.";
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: messages.map((m) => ({ role: m.role, content: m.text })),
+        summary: summaryRef.current,
+        summarizedCount: summarizedCountRef.current,
+        ephemeral: true,
+        compactOnly: true,
+      }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(data?.error || "Couldn't summarize right now. Please try again.");
+    if (!data.compacted) return "Nothing new to summarize yet.";
+    const folded = data.summarizedCount - summarizedCountRef.current;
+    summaryRef.current = data.summary;
+    setSummarizedCount(data.summarizedCount);
+    return `Summarized ${folded} older messages. The assistant still remembers them, in short form.`;
   }
 
   return {
@@ -166,6 +200,8 @@ export function useAIPanelChat(userId: string | undefined, email: string | undef
     errorText,
     sendMessage,
     clear,
+    compact,
+    summarizedCount,
     stop: chatRun.stop,
   };
 }

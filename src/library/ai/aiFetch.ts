@@ -1,7 +1,7 @@
-import { fallbackModel, featureGroup, isCloudBackend, modelForFeature, outputCap } from "./cloudModels";
+import { fallbackModel, featureGroup, isCloudBackend, modelForFeature, outputCap, speedOverride } from "./cloudModels";
 import { rateFor } from "./cloudRates";
-import { currentAiUser } from "./usageScope";
-import { estimateInputTokens, holdFor } from "../billing/pricing";
+import { currentAiScope } from "./usageScope";
+import { chargeForCost, estimateInputTokens, holdFor } from "../billing/pricing";
 import { StreamTranslator, buildCloudRequest, fromCompletion, readUsage, relaxRequest, type OllamaChatBody, type Provider, type Usage } from "./cloudTranslate";
 
 // Drop-in for fetch(`${ollamaBaseUrl}/api/chat`, init). With AI_BACKEND=ollama
@@ -39,17 +39,19 @@ export async function aiFetch(url: string, init: RequestInit): Promise<Response>
 
   const feature = new Headers(init.headers).get("X-Catalyst-Feature") || "chat";
   // Read now: a stream's later chunks may run outside the route's async scope.
-  const uid = currentAiUser();
+  const scope = currentAiScope();
+  const uid = scope.uid;
   const body = JSON.parse(String(init.body ?? "{}")) as OllamaChatBody;
 
   // Cloud models are always loaded; warming one up would just bill a reply nobody reads.
   if (feature === "warm-model") return Response.json({ model: "cloud", message: { role: "assistant", content: "" }, done: true, done_reason: "stop" });
 
-  const primary = modelForFeature(feature);
+  const speed = speedOverride(feature, scope.speed);
+  const primary = speed.model ?? modelForFeature(feature);
   const backup = fallbackModel();
   // OCR transcribes, it doesn't reason: thinking only burned tokens in the benchmark.
-  const think = featureGroup(feature) === "ocr" ? false : undefined;
-  const maxTokens = outputCap(feature);
+  const think = featureGroup(feature) === "ocr" ? false : speed.think;
+  const maxTokens = outputCap(feature) * (speed.maxTokensFactor ?? 1);
 
   // Hold the most this request could cost, on whichever model may serve it.
   const models = backup && backup !== primary ? [primary, backup] : [primary];
@@ -90,7 +92,11 @@ export async function aiFetch(url: string, init: RequestInit): Promise<Response>
   const report = (usage: Usage, requestId?: string, incomplete = false) => {
     if (reported) return;
     reported = true;
-    session.finish({ uid, ...(requestId ? { requestId } : {}), ...(incomplete ? { incomplete } : {}), ...toUsageEvent(feature, model, usage, model !== primary) })
+    const event = toUsageEvent(feature, model, usage, model !== primary);
+    // What the chat route shows as this reply's cost. An unknown cost (a
+    // stopped stream) is filled in later by the meter, so it counts 0 here.
+    if (scope.spend) scope.spend.micros += chargeForCost(event.costMicros, model);
+    session.finish({ uid, ...(requestId ? { requestId } : {}), ...(incomplete ? { incomplete } : {}), ...event })
       .catch((error) => console.error("[billing] metering failed:", error));
   };
 

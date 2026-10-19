@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { aiFetch, setMeter, setUsageSink, type UsageEvent } from "./aiFetch";
-import { runAsAiUser } from "./usageScope";
+import { runAsAiUser, setAiSpeed, trackAiSpend } from "./usageScope";
 
 const fetchMock = vi.fn();
 const events: UsageEvent[] = [];
@@ -149,5 +149,25 @@ describe("aiFetch", () => {
     expect(hold).toBeGreaterThan(0);
     expect(abandon).toHaveBeenCalledTimes(1);
     expect(finish).not.toHaveBeenCalled();
+  });
+
+  it("applies the chat speed to chat only, and adds each reply's charge to the route's total", async () => {
+    process.env.AI_MODEL_LIGHT = "openrouter:qwen/qwen3.7-flash";
+    fetchMock.mockImplementation(async () => completion("x", 0.000945));
+    const spend = await runAsAiUser("s", async () => {
+      setAiSpeed("fast");
+      const total = trackAiSpend();
+      await aiFetch("http://x/api/chat", ollamaInit("chat", { messages: [] }));
+      await aiFetch("http://x/api/chat", ollamaInit("quiz-generation", { messages: [] }));
+      setAiSpeed("thorough");
+      await aiFetch("http://x/api/chat", ollamaInit("chat", { messages: [] }));
+      return total;
+    });
+    expect(sentBody(0)).toMatchObject({ model: "qwen/qwen3.7-flash", reasoning: { enabled: false } });
+    expect(sentBody(1).model).toBe("qwen/qwen3.7-flash"); // generation's own model, untouched by speed
+    expect(sentBody(1).reasoning).toBeUndefined();
+    expect(sentBody(2)).toMatchObject({ model: "google/gemma-4-26b-a4b-it", reasoning: { effort: "high" }, max_tokens: 8192 });
+    expect(spend.micros).toBe(3000); // 945 micros reported + 5.5% fee, three times
+    delete process.env.AI_MODEL_LIGHT;
   });
 });
