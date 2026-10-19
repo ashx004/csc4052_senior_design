@@ -21,6 +21,7 @@ import { buildFutureTerms, buildCourseAvailability, } from "@/src/library/advisi
 import { generateScheduleWithOllama, } from "@/src/library/advisingOllama";
 import { generatedAdvisingScheduleSchema, } from "@/src/library/advisingSchemas";
 import { enforceTermCreditLimit, moveCoursesToEarliestTerms, PREFERRED_MAX_CREDITS } from "@/src/library/advisingCreditLimit";
+import { refundOnFailure } from "@/src/library/billing/refundOnFailure";
 
 
 function normalizeCourseCode(courseCode: string): string {
@@ -421,7 +422,7 @@ const GENERATE_RATE_LIMIT_MAX = 10;
 // same way document extraction does: the browser gets a fast "queued" answer,
 // /api/advising-jobs/worker runs the generation below, and the student can
 // leave the page meanwhile - a popup tells them when it's done.
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   if (isInternalRequest(request)) {
     return processGeneration(request);
   }
@@ -849,3 +850,5 @@ async function processGeneration(
   }
 }
 
+// A server error on our side refunds whatever this request spent (refundOnFailure.ts).
+export const POST = refundOnFailure("advising", handlePOST);

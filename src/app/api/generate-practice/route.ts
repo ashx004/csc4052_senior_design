@@ -8,6 +8,7 @@ import { acquireSlot } from "@/src/library/concurrencyLimit";
 import { getDocumentText } from "@/src/library/documentTextCache";
 import { generatePractice, MAX_PRACTICE_ITEMS } from "@/src/library/practice/generation";
 import { PRACTICE_KINDS, type DragDropMode, type PracticeDifficulty, type PracticeKind } from "@/src/library/practice/types";
+import { refundOnFailure } from "@/src/library/billing/refundOnFailure";
 
 // Generates a practice set (fill in the blank, word problems or drag and drop)
 // from one of the student's own documents. Same shape and safeguards as
@@ -31,7 +32,7 @@ function documentKey(docUrl: string): string | null {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   try {
     const auth = await verifyRequestAuth(request);
     if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -131,3 +132,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to generate practice. Please try again." }, { status: 500 });
   }
 }
+
+// A server error on our side refunds whatever this request spent (refundOnFailure.ts).
+export const POST = refundOnFailure("practice-generation", handlePOST);

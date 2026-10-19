@@ -6,13 +6,14 @@ import { aiCreditGate } from "@/src/library/billing/creditGate";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import { extractSyllabusInfo } from "@/src/library/syllabusExtract";
 import { SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
+import { refundOnFailure } from "@/src/library/billing/refundOnFailure";
 
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX = 5;
 
 // Reads one of the student's course files and PROPOSES course details; the
 // browser shows them for review and saves what the student accepts.
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   try {
     const auth = await verifyRequestAuth(request);
     const idToken = getIdToken(request);
@@ -58,3 +59,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Couldn't read the syllabus." }, { status: 500 });
   }
 }
+
+// A server error on our side refunds whatever this request spent (refundOnFailure.ts).
+export const POST = refundOnFailure("syllabus", handlePOST);

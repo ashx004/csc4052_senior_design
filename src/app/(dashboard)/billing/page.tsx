@@ -49,7 +49,12 @@ function groupHistory(entries: Entry[]) {
       byKey.set(key, created);
       rows.push(created);
     } else {
-      const label = e.type === "purchase" ? "Added credit" : e.type === "refund" ? "Refund" : e.type === "dispute" ? "Disputed payment" : e.type;
+      const label =
+        e.type === "purchase" ? "Added credit"
+        : e.type === "refund" ? "Refund to your card"
+        : e.type === "refund-ai" ? `Refunded: ${featureLabel(e.feature)} failed on our side`
+        : e.type === "dispute" ? "Disputed payment"
+        : e.type;
       rows.push({ key: e.id, day, label, amountMicros: e.amountMicros, count: 1, kind: e.type });
     }
   }

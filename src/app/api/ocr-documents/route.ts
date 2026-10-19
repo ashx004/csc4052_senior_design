@@ -4,10 +4,11 @@ import { putObject } from "@/src/library/gcsStorage";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { enterAiUser } from "@/src/library/ai/usageScope";
 import { aiCreditGate } from "@/src/library/billing/creditGate";
+import { refundOnFailure } from "@/src/library/billing/refundOnFailure";
 
 const MAX_TRANSCRIPT_CHARS = 1_000_000;
 
-export async function PATCH(request: NextRequest) {
+async function handlePATCH(request: NextRequest) {
   const auth = await verifyRequestAuth(request);
   const idToken = getIdToken(request);
   if (!auth || !idToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -91,3 +92,6 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Failed to update OCR document" }, { status: 500 });
   }
 }
+
+// A server error on our side refunds whatever this request spent (refundOnFailure.ts).
+export const PATCH = refundOnFailure("ocr", handlePATCH);

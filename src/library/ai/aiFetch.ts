@@ -101,7 +101,10 @@ export async function aiFetch(url: string, init: RequestInit): Promise<Response>
     const event = toUsageEvent(feature, model, usage, model !== primary);
     // What the chat route shows as this reply's cost. An unknown cost (a
     // stopped stream) is filled in later by the meter, so it counts 0 here.
-    if (scope.spend) scope.spend.micros += chargeForCost(event.costMicros, model);
+    if (scope.spend) {
+      scope.spend.micros += chargeForCost(event.costMicros, model);
+      scope.spend.uid ??= uid;
+    }
     session.finish({ uid, ...(requestId ? { requestId } : {}), ...(incomplete ? { incomplete } : {}), ...event })
       .catch((error) => console.error("[billing] metering failed:", error));
   };

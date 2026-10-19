@@ -11,6 +11,7 @@ import { NextRequest } from "next/server";
 
 vi.mock("@/src/library/verifyAuth", () => ({ verifyRequestAuth: async () => ({ uid: "test-user" }) }));
 vi.mock("@/src/library/billing/creditGate", () => ({ aiCreditGate: async () => null }));
+vi.mock("@/src/library/billing/refundOnFailure", () => ({ refundSpend: async () => {} }));
 
 // The student's learning profile is also read from Firestore; give it an empty one.
 vi.mock("@/src/library/studentProfile", async (importOriginal) => ({

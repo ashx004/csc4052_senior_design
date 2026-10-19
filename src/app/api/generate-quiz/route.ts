@@ -16,6 +16,7 @@ import { sourcesFromBody } from '@/src/library/sources/requestSources';
 import { isSourceSelectionError } from '@/src/library/sources/errors';
 import { courseIdFromBody, resolveDepsFor } from '@/src/library/sources/resolveDeps';
 import { resolveSources } from '@/src/library/sources/resolveSources';
+import { refundOnFailure } from "@/src/library/billing/refundOnFailure";
 
 // Same GPU/LLM-cost-bearing rationale as api/chat and api/embed-document's
 // own rate limits (see rateLimit.ts) — this route makes an identical kind
@@ -23,7 +24,7 @@ import { resolveSources } from '@/src/library/sources/resolveSources';
 const QUIZ_RATE_LIMIT_WINDOW_MS = 60_000;
 const QUIZ_RATE_LIMIT_MAX = 10; // per user per window — generating a quiz isn't normally rapid-fire
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   try {
     /*
      * Authenticate this API route before allowing it to use the
@@ -198,3 +199,6 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+// A server error on our side refunds whatever this request spent (refundOnFailure.ts).
+export const POST = refundOnFailure("quiz-generation", handlePOST);
