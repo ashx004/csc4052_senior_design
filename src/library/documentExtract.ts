@@ -2,24 +2,10 @@ import { extractPdfTextFromUrl, fetchInternal } from "./pdfExtract";
 import { ocrImage } from "./ocrClient";
 import { parsePptxSlides, pptxSlidesToText } from "./pptxSlides";
 
-// Plain-text/code types — same set the upload/preview flow already accepts
-// (see CODE_TYPES in ResourcePreview.tsx), just read as raw text, no parser
-// library needed.
-const PLAIN_TEXT_TYPES = [
-  "txt", "md", "csv", "py", "js", "jsx", "ts", "tsx", "java", "go", "sql", "c", "cpp",
-  "cs", "rs", "html", "css", "php", "rb", "kt", "swift", "sh", "asm",
-];
+import { IMAGE_FILE_TYPES, PLAIN_TEXT_TYPES, SUPPORTED_DOCUMENT_TYPES } from "./documentTypes";
 
-// Images of handwritten/printed notes: no embedded text to parse, so they're
-// sent to the OCR vision model (src/library/ocrClient.ts) and the returned
-// transcription is treated as the document's text. Kept in sync with the
-// image extensions accepted by the upload UIs (notes page + ResourcePreview).
-export const IMAGE_FILE_TYPES = ["png", "jpg", "jpeg", "webp"];
-
-// File types the AI assistant can actually read/index. Kept in sync with the
-// extraction dispatch below — anything not listed here degrades to a clear
-// "not supported yet" message instead of silently failing.
-export const SUPPORTED_DOCUMENT_TYPES = ["pdf", "docx", "pptx", "xlsx", "xls", ...PLAIN_TEXT_TYPES, ...IMAGE_FILE_TYPES];
+// Re-exported so server code can keep importing them from here.
+export { IMAGE_FILE_TYPES, SUPPORTED_DOCUMENT_TYPES };
 
 
 async function extractDocxText(fullUrl: string): Promise<string> {
@@ -79,10 +65,10 @@ async function extractImageText(fullUrl: string): Promise<string> {
 // plain-text read for code/txt files, and the OCR vision model for images.
 // Same libraries the resource viewer already uses client-side, just run
 // server-side here so the AI can read/search/index the same file types.
-export async function extractDocumentText(fullUrl: string, fileType: string): Promise<string> {
+export async function extractDocumentText(fullUrl: string, fileType: string, options: { maxChars?: number } = {}): Promise<string> {
   switch (fileType) {
     case "pdf":
-      return extractPdfTextFromUrl(fullUrl);
+      return extractPdfTextFromUrl(fullUrl, options);
     case "docx":
       return extractDocxText(fullUrl);
     case "pptx":

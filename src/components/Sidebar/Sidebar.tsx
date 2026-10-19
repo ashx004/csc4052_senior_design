@@ -5,6 +5,7 @@ import { Menu, Settings, ChevronLeft } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { TUTORIAL_OVERLAY_ATTR, TUTORIAL_TARGET_EVENT } from "@/src/components/tutorial/TutorialOverlay";
 import { getSidebarAutoCollapse, SIDEBAR_AUTO_COLLAPSE_EVENT } from "@/src/library/sidebarPreference";
+import CreditBadge from "@/src/components/billing/CreditBadge";
 
 // Below Tailwind's `md` breakpoint the panel slides in over the page instead
 // of sitting in the layout - a 288px column left a phone with ~100px for the
@@ -95,12 +96,14 @@ export default function Sidebar({ children }: SidebarProps) {
           fixed over the page on phones */}
       <aside
         ref={sidebarRef}
-        className={`fixed inset-y-0 left-0 z-50 h-screen shrink-0 overflow-hidden bg-navy text-white transition-[width] duration-300 ease-in-out md:sticky md:top-0 md:z-auto md:h-screen md:self-start ${
+        className={`fixed inset-y-0 left-0 z-50 h-dvh shrink-0 overflow-hidden bg-navy text-white transition-[width] duration-300 ease-in-out md:sticky md:top-0 md:z-auto md:h-dvh md:self-start ${
           isOpen ? "w-72" : "w-0"
         }`}
       >
-        {/* Inner wrapper — fixed width prevents text from wrapping during the width animation */}
-        <div className="min-w-[18rem] h-full flex flex-col">
+        {/* Inner wrapper — fixed width prevents text from wrapping during the width animation.
+            On short screens (phones, landscape) the whole column scrolls, so Settings at the
+            bottom is always reachable; h-dvh tracks the space left by the browser's bars. */}
+        <div className="flex h-full min-w-[18rem] flex-col overflow-y-auto overscroll-contain">
           {/* Header: logo + close */}
           <div className="flex h-[68px] shrink-0 items-center justify-between px-5">
             <h1 className="text-xl font-bold tracking-[0.15em] text-white">
@@ -116,9 +119,13 @@ export default function Sidebar({ children }: SidebarProps) {
           </div>
 
           {/* Navigation content (from GeneralSidebar or CourseSidebar) */}
-          <nav className="flex-1 overflow-y-auto px-3 py-4">
+          <nav className="flex-1 px-3 py-4">
             {children}
           </nav>
+
+          <div className="mx-3">
+            <CreditBadge />
+          </div>
 
           <div className="mx-3 mb-4 rounded-2xl bg-white/10 px-4 py-4 text-xs leading-relaxed text-white/75">
             <strong className="mb-1 block text-white">Study companion</strong>

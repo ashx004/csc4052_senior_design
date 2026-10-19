@@ -35,6 +35,8 @@ export type ChatStreamEvent =
       pendingActions?: { id: string; title: string; details: string[] }[];
       summary?: string;
       summarizedCount?: number;
+      /** What this reply was charged in AI credit (micro-dollars). */
+      costMicros?: number;
     }
   | { type: "error"; error: string }
   // Sent once, only for a brand-new main-assistant session, as soon as the

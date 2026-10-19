@@ -11,14 +11,19 @@ type PositionedText = {
 
 
 export function resolveInternalUrl(request: NextRequest, relativeUrl: string): string {
-  const host = request.headers.get("host");
+  /*
+    In production, call this same server directly over loopback. Building the
+    URL from the incoming Host header broke both ways: the OCR/advising
+    workers call in at http://catalyst-site:3000, which became
+    https://catalyst-site:3000 (TLS against plain HTTP), and public requests
+    looped back out through Cloudflare, whose 100s limit cut long jobs off
+    with a 524.
+  */
+  if (process.env.NODE_ENV !== "development") {
+    return `http://127.0.0.1:${process.env.PORT ?? 3000}${relativeUrl}`;
+  }
 
-  const protocol =
-    process.env.NODE_ENV === "development"
-      ? "http"
-      : "https";
-
-  return `${protocol}://${host}${relativeUrl}`;
+  return `http://${request.headers.get("host")}${relativeUrl}`;
 }
 
 export function fetchInternal(
@@ -34,8 +39,14 @@ export function fetchInternal(
   });
 }
 
+/**
+ * `maxChars`: stop reading pages once this much text is collected. A
+ * 700-page textbook took minutes to read in full, only for the indexer to
+ * keep a fraction of it.
+ */
 export async function extractPdfTextFromUrl(
-  fullUrl: string
+  fullUrl: string,
+  options: { maxChars?: number } = {}
 ): Promise<string> {
   const fileResponse = await fetchInternal(fullUrl);
 
@@ -78,6 +89,7 @@ export async function extractPdfTextFromUrl(
   }).promise;
 
   const pages: string[] = [];
+  let collectedChars = 0;
 
   for (
     let pageNumber = 1;
@@ -192,9 +204,11 @@ export async function extractPdfTextFromUrl(
           line.map((item) => item.text).join(" ").trim()
         );
 
-    pages.push(
-      `--- PAGE ${pageNumber} ---\n${pageLines.join("\n")}`
-    );
+    const pageText = `--- PAGE ${pageNumber} ---\n${pageLines.join("\n")}`;
+    pages.push(pageText);
+    collectedChars += pageText.length + 2;
+    page.cleanup();
+    if (options.maxChars && collectedChars >= options.maxChars) break;
   }
 
     return pages.join("\n\n").trim();

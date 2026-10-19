@@ -1,0 +1,104 @@
+{
+  "model": "groq:openai/gpt-oss-120b",
+  "startedAt": "2026-10-18T13:28:26.559Z",
+  "tests": {
+    "hallucination": {
+      "ok": false,
+      "wallSeconds": 0.88,
+      "error": "Ollama 400: {\"message\":\"Tool choice is none, but model called a tool\",\"type\":\"invalid_request_error\",\"code\":\"tool_use_failed\",\"failed_generation\":\"{\\\"name\\\": \\\"repo_browser.run_code\\\", \\\"arguments\\\": {\\n  \\\"tool\\\": \\\"list_enrolled_classes\\\",\\n  \\\"arguments\\\": {}\\n}}\"}",
+      "calls": 1,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    },
+    "toolCalling": {
+      "ok": false,
+      "wallSeconds": 0.92,
+      "error": "Ollama 429: {\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m57h09n3enc9gz4wtxxg01fy` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5655, Requested 3079. Please try again in 5.505s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing\",\"type\":\"tokens\",\"code\":\"rate_limit_exceeded\"}",
+      "calls": 2,
+      "inputTokens": 2722,
+      "outputTokens": 194,
+      "costUsd": 0.000525
+    },
+    "flashcards": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 1.8,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "FIFO",
+        "O(1)",
+        "O(V + E)"
+      ],
+      "topicName": "Queue and Data Structure Fundamentals",
+      "sample": [
+        {
+          "question": "What ordering principle does a queue follow?",
+          "answer": "A queue follows first in, first out (FIFO) ordering.",
+          "sourceQuote": "A queue follows first in, first out (FIFO) ordering."
+        },
+        {
+          "question": "What happens when the Aster queue is full and an enqueue is attempted?",
+          "answer": "The enqueue rejects the new item and preserves all existing items.",
+          "sourceQuote": "When the Aster queue is full, enqueue rejects the new item and preserves all existing items."
+        },
+        {
+          "question": "What sentinel value is returned when dequeuing from an empty queue?",
+          "answer": "The sentinel EMPTY is returned.",
+          "sourceQuote": "When it is empty, dequeue returns the sentinel EMPTY."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 1064,
+      "outputTokens": 692,
+      "costUsd": 0.000575
+    },
+    "quiz": {
+      "ok": false,
+      "wallSeconds": 0.09,
+      "error": "AI generation service returned HTTP 429.",
+      "calls": 1,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    },
+    "advising": {
+      "ok": false,
+      "wallSeconds": 0.1,
+      "error": "Ollama request failed (429): {\"error\":\"{\\\"message\\\":\\\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m57h09n3enc9gz4wtxxg01fy` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 7145, Requested 1965. Please try again in 8.325s. Need more tokens? Upgrade to Dev Tier today at https://",
+      "calls": 1,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    },
+    "parallelThroughput": {
+      "ok": false,
+      "wallSeconds": 0.19,
+      "error": "Ollama 429: {\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m57h09n3enc9gz4wtxxg01fy` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 7909, Requested 836. Please try again in 5.5875s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing\",\"type\":\"tokens\",\"code\":\"rate_limit_exceeded\"}",
+      "calls": 1,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    },
+    "ocr": {
+      "ok": false,
+      "wallSeconds": 0.17,
+      "error": "OCR request failed (400): {\"error\":\"{\\\"message\\\":\\\"messages[1].content must be a string\\\",\\\"type\\\":\\\"invalid_request_error\\\",\\\"param\\\":\\\"messages[1].content\\\"}\"}",
+      "calls": 3,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    }
+  },
+  "errors": [
+    "hallucination: Ollama 400: {\"message\":\"Tool choice is none, but model called a tool\",\"type\":\"invalid_request_error\",\"code\":\"tool_use_failed\",\"failed_generation\":\"{\\\"name\\\": \\\"repo_browser.run_code\\\", \\\"arguments\\\": {\\n  \\\"tool\\\": \\\"list_enrolled_classes\\\",\\n  \\\"arguments\\\": {}\\n}}\"}",
+    "toolCalling: Ollama 429: {\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m57h09n3enc9gz4wtxxg01fy` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5655, Requested 3079. Please try again in 5.505s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing\",\"type\":\"tokens\",\"code\":\"rate_limit_exceeded\"}",
+    "quiz: AI generation service returned HTTP 429.",
+    "advising: Ollama request failed (429): {\"error\":\"{\\\"message\\\":\\\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m57h09n3enc9gz4wtxxg01fy` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 7145, Requested 1965. Please try again in 8.325s. Need more tokens? Upgrade to Dev Tier today at https://",
+    "parallelThroughput: Ollama 429: {\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m57h09n3enc9gz4wtxxg01fy` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 7909, Requested 836. Please try again in 5.5875s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing\",\"type\":\"tokens\",\"code\":\"rate_limit_exceeded\"}",
+    "ocr: OCR request failed (400): {\"error\":\"{\\\"message\\\":\\\"messages[1].content must be a string\\\",\\\"type\\\":\\\"invalid_request_error\\\",\\\"param\\\":\\\"messages[1].content\\\"}\"}"
+  ],
+  "costUsd": 0.0011,
+  "finishedAt": "2026-10-18T13:28:30.743Z"
+}

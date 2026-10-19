@@ -3,12 +3,24 @@ import { resolveOllamaBaseUrl } from "./ollamaClient";
 // Server-only: talks to the secondary Ollama box (the embeddings-only GPU).
 // Never import this from a client component — OLLAMA_SECONDARY_URL /
 // OLLAMA_AUTH_TOKEN are not NEXT_PUBLIC_ and must stay server-side.
+// A whole textbook is ~1,000 chunks; one request that size outlasts the
+// timeout and holds the GPU, so they go in batches.
+const EMBED_BATCH = 64;
+
 export async function embedTexts(texts: string[], signal?: AbortSignal): Promise<number[][]> {
   if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN || !process.env.OLLAMA_EMBED_MODEL) {
     throw new Error("Embedding service is not configured.");
   }
 
   const baseUrl = await resolveOllamaBaseUrl(process.env.OLLAMA_SECONDARY_URL, process.env.OLLAMA_SECONDARY_FALLBACK_URL);
+  const out: number[][] = [];
+  for (let i = 0; i < texts.length; i += EMBED_BATCH) {
+    out.push(...(await embedBatch(baseUrl, texts.slice(i, i + EMBED_BATCH), signal)));
+  }
+  return out;
+}
+
+async function embedBatch(baseUrl: string, texts: string[], signal?: AbortSignal): Promise<number[][]> {
   const response = await fetch(`${baseUrl}/api/embed`, {
     method: "POST",
     headers: {

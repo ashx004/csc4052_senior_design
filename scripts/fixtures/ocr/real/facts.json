@@ -1,0 +1,8 @@
+{
+  "_about": "Real handwritten notebook photos (not committed; see .gitignore). Each fact must appear in the transcription after normalizeOcrCompact() in modelBenchmark.ts. Facts are as WRITTEN, not as true: page 1 says 'March 2026' for AlphaGo (really 2016) - a model that corrects it is not transcribing.",
+  "20261018_102705.jpg": ["google assistant", "semi-instant translation", "game playing", "chess, checkers, go", "minimax", "march 2026", "alphago", "4 games to 1", "monte carlo tree search", "large language models", "2020-present", "is all you need", "transformers", "1.5 billion parameters", "175 billion parameters", "100x larger", "nov 2022", "gpt-3.5", "1 trillion parameters", "gpt-4o", "multimodal", "anthropic"],
+  "20261018_102712.jpg": ["physical symbol system hypothesis", "intelligent responses", "rules", "!= intelligence", "stochastic parrots", "not intentional", "goals we provide", "strong ai", "weak ai", "people are quick to accept new technology", "chinese room", "know chinese", "translation wasn't semantic", "searle", "room argument"],
+  "20261018_102715.jpg": ["training a perceptron", "learning rate of 0.22", "θ=3", "(0,1)", "training set (labeled)", "(1,1)", "(1,2)", "(2,1)", "(2,4)", "(3,1)", "(3,2)", "w1=0", "w2=1", "{0,1}", "inputs plotted", "fixed threshold perceptron", "<1,1,1>", "<1,1,2>", "<1,2,1>", "<1,2,4>"],
+  "20261018_102720.jpg": ["inputs in class 1", "<1,3,1>", "<1,3,2>", "<-3,0,1>", "training process", "forward passes", "-3+0+1=-2", "true negative", "gave 0, in class 0", "-1<0", "ideally want", "false positive", "should be 0"],
+  "20261018_102724.jpg": ["false negative", "set of forward passes", "learning rule", "step 1", "step 2", "<2,6,3>", "<1,2,4>", "<1,4,-1>", "0.22", "<-3,0,1>", "<-2.78,0.88,0.78>"]
+}

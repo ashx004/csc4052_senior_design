@@ -10,13 +10,14 @@ import { NextRequest } from "next/server";
 // Only sign-in is stubbed; everything else in the route runs for real.
 
 vi.mock("@/src/library/verifyAuth", () => ({ verifyRequestAuth: async () => ({ uid: "test-user" }) }));
+vi.mock("@/src/library/billing/creditGate", () => ({ aiCreditGate: async () => null }));
 
 // The student's learning profile is also read from Firestore; give it an empty one.
 vi.mock("@/src/library/studentProfile", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/src/library/studentProfile")>()),
   getStudentProfile: async () => ({ summary: "", messageCount: 0 }),
-  maybeUpdateStudentProfile: async () => {},
 }));
+vi.mock("@/src/library/studentProfileUpdate", () => ({ maybeUpdateStudentProfile: async () => {} }));
 
 // Saved chats live in Firestore; record what the route writes instead of calling it.
 const fs = vi.hoisted(() => ({ create: vi.fn(), get: vi.fn(), update: vi.fn(), del: vi.fn() }));

@@ -4,6 +4,7 @@ import { thinkField } from "./thinkMode";
 import { stripThinkLeak } from "./stripThinkLeak";
 import { SYLLABUS_SYSTEM_PROMPT, parseSyllabusResponse, type SyllabusInfo } from "./syllabusInfo";
 import { getDocumentText } from "./documentTextCache";
+import { aiFetch } from "@/src/library/ai/aiFetch";
 
 // A syllabus is a few pages; this keeps a pathological upload (a whole
 // textbook mis-selected) from blowing the model's context.
@@ -34,7 +35,7 @@ export async function extractSyllabusInfo(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
   try {
-    const response = await fetch(`${baseUrl}/api/chat`, {
+    const response = await aiFetch(`${baseUrl}/api/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

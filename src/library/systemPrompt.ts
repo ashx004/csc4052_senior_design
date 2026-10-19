@@ -8,6 +8,14 @@ import { resolveTimeZone } from "./chatTime";
 // (e.g. scripts/evalPrompt.mjs) while they lived there. route.ts imports
 // everything back from here; behavior is unchanged, this is a pure move.
 
+// Prompts go to third-party AI hosts, so they carry the least identity the
+// tutor needs: a first name to address the student, and their school. No
+// surname or email (docs/legal/privacy-policy.md promises this).
+function promptIdentity(context: { name?: string; college?: string }): string {
+  const firstName = context.name?.trim().split(/\s+/)[0];
+  return [firstName, context.college].filter(Boolean).join(", ") || "the student";
+}
+
 /** The tag names students see in the app ("classDoc" is only the stored value). */
 export function categoryLabel(category: string | undefined): string {
   return ({ classDoc: "Class Docs", notes: "Notes", assignments: "Assignments" } as Record<string, string>)[category ?? ""] ?? (category || "untagged");
@@ -132,8 +140,7 @@ export function buildAdaptiveVariableLayer(context: ChatContext | undefined, lea
 
   if (!context) return profileBlock.trim();
 
-  const identityParts = [context.name, context.college].filter(Boolean).join(", ");
-  const identity = identityParts ? `${identityParts} (${context.email})` : context.email;
+  const identity = promptIdentity(context);
 
   const renderClass = (c: ChatClass) => {
     const docLines = c.documents.length
@@ -241,11 +248,10 @@ export function buildSystemPrompt(
     timeZoneName: "short",
   })} (the student's local time, ${timeZone})`;
 
-  const identity = context ? [context.name, context.college].filter(Boolean).join(", ") || context.email : undefined;
-  const identityWithEmail = context && identity && !identity.includes(context.email) ? `${identity} (${context.email})` : identity;
+  const identity = context ? promptIdentity(context) : undefined;
 
   const layers = [
-    buildGlobalContextLayer(identityWithEmail),
+    buildGlobalContextLayer(identity),
     buildInstructionalLogicLayer(),
     buildAdaptiveVariableLayer(context, learnerProfile),
     confidenceSnapshot

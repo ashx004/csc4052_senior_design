@@ -2,7 +2,7 @@
 // attached. Saved at users/{uid}/customSets/{setId}. This is the validation and
 // source-building half, pure so it is unit-tested; the route does the I/O.
 
-import { SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
+import { SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentTypes";
 import { QUIZ_DIFFICULTIES, type QuizDifficulty } from "@/src/library/quizDifficulty";
 import { MAX_SOURCES } from "@/src/library/sources/resolveSources";
 import type { SourceInput } from "@/src/library/sources/sourceTypes";

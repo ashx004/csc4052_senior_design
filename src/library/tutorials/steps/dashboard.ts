@@ -12,6 +12,12 @@ const dashboardSteps: TutorialStep[] = [
     placement: "right",
   },
   {
+    target: '[data-tutorial="ai-credit"]',
+    title: "Your AI credit",
+    body: "AI features run on prepaid credit, charged at what the AI actually costs. Your balance shows here on every page: press Add to top up, or click the balance to see what things cost and where it went.",
+    placement: "right",
+  },
+  {
     target: '[data-tutorial="dashboard-heading"]',
     title: "Your daily overview",
     body: "Your dashboard keeps today's most important information in one place, so you can see what needs attention before jumping into a workspace.",

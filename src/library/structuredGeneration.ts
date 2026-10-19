@@ -2,6 +2,7 @@ import { FAST_MODEL_KEEP_ALIVE, mainModelContextOption, resolveModelFromKey } fr
 import { thinkField } from "./thinkMode";
 import { currentChatStopSignal } from "./chatRuns";
 import { extractFirstJsonObject, stripThinkLeak } from "./stripThinkLeak";
+import { aiFetch } from "@/src/library/ai/aiFetch";
 
 // Both attempts share one deadline. Only malformed model output is repaired;
 // timeouts/service errors must not immediately double the load on a busy GPU.
@@ -20,7 +21,7 @@ export async function structuredGeneration(options: {
   async function request(format: unknown): Promise<Response> {
     const remaining = options.deadline - Date.now();
     if (remaining <= 0) throw new Error("Generation timed out. Please try again when the AI is less busy.");
-    return fetch(`${options.baseUrl.replace(/\/$/, "")}/api/chat`, {
+    return aiFetch(`${options.baseUrl.replace(/\/$/, "")}/api/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

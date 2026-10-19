@@ -1,0 +1,45 @@
+{
+  "generatedAt": "2026-10-18T13:39:12.605Z",
+  "context": 16384,
+  "parallel": 4,
+  "results": [
+    {
+      "model": "groq:openai/gpt-oss-120b",
+      "hallucination": "FAIL",
+      "tools": "3/3",
+      "flashcardsSeconds": 9.98,
+      "quizSeconds": 17.29,
+      "advisingValid": true,
+      "advisingSeconds": 20.98,
+      "parallelTokensPerSecond": 42.14,
+      "ocrWordRecall": null,
+      "ocrCharErrorRate": null,
+      "errors": 2,
+      "runCostUsd": 0.005495,
+      "per1000ChatTurns": 0.23,
+      "per1000FlashcardSets": 0.57,
+      "per1000Quizzes": 1.27,
+      "per1000AdvisingPlans": 0.61,
+      "per1000OcrPages": 0
+    },
+    {
+      "model": "groq:openai/gpt-oss-20b",
+      "hallucination": "FAIL",
+      "tools": "3/3",
+      "flashcardsSeconds": 10.97,
+      "quizSeconds": 14.74,
+      "advisingValid": true,
+      "advisingSeconds": 24,
+      "parallelTokensPerSecond": 51.87,
+      "ocrWordRecall": null,
+      "ocrCharErrorRate": null,
+      "errors": 2,
+      "runCostUsd": 0.002346,
+      "per1000ChatTurns": 0,
+      "per1000FlashcardSets": 0.24,
+      "per1000Quizzes": 0.44,
+      "per1000AdvisingPlans": 0.47,
+      "per1000OcrPages": 0
+    }
+  ]
+}

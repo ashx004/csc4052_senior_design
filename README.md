@@ -66,3 +66,32 @@ provide the same `INTERNAL_API_SECRET` used by the web application.
 ## Usage analytics and administrator dashboard
 
 See [docs/analytics.md](docs/analytics.md) for opt-in tracking, isolated test collection, GA4 reporting setup, and granting/revoking administrator access. The dashboard is available at `/admin/analytics` after configuration.
+
+## Production deploys
+
+Pushing to `main` runs `.github/workflows/deploy-image.yml`, which builds the
+`Dockerfile` on GitHub's runners and pushes `ghcr.io/ashx004/csc4052_senior_design`.
+The server only pulls that image (its `deploy-watch.sh` checks every 3 minutes,
+health-checks the new version and rolls back if it fails) - it never runs
+`npm install` or `next build` itself.
+
+- `NEXT_PUBLIC_*` values are baked into the browser bundle at build time. Keep
+  them, one `KEY=value` per line, in the `NEXT_PUBLIC_ENV` repository secret.
+- Server-only secrets stay in the server's `.env`, mounted into the container
+  at runtime. If a module needs a value just to be imported during the build,
+  add a dummy for it to `docker/build-placeholders.env`.
+
+## Phone apps
+
+- **iPhone:** open the site in Safari → Share → **Add to Home Screen**. It runs full-screen with its own icon (`src/app/manifest.ts`, `public/sw.js`).
+- **Android:** Chrome offers **Install app** the same way, or download the APK from GitHub Releases.
+
+The APK is the live site in Chrome, full-screen (a Trusted Web Activity built with Bubblewrap from `android/twa-manifest.json`), so site deploys reach it without a new APK. A new APK is only needed when the icon, name or Android settings change. To release one:
+
+```bash
+git tag app-v1.2.0 && git push origin app-v1.2.0
+```
+
+`.github/workflows/release-apk.yml` builds and signs it and publishes the GitHub Release. It needs the `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD` and `ANDROID_KEY_ALIAS` repository secrets, and the key's SHA-256 fingerprint must match `public/.well-known/assetlinks.json` (the workflow checks). **Never lose the keystore:** installed apps can only be updated with the same key.
+
+Open tabs and installed apps check `/api/app-version`. They offer a refresh after a new deploy, and inside the Android app, a download when a newer APK is released.

@@ -1,5 +1,6 @@
 import { resolveOllamaBaseUrl, secondaryContextOption } from "./ollamaClient";
 import { stripThinkLeak } from "./stripThinkLeak";
+import { aiFetch } from "@/src/library/ai/aiFetch";
 
 // Uses the fast secondary model to restate what a student's raw chat
 // message is specifically asking for, before the primary model sees it —
@@ -81,7 +82,7 @@ export async function clarifyUserQuery(message: string): Promise<string | null> 
 
   try {
     const baseUrl = await resolveOllamaBaseUrl(process.env.OLLAMA_SECONDARY_URL, process.env.OLLAMA_SECONDARY_FALLBACK_URL);
-    const response = await fetch(`${baseUrl}/api/chat`, {
+    const response = await aiFetch(`${baseUrl}/api/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

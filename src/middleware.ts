@@ -21,7 +21,7 @@ const REMEMBER_COOKIE = "fb_remember";
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (PUBLIC_PATHS.has(pathname) || pathname.startsWith("/share/")) {
+  if (PUBLIC_PATHS.has(pathname) || pathname.startsWith("/share/") || pathname.startsWith("/legal/")) {
     return NextResponse.next();
   }
 

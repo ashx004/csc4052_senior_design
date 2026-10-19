@@ -1,5 +1,6 @@
 import { resolveOllamaBaseUrl, secondaryContextOption } from "./ollamaClient";
 import { stripThinkLeak } from "./stripThinkLeak";
+import { aiFetch } from "@/src/library/ai/aiFetch";
 
 // Turns a slice of the main model's private reasoning into one short status
 // line ("Comparing the two syllabi for overlapping exam dates") using a small
@@ -51,7 +52,7 @@ export function thoughtSummarizerFromEnv(): ((recentThoughts: string) => Promise
 
   return async (recentThoughts: string) => {
     const baseUrl = await resolveOllamaBaseUrl(process.env.OLLAMA_SECONDARY_URL!, process.env.OLLAMA_SECONDARY_FALLBACK_URL);
-    const response = await fetch(`${baseUrl}/api/chat`, {
+    const response = await aiFetch(`${baseUrl}/api/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
