@@ -7,9 +7,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveOllamaBaseUrl, resolveModelFromKey, mainModelContextOption } from "@/src/library/ollamaClient";
 import { thinkField } from "@/src/library/thinkMode";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
+import { enterAiUser } from "@/src/library/ai/usageScope";
+import { aiCreditGate } from "@/src/library/billing/creditGate";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import { stripThinkLeak, extractFirstJsonObject } from "@/src/library/stripThinkLeak";
 import { z } from "zod";
+import { aiFetch } from "@/src/library/ai/aiFetch";
 
 // --- Config ---
 const OLLAMA_TIMEOUT_MS = 120_000;
@@ -111,7 +114,7 @@ async function callOllama(prompt: string, count: number): Promise<string> {
   const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
 
   try {
-    const res = await fetch(`${baseUrl.replace(/\/$/, "")}/api/chat`, {
+    const res = await aiFetch(`${baseUrl.replace(/\/$/, "")}/api/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -178,6 +181,9 @@ export async function POST(req: NextRequest) {
   if (!auth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  enterAiUser(auth.uid);
+  const outOfCredit = await aiCreditGate(auth.uid);
+  if (outOfCredit) return outOfCredit;
 
   const rateLimit = checkRateLimit(auth.uid, LEARN_QUESTION_RATE_LIMIT_WINDOW_MS, LEARN_QUESTION_RATE_LIMIT_MAX);
   if (!rateLimit.allowed) {

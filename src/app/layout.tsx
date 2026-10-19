@@ -4,6 +4,8 @@ import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./global.css";
 import { AuthProvider } from "@/src/context/AuthContext";
+import { BillingProvider } from "@/src/context/BillingContext";
+import TermsGate from "@/src/components/billing/TermsGate";
 import { StudyPlanProvider } from "@/src/context/StudyPlanContext";
 import { TutorialProvider } from "@/src/context/TutorialContext";
 import FocusCard from "@/src/components/studyPlan/FocusCard";
@@ -52,7 +54,12 @@ export default function RootLayout({
               {/* Mounted once at the root (not per-layout) so a user's
                 tutorial progress survives navigating between the dashboard
                 and course route groups without refetching. */}
-              <TutorialProvider>{children}</TutorialProvider>
+              {/* Balance, the add-credit window and the terms prompt follow
+                the student onto every page, course pages included. */}
+              <BillingProvider>
+                <TermsGate />
+                <TutorialProvider>{children}</TutorialProvider>
+              </BillingProvider>
             </StudyPlanProvider>
           </AnalyticsProvider>
         </AuthProvider>

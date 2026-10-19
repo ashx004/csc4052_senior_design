@@ -6,8 +6,13 @@
 // ollama-proxy/Caddyfile on each box, which checks the Bearer token) — this
 // never talks to a raw Ollama port directly on either path, LAN or public.
 import { probeUrl, resolveReachableUrl } from "./resolveReachableUrl";
+import { isCloudBackend } from "./ai/cloudModels";
 
 export async function resolveOllamaBaseUrl(baseUrl: string, fallbackUrl?: string): Promise<string> {
+  // In cloud mode Primary may be switched off, and aiFetch ignores this URL
+  // anyway: probing it would only add a timeout to every chat. Secondary
+  // still resolves normally, since embeddings stay on it.
+  if (isCloudBackend() && baseUrl === process.env.OLLAMA_PRIMARY_URL) return baseUrl;
   const authHeaders = process.env.OLLAMA_AUTH_TOKEN
     ? { Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}` }
     : undefined;

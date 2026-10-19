@@ -6,6 +6,8 @@ dist
 .env
 .env.local
 docs
+# ...except the legal docs, which /legal/[doc] renders.
+!docs/legal
 scripts/model-benchmark-*
 scripts/*.tmpcmp*.ts
 scripts/quiz-eval-results

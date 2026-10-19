@@ -15,6 +15,9 @@ import { useSpeechToText } from "@/src/library/useSpeechToText";
 import MicButton from "@/src/components/aiAssistant/MicButton";
 import { useAIPageContext, useOwnAiPanelShown } from "@/src/context/AIPageContext";
 import { useAIPanelChat } from "./useAIPanelChat";
+import { useChatCommands } from "@/src/hooks/useChatCommands";
+import ChatControls, { ChatNotice, SlashMenu } from "@/src/components/aiAssistant/ChatControls";
+import { memoryFill } from "@/src/library/chatCompactionLimits";
 import QuickActions from "@/src/components/aiAssistant/QuickActions";
 import ConfirmActionCard from "@/src/components/aiAssistant/ConfirmActionCard";
 import { useStickToBottom } from "@/src/hooks/useStickToBottom";
@@ -42,12 +45,21 @@ export default function AIPanel({ courseName }: { courseName?: string | null }) 
   // keeps the assistant aware of where the student is on every screen.
   const pageContext = useAIPageContext() ?? describePage(pathname, courseName);
   const ownPanelShown = useOwnAiPanelShown();
-  const { messages, isSending, toolStatus, activity, errorText, sendMessage, clear, stop } = useAIPanelChat(user?.uid, user?.email ?? undefined);
+  const { messages, isSending, toolStatus, activity, errorText, sendMessage, clear, compact, summarizedCount, stop } = useAIPanelChat(user?.uid, user?.email ?? undefined);
   // Follows new text and Confirm cards unless the student has scrolled up.
   const { attach: scrollRef, onScroll: onChatScroll, stick: stickToBottom } = useStickToBottom<HTMLDivElement>([messages, toolStatus, activity, errorText]);
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
   const stt = useSpeechToText({ text: input, onText: setInput, maxLength: 4000 });
+  const chatCost = messages.reduce((sum, m) => sum + (m.costMicros ?? 0), 0);
+  const commands = useChatCommands({
+    input,
+    setInput,
+    costMicros: chatCost,
+    replies: messages.filter((m) => m.role === "assistant" && m.costMicros).length,
+    onCompact: compact,
+    onClear: clear,
+  });
   // Classes and files for the quick actions; watched live while the panel is open.
   const classes: ChatClass[] = useChatContext(isOpen ? user?.uid : undefined, user?.email)?.classes ?? [];
   const courseMatch = /^\/courses\/([^/]+)/.exec(pathname ?? "");
@@ -74,11 +86,12 @@ export default function AIPanel({ courseName }: { courseName?: string | null }) 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     stt.stop();
+    if (commands.runCommand()) return;
     const text = input;
     setInput("");
     stickToBottom();
     // Stopped replies hand the question back so it can be re-worded.
-    void sendMessage(text, pageContext).then((result) => {
+    void sendMessage(text, pageContext, commands.speed).then((result) => {
       if (result.stopped) setInput((current) => current || text);
     });
   }
@@ -172,11 +185,17 @@ export default function AIPanel({ courseName }: { courseName?: string | null }) 
               compact
               onSend={(prompt) => {
                 stickToBottom();
-                void sendMessage(prompt, pageContext);
+                void sendMessage(prompt, pageContext, commands.speed);
               }}
             />
           </div>
-          <form onSubmit={handleSubmit} className="flex items-center gap-2 border-t border-border-light p-3">
+          {commands.notice && (
+            <div className="px-3">
+              <ChatNotice onDismiss={commands.dismissNotice}>{commands.notice}</ChatNotice>
+            </div>
+          )}
+          <form onSubmit={handleSubmit} className="relative flex items-center gap-2 border-t border-border-light p-3">
+            <SlashMenu items={commands.suggestions} active={commands.activeSuggestion} onPick={commands.pick} />
             <input
               type="text"
               value={input}
@@ -185,7 +204,10 @@ export default function AIPanel({ courseName }: { courseName?: string | null }) 
                 stt.stop();
                 setInput(e.target.value);
               }}
-              placeholder={stt.listening ? "Listening..." : "Ask Catalyst..."}
+              onKeyDown={(e) => {
+                commands.handleKeyDown(e);
+              }}
+              placeholder={stt.listening ? "Listening..." : "Ask Catalyst, or type /"}
               maxLength={4000}
               disabled={isSending}
               className="flex-1 rounded-full border border-border-light bg-bg-container px-4 py-2 text-sm focus:border-primary focus:outline-none disabled:opacity-60"
@@ -212,6 +234,19 @@ export default function AIPanel({ courseName }: { courseName?: string | null }) 
               </button>
             )}
           </form>
+          <div className="px-2 pb-2">
+            <ChatControls
+              compact
+              memory={memoryFill(messages, summarizedCount)}
+              summarized={summarizedCount > 0}
+              costMicros={chatCost}
+              cloudAi={commands.cloudAi}
+              speed={commands.speed}
+              onSpeed={commands.changeSpeed}
+              onCompact={messages.length ? () => void commands.compact() : undefined}
+              compacting={commands.compacting}
+            />
+          </div>
           {stt.error && (
             <p role="status" className="px-3 pb-3 text-xs text-alert-error">
               {stt.error}

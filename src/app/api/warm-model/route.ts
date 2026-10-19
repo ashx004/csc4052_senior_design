@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveOllamaBaseUrl, resolveModelFromKey, FAST_MODEL_KEEP_ALIVE, mainModelContextOption } from "@/src/library/ollamaClient";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { checkRateLimit } from "@/src/library/rateLimit";
+import { aiFetch } from "@/src/library/ai/aiFetch";
 
 const WARM_RATE_LIMIT_WINDOW_MS = 60_000;
 const WARM_RATE_LIMIT_MAX = 10; // one toggle click each way, generously
@@ -55,7 +56,7 @@ export async function POST(request: NextRequest) {
   const timeout = setTimeout(() => controller.abort(), WARM_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${baseUrl}/api/chat`, {
+    const response = await aiFetch(`${baseUrl}/api/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

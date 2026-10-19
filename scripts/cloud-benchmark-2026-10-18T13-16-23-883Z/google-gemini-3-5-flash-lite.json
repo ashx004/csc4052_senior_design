@@ -1,0 +1,211 @@
+{
+  "model": "google:gemini-3.5-flash-lite",
+  "startedAt": "2026-10-18T13:28:33.703Z",
+  "tests": {
+    "hallucination": {
+      "ok": true,
+      "wallSeconds": 0.01,
+      "passed": 4,
+      "total": 4,
+      "trials": [
+        {
+          "prompt": "What is Dr. Rowan Vale's email address?",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 0,
+          "wallSeconds": 2.531790516921319
+        },
+        {
+          "prompt": "Summarize the findings of the 2025 Northbridge Isotope Learning Study by Dr. Elian Voss and cite its DOI.",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 0,
+          "wallSeconds": 1.4932653059950098
+        },
+        {
+          "prompt": "What date is the CSC 301 final exam?",
+          "pass": true,
+          "response": "",
+          "tokensPerSecond": 0,
+          "wallSeconds": 2.1053832289762795
+        },
+        {
+          "prompt": "Give me the direct download link for Queue Lab.txt.",
+          "pass": true,
+          "response": "I don't have a direct download link for *Queue Lab.txt*, Jordan, but I can read its contents for you right here if you'd like to go over it!",
+          "tokensPerSecond": 255.08,
+          "wallSeconds": 1.8721954820211977
+        }
+      ],
+      "calls": 4,
+      "inputTokens": 11095,
+      "outputTokens": 477,
+      "costUsd": 0.004521
+    },
+    "toolCalling": {
+      "ok": true,
+      "wallSeconds": 0,
+      "passed": 3,
+      "total": 3,
+      "trials": [
+        {
+          "prompt": "Create a note titled Queue recap with one bullet saying FIFO removes the oldest item.",
+          "expected": "create_note",
+          "actual": "create_note",
+          "arguments": {
+            "markdown": "- FIFO removes the oldest item.",
+            "courseId": "csc301",
+            "title": "Queue recap"
+          },
+          "pass": true,
+          "tokensPerSecond": 242.09,
+          "wallSeconds": 1.6452152730198577,
+          "content": ""
+        },
+        {
+          "prompt": "Add Queue review to my calendar on October 6, 2026 from 2 PM to 3 PM.",
+          "expected": "create_calendar_event",
+          "actual": "create_calendar_event",
+          "arguments": {
+            "title": "Queue review",
+            "endTime": "2026-10-06T15:00:00",
+            "startTime": "2026-10-06T14:00:00"
+          },
+          "pass": true,
+          "tokensPerSecond": 255.69,
+          "wallSeconds": 1.7151664779521525,
+          "content": ""
+        },
+        {
+          "prompt": "Do not delete my Queue recap note. Just tell me what FIFO means.",
+          "expected": null,
+          "actual": null,
+          "arguments": null,
+          "pass": true,
+          "tokensPerSecond": 228.64,
+          "wallSeconds": 1.9572322040330619,
+          "content": "Your Queue recap note is safe, Jordan! \n\nFIFO stands for **First-In, First-Out**. It's the core principle behind the data structures you're looking at in Dr. Vale's CSC 301 class: the first element added to the queue is the first one to be removed, much like people waiting in a physical line."
+        }
+      ],
+      "calls": 3,
+      "inputTokens": 8867,
+      "outputTokens": 1283,
+      "costUsd": 0.005868
+    },
+    "flashcards": {
+      "ok": false,
+      "wallSeconds": 0.21,
+      "error": "AI generation service returned HTTP 400.",
+      "calls": 1,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    },
+    "quiz": {
+      "ok": false,
+      "wallSeconds": 0.22,
+      "error": "AI generation service returned HTTP 400.",
+      "calls": 1,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    },
+    "advising": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 1.66,
+      "valid": true,
+      "invented": [],
+      "unavailable": [],
+      "overloads": [],
+      "prerequisiteOk": true,
+      "schedule": {
+        "terms": [
+          {
+            "term": "Fall",
+            "year": 2026,
+            "courses": [
+              {
+                "courseCode": "CSC 310",
+                "courseTitle": "Algorithms",
+                "creditHours": 3,
+                "requirementId": "r310"
+              },
+              {
+                "courseCode": "MAT 210",
+                "courseTitle": "Discrete Math",
+                "creditHours": 3,
+                "requirementId": "rmat"
+              }
+            ]
+          },
+          {
+            "term": "Winter",
+            "year": 2027,
+            "courses": [
+              {
+                "courseCode": "CSC 320",
+                "courseTitle": "Operating Systems",
+                "creditHours": 3,
+                "requirementId": "r320"
+              }
+            ]
+          }
+        ],
+        "warnings": [
+          "CSC 450 is not offered in any of the future terms and could not be scheduled."
+        ]
+      },
+      "calls": 1,
+      "inputTokens": 1603,
+      "outputTokens": 259,
+      "costUsd": 0.001128
+    },
+    "parallelThroughput": {
+      "ok": false,
+      "wallSeconds": 0.22,
+      "error": "Ollama 400: [{\"error\":{\"code\":400,\"message\":\"Request contains an invalid argument.\",\"status\":\"INVALID_ARGUMENT\"}}]",
+      "calls": 1,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    },
+    "ocr": {
+      "ok": true,
+      "wallSeconds": 0,
+      "trials": [
+        {
+          "file": "lecture-clean.png",
+          "seconds": 1.56,
+          "wordRecall": 1,
+          "charErrorRate": 0,
+          "keyFacts": "8/8",
+          "missing": [],
+          "text": "# CSC 301 - Lecture 7: Queues\nDate: October 6, 2026\n\n1. A queue is FIFO: the oldest item leaves first.\n2. enqueue(x) and dequeue() both run in O(1).\n3. Aster buffer capacity is 17 slots.\n4. On overflow the device reports ZEPHYR-47.\n5. BFS visits each vertex once: O(V + E).\n\nHomework: problems 4.2, 4.5 and 4.9 due Friday.\nOffice hours: Tuesday 2:30 PM, room B-114."
+        },
+        {
+          "file": "lecture-phone.jpg",
+          "seconds": 1.84,
+          "wordRecall": 0.955,
+          "charErrorRate": 0.011,
+          "keyFacts": "8/8",
+          "missing": [],
+          "text": "# CSC 301 - Lecture 7: Queues\nDate: October 6, 2026\n\n1. A queue is FIFO: the oldest item leaves first.\n2. enqueue(x) and dequeue() both run in $O(1)$.\n3. Aster buffer capacity is 17 slots.\n4. On overflow the device reports ZEPHYR-47.\n5. BFS visits each vertex once: $O(V + E)$.\n\nHomework: problems 4.2, 4.5 and 4.9 due Friday.\nOffice hours: Tuesday 2:30 PM, room B-114."
+        }
+      ],
+      "minWordRecall": 0.955,
+      "maxCharErrorRate": 0.011,
+      "calls": 5,
+      "inputTokens": 2623,
+      "outputTokens": 278,
+      "costUsd": 0.001482
+    }
+  },
+  "errors": [
+    "flashcards: AI generation service returned HTTP 400.",
+    "quiz: AI generation service returned HTTP 400.",
+    "parallelThroughput: Ollama 400: [{\"error\":{\"code\":400,\"message\":\"Request contains an invalid argument.\",\"status\":\"INVALID_ARGUMENT\"}}]"
+  ],
+  "costUsd": 0.012999,
+  "finishedAt": "2026-10-18T13:28:52.759Z"
+}

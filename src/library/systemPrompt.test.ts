@@ -53,3 +53,12 @@ describe("buildSystemPrompt ordering (KV-cache prefix stability)", () => {
     expect(prompt.indexOf("You've used a tool this turn.")).toBeLessThan(prompt.indexOf("Current date/time:"));
   });
 });
+
+describe("prompt identity", () => {
+  it("sends only the first name and school, never the email or surname", () => {
+    const prompt = buildSystemPrompt({ ...CONTEXT, email: "jordan.lee@example.edu", name: "Jordan Lee", college: "Test College" }, undefined, false, null);
+    expect(prompt).toContain("Jordan, Test College");
+    expect(prompt).not.toContain("jordan.lee@example.edu");
+    expect(prompt).not.toContain("Lee");
+  });
+});

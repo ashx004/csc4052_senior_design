@@ -6,6 +6,7 @@ import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
 import { X } from "lucide-react";
 import type { ActivityType } from "@/src/library/studyPlan/types";
+import { submitOnEnter } from "@/src/library/submitOnEnter";
 
 interface AddTaskModalProps {
   open: boolean;
@@ -73,6 +74,8 @@ export default function AddTaskModal({
 
   const selectedCourse = courses.find((c) => c.id === courseId);
 
+  const cannotSubmit = !title.trim() || !courseId || ((activityType === "quiz" || activityType === "flashcards") && !targetId);
+
   const handleSubmit = () => {
     if (!title.trim() || !courseId || !selectedCourse) return;
     if ((activityType === "quiz" || activityType === "flashcards") && !targetId) return;
@@ -108,6 +111,7 @@ export default function AddTaskModal({
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={submitOnEnter(handleSubmit, cannotSubmit)}
               placeholder="e.g. Review Chapter 5"
               className="mt-1 w-full rounded-[10px] border-0 bg-gray-input px-3 py-3 text-sm text-navy outline-none"
             />
@@ -178,6 +182,7 @@ export default function AddTaskModal({
               type="number"
               value={duration}
               onChange={(e) => setDuration(Number(e.target.value))}
+              onKeyDown={submitOnEnter(handleSubmit, cannotSubmit)}
               min={5}
               max={120}
               className="mt-1 w-full rounded-[10px] border-0 bg-gray-input px-3 py-3 text-sm text-navy outline-none"
@@ -194,11 +199,7 @@ export default function AddTaskModal({
           </button>
           <button
             onClick={handleSubmit}
-            disabled={
-              !title.trim() ||
-              !courseId ||
-              ((activityType === "quiz" || activityType === "flashcards") && !targetId)
-            }
+            disabled={cannotSubmit}
             className="rounded-[10px] bg-navy px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-navy/90 disabled:opacity-50"
           >
             Add to plan
