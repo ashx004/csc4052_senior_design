@@ -90,3 +90,34 @@ export function describeLocal(iso: string, timeZone: string, dateOnly = false): 
     ...(dateOnly ? {} : { hour: "numeric", minute: "2-digit" }),
   });
 }
+
+const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+/**
+ * Pins weekday names in a student's message to dates, so the model doesn't
+ * have to do the arithmetic. "Tuesday", "this Tuesday", "next Tuesday" and
+ * "on Tuesday" all mean the first Tuesday after today: the system prompt
+ * says so, but Gemma 4 still booked "next Tuesday" a week late when asked on
+ * a Monday (chat eval, 2026-10-19). Left alone: past ("last Tuesday"),
+ * recurring ("Tuesdays", "every Tuesday"), and messages that say "next week"
+ * or similar, where the student means the later one.
+ */
+export function weekdayDateNote(text: string, now: Date, timeZone: string): string | null {
+  if (/\b(next week|the week after|a week from|following week|week from)\b/i.test(text)) return null;
+  const todayName = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long" }).format(now).toLowerCase();
+  const today = WEEKDAYS.indexOf(todayName);
+  const notes: string[] = [];
+  const seen = new Set<string>();
+  const re = /\b(?:(last|past|every|this|next|coming|on)\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday)(s)?\b/gi;
+  for (const m of text.matchAll(re)) {
+    const qualifier = m[1]?.toLowerCase();
+    if (m[3] || qualifier === "last" || qualifier === "past" || qualifier === "every") continue;
+    const phrase = m[0].trim();
+    if (seen.has(phrase.toLowerCase())) continue;
+    seen.add(phrase.toLowerCase());
+    const ahead = ((WEEKDAYS.indexOf(m[2].toLowerCase()) - today + 7) % 7) || 7;
+    const date = new Date(now.getTime() + ahead * 86_400_000).toLocaleDateString("en-US", { timeZone, weekday: "short", month: "short", day: "numeric", year: "numeric" });
+    notes.push(`"${phrase}" = ${date}`);
+  }
+  return notes.length ? `Dates the student means (worked out for you; use these exactly): ${notes.join("; ")}.` : null;
+}

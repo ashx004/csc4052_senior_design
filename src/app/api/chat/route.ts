@@ -54,7 +54,7 @@ import {
   type ToolEnv,
 } from "@/src/library/chatTools/appTools";
 import { OutputGuard, StreamingGuard, collectEmails, collectUrls } from "@/src/library/outputGuard";
-import { describeLocal, localToUtcIso, resolveTimeZone, utcIsoToLocal } from "@/src/library/chatTime";
+import { describeLocal, localToUtcIso, resolveTimeZone, utcIsoToLocal, weekdayDateNote } from "@/src/library/chatTime";
 import { getIdToken, firestoreCreate, firestoreGet, firestoreUpdate, firestoreDelete, firestoreListCollection, firestoreRunQuery } from "@/src/library/firestoreRest";
 import { deriveChatTitle } from "@/src/library/chatTitle";
 import type { StoredChatMessage } from "@/src/library/chatMemory";
@@ -2399,12 +2399,15 @@ export async function POST(request: NextRequest) {
             model: primaryTarget.model,
           }),
         );
+        // "next Tuesday" and friends, resolved here rather than by the model.
+        const weekdayNote = typeof latestMessage?.content === "string" ? weekdayDateNote(latestMessage.content, new Date(), resolveTimeZone(context?.timeZone)) : null;
         const conversation: OllamaChatMessage[] = [
           { role: "system", content: buildSystemPrompt(context, studentProfile.summary, false, clarifiedIntent, confidenceSnapshot) },
           ...(summary ? [{ role: "system", content: `Summary of earlier conversation:\n${summary}` }] : []),
           ...(validatedPageContext ? [{ role: "system", content: buildPageContextPrompt(validatedPageContext) }] : []),
           ...messages.slice(summarizedCount),
           ...(missingDocsNote ? [{ role: "system", content: missingDocsNote }] : []),
+          ...(weekdayNote ? [{ role: "system", content: weekdayNote }] : []),
           ...(unknownCourse ? [{ role: "system", content: unknownCourse }] : []),
           ...(actionOutcomes.length
             ? [
