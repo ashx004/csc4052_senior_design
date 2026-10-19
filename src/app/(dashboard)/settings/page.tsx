@@ -1436,7 +1436,7 @@ export default function Settings() {
                 <div className="rounded-md border border-border-light bg-bg-container p-3">
                     <h3 className="text-sm font-medium text-text-main">Delete account</h3>
                     <p id="account-deletion-description" className="mt-1 text-xs text-text-muted">
-                        Permanently remove your Catalyst account, private study data, uploaded files, indexed document context, public shares, saved reminders, and connected-service credentials. This cannot be undone.
+                        Permanently remove your Catalyst account, private study data, uploaded files, indexed document context, public shares, saved reminders, and connected-service credentials. Any unused AI credit is refunded to your card first. This cannot be undone.
                     </p>
                     <div className="mt-3 flex justify-end">
                         <button
@@ -1457,6 +1457,16 @@ export default function Settings() {
                 {dataExportError && <p role="alert" className="text-xs text-alert-error">{dataExportError}</p>}
                 {dataExportMessage && <p role="status" className="text-xs text-alert-success">{dataExportMessage}</p>}
             </section>
+
+            <footer className="mt-8 mb-10 w-3/4 self-center border-t border-border-light pt-4 text-center text-xs text-text-muted">
+                <nav aria-label="Legal" className="flex flex-wrap justify-center gap-x-4 gap-y-1">
+                    <Link href="/legal/terms" className="hover:text-text-main hover:underline">Terms of Service</Link>
+                    <Link href="/legal/privacy" className="hover:text-text-main hover:underline">Privacy Policy</Link>
+                    <Link href="/legal/credits" className="hover:text-text-main hover:underline">AI Credits &amp; Refunds</Link>
+                    <a href="mailto:contact@zonocsc.com" className="hover:text-text-main hover:underline">contact@zonocsc.com</a>
+                </nav>
+                <p className="mt-2">Catalyst is run by ZonoCSC.</p>
+            </footer>
 
             {showDeletionDialog && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation">
