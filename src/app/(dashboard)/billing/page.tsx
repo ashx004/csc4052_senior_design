@@ -51,6 +51,7 @@ function groupHistory(entries: Entry[]) {
     } else {
       const label =
         e.type === "purchase" ? "Added credit"
+        : e.type === "trial" ? "Free trial credit"
         : e.type === "refund" ? "Refund to your card"
         : e.type === "refund-ai" ? `Refunded: ${featureLabel(e.feature)} failed on our side`
         : e.type === "dispute" ? "Disputed payment"

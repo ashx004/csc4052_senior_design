@@ -8,6 +8,7 @@ import { MIN_CREDIT_TO_START_MICROS } from "@/src/library/billing/creditGate";
 import { billingMode } from "@/src/library/billing/usageMeter";
 import { enterAiUser } from "@/src/library/ai/usageScope";
 import { isCloudBackend } from "@/src/library/ai/cloudModels";
+import { grantTrialIfEligible } from "@/src/library/billing/trial";
 
 // The student's balance and history, read by the server so the wallet
 // documents never need to be readable from the browser.
@@ -20,6 +21,7 @@ export async function GET(request: NextRequest) {
   const enforced = billingMode() === "enforce" && isCloudBackend();
 
   const includeHistory = request.nextUrl.searchParams.get("history") === "1";
+  const trialMicros = enforced ? await grantTrialIfEligible(auth.uid).catch((e) => (console.error("Trial credit failed:", e), 0)) : 0;
   let wallet = await getWallet(auth.uid);
   if (wallet.heldMicros > 0 && (await sweepStaleHolds(auth.uid))) wallet = await getWallet(auth.uid);
 
@@ -31,6 +33,8 @@ export async function GET(request: NextRequest) {
     heldMicros: wallet.heldMicros,
     // A refund is being processed: spending is paused until it finishes.
     frozen: Boolean(wallet.frozen),
+    // Set only on the request that just gave this account its free trial.
+    ...(trialMicros ? { trialGrantedMicros: trialMicros } : {}),
     minToStartMicros: MIN_CREDIT_TO_START_MICROS,
     capMicros: MAX_BALANCE_MICROS,
     minTopUpMicros: MIN_TOPUP_MICROS,
