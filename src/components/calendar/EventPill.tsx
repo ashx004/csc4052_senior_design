@@ -6,6 +6,9 @@ type EventPillProps = {
   event: CalendarEvent;
   onClick?: (event: CalendarEvent) => void;
   onDragStart?: (event: CalendarEvent) => void;
+  /** Month cells: fill the day's width, cut long titles short, and hide the
+   *  time on phones, where a day is too narrow for it. */
+  compact?: boolean;
 };
 
 function formatTimeRange(startTime: string, endTime: string): string {
@@ -42,7 +45,7 @@ function readableTextColor(background?: string): string | undefined {
   return (red * 299 + green * 587 + blue * 114) / 1000 > 165 ? "#1f1712" : "#ffffff";
 }
 
-export default function EventPill({ event, onClick, onDragStart }: EventPillProps) {
+export default function EventPill({ event, onClick, onDragStart, compact = false }: EventPillProps) {
   const toneClass = event.tone
     ? eventToneClasses[event.tone]
     : "bg-bg-warm text-text-main";
@@ -55,12 +58,12 @@ export default function EventPill({ event, onClick, onDragStart }: EventPillProp
       onDragStart={(dragEvent) => { dragEvent.dataTransfer.effectAllowed = "move"; onDragStart?.(event); }}
       style={event.color ? { backgroundColor: event.color, color: readableTextColor(event.color) } : undefined}
       title={event.conflictTitles?.length ? `Conflicts with ${event.conflictTitles.join(", ")}` : event.title}
-      className={`truncate rounded-md px-2 py-1 text-[11px] font-medium leading-tight ${toneClass} ${event.conflictTitles?.length ? "ring-2 ring-alert-error" : ""}`}
+      className={`truncate rounded-md px-1 py-0.5 text-[10px] font-medium leading-tight sm:px-2 sm:py-1 sm:text-[11px] ${compact ? "block w-full min-w-0 text-left" : ""} ${toneClass} ${event.conflictTitles?.length ? "ring-2 ring-alert-error" : ""}`}
     >
-      <span className="flex items-center gap-1">{event.conflictTitles?.length ? <AlertTriangle size={11} aria-label="Schedule conflict" /> : null}{event.title}</span>
+      <span className="flex min-w-0 items-center gap-1">{event.conflictTitles?.length ? <AlertTriangle size={11} className="shrink-0" aria-label="Schedule conflict" /> : null}<span className="truncate">{event.title}</span></span>
 
       {!event.allDay && event.startTime && event.endTime && (
-        <span className="block font-normal opacity-80">
+        <span className={`truncate font-normal opacity-80 ${compact ? "hidden sm:block" : "block"}`}>
           {formatTimeRange(event.startTime, event.endTime)}
         </span>
       )}

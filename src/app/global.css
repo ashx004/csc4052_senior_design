@@ -15,8 +15,16 @@
   :root { --topbar-h: 68px; }
   :root[data-topbar="spacer"] { --topbar-h: 0px; }
 }
-main .min-h-screen { min-height: calc(100vh - var(--topbar-h)); }
-main .h-screen { height: calc(100vh - var(--topbar-h)); }
+/* dvh is the height actually visible on phones (100vh includes space behind
+   the browser's bars, so pages scrolled too far); vh is the fallback. */
+main .min-h-screen { min-height: calc(100vh - var(--topbar-h)); min-height: calc(100dvh - var(--topbar-h)); }
+main .h-screen { height: calc(100vh - var(--topbar-h)); height: calc(100dvh - var(--topbar-h)); }
+
+/* Something a little too wide on a phone (a long title, a row of buttons)
+   would otherwise widen the whole page and let it zoom out. Clip instead;
+   wide content like the week calendar scrolls inside its own box. "clip"
+   rather than "hidden" keeps sticky headers and the side menu working. */
+body { overflow-x: clip; }
 
 /* ==========================================================================
    UNIFIED APP THEME
