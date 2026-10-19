@@ -633,7 +633,7 @@ export default function Settings() {
             <PageTutorial id="settings" steps={settingsSteps} />
             <header className="relative flex h-[73px] shrink-0 items-center justify-between border-b border-border-light bg-bg-container px-6
                             transition-colors duration-300">
-                <h1 className="absolute left-1/2 -translate-x-1/2 text-center text-lg font-semibold tracking-[0.45em] text-text-main">
+                <h1 className="absolute left-1/2 -translate-x-1/2 text-center whitespace-nowrap text-base font-semibold tracking-[0.2em] sm:text-lg sm:tracking-[0.45em] text-text-main">
                     Settings.
                 </h1>
             </header>
