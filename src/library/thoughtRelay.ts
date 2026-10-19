@@ -26,6 +26,12 @@ export interface ThoughtRelayOptions {
   summaryMinIntervalMs?: number;
   /** How much of the latest reasoning the summarizer sees. */
   summaryWindowChars?: number;
+  /**
+   * Most summaries per turn. Each is an AI call the student pays for, and the
+   * reasoning itself is on screen anyway; usage logs showed one summary per
+   * model call (415 vs 394 chat calls), so long reasoning added up.
+   */
+  maxSummaries?: number;
 }
 
 export interface ThoughtRelay {
@@ -44,6 +50,8 @@ export function createThoughtRelay(options: ThoughtRelayOptions): ThoughtRelay {
   const minNew = options.summaryMinNewChars ?? 400;
   const minInterval = options.summaryMinIntervalMs ?? 4_000;
   const windowChars = options.summaryWindowChars ?? 1_800;
+  const maxSummaries = options.maxSummaries ?? 2;
+  let summaries = 0;
 
   let pending = "";
   let sent = 0;
@@ -62,9 +70,10 @@ export function createThoughtRelay(options: ThoughtRelayOptions): ThoughtRelay {
   }
 
   function maybeSummarize() {
-    if (!options.summarize || summarizing || ended) return;
+    if (!options.summarize || summarizing || ended || summaries >= maxSummaries) return;
     if (sinceSummary < minNew || now() - lastSummaryAt < minInterval) return;
     summarizing = true;
+    summaries += 1;
     sinceSummary = 0;
     lastSummaryAt = now();
     const recent = tail.slice(-windowChars);
