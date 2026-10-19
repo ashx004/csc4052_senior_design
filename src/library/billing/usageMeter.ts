@@ -122,7 +122,7 @@ export function createMeter(db: Firestore = adminDb): Meter {
 
       if (BULK_FEATURES.has(feature)) {
         const wallet = await getWallet(uid, db);
-        const available = wallet.balanceMicros - wallet.heldMicros;
+        const available = wallet.frozen ? 0 : wallet.balanceMicros - wallet.heldMicros;
         if (available < holdMicros) throw new InsufficientCreditError(Math.max(0, available), holdMicros);
         return {
           async finish(event) {
