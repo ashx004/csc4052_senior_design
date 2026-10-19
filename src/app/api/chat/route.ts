@@ -23,6 +23,7 @@ import { warnIfSlowGeneration } from "@/src/library/ollamaHealthCheck";
 import { getStudentProfile, StudentProfile } from "@/src/library/studentProfile";
 import { maybeUpdateStudentProfile } from "@/src/library/studentProfileUpdate";
 import { refundSpend } from "@/src/library/billing/refundOnFailure";
+import { modelDisplayName } from "@/src/library/modelDisplayName";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { isCloudBackend } from "@/src/library/ai/cloudModels";
 import { enterAiUser, setAiSpeed, trackAiSpend, type ChatSpeed } from "@/src/library/ai/usageScope";
@@ -1861,7 +1862,7 @@ async function compactNow(
       console.error("Failed to save /compact summary:", error)
     );
   }
-  return NextResponse.json({ ...result, compacted, costMicros: spend.micros });
+  return NextResponse.json({ ...result, compacted, costMicros: spend.micros, model: modelDisplayName(spend.chatModel) ?? undefined });
 }
 
 // ── Server-side chat persistence ──────────────────────────────────────────
@@ -1966,6 +1967,7 @@ async function finishChatPersistence(
     summary?: string;
     summarizedCount?: number;
     costMicros?: number;
+    model?: string;
   }
 ): Promise<void> {
   try {
@@ -1979,6 +1981,7 @@ async function finishChatPersistence(
       ...(final.generatedStudySets?.length ? { generatedStudySets: final.generatedStudySets } : {}),
       ...(final.pendingActions?.length ? { pendingActions: final.pendingActions } : {}),
       ...(final.costMicros ? { costMicros: final.costMicros } : {}),
+      ...(final.model ? { model: final.model } : {}),
     };
 
     const fields: Record<string, unknown> = { messages, generating: false, updatedAt: new Date() };
@@ -2880,7 +2883,7 @@ export async function POST(request: NextRequest) {
             pendingActions,
             summary: finalCompaction.summary,
             summarizedCount: finalCompaction.summarizedCount,
-            costMicros: spend.micros,
+            costMicros: spend.micros, model: modelDisplayName(spend.chatModel) ?? undefined,
           });
         }
 
@@ -2947,7 +2950,7 @@ export async function POST(request: NextRequest) {
               pendingActions,
               summary: finalCompaction.summary,
               summarizedCount: finalCompaction.summarizedCount,
-              costMicros: spend.micros,
+              costMicros: spend.micros, model: modelDisplayName(spend.chatModel) ?? undefined,
             });
           } else {
             finalAnswerText = "The assistant needed too many steps to answer. Please try rephrasing your question.";
@@ -2966,7 +2969,7 @@ export async function POST(request: NextRequest) {
           finalAnswerText = stoppedReplyText(partial);
           discardStoppedTurn = !partial;
           send({ type: "stopped", discarded: discardStoppedTurn });
-          send({ type: "done", documentsRead, generatedFiles, generatedStudySets, pendingActions, summary: persistedSummary, summarizedCount: persistedSummarizedCount, costMicros: spend.micros });
+          send({ type: "done", documentsRead, generatedFiles, generatedStudySets, pendingActions, summary: persistedSummary, summarizedCount: persistedSummarizedCount, costMicros: spend.micros, model: modelDisplayName(spend.chatModel) ?? undefined });
         } else {
           console.error("Chat route error:", error);
           finalAnswerText = describeChatError(error);
@@ -3004,7 +3007,7 @@ export async function POST(request: NextRequest) {
             pendingActions,
             summary: persistedSummary,
             summarizedCount: persistedSummarizedCount,
-            costMicros: spend.micros,
+            costMicros: spend.micros, model: modelDisplayName(spend.chatModel) ?? undefined,
           });
         }
         try {

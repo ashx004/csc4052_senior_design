@@ -27,6 +27,8 @@ export type StoredChatMessage = {
   pendingActions?: { id: string; title: string; details: string[] }[];
   /** What this reply was charged in AI credit (micro-dollars), when cloud AI was on. */
   costMicros?: number;
+  /** Which model wrote this reply (display name), when cloud AI was on. */
+  model?: string;
 };
 
 export type ChatSessionState = {

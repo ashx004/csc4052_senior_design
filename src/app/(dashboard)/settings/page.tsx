@@ -120,7 +120,7 @@ export default function Settings() {
     const deletionTriggerRef = useRef<HTMLButtonElement>(null);
 
     const router = useRouter();
-    const [aiModels, setAiModels] = useState<{ main: string | null; ocr: string | null } | null>(null);
+    const [aiModels, setAiModels] = useState<{ cloud: boolean; rows: { label: string; model: string | null }[] } | null>(null);
 
     useEffect(() => {
         fetch("/api/ai-models")
@@ -1050,34 +1050,24 @@ export default function Settings() {
                 shrink-0 border-b border-border-light px-6">
             </header>
 
-            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
-                        bg-bg-main text-text-main">
-
-                <span className="text-sm">
-                    AI Model
-                </span>
-
-                <span className="text-sm text-text-muted">
-                    {aiModels?.main ?? "—"}
-                </span>
-            </div>
-
-            <div className="flex w-3/4 self-center px-2 py-1 text-xs text-text-muted">
-                Powers AI Chat, Quiz &amp; Flashcard generation, Advising, and Discover
-            </div>
-
-            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
-                        bg-bg-main text-text-main">
-                <span className="text-sm">
-                    Document scanning model
-                </span>
-                <span className="text-sm text-text-muted">
-                    {aiModels?.ocr ?? "—"}
-                </span>
-            </div>
-
-            <div className="flex w-3/4 self-center px-2 py-1 text-xs text-text-muted">
-                Reads text from uploaded photos and scans (OCR)
+            {/* The models this account actually uses, from /api/ai-models: cloud
+                models per feature (and speed), or the self-hosted ones for a
+                developer account. */}
+            <div className="mt-2 w-3/4 self-center px-2 text-text-main">
+                <h3 className="py-2 text-sm font-medium">AI models</h3>
+                <dl className="divide-y divide-border-light rounded-lg border border-border-light">
+                    {(aiModels?.rows ?? [{ label: "Loading...", model: null }]).map((row) => (
+                        <div key={row.label} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-0.5 px-3 py-2.5">
+                            <dt className="text-sm">{row.label}</dt>
+                            <dd className="text-sm text-text-muted">{row.model ?? "—"}</dd>
+                        </div>
+                    ))}
+                </dl>
+                <p className="px-1 py-2 text-xs text-text-muted">
+                    {aiModels?.cloud
+                        ? <>Hosted through OpenRouter by providers that may not train on your data. Pick Fast, Balanced or Thorough under any chat box; costs come out of your <Link href="/billing" className="underline">AI credit</Link>.</>
+                        : "Running on Catalyst's own servers, at no cost."}
+                </p>
             </div>
 
             {/* Focus Mode

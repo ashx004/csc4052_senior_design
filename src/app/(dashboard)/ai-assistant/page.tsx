@@ -34,6 +34,7 @@ import { useStickToBottom } from "@/src/hooks/useStickToBottom";
 import { useChatCommands } from "@/src/hooks/useChatCommands";
 import { ChatNotice, MemoryAndCost, SlashMenu, SpeedPicker } from "@/src/components/aiAssistant/ChatControls";
 import { memoryFill } from "@/src/library/chatCompactionLimits";
+import { formatUsd } from "@/src/library/billing/money";
 
 // Loaded on demand rather than with the page: the markdown/math renderer is
 // only needed once there is an assistant reply, and the two panels only when
@@ -120,6 +121,15 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
               )}
             </div>
           </div>
+
+          {/* Which model wrote this and what it cost (cloud AI only). */}
+          {(message.model || message.costMicros) && !isPending && (
+            <p className="-mt-1 px-1 text-[11px] text-text-muted">
+              {message.model}
+              {message.model && message.costMicros ? " · " : ""}
+              {message.costMicros ? formatUsd(message.costMicros) : ""}
+            </p>
+          )}
 
           {message.generatedFiles && (
             <div className="flex flex-wrap gap-2 px-1">
@@ -602,6 +612,7 @@ function AIAssistantPageContent() {
       let generatedStudySets: { kind: "flashcard" | "quiz" | "note"; id: string; courseId: string; name: string }[] | undefined;
       let pendingActions: { id: string; title: string; details: string[] }[] | undefined;
       let replyCost = 0;
+      let replyModel: string | undefined;
 
       for await (const event of readChatStream(response)) {
         liveActivity.handle(event);
@@ -632,6 +643,7 @@ function AIAssistantPageContent() {
           if (typeof event.summary === "string") summaryRef.current = event.summary;
           if (typeof event.summarizedCount === "number") setSummarizedCount(event.summarizedCount);
           if (typeof event.costMicros === "number") replyCost = event.costMicros;
+          if (event.model) replyModel = event.model;
         } else if (event.type === "error") {
           streamError = event.error;
         }
@@ -658,6 +670,7 @@ function AIAssistantPageContent() {
       if (generatedStudySets) finalMessage.generatedStudySets = generatedStudySets;
       if (pendingActions) finalMessage.pendingActions = pendingActions;
       if (replyCost) finalMessage.costMicros = replyCost;
+      if (replyModel) finalMessage.model = replyModel;
       setMessages([...nextMessages, finalMessage]);
 
       if (stopped) setInput((current) => current || trimmed);
