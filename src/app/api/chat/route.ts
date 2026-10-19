@@ -20,8 +20,13 @@ import type { SourceInput } from "@/src/library/sources/sourceTypes";
 import { capSources, hasAnySource, noteRowToSource, requestedSourcesFromArgs } from "@/src/library/chatTools/studySetSources";
 import { completeKeys, notebookSetFields, plainSetFields } from "@/src/library/studySets/notebookSet";
 import { warnIfSlowGeneration } from "@/src/library/ollamaHealthCheck";
-import { getStudentProfile, maybeUpdateStudentProfile, StudentProfile } from "@/src/library/studentProfile";
+import { getStudentProfile, StudentProfile } from "@/src/library/studentProfile";
+import { maybeUpdateStudentProfile } from "@/src/library/studentProfileUpdate";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
+import { isCloudBackend } from "@/src/library/ai/cloudModels";
+import { enterAiUser, setAiSpeed, trackAiSpend, type ChatSpeed } from "@/src/library/ai/usageScope";
+import { COMPACTION_CHAR_THRESHOLD, COMPACT_NOW_KEEP_MESSAGES, KEEP_RECENT_MESSAGES } from "@/src/library/chatCompactionLimits";
+import { aiCreditGate } from "@/src/library/billing/creditGate";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import {pageContextSchema,buildPageContextPrompt,type PageContext,} from "@/src/library/Contextual_AI/contextualAi";
 import { ChatContext, ChatClass, ChatDocument, buildSystemPrompt, categoryLabel } from "@/src/library/systemPrompt";
@@ -49,7 +54,7 @@ import {
   type ToolEnv,
 } from "@/src/library/chatTools/appTools";
 import { OutputGuard, StreamingGuard, collectEmails, collectUrls } from "@/src/library/outputGuard";
-import { describeLocal, localToUtcIso, resolveTimeZone, utcIsoToLocal } from "@/src/library/chatTime";
+import { describeLocal, localToUtcIso, resolveTimeZone, utcIsoToLocal, weekdayDateNote } from "@/src/library/chatTime";
 import { getIdToken, firestoreCreate, firestoreGet, firestoreUpdate, firestoreDelete, firestoreListCollection, firestoreRunQuery } from "@/src/library/firestoreRest";
 import { deriveChatTitle } from "@/src/library/chatTitle";
 import type { StoredChatMessage } from "@/src/library/chatMemory";
@@ -59,6 +64,7 @@ import { ChatStoppedError, enterChatStopScope, registerChatRun, releaseChatRun, 
 import { createGuardedThoughtRelay } from "@/src/library/thoughtRelay";
 import { thoughtSummarizerFromEnv } from "@/src/library/thoughtSummary";
 import { toolDetail } from "@/src/library/toolActivity";
+import { aiFetch } from "@/src/library/ai/aiFetch";
 
 const CHAT_RATE_LIMIT_WINDOW_MS = 60_000;
 const CHAT_RATE_LIMIT_MAX = 15; // per user per window — generous for real use, catches runaway/abusive callers
@@ -86,8 +92,8 @@ const MAX_CHAT_INPUT_CHARS = 4000; // mirrors the client's <input maxLength> in 
 // real context window, so there's real headroom to keep more actual
 // conversation verbatim (better continuity, no lossy summarization) before
 // compaction needs to kick in at all.
-const COMPACTION_CHAR_THRESHOLD = 45000;
-const KEEP_RECENT_MESSAGES = 10;
+// COMPACTION_CHAR_THRESHOLD and KEEP_RECENT_MESSAGES live in
+// chatCompactionLimits.ts, so the chat's memory meter uses the same numbers.
 
 type ChatMessage = { role: string; content: string };
 
@@ -1588,7 +1594,7 @@ async function callOllama(
   const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
 
   try {
-    return await fetch(`${target.baseUrl}/api/chat`, {
+    return await aiFetch(`${target.baseUrl}/api/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1664,7 +1670,7 @@ async function streamOllamaRound(
   live?.signal?.addEventListener("abort", stopListener, { once: true });
 
   try {
-    const response = await fetch(`${target.baseUrl}/api/chat`, {
+    const response = await aiFetch(`${target.baseUrl}/api/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1759,19 +1765,23 @@ async function streamOllamaRound(
 // stay fast and cheap instead of resending the whole transcript every turn.
 // Fails open: if summarization itself fails, just proceed with the full
 // history for this turn rather than blocking the student's message.
+// `force` is /compact: summarize now, whatever the length, keeping only the
+// last few messages verbatim.
 async function compactIfNeeded(
   messages: ChatMessage[],
   summary: string,
-  summarizedCount: number
+  summarizedCount: number,
+  force = false
 ): Promise<{ summary: string; summarizedCount: number }> {
   const recent = messages.slice(summarizedCount);
   const recentChars = recent.reduce((sum, m) => sum + m.content.length, 0);
+  const keep = force ? COMPACT_NOW_KEEP_MESSAGES : KEEP_RECENT_MESSAGES;
 
-  if (recentChars <= COMPACTION_CHAR_THRESHOLD || recent.length <= KEEP_RECENT_MESSAGES) {
+  if ((!force && recentChars <= COMPACTION_CHAR_THRESHOLD) || recent.length <= keep) {
     return { summary, summarizedCount };
   }
 
-  const toFold = recent.slice(0, recent.length - KEEP_RECENT_MESSAGES);
+  const toFold = recent.slice(0, recent.length - keep);
   const foldText = toFold.map((m) => `${m.role}: ${m.content}`).join("\n\n");
 
   const summarizeMessages = [
@@ -1827,6 +1837,30 @@ async function compactIfNeeded(
     console.error("Conversation compaction failed, continuing without it:", error);
     return { summary, summarizedCount };
   }
+}
+
+// /compact: summarize everything but the last few messages right away, save
+// it to the chat (main or course panel) when there is one, and hand it back.
+async function compactNow(
+  request: NextRequest,
+  uid: string,
+  messages: ChatMessage[],
+  summary: string,
+  summarizedCount: number,
+  target: { currentSessionId?: string; panelContextKey?: string }
+) {
+  const spend = trackAiSpend();
+  const result = await compactIfNeeded(messages, summary, summarizedCount, true);
+  const compacted = result.summarizedCount !== summarizedCount;
+  const idToken = getIdToken(request);
+  const collectionPath = target.panelContextKey ? `users/${uid}/panelChatSessions` : target.currentSessionId ? `users/${uid}/chatSessions` : null;
+  const docId = target.panelContextKey ?? target.currentSessionId;
+  if (compacted && idToken && collectionPath && docId) {
+    await firestoreUpdate(idToken, collectionPath, docId, { summary: result.summary, summarizedCount: result.summarizedCount, updatedAt: new Date() }).catch((error) =>
+      console.error("Failed to save /compact summary:", error)
+    );
+  }
+  return NextResponse.json({ ...result, compacted, costMicros: spend.micros });
 }
 
 // ── Server-side chat persistence ──────────────────────────────────────────
@@ -1930,6 +1964,7 @@ async function finishChatPersistence(
     pendingActions?: PendingActionCard[];
     summary?: string;
     summarizedCount?: number;
+    costMicros?: number;
   }
 ): Promise<void> {
   try {
@@ -1942,6 +1977,7 @@ async function finishChatPersistence(
       ...(final.generatedFiles?.length ? { generatedFiles: final.generatedFiles } : {}),
       ...(final.generatedStudySets?.length ? { generatedStudySets: final.generatedStudySets } : {}),
       ...(final.pendingActions?.length ? { pendingActions: final.pendingActions } : {}),
+      ...(final.costMicros ? { costMicros: final.costMicros } : {}),
     };
 
     const fields: Record<string, unknown> = { messages, generating: false, updatedAt: new Date() };
@@ -2002,6 +2038,9 @@ export async function POST(request: NextRequest) {
   if (!auth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  enterAiUser(auth.uid);
+  const outOfCredit = await aiCreditGate(auth.uid);
+  if (outOfCredit) return outOfCredit;
 
   const rateLimit = checkRateLimit(auth.uid, CHAT_RATE_LIMIT_WINDOW_MS, CHAT_RATE_LIMIT_MAX);
   if (!rateLimit.allowed) {
@@ -2030,6 +2069,8 @@ export async function POST(request: NextRequest) {
     pendingActionIds,
     ephemeral,
     runId,
+    speed,
+    compactOnly,
   } = parsedBody.data as {
     messages?: ChatMessage[];
     context?: ChatContext;
@@ -2049,6 +2090,8 @@ export async function POST(request: NextRequest) {
     ephemeral?: boolean;
     // Names this request so the Stop button can cancel it (see chatRuns.ts).
     runId?: string;
+    speed?: ChatSpeed;
+    compactOnly?: boolean;
     // Opt-in for tools that aren't always necessary (web/YouTube search) -
     // off by default. Fewer tools in the schema on every request means less
     // for the model to choose between (real tool-selection accuracy cost,
@@ -2070,6 +2113,14 @@ export async function POST(request: NextRequest) {
   if (context?.userId && context.userId !== auth.uid) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  if (compactOnly) {
+    return compactNow(request, auth.uid, messages, incomingSummary ?? "", incomingSummarizedCount ?? 0, { currentSessionId, panelContextKey });
+  }
+  setAiSpeed(speed);
+  // Added up across every AI call this reply makes, and sent with "done".
+  const spend = trackAiSpend();
+
   // The page builds its context once, when it loads - so an edit made since
   // (by the AI's own update_course_details, or on another page) left the
   // model reading stale class details. Confirmed live: after changing an
@@ -2348,12 +2399,15 @@ export async function POST(request: NextRequest) {
             model: primaryTarget.model,
           }),
         );
+        // "next Tuesday" and friends, resolved here rather than by the model.
+        const weekdayNote = typeof latestMessage?.content === "string" ? weekdayDateNote(latestMessage.content, new Date(), resolveTimeZone(context?.timeZone)) : null;
         const conversation: OllamaChatMessage[] = [
           { role: "system", content: buildSystemPrompt(context, studentProfile.summary, false, clarifiedIntent, confidenceSnapshot) },
           ...(summary ? [{ role: "system", content: `Summary of earlier conversation:\n${summary}` }] : []),
           ...(validatedPageContext ? [{ role: "system", content: buildPageContextPrompt(validatedPageContext) }] : []),
           ...messages.slice(summarizedCount),
           ...(missingDocsNote ? [{ role: "system", content: missingDocsNote }] : []),
+          ...(weekdayNote ? [{ role: "system", content: weekdayNote }] : []),
           ...(unknownCourse ? [{ role: "system", content: unknownCourse }] : []),
           ...(actionOutcomes.length
             ? [
@@ -2440,7 +2494,8 @@ export async function POST(request: NextRequest) {
         // (fails open to the non-cold-boot label on any error) purely so a
         // student switching models on the settings page sees an honest
         // "this is going to take a bit" label instead of the generic one.
-        const modelAlreadyLoaded = await isModelLoaded(primaryTarget.baseUrl, primaryTarget.model);
+        // Cloud models are always loaded, and asking the Ollama box would only add a round trip.
+        const modelAlreadyLoaded = isCloudBackend() || (await isModelLoaded(primaryTarget.baseUrl, primaryTarget.model));
         send({
           type: "status",
           label: modelAlreadyLoaded
@@ -2822,6 +2877,7 @@ export async function POST(request: NextRequest) {
             pendingActions,
             summary: finalCompaction.summary,
             summarizedCount: finalCompaction.summarizedCount,
+            costMicros: spend.micros,
           });
         }
 
@@ -2888,6 +2944,7 @@ export async function POST(request: NextRequest) {
               pendingActions,
               summary: finalCompaction.summary,
               summarizedCount: finalCompaction.summarizedCount,
+              costMicros: spend.micros,
             });
           } else {
             finalAnswerText = "The assistant needed too many steps to answer. Please try rephrasing your question.";
@@ -2905,7 +2962,7 @@ export async function POST(request: NextRequest) {
           finalAnswerText = stoppedReplyText(partial);
           discardStoppedTurn = !partial;
           send({ type: "stopped", discarded: discardStoppedTurn });
-          send({ type: "done", documentsRead, generatedFiles, generatedStudySets, pendingActions, summary: persistedSummary, summarizedCount: persistedSummarizedCount });
+          send({ type: "done", documentsRead, generatedFiles, generatedStudySets, pendingActions, summary: persistedSummary, summarizedCount: persistedSummarizedCount, costMicros: spend.micros });
         } else {
           console.error("Chat route error:", error);
           finalAnswerText = describeChatError(error);
@@ -2940,6 +2997,7 @@ export async function POST(request: NextRequest) {
             pendingActions,
             summary: persistedSummary,
             summarizedCount: persistedSummarizedCount,
+            costMicros: spend.micros,
           });
         }
         try {

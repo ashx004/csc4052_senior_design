@@ -11,6 +11,13 @@
 
 export const MAX_NOTES_PER_NOTEBOOK = 150;
 export const MAX_PAGES_PER_NOTE = 50;
+/** Pages shown when opening a PDF, photo set or scan. Pages are only drawn
+ *  while near the screen, so this guards against absurd files rather than
+ *  memory use. */
+export const MAX_DOCUMENT_PAGES = 1000;
+/** "Save annotated PDF" uploads every page as an image in one request, so it
+ *  stays limited to shorter files. Longer ones export from the Share menu. */
+export const MAX_ANNOTATED_SAVE_PAGES = 50;
 
 // Fixed paper size (US Letter at 96dpi). Pages never reflow with the window
 // - narrower screens scale the whole sheet down - so ink stays exactly where

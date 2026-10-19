@@ -1,0 +1,39 @@
+{
+  "model": "openrouter:qwen/qwen3-vl-30b-a3b-instruct",
+  "startedAt": "2026-10-18T13:33:23.827Z",
+  "tests": {
+    "ocr": {
+      "ok": true,
+      "wallSeconds": 0.01,
+      "trials": [
+        {
+          "file": "lecture-clean.png",
+          "seconds": 6.49,
+          "wordRecall": 0.985,
+          "charErrorRate": 0.003,
+          "keyFacts": "8/8",
+          "missing": [],
+          "text": "# CSC 301 - Lecture 7: Queues\nDate: October 6, 2026\n\n1. A queue is FIFO: the oldest item leaves first.\n2. enqueue(x) and dequeue() both run in O(1).\n3. Ater buffer capacity is 17 slots.\n4. On overflow the device reports ZEPHYR-47.\n5. BFS visits each vertex once: O(V + E).\n\nHomework: problems 4.2, 4.5 and 4.9 due Friday.\nOffice hours: Tuesday 2:30 PM, room B-114."
+        },
+        {
+          "file": "lecture-phone.jpg",
+          "seconds": 5.68,
+          "wordRecall": 1,
+          "charErrorRate": 0,
+          "keyFacts": "8/8",
+          "missing": [],
+          "text": "# CSC 301 - Lecture 7: Queues\nDate: October 6, 2026\n\n1. A queue is FIFO: the oldest item leaves first.\n2. enqueue(x) and dequeue() both run in O(1).\n3. Aster buffer capacity is 17 slots.\n4. On overflow the device reports ZEPHYR-47.\n5. BFS visits each vertex once: O(V + E).\n\nHomework: problems 4.2, 4.5 and 4.9 due Friday.\nOffice hours: Tuesday 2:30 PM, room B-114."
+        }
+      ],
+      "minWordRecall": 0.985,
+      "maxCharErrorRate": 0.003,
+      "calls": 2,
+      "inputTokens": 2222,
+      "outputTokens": 267,
+      "costUsd": 0.000494
+    }
+  },
+  "errors": [],
+  "costUsd": 0.000494,
+  "finishedAt": "2026-10-18T13:33:36.026Z"
+}

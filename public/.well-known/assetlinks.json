@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.zonocsc.catalyst",
+      "sha256_cert_fingerprints": [
+        "47:65:94:D3:92:CE:CB:3B:AC:8A:CE:BC:5F:EF:DB:F6:66:20:9D:69:A2:AE:FD:AC:DC:1D:E3:FD:D2:EE:B3:B6"
+      ]
+    }
+  }
+]

@@ -5,6 +5,7 @@ import { FileText, X, Loader2 } from "lucide-react";
 import VisibilitySelector from "@/src/components/discover/VisibilitySelector";
 import type { StudySetVisibility } from "@/src/library/discover/types";
 import { DEFAULT_QUIZ_DIFFICULTY, QUIZ_DIFFICULTY_OPTIONS, type QuizDifficulty } from "@/src/library/quizDifficulty";
+import { submitOnEnter } from "@/src/library/submitOnEnter";
 
 interface QuestionTypes {
   multipleChoice: boolean;
@@ -123,6 +124,7 @@ export default function QuizSetupModal({
             max={20}
             value={questionCount}
             onChange={(e) => setQuestionCount(Number(e.target.value))}
+            onKeyDown={submitOnEnter(handleStart, !canStart)}
             disabled={loading}
             className="w-15 rounded-lg border border-border-light px-4 py-2 text-sm focus:border-[#8B6914] focus:outline-none disabled:opacity-50"
           />

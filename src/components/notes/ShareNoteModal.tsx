@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Copy, Download, Link2, Loader2 } from "lucide-react";
 import ExportMenu, { type ExportSource } from "./ExportMenu";
 import { MAX_INVITED_EMAILS, parseInvitedEmails, type ShareAudience } from "@/src/library/notes/shareAccess";
+import PasswordInput from "@/src/components/PasswordInput";
 
 const AUDIENCE_OPTIONS: { value: ShareAudience; label: string; hint: string }[] = [
   { value: "anyone", label: "Anyone with the link", hint: "No account needed." },
@@ -102,7 +103,7 @@ export default function ShareNoteModal({
                 <span className="text-xs font-normal text-text-muted">Separate with commas or new lines. Up to {MAX_INVITED_EMAILS}. They need a verified Catalyst account with that email.</span>
               </label>
             )}
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Optional password" aria-label="Optional password" className="mt-3 w-full rounded-lg border border-border-light bg-bg-container px-3 py-2 text-sm" />
+            <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Optional password" aria-label="Optional password" className="mt-3 w-full rounded-lg border border-border-light bg-bg-container px-3 py-2 text-sm" />
             <label className="mt-4 flex cursor-pointer items-start gap-2 text-sm text-text-main">
               <input type="checkbox" checked={allowEdit} onChange={(e) => setAllowEdit(e.target.checked)} className="mt-0.5 h-4 w-4 accent-primary" />
               <span>

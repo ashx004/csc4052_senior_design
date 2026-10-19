@@ -1,0 +1,88 @@
+{
+  "model": "openrouter:qwen/qwen3.6-35b-a3b",
+  "startedAt": "2026-10-18T15:42:42.492Z",
+  "tests": {
+    "ocr": {
+      "ok": true,
+      "wallSeconds": 0.01,
+      "trials": [
+        {
+          "file": "lecture-clean.png",
+          "seconds": 4.54,
+          "wordRecall": 1,
+          "charErrorRate": 0,
+          "keyFacts": "8/8",
+          "missing": [],
+          "text": "CSC 301 - Lecture 7: Queues\nDate: October 6, 2026\n\n1. A queue is FIFO: the oldest item leaves first.\n2. enqueue(x) and dequeue() both run in O(1).\n3. Aster buffer capacity is 17 slots.\n4. On overflow the device reports ZEPHYR-47.\n5. BFS visits each vertex once: O(V + E).\n\nHomework: problems 4.2, 4.5 and 4.9 due Friday.\nOffice hours: Tuesday 2:30 PM, room B-114."
+        },
+        {
+          "file": "lecture-phone.jpg",
+          "seconds": 7.37,
+          "wordRecall": 1,
+          "charErrorRate": 0,
+          "keyFacts": "8/8",
+          "missing": [],
+          "text": "# CSC 301 - Lecture 7: Queues\nDate: October 6, 2026\n\n1. A queue is FIFO: the oldest item leaves first.\n2. enqueue(x) and dequeue() both run in O(1).\n3. Aster buffer capacity is 17 slots.\n4. On overflow the device reports ZEPHYR-47.\n5. BFS visits each vertex once: O(V + E).\n\nHomework: problems 4.2, 4.5 and 4.9 due Friday.\nOffice hours: Tuesday 2:30 PM, room B-114."
+        }
+      ],
+      "realTrials": [
+        {
+          "file": "20261018_102705.jpg",
+          "seconds": 24.82,
+          "facts": "22/22",
+          "found": 22,
+          "total": 22,
+          "missing": [],
+          "text": "Google Assistant - Combined technologies to provide live\nsemi-instant translation\n\nGame playing\n- overtime\n- chess, checkers, go\nsolved ->\n\"minimax\"\n\nGo conquered in March 2026 by AlphaGo\n- won 4 games to 1 in AGI's favor\n\nMonte Carlo Tree Search <- algorithm to predict best\nmove by predicting opponent next move\n\nFinal/Current Period\n\nERA of Large Language Models 2020-Present\n\nGoogle's 2017 \"Attention is all you need\" introduced transformers\nmatrix arrays allowed for much longer context\nmemory\nJune 2018 - GPT1\nJune 2019 - GPT2 - 1.5 billion parameters\nJune 2020 - GPT3 - 175 billion parameters (100x larger)\nNov 2022 - chatGPT - GPT-3.5\n- chat attached to GPT-3\nMarch 2023 - GPT4 - 500 billion - 1 trillion parameters\nmay 2024 - GPT-4o - GPT4 -> multimodal\n2024 GPT o1\n2025 GPT5 -> 2026: GPT \"astute\"\n2026 Anthropic:\nMythos, Fable, Ops, Sonnet"
+        },
+        {
+          "file": "20261018_102712.jpg",
+          "seconds": 9.87,
+          "facts": "15/15",
+          "found": 15,
+          "total": 15,
+          "missing": [],
+          "text": "Physical Symbol System hypothesis\n- generating intelligent responses\n- manipulated by characters & rules\n- intelligent behavior != intelligence\n\nLLMs are just Stochastic Parrots\n\nnot intentional, no goals\n- just accomplishing goals we provide\n\nStrong AI - AGI system w/ intelligence\nWeak AI - displays intelligence, not real\n\nphilosophy - people are quick to accept new technology\n\nChinese room - guy in box w/ rules to convert english ->\nchinese doesn't actually know chinese\n-> the actual translation wasn't semantic,\nSearle's - chinese room argument"
+        },
+        {
+          "file": "20261018_102715.jpg",
+          "seconds": 27.8,
+          "facts": "20/20",
+          "found": 20,
+          "total": 20,
+          "missing": [],
+          "text": "EX: we're training a perceptron\non the given dataset with a learning rate of 0.22,\nthreshold of $\\theta=3$ and weights (0,1)\n\nTraining set (labeled):\n\nClassification 0: Class 1:\n(Should not fire) (fires)\na) (1,1) e) (3,1)\nb) (1,2) f) (3,2)\nc) (2,1)\nd) (2,4)\n\nGraphically:\n$x_1$ $w_1=0$\n$\\Sigma$ $\\rightarrow$ [Step Func] $\\rightarrow$ $y \\in \\{0, 1\\}$\n$x_2$ $w_2=1$\n\nInputs Plotted\n$x_2$\n$o$ is class 0\n$\\bullet$ is class 1\n$x_1$\n\nConverted to a fixed threshold perceptron:\nInputs in class 0:\n$x_0$ $x_1$ $x_2$\n$\\vec{a} = \\langle 1, 1, 1 \\rangle$ $\\vec{c} = \\langle 1, 2, 1 \\rangle$\n$\\vec{b} = \\langle 1, 1, 2 \\rangle$ $\\vec{d} = \\langle 1, 2, 4 \\rangle$"
+        },
+        {
+          "file": "20261018_102720.jpg",
+          "seconds": 30.39,
+          "facts": "13/13",
+          "found": 13,
+          "total": 13,
+          "missing": [],
+          "text": "Inputs in class 1: | Weights: -$\\theta$\n$\\vec{e} = <1, 3, 1>$ | $\\vec{w} = <-3, 0, 1>$\n$\\vec{f} = <1, 3, 2>$\n\nTraining Process:\n1st set of forward passes:\nfor $\\vec{a}$: $\\vec{a} \\cdot \\vec{w} = <1, 1, 1>$\n$\\cdot <-3, 0, 1>$\n$-3 + 0 + 1 = -2$\n$y = f(\\vec{a}) = 0$ b/c $-2 < 0$\n$\\Rightarrow$ **True Negative** (gave 0, in class 0)\nfor $\\vec{b}$: $\\vec{b} \\cdot \\vec{w} = <1, 1, 2>$\n$\\cdot <-3, 0, 1>$\n$-3 + 0 + 2 = -1 < 0$\n$\\Rightarrow y = f(\\vec{b}) = 0$ b/c $-1 < 0$\n**True Negative**\n\"perception outputs zero, in class zero\"\n(what we ideally want)\nfor $\\vec{c}$: $\\vec{c} \\cdot \\vec{w} = -2 < 0 \\Rightarrow y = f(\\vec{c}) = 0$ **True Neg**\nfor $\\vec{j}$: $\\vec{j} \\cdot \\vec{w} = 1 > 0 \\Rightarrow y = f(\\vec{j}) = 1$\n$\\Rightarrow y$ should be 0\n$\\Rightarrow$ **False Positive**"
+        },
+        {
+          "file": "20261018_102724.jpg",
+          "seconds": 95.74,
+          "facts": "11/11",
+          "found": 11,
+          "total": 11,
+          "missing": [],
+          "text": "for $\\vec{e}$: => [False Negative]\nfor $\\vec{f}$: =>\n\n[diagram: A flowchart showing a sequence of shapes (square, square, circle, diamond, diamond) labeled \"set of forward passes\". Arrows point up to a box \"PLR\". An arrow labeled \"no\" loops back from PLR. An arrow labeled \"end\" points down from PLR. A '0' points to the first square.]\n\nApply the learning rule : \"Perceptron learning rule\"\n\n1) $\\sum \\vec{FN} = \\vec{f} + \\vec{e}$\n= <1, 3, 2> + <1, 3, 1>\n= <2, 6, 3>\nSTEP 1: sum of False Neg\n\n2) $\\sum \\vec{FP} = \\vec{j} = <1, 2, 4>\nSTEP 2: sum of False Pos\n\n3) $\\vec{v} = \\sum \\vec{FN} - \\sum \\vec{FP}$\n= <2, 6, 3> - <1, 2, 4>\n= <2-1, 6-2, 3-4>\n= <1, 4, -1>\n\n4) $\\Delta = \\eta \\cdot \\vec{v}$\nlearning rate * v\n= 0.22 * <1, 4, -1>\n= <0.22, 0.88, -0.22>\n\n5) $\\vec{w}_{new} = \\vec{w}_{old} + \\Delta$\n= <-3, 0, 1> + <0.22, 0.88, -0.22>\n= <-2.78, 0.88, 0.78>"
+        }
+      ],
+      "realFactRecall": 1,
+      "pages": 7,
+      "minWordRecall": 1,
+      "maxCharErrorRate": 0,
+      "calls": 7,
+      "inputTokens": 24514,
+      "outputTokens": 13899,
+      "costUsd": 0.017576
+    }
+  },
+  "errors": [],
+  "costUsd": 0.017576,
+  "finishedAt": "2026-10-18T15:46:03.062Z"
+}

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveOllamaBaseUrl } from "@/src/library/ollamaClient";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
+import { enterAiUser } from "@/src/library/ai/usageScope";
+import { aiCreditGate } from "@/src/library/billing/creditGate";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import { acquireSlot } from "@/src/library/concurrencyLimit";
 import { firestoreCreate, getIdToken } from "@/src/library/firestoreRest";
@@ -30,6 +32,9 @@ export async function POST(request: NextRequest) {
     const auth = await verifyRequestAuth(request);
     const idToken = getIdToken(request);
     if (!auth || !idToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    enterAiUser(auth.uid);
+    const outOfCredit = await aiCreditGate(auth.uid);
+    if (outOfCredit) return outOfCredit;
 
     const limit = checkRateLimit(`custom-generate:${auth.uid}`, RATE_WINDOW_MS, RATE_MAX);
     if (!limit.allowed) {

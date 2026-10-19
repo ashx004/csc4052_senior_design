@@ -18,6 +18,7 @@ import profileSteps from "@/src/library/tutorials/steps/profile";
 
 import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
+import { submitOnEnter } from "@/src/library/submitOnEnter";
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -53,6 +54,7 @@ interface ProfileFieldProps {
   isEditing: boolean;
   placeholder: string;
   onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  onEnter?: () => void;
 }
 
 function ProfileField({
@@ -62,6 +64,7 @@ function ProfileField({
   isEditing,
   placeholder,
   onChange,
+  onEnter,
 }: ProfileFieldProps) {
   return (
     <div>
@@ -76,6 +79,7 @@ function ProfileField({
           type="text"
           value={value}
           onChange={onChange}
+          onKeyDown={onEnter ? submitOnEnter(onEnter) : undefined}
           placeholder={placeholder}
           className="
             mt-1 w-full rounded-md
@@ -617,6 +621,7 @@ export default function Profile() {
                 value={profile.studentId}
                 isEditing={isEditingProfile}
                 onChange={handleProfileChange}
+                onEnter={profileSaving ? undefined : handleSaveProfile}
                 placeholder="Enter your student ID"
               />
 
@@ -626,6 +631,7 @@ export default function Profile() {
                 value={profile.major}
                 isEditing={isEditingProfile}
                 onChange={handleProfileChange}
+                onEnter={profileSaving ? undefined : handleSaveProfile}
                 placeholder="Enter your major"
               />
 
@@ -635,6 +641,7 @@ export default function Profile() {
                 value={profile.expectedGraduation}
                 isEditing={isEditingProfile}
                 onChange={handleProfileChange}
+                onEnter={profileSaving ? undefined : handleSaveProfile}
                 placeholder="Example: December 2026"
               />
 
@@ -644,6 +651,7 @@ export default function Profile() {
                 value={profile.status}
                 isEditing={isEditingProfile}
                 onChange={handleProfileChange}
+                onEnter={profileSaving ? undefined : handleSaveProfile}
                 placeholder="Example: Senior"
               />
             </div>

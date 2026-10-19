@@ -26,6 +26,7 @@ const COLLECTION = "catalyst_chunks";
 // (typically well under a second on the LAN) since this is a genuine
 // timeout, not a performance target.
 const QDRANT_TIMEOUT_MS = 10_000;
+const UPSERT_BATCH = 128;
 
 // Qdrant only accepts an unsigned integer or a UUID as a point ID — not an
 // arbitrary string like a Firestore resourceId (confirmed live: it 400s
@@ -185,21 +186,25 @@ export async function upsertChunks(points: ChunkPoint[]): Promise<void> {
   // The reachability probes in baseUrl() can take a few seconds when the LAN
   // address is down; they must not eat into the request's own time limit.
   const base = await baseUrl();
-  const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS, "Qdrant upsert");
-  try {
-    const response = await fetch(`${base}/collections/${COLLECTION}/points`, {
-      method: "PUT",
-      headers: headers(),
-      body: JSON.stringify({ points }),
-      signal,
-    });
+  // In batches, each with its own time limit: a textbook's ~1,000 vectors in
+  // one request is several megabytes and can outlast QDRANT_TIMEOUT_MS.
+  for (let i = 0; i < points.length; i += UPSERT_BATCH) {
+    const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS, "Qdrant upsert");
+    try {
+      const response = await fetch(`${base}/collections/${COLLECTION}/points`, {
+        method: "PUT",
+        headers: headers(),
+        body: JSON.stringify({ points: points.slice(i, i + UPSERT_BATCH) }),
+        signal,
+      });
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      throw new Error(`Qdrant upsert failed (${response.status}): ${text}`);
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new Error(`Qdrant upsert failed (${response.status}): ${text}`);
+      }
+    } finally {
+      cancel();
     }
-  } finally {
-    cancel();
   }
 }
 

@@ -27,13 +27,22 @@ function requestText(text: string): string {
 
 type Message = { role: string; content: unknown };
 
-/** Did the student ask for this kind of change (or just confirm it)? */
-export function studentRequested(kind: ConsentKind, messages: Message[]): boolean {
+// "His office moved to NETH 240", "we meet at 2 now": a student reporting
+// that a fact changed. Only accepted where the change is shown on a Confirm
+// card before anything is saved (class details), never for notes or deletes.
+const CHANGE_REPORT = /\b(moved|changed|switched|is now|are now|now (?:is|are|meets?|at|in)|has (?:a )?new|got (?:a )?new|no longer)\b/i;
+
+/**
+ * Did the student ask for this kind of change (or just confirm it)?
+ * `acceptChangeReports`: treat "X moved to Y" as a request too (see CHANGE_REPORT).
+ */
+export function studentRequested(kind: ConsentKind, messages: Message[], options: { acceptChangeReports?: boolean } = {}): boolean {
   const users = messages.filter((m) => m.role === "user" && typeof m.content === "string");
   const latest = requestText((users[users.length - 1]?.content as string | undefined) ?? "");
   const words = kind === "delete" ? DELETE_WORDS : kind === "create" ? CREATE_WORDS : EDIT_WORDS;
   if (NEGATION.test(latest) || INFORMATION_REQUEST.test(latest) || SPECULATION.test(latest)) return false;
   if (words.test(latest)) return true;
+  if (kind === "edit" && options.acceptChangeReports && CHANGE_REPORT.test(latest)) return true;
 
   // "yes" to the assistant's own "Should I delete ...?" counts - but only if
   // that question and the request before it were about this kind of change.

@@ -1,0 +1,247 @@
+{
+  "model": "groq:openai/gpt-oss-120b",
+  "startedAt": "2026-10-18T13:34:46.261Z",
+  "tests": {
+    "hallucination": {
+      "ok": false,
+      "wallSeconds": 27.27,
+      "error": "Ollama 400: {\"message\":\"Tool choice is none, but model called a tool\",\"type\":\"invalid_request_error\",\"code\":\"tool_use_failed\",\"failed_generation\":\"{\\\"name\\\": \\\"web_search\\\", \\\"arguments\\\": {\\\"query\\\": \\\"2025 Northbridge Isotope Learning Study Dr. Elian Voss\\\", \\\"scholarly\\\": true}}\"}",
+      "calls": 2,
+      "inputTokens": 2599,
+      "outputTokens": 119,
+      "costUsd": 0.000461
+    },
+    "toolCalling": {
+      "ok": true,
+      "wallSeconds": 0,
+      "passed": 3,
+      "total": 3,
+      "trials": [
+        {
+          "prompt": "Create a note titled Queue recap with one bullet saying FIFO removes the oldest item.",
+          "expected": "create_note",
+          "actual": "create_note",
+          "arguments": {
+            "courseId": "csc301",
+            "markdown": "- FIFO removes the oldest item.",
+            "title": "Queue recap"
+          },
+          "pass": true,
+          "tokensPerSecond": 6.06,
+          "wallSeconds": 22.933058192022145,
+          "content": ""
+        },
+        {
+          "prompt": "Add Queue review to my calendar on October 6, 2026 from 2 PM to 3 PM.",
+          "expected": "create_calendar_event",
+          "actual": "create_calendar_event",
+          "arguments": {
+            "endTime": "2026-10-06T15:00:00-05:00",
+            "startTime": "2026-10-06T14:00:00-05:00",
+            "title": "Queue review"
+          },
+          "pass": true,
+          "tokensPerSecond": 10.42,
+          "wallSeconds": 22.172240074025467,
+          "content": ""
+        },
+        {
+          "prompt": "Do not delete my Queue recap note. Just tell me what FIFO means.",
+          "expected": null,
+          "actual": null,
+          "arguments": null,
+          "pass": true,
+          "tokensPerSecond": 101.65,
+          "wallSeconds": 3.2190718130441383,
+          "content": "**FIFO (First‑In, First‑Out)** is a queue‑management principle where the very first element added to the queue is the first one to be removed.  \n\n- **How it works:**  \n  1. **Enqueue** – New items are placed at the back (tail) of the queue.  \n  2. **Dequeue** – Items are taken from the front (head) of the queue.  \n\n- **Why it matters:**  \n  - Guarantees that earlier arrivals are served before later ones, which is essential for fairness in many systems (e.g., printer jobs, CPU scheduling, network packets).  \n  - Keeps the order of processing predictable and avoids starvation of early items.  \n\nIn contrast, a **LIFO** (Last‑In, First‑Out) structure, like a stack, removes the most recently added element first.  \n\nIf you’d like to see how FIFO is implemented in a specific language or need a quick example, just let me know!"
+        }
+      ],
+      "calls": 3,
+      "inputTokens": 8172,
+      "outputTokens": 697,
+      "costUsd": 0.001644
+    },
+    "flashcards": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 9.98,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "FIFO",
+        "O(1)",
+        "O(V + E)"
+      ],
+      "topicName": "Queue and Data Structure Fundamentals",
+      "sample": [
+        {
+          "question": "What ordering principle does a queue follow?",
+          "answer": "A queue follows first in, first out (FIFO) ordering.",
+          "sourceQuote": "A queue follows first in, first out (FIFO) ordering."
+        },
+        {
+          "question": "What happens when the Aster queue is full and an enqueue is attempted?",
+          "answer": "The enqueue rejects the new item and preserves all existing items.",
+          "sourceQuote": "When the Aster queue is full, enqueue rejects the new item and preserves all existing items."
+        },
+        {
+          "question": "What sentinel value is returned when dequeuing from an empty queue?",
+          "answer": "The sentinel EMPTY is returned.",
+          "sourceQuote": "When it is empty, dequeue returns the sentinel EMPTY."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 1064,
+      "outputTokens": 692,
+      "costUsd": 0.000575
+    },
+    "quiz": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 17.29,
+      "count": 10,
+      "unique": 10,
+      "keyFacts": [
+        "17",
+        "FIFO",
+        "O(1)"
+      ],
+      "topicName": "Queue and Data Structure Fundamentals",
+      "sample": [
+        {
+          "id": "8733c7ef-ab4a-47c7-b5dc-52ad9810089b",
+          "type": "multiple_choice",
+          "question": "What ordering principle does a queue follow?",
+          "options": [
+            "Random access ordering",
+            "First in, first out (FIFO)",
+            "Priority based ordering",
+            "Last in, first out (LIFO)"
+          ],
+          "correctAnswer": "First in, first out (FIFO)",
+          "bloomLevel": "remember",
+          "concept": "Queue ordering principle",
+          "explanation": "The document states that a queue follows first in, first out (FIFO) ordering, making that the correct choice. The option LIFO describes a stack, not a queue.",
+          "sourceQuote": "A queue follows first in, first out (FIFO) ordering."
+        },
+        {
+          "id": "f3b00ac8-e907-4fa5-a4bd-332688930ff4",
+          "type": "multiple_choice",
+          "question": "How many items can the Aster queue hold?",
+          "options": [
+            "32 items",
+            "64 items",
+            "17 items",
+            "Unlimited items"
+          ],
+          "correctAnswer": "17 items",
+          "bloomLevel": "remember",
+          "concept": "Aster queue capacity",
+          "explanation": "The text specifies that the Aster queue holds exactly 17 items. The other numbers are not mentioned for this queue.",
+          "sourceQuote": "In our fictional lab implementation, the Aster queue holds exactly 17 items."
+        },
+        {
+          "id": "6cea6816-97d7-4a1a-a719-38c696d41050",
+          "type": "multiple_choice",
+          "question": "What does the peek operation do in a queue?",
+          "options": [
+            "Counts the number of items in the queue",
+            "Returns the front item without removing it",
+            "Adds a new item to the rear",
+            "Removes the front item permanently"
+          ],
+          "correctAnswer": "Returns the front item without removing it",
+          "bloomLevel": "understand",
+          "concept": "Peek operation purpose",
+          "explanation": "The document defines peek as inspecting the front item without removing it, which matches the first option. Removing the front item describes dequeue, not peek.",
+          "sourceQuote": "Inspecting the front item without removing it is called peek, also O(1)."
+        }
+      ],
+      "calls": 1,
+      "inputTokens": 1416,
+      "outputTokens": 1761,
+      "costUsd": 0.001269
+    },
+    "advising": {
+      "ok": true,
+      "wallSeconds": 0,
+      "generationSeconds": 20.98,
+      "valid": true,
+      "invented": [],
+      "unavailable": [],
+      "overloads": [],
+      "prerequisiteOk": true,
+      "schedule": {
+        "terms": [
+          {
+            "term": "Fall",
+            "year": 2026,
+            "courses": [
+              {
+                "courseCode": "CSC 310",
+                "courseTitle": "Algorithms",
+                "creditHours": 3,
+                "requirementId": "r310"
+              },
+              {
+                "courseCode": "MAT 210",
+                "courseTitle": "Discrete Math",
+                "creditHours": 3,
+                "requirementId": "rmat"
+              }
+            ]
+          },
+          {
+            "term": "Winter",
+            "year": 2027,
+            "courses": [
+              {
+                "courseCode": "CSC 320",
+                "courseTitle": "Operating Systems",
+                "creditHours": 3,
+                "requirementId": "r320"
+              }
+            ]
+          }
+        ],
+        "warnings": [
+          "CSC 450 cannot be scheduled: not offered in any future term."
+        ]
+      },
+      "calls": 1,
+      "inputTokens": 1771,
+      "outputTokens": 578,
+      "costUsd": 0.000612
+    },
+    "parallelThroughput": {
+      "ok": true,
+      "wallSeconds": 22.78,
+      "outputTokens": 960,
+      "aggregateTokensPerSecond": 42.14,
+      "individualTokensPerSecond": [
+        61.24,
+        14.63,
+        10.54,
+        23.34
+      ],
+      "calls": 4,
+      "inputTokens": 2384,
+      "costUsd": 0.000934
+    },
+    "ocr": {
+      "ok": false,
+      "wallSeconds": 0.22,
+      "error": "OCR request failed (400): {\"error\":\"{\\\"message\\\":\\\"messages[1].content must be a string\\\",\\\"type\\\":\\\"invalid_request_error\\\",\\\"param\\\":\\\"messages[1].content\\\"}\"}",
+      "calls": 1,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "costUsd": 0
+    }
+  },
+  "errors": [
+    "hallucination: Ollama 400: {\"message\":\"Tool choice is none, but model called a tool\",\"type\":\"invalid_request_error\",\"code\":\"tool_use_failed\",\"failed_generation\":\"{\\\"name\\\": \\\"web_search\\\", \\\"arguments\\\": {\\\"query\\\": \\\"2025 Northbridge Isotope Learning Study Dr. Elian Voss\\\", \\\"scholarly\\\": true}}\"}",
+    "ocr: OCR request failed (400): {\"error\":\"{\\\"message\\\":\\\"messages[1].content must be a string\\\",\\\"type\\\":\\\"invalid_request_error\\\",\\\"param\\\":\\\"messages[1].content\\\"}\"}"
+  ],
+  "costUsd": 0.005495,
+  "finishedAt": "2026-10-18T13:37:13.115Z"
+}

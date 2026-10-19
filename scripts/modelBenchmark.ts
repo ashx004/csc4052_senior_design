@@ -3,12 +3,19 @@
  *
  * The parent process runs each model in a fresh child so model-dependent
  * module constants (notably advising) use the intended candidate.
+ *
+ * Hosted models: BENCHMARK_CLOUD=1 BENCHMARK_MODELS="openrouter:z-ai/glm-4.7-flash,..."
+ * routes every call through scripts/cloudOllamaShim.ts, which enforces
+ * BENCH_BUDGET_USD (default 20) across all runs and BENCH_MODEL_BUDGET_USD
+ * (default 3) per model, and records cost per test.
  */
-import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const MODELS = [
+const CLOUD = process.env.BENCHMARK_CLOUD === "1";
+const SPEND_LEDGER = "scripts/cloud-benchmark-spend.jsonl";
+const MODELS = process.env.BENCHMARK_MODELS ? process.env.BENCHMARK_MODELS.split(",").map((m) => m.trim()).filter(Boolean) : [
   "qwen3:30b-a3b",
   "glm-4.7-flash:Q4_K_M",
   "gemma4:26b",
@@ -20,6 +27,33 @@ const now = () => Number(process.hrtime.bigint()) / 1e9;
 
 function safeName(model: string) { return model.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase(); }
 function errText(error: unknown) { return error instanceof Error ? error.message : String(error); }
+// OCR scoring ignores case, markdown and spacing; the content is what counts.
+function normalizeOcr(text: string) { return text.toLowerCase().replace(/[*_#`>|]/g, "").replace(/\s+/g, " ").trim(); }
+// Fact matching for handwritten math: spacing, LaTeX and Unicode variants of
+// the same symbol (⟨ \langle <, ≠ \neq !=, θ \theta, ₁ _1) all compare equal.
+function normalizeOcrCompact(text: string) {
+  return text.normalize("NFKC").toLowerCase()
+    .replace(/\\left|\\right|\\vec|\\mathbf|\\text|\\mathrm|\\overrightarrow/g, "")
+    .replace(/\\langle|⟨|〈/g, "<").replace(/\\rangle|⟩|〉/g, ">")
+    .replace(/\\neq?\b|≠/g, "!=").replace(/\\theta|theta/g, "θ").replace(/\\in\b/g, "∈")
+    .replace(/[–—−]/g, "-").replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
+    .replace(/[\\$*_#`^]/g, "").replace(/\s+/g, "");
+}
+function wordRecall(truth: string, text: string) {
+  const got = new Set(normalizeOcr(text).split(" "));
+  const want = normalizeOcr(truth).split(" ");
+  return Number((want.filter((w) => got.has(w)).length / want.length).toFixed(3));
+}
+function charErrorRate(truth: string, text: string) {
+  const a = normalizeOcr(truth), b = normalizeOcr(text);
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j++) row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = row;
+  }
+  return Number((prev[b.length] / a.length).toFixed(3));
+}
 function docker(...args: string[]) { return execFileSync("docker", args, { encoding: "utf8" }).trim(); }
 
 async function ollamaChat(baseUrl: string, model: string, body: Record<string, unknown>) {
@@ -51,6 +85,7 @@ async function runWorker(model: string) {
   process.env.OLLAMA_THINK_QUIZ = "off";
   process.env.OLLAMA_THINK_FLASHCARDS = "off";
   process.env.ADVISING_THINK_MODE = "omit";
+  if (CLOUD) process.env.OLLAMA_MODEL_OCR = model;
 
   const [{ resolveOllamaBaseUrl }, { buildSystemPrompt }, { generateFlashcardsWithRetry }, { generateQuizWithValidation }, { generateScheduleWithOllama }, { generatedAdvisingScheduleSchema }] = await Promise.all([
     import("../src/library/ollamaClient"), import("../src/library/systemPrompt"), import("../src/library/flashcardGeneration"),
@@ -58,10 +93,15 @@ async function runWorker(model: string) {
   ]);
   const baseUrl = await resolveOllamaBaseUrl(process.env.OLLAMA_PRIMARY_URL!, process.env.OLLAMA_PRIMARY_FALLBACK_URL);
   const result: any = { model, startedAt: new Date().toISOString(), tests: {}, errors: [] };
+  const onlyTests = process.env.BENCHMARK_TESTS?.split(",").map((t) => t.trim()).filter(Boolean);
+  const spend = async () => CLOUD ? (await fetch(`${baseUrl}/_bench/spend?model=${encodeURIComponent(model)}`)).json() as Promise<any> : null;
   const capture = async (name: string, fn: () => Promise<unknown>) => {
-    const started = now();
+    if (onlyTests && !onlyTests.includes(name)) return;
+    const started = now(), before = await spend();
     try { result.tests[name] = { ok: true, wallSeconds: Number((now() - started).toFixed(2)), ...(await fn() as object) }; }
     catch (error) { result.tests[name] = { ok: false, wallSeconds: Number((now() - started).toFixed(2)), error: errText(error) }; result.errors.push(`${name}: ${errText(error)}`); }
+    const after = await spend();
+    if (before && after) Object.assign(result.tests[name], { calls: after.calls - before.calls, inputTokens: after.inputTokens - before.inputTokens, outputTokens: after.outputTokens - before.outputTokens, costUsd: Number((after.modelUsd - before.modelUsd).toFixed(6)) });
   };
 
   const context = { userId: "model-eval", email: "student@example.invalid", name: "Jordan", college: "Synthetic Test College", timeZone: "America/Chicago", classes: [{ classId: "csc301", classCode: "CSC 301", className: "Data Structures", term: "Fall 2026", facultyName: "Dr. Rowan Vale", facultyEmail: "", facultyPhoneNumber: "", facultyOfficeNumber: "", documents: [{ resourceId: "queue", name: "Queue Lab.txt", fileType: "txt", category: "notes", url: "/fixture" }] }] };
@@ -148,8 +188,43 @@ async function runWorker(model: string) {
     return { wallSeconds: Number(wall.toFixed(2)), outputTokens: tokens, aggregateTokensPerSecond: Number((tokens / wall).toFixed(2)), individualTokensPerSecond: runs.map(x => x.tokensPerSecond) };
   });
 
-  try { result.ollamaPs = docker("exec", "ollama-primary", "ollama", "ps"); } catch (e) { result.ollamaPs = errText(e); }
-  try { result.gpus = docker("exec", "ollama-primary", "nvidia-smi", "--query-gpu=index,name,memory.total,memory.used", "--format=csv,noheader"); } catch (e) { result.gpus = errText(e); }
+  // Real ocrImage() against synthetic fixtures with exact ground truth
+  // (scripts/fixtures/ocr/generate.py). Cloud mode points Secondary at the
+  // candidate; locally it uses whatever OLLAMA_MODEL_OCR Secondary runs.
+  await capture("ocr", async () => {
+    const { ocrImage } = await import("../src/library/ocrClient");
+    const truth = readFileSync(new URL("./fixtures/ocr/lecture.txt", import.meta.url), "utf8");
+    const keyFacts = ["17", "ZEPHYR-47", "O(1)", "O(V + E)", "B-114", "2:30", "4.9", "October 6, 2026"];
+    const trials = [];
+    for (const file of ["lecture-clean.png", "lecture-phone.jpg"]) {
+      const started = now();
+      const text = await ocrImage(readFileSync(new URL(`./fixtures/ocr/${file}`, import.meta.url)));
+      const found = keyFacts.filter((f) => normalizeOcr(text).includes(normalizeOcr(f)));
+      trials.push({ file, seconds: Number((now() - started).toFixed(2)), wordRecall: wordRecall(truth, text), charErrorRate: charErrorRate(truth, text), keyFacts: `${found.length}/${keyFacts.length}`, missing: keyFacts.filter((f) => !found.includes(f)), text });
+    }
+    // Real handwritten pages (kept out of git): scored on facts as written, see real/facts.json.
+    const realDir = new URL("./fixtures/ocr/real/", import.meta.url);
+    const facts: Record<string, string[]> = existsSync(new URL("facts.json", realDir)) ? JSON.parse(readFileSync(new URL("facts.json", realDir), "utf8")) : {};
+    const realTrials = [];
+    for (const [file, expected] of Object.entries(facts)) {
+      if (file.startsWith("_") || !existsSync(new URL(file, realDir))) continue;
+      const started = now();
+      // A page that times out or loops scores zero but doesn't hide the other pages.
+      let text = "", error: string | undefined;
+      try { text = await ocrImage(readFileSync(new URL(file, realDir))); } catch (e) { error = errText(e); }
+      const compact = normalizeOcrCompact(text);
+      const missing = expected.filter((f) => !compact.includes(normalizeOcrCompact(f)));
+      realTrials.push({ file, seconds: Number((now() - started).toFixed(2)), facts: `${expected.length - missing.length}/${expected.length}`, found: expected.length - missing.length, total: expected.length, missing, error, text });
+    }
+    const realFound = realTrials.reduce((n, t) => n + t.found, 0), realTotal = realTrials.reduce((n, t) => n + t.total, 0);
+    return { trials, realTrials, realFactRecall: realTotal ? Number((realFound / realTotal).toFixed(3)) : null, pages: trials.length + realTrials.length, minWordRecall: Math.min(...trials.map((t) => t.wordRecall)), maxCharErrorRate: Math.max(...trials.map((t) => t.charErrorRate)) };
+  });
+
+  if (!CLOUD) {
+    try { result.ollamaPs = docker("exec", "ollama-primary", "ollama", "ps"); } catch (e) { result.ollamaPs = errText(e); }
+    try { result.gpus = docker("exec", "ollama-primary", "nvidia-smi", "--query-gpu=index,name,memory.total,memory.used", "--format=csv,noheader"); } catch (e) { result.gpus = errText(e); }
+  }
+  result.costUsd = Number(Object.values(result.tests).reduce((n: number, t: any) => n + (t.costUsd || 0), 0).toFixed(6));
   result.finishedAt = new Date().toISOString();
   return result;
 }
@@ -165,20 +240,41 @@ async function main() {
   }
   const script = fileURLToPath(import.meta.url);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const outDir = `scripts/model-benchmark-${stamp}`;
+  const outDir = `scripts/${CLOUD ? "cloud-benchmark" : "model-benchmark"}-${stamp}`;
   mkdirSync(outDir, { recursive: true });
+  const shim = CLOUD ? await (await import("./cloudOllamaShim")).startCloudShim({
+    ledgerPath: SPEND_LEDGER,
+    budgetUsd: Number(process.env.BENCH_BUDGET_USD || 20),
+    perModelBudgetUsd: Number(process.env.BENCH_MODEL_BUDGET_USD || 3),
+  }) : null;
   const results = [];
   for (const model of MODELS) {
     console.log(`\n=== ${model} ===`);
-    try { docker("exec", "ollama-primary", "ollama", "stop", model); } catch {}
+    if (!CLOUD) try { docker("exec", "ollama-primary", "ollama", "stop", model); } catch {}
     const output = `${outDir}/${safeName(model)}.json`;
-    const child = spawnSync(process.execPath, ["--env-file=.env", "--import", "tsx", script, "--worker", model, output], { stdio: "inherit", env: { ...process.env, MODEL_BENCHMARK: "1" }, timeout: 1_800_000 });
-    if (child.status !== 0) console.error(`${model} worker exited ${child.status}`);
+    // --env-file never overrides variables already set, so the shim URL wins over .env.
+    const env = { ...process.env, MODEL_BENCHMARK: "1", ...(shim ? { OLLAMA_PRIMARY_URL: shim.url, OLLAMA_PRIMARY_FALLBACK_URL: "", OLLAMA_SECONDARY_URL: shim.url, OLLAMA_SECONDARY_FALLBACK_URL: "" } : {}) };
+    // Async spawn: the shim serves the child from this same process, so spawnSync would deadlock.
+    const status = await new Promise<number | null>((resolve) => {
+      const child = spawn(process.execPath, ["--env-file=.env", "--import", "tsx", script, "--worker", model, output], { stdio: "inherit", env });
+      const timer = setTimeout(() => child.kill(), 1_800_000);
+      child.on("exit", (code) => { clearTimeout(timer); resolve(code); });
+    });
+    if (status !== 0) console.error(`${model} worker exited ${status}`);
     try { results.push(JSON.parse(readFileSync(output, "utf8"))); } catch (e) { results.push({ model, fatalError: errText(e) }); }
   }
-  const summary = results.map((r: any) => ({ model: r.model, hallucination: r.tests?.hallucination ? `${r.tests.hallucination.passed}/${r.tests.hallucination.total}` : "FAIL", tools: r.tests?.toolCalling ? `${r.tests.toolCalling.passed}/${r.tests.toolCalling.total}` : "FAIL", flashcardsSeconds: r.tests?.flashcards?.generationSeconds ?? null, quizSeconds: r.tests?.quiz?.generationSeconds ?? null, advisingValid: r.tests?.advising?.valid ?? false, advisingSeconds: r.tests?.advising?.generationSeconds ?? null, parallelTokensPerSecond: r.tests?.parallelThroughput?.aggregateTokensPerSecond ?? null, errors: r.errors?.length ?? 1 }));
+  shim?.close();
+  const perThousand = (t: any) => typeof t?.costUsd === "number" ? Number((t.costUsd * 1000).toFixed(2)) : null;
+  // "—" is a test BENCHMARK_TESTS skipped; "FAIL" is one that ran and threw, or a worker that died.
+  const score = (r: any, t: any) => !r.tests ? "FAIL" : !t ? "—" : t.ok ? `${t.passed}/${t.total}` : "FAIL";
+  const summary = results.map((r: any) => ({ model: r.model, hallucination: score(r, r.tests?.hallucination), tools: score(r, r.tests?.toolCalling), flashcardsSeconds: r.tests?.flashcards?.generationSeconds ?? null, quizSeconds: r.tests?.quiz?.generationSeconds ?? null, advisingValid: r.tests?.advising?.valid ?? false, advisingSeconds: r.tests?.advising?.generationSeconds ?? null, parallelTokensPerSecond: r.tests?.parallelThroughput?.aggregateTokensPerSecond ?? null, ocrWordRecall: r.tests?.ocr?.minWordRecall ?? null, ocrCharErrorRate: r.tests?.ocr?.maxCharErrorRate ?? null, ocrHandwritingFacts: r.tests?.ocr?.realFactRecall ?? null, errors: r.errors?.length ?? 1,
+    ...(CLOUD ? { runCostUsd: r.costUsd ?? null, per1000ChatTurns: perThousand(r.tests?.hallucination && { costUsd: r.tests.hallucination.costUsd / (r.tests.hallucination.calls || 1) }), per1000FlashcardSets: perThousand(r.tests?.flashcards), per1000Quizzes: perThousand(r.tests?.quiz), per1000AdvisingPlans: perThousand(r.tests?.advising), per1000OcrPages: perThousand(r.tests?.ocr && { costUsd: r.tests.ocr.costUsd / (r.tests.ocr.pages || 2) }) } : {}) }));
   writeFileSync(`${outDir}/summary.json`, JSON.stringify({ generatedAt: new Date().toISOString(), context: 16384, parallel: 4, results: summary }, null, 2));
-  writeFileSync(`${outDir}/README.md`, `# Catalyst model benchmark\n\nGenerated ${new Date().toISOString()} against Ollama with 16,384-token context and four parallel slots.\n\n| Model | Hallucination | Tools | Flashcards s | Quiz s | Advising valid | Advising s | Parallel tok/s | Errors |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|\n${summary.map((r: any) => `| ${r.model} | ${r.hallucination} | ${r.tools} | ${r.flashcardsSeconds ?? "—"} | ${r.quizSeconds ?? "—"} | ${r.advisingValid ? "yes" : "no"} | ${r.advisingSeconds ?? "—"} | ${r.parallelTokensPerSecond ?? "—"} | ${r.errors} |`).join("\n")}\n`);
+  const columns: [string, string][] = [["model", "Model"], ["hallucination", "Hallucination"], ["tools", "Tools"], ["flashcardsSeconds", "Flashcards s"], ["quizSeconds", "Quiz s"], ["advisingValid", "Advising valid"], ["advisingSeconds", "Advising s"], ["parallelTokensPerSecond", "Parallel tok/s"], ["ocrWordRecall", "OCR word recall"], ["ocrCharErrorRate", "OCR CER"], ["ocrHandwritingFacts", "Handwriting facts"], ["errors", "Errors"],
+    ...(CLOUD ? [["runCostUsd", "Run $"], ["per1000ChatTurns", "$/1k chat turns"], ["per1000FlashcardSets", "$/1k flashcard sets"], ["per1000Quizzes", "$/1k quizzes"], ["per1000AdvisingPlans", "$/1k advising plans"], ["per1000OcrPages", "$/1k OCR pages"]] as [string, string][] : [])];
+  const cell = (v: unknown) => v === true ? "yes" : v === false ? "no" : v ?? "—";
+  const target = CLOUD ? "hosted providers through scripts/cloudOllamaShim.ts (tok/s is end-to-end wall time, including network)" : "Ollama with 16,384-token context and four parallel slots";
+  writeFileSync(`${outDir}/README.md`, `# Catalyst model benchmark\n\nGenerated ${new Date().toISOString()} against ${target}.\n\n| ${columns.map(c => c[1]).join(" | ")} |\n|---|${columns.slice(1).map(() => "---:").join("|")}|\n${summary.map((r: any) => `| ${columns.map(([k]) => cell(r[k])).join(" | ")} |`).join("\n")}\n`);
   console.table(summary);
   console.log(`Reports: ${outDir}`);
 }

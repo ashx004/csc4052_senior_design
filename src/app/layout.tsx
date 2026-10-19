@@ -1,14 +1,17 @@
 import { AnalyticsProvider } from "@/src/context/AnalyticsContext";
 import PageTracker from "@/src/components/analytics/PageTracker";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./global.css";
 import { AuthProvider } from "@/src/context/AuthContext";
+import { BillingProvider } from "@/src/context/BillingContext";
+import TermsGate from "@/src/components/billing/TermsGate";
 import { StudyPlanProvider } from "@/src/context/StudyPlanContext";
 import { TutorialProvider } from "@/src/context/TutorialContext";
 import FocusCard from "@/src/components/studyPlan/FocusCard";
 import NotificationToast from "@/src/components/studyPlan/NotificationToast";
 import ThemeInitializer from "@/src/components/ThemeInitializer";
+import AppUpdates from "@/src/components/AppUpdates";
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -18,6 +21,16 @@ const jakarta = Plus_Jakarta_Sans({
 
 export const metadata: Metadata = {
   title: "Catalyst",
+  // "Add to Home Screen" on iPhone opens full-screen with this name and icon.
+  appleWebApp: { capable: true, title: "Catalyst", statusBarStyle: "default" },
+  icons: { apple: "/app-icons/apple-touch-icon.png" },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#FAFAF8" },
+    { media: "(prefers-color-scheme: dark)", color: "#14161a" },
+  ],
 };
 
 export default function RootLayout({
@@ -27,7 +40,7 @@ export default function RootLayout({
     <html lang="en" className={jakarta.variable} suppressHydrationWarning>
       <body
         className="
-          min-h-screen
+          min-h-dvh
           bg-bg-main
           text-text-main
           antialiased
@@ -36,6 +49,7 @@ export default function RootLayout({
         "
       >
         <ThemeInitializer />
+        <AppUpdates />
 
         <AuthProvider>
           <AnalyticsProvider>
@@ -52,7 +66,12 @@ export default function RootLayout({
               {/* Mounted once at the root (not per-layout) so a user's
                 tutorial progress survives navigating between the dashboard
                 and course route groups without refetching. */}
-              <TutorialProvider>{children}</TutorialProvider>
+              {/* Balance, the add-credit window and the terms prompt follow
+                the student onto every page, course pages included. */}
+              <BillingProvider>
+                <TermsGate />
+                <TutorialProvider>{children}</TutorialProvider>
+              </BillingProvider>
             </StudyPlanProvider>
           </AnalyticsProvider>
         </AuthProvider>

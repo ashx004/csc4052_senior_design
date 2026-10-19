@@ -29,9 +29,15 @@ export const chatRequestSchema = z.object({
   // The side panel's conversations are temporary: don't save them as chat sessions.
   ephemeral: z.boolean().optional(),
   runId: z.string().regex(RUN_ID_PATTERN).optional(),
+  // The student's Fast / Balanced / Thorough setting (chatSpeed.ts).
+  speed: z.enum(["fast", "balanced", "thorough"]).optional(),
+  // /compact: summarize the conversation now instead of answering. The
+  // messages are the conversation so far, which may end on a reply.
+  compactOnly: z.boolean().optional(),
   pendingActionIds: z.array(z.string().regex(/^[A-Za-z0-9]{1,64}$/)).max(50).optional(),
 }).superRefine((body, ctx) => {
   const last = body.messages.at(-1);
+  if (body.compactOnly) return;
   if (last?.role !== "user" || !last.content.trim() || last.content.length > 4000) {
     ctx.addIssue({ code: "custom", path: ["messages"], message: "End with a nonempty user message of at most 4,000 characters." });
   }
