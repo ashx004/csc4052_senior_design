@@ -29,6 +29,7 @@ import { notifyDataChanged } from "@/src/library/dataChanged";
 import { useChatCommands } from "@/src/hooks/useChatCommands";
 import { ChatNotice, MemoryAndCost, SlashMenu, SpeedPicker } from "./ChatControls";
 import { memoryFill } from "@/src/library/chatCompactionLimits";
+import { useChatBubbleSpace } from "@/src/hooks/useChatBubbleSpace";
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -734,6 +735,7 @@ type LauncherProps = {
 };
 
 export function CatalystLauncher({ onClick, visible, buttonRef }: LauncherProps) {
+  useChatBubbleSpace(visible);
   if (!visible) return null;
 
   return createPortal(
