@@ -26,6 +26,10 @@ and nothing else. We do not add a markup.
   the rest.
 - **When your balance runs out,** AI features pause until you add credits. Everything
   else keeps working: notes, calendar, saved study sets and exports.
+- **Free trial credit.** New accounts with a verified email address get a small
+  free credit (currently $0.25) to try the AI features. It is limited to one per
+  person and email address, may end at any time, and cannot be refunded or
+  exchanged for cash.
 - **Minimum and maximum.** Top-ups start at $5. To limit how much money
   sits unused near the end of service, a balance cannot go above $20.
 
