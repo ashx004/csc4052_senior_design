@@ -394,7 +394,7 @@ export default function QuickActions({
         </div>
       )}
 
-      <div className="no-scrollbar flex gap-2 overflow-x-auto px-1 pb-1 sm:flex-wrap sm:overflow-visible" role="toolbar" aria-label="Quick actions" data-tutorial="ai-quick-actions">
+      <div className="flex flex-wrap gap-2 px-1 pb-1" role="toolbar" aria-label="Quick actions" data-tutorial="ai-quick-actions">
         {ACTIONS.map((a) => (
           <button
             key={a.id}
