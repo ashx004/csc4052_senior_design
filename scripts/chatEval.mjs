@@ -278,18 +278,22 @@ async function runCase(c, auth, db, context, internalIds) {
   const messages = [];
   let run;
   const cardsById = new Map();
+  // Every turn's tools: a multi-turn case may do its work on any turn (a
+  // class edit makes its Confirm card on the first, before the "yes").
+  const allTools = [];
   for (const turn of c.turns ?? [c.q]) {
     messages.push({ role: "user", content: turn });
     run = await chat(auth, context, messages, tz, [...cardsById.keys()]);
     for (const card of run.done?.pendingActions ?? []) cardsById.set(card.id, card);
+    allTools.push(...run.tools);
     messages.push({ role: "assistant", content: run.text });
     if (VERBOSE) console.log(`  [${c.id}] > ${turn}\n  [${c.id}] < (${run.tools.join(", ") || "no tools"}) ${run.text.replace(/\s+/g, " ").slice(0, 400)}`);
   }
   const fail = [];
   if (run.error) fail.push(`error: ${run.error}`);
   if (!run.text.trim()) fail.push("empty reply");
-  if (c.tools && !c.tools.some((t) => run.tools.includes(t))) fail.push(`expected a tool from [${c.tools}], got [${run.tools}]`);
-  for (const t of c.noTools ?? []) if (run.tools.includes(t)) fail.push(`should not call ${t}`);
+  if (c.tools && !c.tools.some((t) => allTools.includes(t))) fail.push(`expected a tool from [${c.tools}], got [${allTools}]`);
+  for (const t of c.noTools ?? []) if (allTools.includes(t)) fail.push(`should not call ${t}`);
   for (const m of c.must ?? []) if (!new RegExp(m, "i").test(run.text)) fail.push(`missing /${m}/`);
   for (const m of c.mustNot ?? []) if (new RegExp(m, "i").test(run.text)) fail.push(`forbidden /${m}/`);
   if (internalIds.some((id) => run.text.includes(id))) fail.push("leaked an internal ID");
@@ -327,7 +331,7 @@ async function runCase(c, auth, db, context, internalIds) {
     const problem = await checkDb(db, c.db, tz, run);
     if (problem) fail.push(`db: ${problem}`);
   }
-  return { id: c.id, secs: run.secs, tools: run.tools, fail, reply: run.text };
+  return { id: c.id, secs: run.secs, tools: allTools, fail, reply: run.text };
 }
 
 // ── Cleanup ──────────────────────────────────────────────────────────────
