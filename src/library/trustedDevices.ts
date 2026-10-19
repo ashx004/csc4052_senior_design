@@ -53,3 +53,29 @@ export function devicesToPrune(devices: { id: string; lastSeenAtMs: number }[], 
   if (devices.length <= max) return [];
   return [...devices].sort((a, b) => a.lastSeenAtMs - b.lastSeenAtMs).slice(0, devices.length - max).map((d) => d.id);
 }
+
+// ── Every browser the account signs in on ────────────────────────────────
+// trustedDevices only covers password sign-ins that passed the emailed code,
+// so a Google or Apple user saw an empty "Sign-in devices" list, and "last
+// used" only moved on the next sign-in. Each browser now carries a random id
+// (DEVICE_COOKIE) and reports itself while the student uses the site; the
+// record is users/{uid}/signInDevices/{deviceId}, linked to the trusted-device
+// record when that browser also skips the code.
+
+export const DEVICE_COOKIE = "auth_device";
+export const DEVICE_COOKIE_MAX_AGE_SECONDS = 400 * 24 * 60 * 60;
+/** "Last active" moves at most this often, so using the site isn't a write per page. */
+export const DEVICE_SEEN_INTERVAL_MS = 10 * 60 * 1000;
+
+const DEVICE_ID = /^[A-Za-z0-9-]{16,64}$/;
+export function isDeviceId(value: string | undefined | null): value is string {
+  return typeof value === "string" && DEVICE_ID.test(value);
+}
+
+/** How the student signed in, from the ID token's sign_in_provider (custom tokens come from the password + code flow). */
+export function signInMethod(provider: string | undefined): string {
+  if (provider === "google.com") return "Google";
+  if (provider === "apple.com") return "Apple";
+  if (provider === "password" || provider === "custom") return "Password";
+  return provider ? provider : "Unknown";
+}
