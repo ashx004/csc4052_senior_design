@@ -1,6 +1,6 @@
 import { AnalyticsProvider } from "@/src/context/AnalyticsContext";
 import PageTracker from "@/src/components/analytics/PageTracker";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./global.css";
 import { AuthProvider } from "@/src/context/AuthContext";
@@ -11,6 +11,7 @@ import { TutorialProvider } from "@/src/context/TutorialContext";
 import FocusCard from "@/src/components/studyPlan/FocusCard";
 import NotificationToast from "@/src/components/studyPlan/NotificationToast";
 import ThemeInitializer from "@/src/components/ThemeInitializer";
+import AppUpdates from "@/src/components/AppUpdates";
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -20,6 +21,16 @@ const jakarta = Plus_Jakarta_Sans({
 
 export const metadata: Metadata = {
   title: "Catalyst",
+  // "Add to Home Screen" on iPhone opens full-screen with this name and icon.
+  appleWebApp: { capable: true, title: "Catalyst", statusBarStyle: "default" },
+  icons: { apple: "/app-icons/apple-touch-icon.png" },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#FAFAF8" },
+    { media: "(prefers-color-scheme: dark)", color: "#14161a" },
+  ],
 };
 
 export default function RootLayout({
@@ -38,6 +49,7 @@ export default function RootLayout({
         "
       >
         <ThemeInitializer />
+        <AppUpdates />
 
         <AuthProvider>
           <AnalyticsProvider>
