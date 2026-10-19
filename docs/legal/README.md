@@ -1,8 +1,7 @@
-# Legal documents (published as final, pending review)
+# Legal documents
 
-Written alongside the cloud-AI billing work (branch `cloud_ai_billing`) and
-worded as final. They describe what the code does or will do. They have not had
-a legal review yet: see `docs/LAUNCH_CHECKLIST.md`.
+The published terms, privacy policy and credit policy (served at `/legal/*`).
+They describe what the code does, so update them when behavior changes.
 
 | File | Covers |
 |---|---|
@@ -38,15 +37,5 @@ a legal review yet: see `docs/LAUNCH_CHECKLIST.md`.
 - **Engineering must make true:**
   - requests go only to providers that don't train on data: OpenRouter
     `provider.data_collection: "deny"` on every request, and Google's paid tier
-  - no name or email in AI prompts (the chat system prompt currently includes the
-    student's name; review before launch)
-
-## Still worth a qualified review
-
-1. **Louisiana consumer-protection rules** on non-refundable prepaid balances.
-2. **Sales tax:** whether metered AI usage is taxable in Louisiana for this
-   organization. Stripe Tax can compute it if so.
-3. **Refunds late in the service life:** confirm with Stripe how long card
-   refunds stay possible, so end-of-service refunds can be made.
-4. **Age gate:** the app needs a signup age confirmation, and a purchase
-   confirmation for under-18 users, to match these terms.
+  - no surname or email in AI prompts: only first name and school
+    (`promptIdentity` in `src/library/systemPrompt.ts`)
