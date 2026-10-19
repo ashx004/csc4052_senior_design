@@ -34,8 +34,14 @@ export function fetchInternal(
   });
 }
 
+/**
+ * `maxChars`: stop reading pages once this much text is collected. A
+ * 700-page textbook took minutes to read in full, only for the indexer to
+ * keep a fraction of it.
+ */
 export async function extractPdfTextFromUrl(
-  fullUrl: string
+  fullUrl: string,
+  options: { maxChars?: number } = {}
 ): Promise<string> {
   const fileResponse = await fetchInternal(fullUrl);
 
@@ -78,6 +84,7 @@ export async function extractPdfTextFromUrl(
   }).promise;
 
   const pages: string[] = [];
+  let collectedChars = 0;
 
   for (
     let pageNumber = 1;
@@ -192,9 +199,11 @@ export async function extractPdfTextFromUrl(
           line.map((item) => item.text).join(" ").trim()
         );
 
-    pages.push(
-      `--- PAGE ${pageNumber} ---\n${pageLines.join("\n")}`
-    );
+    const pageText = `--- PAGE ${pageNumber} ---\n${pageLines.join("\n")}`;
+    pages.push(pageText);
+    collectedChars += pageText.length + 2;
+    page.cleanup();
+    if (options.maxChars && collectedChars >= options.maxChars) break;
   }
 
     return pages.join("\n\n").trim();

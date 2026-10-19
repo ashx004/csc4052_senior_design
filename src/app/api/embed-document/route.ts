@@ -31,8 +31,24 @@ const EMBED_RATE_LIMIT_MAX = 10; // per user per window — uploads aren't norma
 const JOB_COLLECTION = "documentProcessingJobs";
 
 // Give up on a single document past this long rather than let one slow file
-// hang the whole indexing job — confirmed live 2026-07-21.
+// hang the whole indexing job — confirmed live 2026-07-21. A big document
+// gets more time (indexingTimeoutMs), but always less than the job's
+// 10-minute lease, so a retry never runs alongside the first attempt.
 const INDEXING_TIMEOUT_MS = 3.5 * 60 * 1000;
+const MAX_INDEXING_TIMEOUT_MS = 9 * 60 * 1000;
+const indexingTimeoutMs = (chunks: number) => Math.min(MAX_INDEXING_TIMEOUT_MS, Math.max(INDEXING_TIMEOUT_MS, chunks * 400));
+
+// Contextual chunking costs one AI call per chunk, which is right for lecture
+// notes and slides but took a textbook (~1,000 chunks) far past any time
+// limit. Past this many chunks each one is labeled with its file and page
+// instead: free, instant, and it still tells search where a chunk came from.
+const CONTEXTUAL_CHUNK_LIMIT = 120;
+
+// Chunk writes per Firestore commit. Firestore allows 500 writes but also
+// caps a commit's size, index entries included, and each chunk's embedding
+// array is indexed element by element: 450 and even 100 chunks failed with
+// "Transaction too big" on a 400-page test book.
+const CHUNK_WRITE_BATCH = 25;
 
 // Cap on how much extracted text gets indexed per document. Without this, a
 // large text-dense PDF (a full textbook, not lecture notes) chunks into
@@ -43,7 +59,10 @@ const INDEXING_TIMEOUT_MS = 3.5 * 60 * 1000;
 // full) since this covers search-retrieval chunks, not the whole document
 // in one shot — missed content just can't be found by search_documents,
 // while read_document still has its own separate cap for full reads.
-const MAX_INDEXABLE_CHARS = 100000;
+// Raised from 100,000 (about 40 pages) on 2026-10-19, once big documents
+// skipped per-chunk AI context: a textbook was searchable only through its
+// first chapter. 1.5M characters is roughly 600 pages, ~1,100 chunks.
+const MAX_INDEXABLE_CHARS = 1_500_000;
 
 
 type SourceSnapshot = {
@@ -339,8 +358,33 @@ export async function POST(request: NextRequest) {
         : (await firestoreListCollection(idToken!, chunkCollectionPath)).map((doc) => doc.id);
       const incomingIds = new Set(writes.map((write) => write.path.split("/").pop()));
       const staleChunkIds = chunkIds.filter((id) => !incomingIds.has(id));
-      if (writes.length + staleChunkIds.length > 500) {
-        throw new Error("Too many chunks to replace atomically.");
+
+      // A big document can't fit one commit (see CHUNK_WRITE_BATCH),
+      // so it's written in batches: new chunks first, then stale ones
+      // removed. The resource stays "processing" until all of it lands, so
+      // search never sees the half-written set as complete.
+      if (writes.length + staleChunkIds.length > CHUNK_WRITE_BATCH) {
+        for (let i = 0; i < writes.length; i += CHUNK_WRITE_BATCH) {
+          const part = writes.slice(i, i + CHUNK_WRITE_BATCH);
+          if (internal) {
+            const batch = adminDb.batch();
+            part.forEach((write) => batch.set(adminDb.doc(write.path), write.fields));
+            await batch.commit();
+          } else {
+            await firestoreCommitBatch(idToken!, part, []);
+          }
+        }
+        for (let i = 0; i < staleChunkIds.length; i += CHUNK_WRITE_BATCH) {
+          const part = staleChunkIds.slice(i, i + CHUNK_WRITE_BATCH).map((id) => `${chunkCollectionPath}/${id}`);
+          if (internal) {
+            const batch = adminDb.batch();
+            part.forEach((path) => batch.delete(adminDb.doc(path)));
+            await batch.commit();
+          } else {
+            await firestoreCommitBatch(idToken!, [], part);
+          }
+        }
+        return;
       }
 
       // One commit writes the new chunks and deletes stale ones. There is no
@@ -472,7 +516,8 @@ export async function POST(request: NextRequest) {
           updateResource,
         });
       } else {
-        text = await extractDocumentText(fullUrl, resourceFileType);
+        // Stop reading once there's as much as will be indexed (see MAX_INDEXABLE_CHARS).
+        text = await extractDocumentText(fullUrl, resourceFileType, { maxChars: MAX_INDEXABLE_CHARS });
         // Saved for the chat, quizzes and flashcards (documentTextCache.ts),
         // so the first time the student uses this file it's already read.
         await saveDocumentText(request, resourceUrl, text, resourceFileType);
@@ -559,7 +604,7 @@ export async function POST(request: NextRequest) {
     const rawChunks = rawChunkObjs.map((c) => c.text);
     const pages = rawChunkObjs.map((c) => c.page);
 
-    const { signal, cancel } = createTimeoutSignal(INDEXING_TIMEOUT_MS, `Indexing "${resourceName}"`);
+    const { signal, cancel } = createTimeoutSignal(indexingTimeoutMs(rawChunks.length), `Indexing "${resourceName}"`);
     try {
       // Contextual Retrieval: situate each chunk within the document before
       // embedding/indexing it, so retrieval (both dense and keyword) can
@@ -568,7 +613,9 @@ export async function POST(request: NextRequest) {
       // bounded by INDEXING_TIMEOUT_MS — via a real AbortSignal, so giving
       // up here actually stops the underlying requests instead of just
       // abandoning them to keep running in the background.
-      const contextualized = await addChunkContext(text, rawChunks, signal);
+      const contextualized = rawChunks.length > CONTEXTUAL_CHUNK_LIMIT
+        ? rawChunks.map((chunk, index) => `From ${resourceName}${pages[index] ? `, page ${pages[index]}` : ""}.\n\n${chunk}`)
+        : await addChunkContext(text, rawChunks, signal);
       const embeddings = await embedTexts(contextualized, signal);
       const chunks = { contextualized, embeddings };
       cancel();
