@@ -65,10 +65,10 @@ async function extractImageText(fullUrl: string): Promise<string> {
 // plain-text read for code/txt files, and the OCR vision model for images.
 // Same libraries the resource viewer already uses client-side, just run
 // server-side here so the AI can read/search/index the same file types.
-export async function extractDocumentText(fullUrl: string, fileType: string): Promise<string> {
+export async function extractDocumentText(fullUrl: string, fileType: string, options: { maxChars?: number } = {}): Promise<string> {
   switch (fileType) {
     case "pdf":
-      return extractPdfTextFromUrl(fullUrl);
+      return extractPdfTextFromUrl(fullUrl, options);
     case "docx":
       return extractDocxText(fullUrl);
     case "pptx":
