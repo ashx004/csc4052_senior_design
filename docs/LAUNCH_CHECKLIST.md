@@ -50,18 +50,32 @@ is tracked separately on branch `cloud_ai_billing`.
       "prepayment credits are depleted" (checked 2026-10-18), so the backup model
       can't step in when OpenRouter is down. $5 covers years of backup use.
 
-## Billing dry run (log-only metering, in code since 2026-10-18)
+## Paywall (built 2026-10-19, Stripe test mode)
 
-- [ ] On the server, set `AI_BACKEND=cloud`, the `AI_MODEL_*` lines from `env.example`,
-      and `BILLING_MODE=log`, then restart.
-- [ ] Use the site normally for a few days: chat, quizzes, flashcards, an OCR upload,
-      advising.
-- [ ] Run `npm run billing:report -- --resolve` and compare **"openrouter <day>"** with
-      the OpenRouter Activity page for the same UTC day. They should agree to within
-      a cent.
-- [ ] Check the **Unattributed** section is empty. Anything there is a feature that
-      would not be charged to anyone.
-- [ ] Tell Claude the result. Then Stripe Checkout gets built and charging turns on.
+Status: `BILLING_MODE=enforce` and `AI_BACKEND=testers` in `.env`. Only the accounts in
+`AI_CLOUD_TESTERS` use cloud AI and pay for it; everyone else stays on free Ollama. A
+container named `catalyst-stripe-listen` forwards Stripe test payments to the dev
+server (`docker logs catalyst-stripe-listen`).
+
+- [ ] **Test-buy as yourself:** open the site, accept the terms prompt, click **Add** next
+      to AI credit in the sidebar, pay with card `4242 4242 4242 4242` (any future
+      date, any CVC). Credit should appear within seconds. Then use some AI and check
+      the history on the AI credit page.
+- [ ] **OpenRouter auto top-up:** Billing settings → enable auto top-up, so the account
+      never runs dry while students hold credit.
+- [ ] **Stripe receipts:** Settings → Customer emails → Successful payments and Refunds.
+- [ ] **Going live (when ready):**
+  1. Finish Stripe activation, then Developers → Webhooks → add endpoint
+     `https://catalyst.zonocsc.com/api/billing/webhook` with events
+     `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+     `charge.refunded`, `charge.dispute.created`.
+  2. Put the live `sk_live_`/`pk_live_` keys and that endpoint's `whsec_` secret in
+     the server's `.env`, and stop the test forwarder (`docker rm -f catalyst-stripe-listen`).
+  3. Set `AI_BACKEND=cloud` so every account uses cloud AI and the paywall.
+- [ ] After a few days of real use, ask Claude to run the usage report and compare it
+      with the OpenRouter Activity page.
+- [ ] Before you top up OpenRouter, check the report's "students are owed" total: keep
+      OpenRouter's balance above it.
 
 ## Legal and organization
 
