@@ -13,6 +13,7 @@ import { cleanTranscriptTextForOllama } from "@/src/library/advisingTranscriptCl
 import { findTermCreditMismatches } from "@/src/library/advisingTranscriptChecks";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import { createHash } from "node:crypto";
+import { refundOnFailure } from "@/src/library/billing/refundOnFailure";
 
 // Identifies what a PDF said, so re-running on the same files can reuse the
 // last result instead of asking the AI to read them all over again.
@@ -31,7 +32,7 @@ const EXTRACT_RATE_LIMIT_MAX = 5; // one real upload plus a couple of retries, g
 // where a slow/timed-out attempt just gets retried instead of surfacing a
 // raw Cloudflare error page to the student.
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   if (isInternalRequest(request)) {
     return processExtraction(request);
   }
@@ -232,3 +233,6 @@ async function processExtraction(request: NextRequest) {
     );
   }
 }
+
+// A server error on our side refunds whatever this request spent (refundOnFailure.ts).
+export const POST = refundOnFailure("advising", handlePOST);
