@@ -84,6 +84,16 @@ async function main() {
     console.log(`\n${s.needsCost.length} request(s) have no final cost yet (stopped streams or unpriced models).${resolve ? "" : " Run with --resolve to look up OpenRouter's."}`);
   }
 
+  // Money check: the credit students hold must be covered by what OpenRouter holds.
+  const wallets = await adminDb.collection("wallets").get();
+  const owedMicros = wallets.docs.reduce((sum, d) => sum + Math.max(0, Number(d.data().balanceMicros ?? 0)), 0);
+  const credits = await openRouter("/credits");
+  const remaining = credits ? Number(credits.total_credits ?? 0) - Number(credits.total_usage ?? 0) : null;
+  console.log(`\nStudents are owed ${usd(owedMicros)} of unspent credit across ${wallets.size} wallet(s).`);
+  if (remaining !== null) {
+    console.log(`OpenRouter holds $${remaining.toFixed(4)}.${remaining * 1e6 < owedMicros ? " TOP UP OPENROUTER: it can't cover what students hold." : ""}`);
+  }
+
   const key = await openRouter("/key");
   if (key) {
     console.log("\nOpenRouter key usage (all traffic on this key, in USD):");
