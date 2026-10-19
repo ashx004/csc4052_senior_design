@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { firestoreGet, getIdToken } from "@/src/library/firestoreRest";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { enterAiUser } from "@/src/library/ai/usageScope";
+import { aiCreditGate } from "@/src/library/billing/creditGate";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import { extractSyllabusInfo } from "@/src/library/syllabusExtract";
 import { SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
@@ -17,6 +18,8 @@ export async function POST(request: NextRequest) {
     const idToken = getIdToken(request);
     if (!auth || !idToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     enterAiUser(auth.uid);
+    const outOfCredit = await aiCreditGate(auth.uid);
+    if (outOfCredit) return outOfCredit;
 
     const limit = checkRateLimit(`syllabus:${auth.uid}`, RATE_WINDOW_MS, RATE_MAX);
     if (!limit.allowed) {

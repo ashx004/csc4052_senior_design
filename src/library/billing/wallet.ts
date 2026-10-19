@@ -104,9 +104,89 @@ export async function creditPurchase(
     if ((await tx.get(eventRef)).exists) return false;
     const wallet = await readWallet(tx, db, uid);
     const balanceMicros = wallet.balanceMicros + creditMicros;
-    tx.set(eventRef, { uid, creditMicros, paidMicros: stripe.paidMicros, paymentIntentId: stripe.paymentIntentId ?? null, appliedAt: FieldValue.serverTimestamp() });
+    tx.set(eventRef, { type: "purchase", uid, creditMicros, paidMicros: stripe.paidMicros, paymentIntentId: stripe.paymentIntentId ?? null, appliedAt: FieldValue.serverTimestamp() });
     tx.set(walletRef(db, uid), { balanceMicros, heldMicros: wallet.heldMicros, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     writeLedger(tx, db, uid, { type: "purchase", amountMicros: creditMicros, balanceAfterMicros: balanceMicros, paidMicros: stripe.paidMicros, stripeEventId: stripe.eventId, paymentIntentId: stripe.paymentIntentId ?? null });
     return true;
   });
+}
+
+// A hold normally lasts seconds. One older than this belongs to a request
+// whose server died before settling it, so it is released, not charged.
+export const STALE_HOLD_MS = 30 * 60_000;
+
+/** Releases holds left behind by crashed requests, so a student's credit isn't stuck. Returns how many were swept. */
+export async function sweepStaleHolds(uid: string, db: Firestore = adminDb, now = Date.now()): Promise<number> {
+  const holds = await walletRef(db, uid).collection("holds").where("createdAt", "<", new Date(now - STALE_HOLD_MS)).get();
+  for (const hold of holds.docs) await releaseCredit(uid, hold.id, String(hold.data().feature ?? "unknown"), db);
+  return holds.size;
+}
+
+/**
+ * Takes back the credit of a refunded or disputed payment. `refundedMicros` is
+ * Stripe's running total refunded on that payment, so a partial refund
+ * followed by another, or a webhook retried, only ever removes the difference.
+ * Never removes more than the payment added: a full refund of a billing
+ * mistake ($10 back) removes the $9.41 it credited. The balance may go below
+ * zero if the credit was already spent, which blocks AI until it's repaid.
+ */
+export async function reverseCredit(
+  paymentIntentId: string,
+  refundedMicros: number,
+  reason: "refund" | "dispute",
+  eventId: string,
+  db: Firestore = adminDb
+): Promise<boolean> {
+  const purchases = await db.collection("stripeEvents").where("type", "==", "purchase").where("paymentIntentId", "==", paymentIntentId).limit(1).get();
+  if (purchases.empty) return false;
+  const purchaseRef = purchases.docs[0].ref;
+  const eventRef = db.collection("stripeEvents").doc(eventId);
+  return db.runTransaction(async (tx) => {
+    if ((await tx.get(eventRef)).exists) return false;
+    // Firestore transactions read everything first, then write.
+    const purchase = (await tx.get(purchaseRef)).data() ?? {};
+    const uid = String(purchase.uid);
+    const wallet = await readWallet(tx, db, uid);
+    const target = Math.min(Math.max(0, refundedMicros), Number(purchase.creditMicros ?? 0));
+    const delta = target - Number(purchase.reversedMicros ?? 0);
+    tx.set(eventRef, { uid, type: reason, paymentIntentId, appliedAt: FieldValue.serverTimestamp() });
+    if (delta <= 0) return false;
+    const balanceMicros = wallet.balanceMicros - delta;
+    tx.update(purchaseRef, { reversedMicros: target });
+    tx.set(walletRef(db, uid), { balanceMicros, heldMicros: wallet.heldMicros, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    writeLedger(tx, db, uid, { type: reason, amountMicros: -delta, balanceAfterMicros: balanceMicros, paymentIntentId, stripeEventId: eventId });
+    return true;
+  });
+}
+
+export type LedgerEntry = { id: string; type: string; amountMicros: number; feature: string | null; model: string | null; at: string | null };
+
+/** The newest ledger entries, for the student's billing page. */
+export async function recentLedger(uid: string, limit = 100, db: Firestore = adminDb): Promise<LedgerEntry[]> {
+  const snap = await walletRef(db, uid).collection("ledger").orderBy("at", "desc").limit(limit).get();
+  return snap.docs.map((doc) => {
+    const d = doc.data();
+    return { id: doc.id, type: String(d.type), amountMicros: Number(d.amountMicros ?? 0), feature: d.feature ?? null, model: d.model ?? null, at: d.at?.toDate?.().toISOString() ?? null };
+  });
+}
+
+/** Records that the student agreed to the credit terms before paying (server-written, so it can't be backdated). */
+export async function recordCreditTerms(uid: string, termsVersion: string, db: Firestore = adminDb): Promise<void> {
+  await walletRef(db, uid).set({ creditTermsVersion: termsVersion, creditTermsAcceptedAt: FieldValue.serverTimestamp() }, { merge: true });
+}
+
+/**
+ * Charges without a hold, for bulk background work (document indexing makes
+ * one small call per chunk). A transaction per call would queue on the one
+ * wallet document, which Firestore only sustains at about one write a second.
+ * The caller checks the balance first; concurrent calls can overshoot it by
+ * a few calls' cost (well under a cent), never more.
+ */
+export async function chargeDirect(uid: string, amountMicros: number, details: ChargeDetails, db: Firestore = adminDb): Promise<void> {
+  if (!Number.isInteger(amountMicros) || amountMicros < 0) throw new Error("Charge must be a non-negative integer.");
+  if (amountMicros === 0) return;
+  const batch = db.batch();
+  batch.set(walletRef(db, uid), { balanceMicros: FieldValue.increment(-amountMicros), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  batch.set(walletRef(db, uid).collection("ledger").doc(), { type: "charge", amountMicros: -amountMicros, ...details, at: FieldValue.serverTimestamp() });
+  await batch.commit();
 }

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { aiFetch, setUsageSink, type UsageEvent } from "./aiFetch";
+import { aiFetch, setMeter, setUsageSink, type UsageEvent } from "./aiFetch";
 import { runAsAiUser } from "./usageScope";
 
 const fetchMock = vi.fn();
@@ -128,5 +128,26 @@ describe("aiFetch", () => {
     expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(["https://openrouter.ai/api/v1/chat/completions", "http://ollama/api/chat", "http://ollama/api/chat"]);
     expect(events).toHaveLength(1);
     delete process.env.AI_CLOUD_TESTERS;
+  });
+
+  it("answers 402 without calling a provider when the wallet can't cover the hold", async () => {
+    setMeter({ start: async () => { throw Object.assign(new Error("no credit"), { name: "InsufficientCreditError" }); } });
+    const res = await aiFetch("http://x/api/chat", ollamaInit("chat", { messages: [] }));
+    expect(res.status).toBe(402);
+    expect((await res.json()).code).toBe("insufficient_credit");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("gives the hold back when every provider failed", async () => {
+    const abandon = vi.fn(async () => {});
+    const finish = vi.fn(async () => {});
+    let hold = 0;
+    setMeter({ start: async (r) => { hold = r.holdMicros; return { finish, abandon }; } });
+    fetchMock.mockImplementation(async () => new Response("down", { status: 503 }));
+    const res = await aiFetch("http://x/api/chat", ollamaInit("chat", { messages: [{ role: "user", content: "hi" }] }));
+    expect(res.status).toBe(503);
+    expect(hold).toBeGreaterThan(0);
+    expect(abandon).toHaveBeenCalledTimes(1);
+    expect(finish).not.toHaveBeenCalled();
   });
 });

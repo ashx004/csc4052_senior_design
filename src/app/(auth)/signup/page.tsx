@@ -18,7 +18,7 @@ import {
 import PasswordInput from "@/src/components/PasswordInput";
 
 // Bump when the legal docs change materially; stored on the user doc at signup.
-const TERMS_VERSION = "2026-10-18";
+import { TERMS_VERSION } from "@/src/library/legalVersion";
 
 export default function Signup() {
   const router = useRouter();

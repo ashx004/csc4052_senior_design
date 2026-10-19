@@ -3,6 +3,7 @@ import { getIdToken, firestoreGet, firestoreUpdate } from "@/src/library/firesto
 import { putObject } from "@/src/library/gcsStorage";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { enterAiUser } from "@/src/library/ai/usageScope";
+import { aiCreditGate } from "@/src/library/billing/creditGate";
 
 const MAX_TRANSCRIPT_CHARS = 1_000_000;
 
@@ -11,6 +12,8 @@ export async function PATCH(request: NextRequest) {
   const idToken = getIdToken(request);
   if (!auth || !idToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   enterAiUser(auth.uid);
+  const outOfCredit = await aiCreditGate(auth.uid);
+  if (outOfCredit) return outOfCredit;
 
   try {
     const { userId, courseId, resourceId, action, name, transcript, pageId } = await request.json();

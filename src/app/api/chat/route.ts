@@ -23,6 +23,7 @@ import { warnIfSlowGeneration } from "@/src/library/ollamaHealthCheck";
 import { getStudentProfile, maybeUpdateStudentProfile, StudentProfile } from "@/src/library/studentProfile";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { enterAiUser } from "@/src/library/ai/usageScope";
+import { aiCreditGate } from "@/src/library/billing/creditGate";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import {pageContextSchema,buildPageContextPrompt,type PageContext,} from "@/src/library/Contextual_AI/contextualAi";
 import { ChatContext, ChatClass, ChatDocument, buildSystemPrompt, categoryLabel } from "@/src/library/systemPrompt";
@@ -2005,6 +2006,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   enterAiUser(auth.uid);
+  const outOfCredit = await aiCreditGate(auth.uid);
+  if (outOfCredit) return outOfCredit;
 
   const rateLimit = checkRateLimit(auth.uid, CHAT_RATE_LIMIT_WINDOW_MS, CHAT_RATE_LIMIT_MAX);
   if (!rateLimit.allowed) {
