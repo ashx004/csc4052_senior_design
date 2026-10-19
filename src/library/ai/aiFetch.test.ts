@@ -192,4 +192,14 @@ describe("aiFetch", () => {
     expect(fetchMock.mock.calls.map((c) => sentBodyOf(c).model)).toEqual(["qwen/qwen3.7-flash", "gemini-3.1-flash-lite"]);
     process.env.AI_MODEL_FALLBACK = "google:gemini-3.1-flash-lite";
   });
+
+  it("keeps developer accounts on Ollama even in full cloud mode", async () => {
+    process.env.AI_OLLAMA_USERS = "dev-1";
+    fetchMock.mockImplementation(async () => completion("x", 0.000001));
+    await runAsAiUser("dev-1", () => aiFetch("http://ollama/api/chat", ollamaInit("chat", { messages: [] })));
+    await runAsAiUser("student-1", () => aiFetch("http://ollama/api/chat", ollamaInit("chat", { messages: [] })));
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(["http://ollama/api/chat", "https://openrouter.ai/api/v1/chat/completions"]);
+    expect(events).toHaveLength(1);
+    delete process.env.AI_OLLAMA_USERS;
+  });
 });
