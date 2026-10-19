@@ -25,6 +25,8 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     enforced,
+    // Whether this account's AI runs in the cloud (costs credit; speed setting applies).
+    cloudAi: isCloudBackend(),
     balanceMicros: wallet.balanceMicros,
     heldMicros: wallet.heldMicros,
     minToStartMicros: MIN_CREDIT_TO_START_MICROS,

@@ -38,6 +38,9 @@ import QuickActions from "@/src/components/aiAssistant/QuickActions";
 import ThinkingIndicator from "@/src/components/aiAssistant/ThinkingIndicator";
 import ConfirmActionCard from "@/src/components/aiAssistant/ConfirmActionCard";
 import { useStickToBottom } from "@/src/hooks/useStickToBottom";
+import { useChatCommands } from "@/src/hooks/useChatCommands";
+import ChatControls, { ChatNotice, SlashMenu } from "@/src/components/aiAssistant/ChatControls";
+import { memoryFill } from "@/src/library/chatCompactionLimits";
 
 type ChatMessage = StoredChatMessage;
 
@@ -318,6 +321,12 @@ function AIAssistantPageContent() {
   const nextId = useRef(1);
   const summaryRef = useRef("");
   const summarizedCountRef = useRef(0);
+  // Mirrors summarizedCountRef for rendering the memory meter.
+  const [summarizedCount, setSummarizedCountState] = useState(0);
+  const setSummarizedCount = (n: number) => {
+    summarizedCountRef.current = n;
+    setSummarizedCountState(n);
+  };
   const titleRef = useRef("");
   // Watches a still-generating session live after loadSession resumes it —
   // see the generating-flag handling there. Only ever one at a time.
@@ -418,7 +427,7 @@ function AIAssistantPageContent() {
       sessionId.current = session.id;
       setActiveSessionId(session.id);
       summaryRef.current = session.summary;
-      summarizedCountRef.current = session.summarizedCount;
+      setSummarizedCount(session.summarizedCount);
       titleRef.current = session.title;
       document.title = session.title ? `Catalyst — ${session.title}` : "Catalyst";
       setMessages(session.messages);
@@ -468,6 +477,9 @@ function AIAssistantPageContent() {
   async function handleSubmit(event: FormEvent<HTMLFormElement> | null, override?: string) {
     event?.preventDefault();
     stt.stop();
+
+    // Slash commands (/compact, /cost ...) run here instead of going to the AI.
+    if (override === undefined && commands.runCommand()) return;
 
     const trimmed = (override ?? input).trim();
     if (!trimmed || isSending) {
@@ -556,6 +568,7 @@ function AIAssistantPageContent() {
           summarizedCount: summarizedCountRef.current,
           currentSessionId: sessionId.current,
           modelKey: getEffectiveModelKey("chat"),
+          speed: commands.speed,
           pendingActionIds: nextMessages.flatMap((message) => message.pendingActions?.map((action) => action.id) ?? []),
           runId,
         }),
@@ -576,6 +589,7 @@ function AIAssistantPageContent() {
       let generatedFiles: { name: string; url: string }[] | undefined;
       let generatedStudySets: { kind: "flashcard" | "quiz" | "note"; id: string; courseId: string; name: string }[] | undefined;
       let pendingActions: { id: string; title: string; details: string[] }[] | undefined;
+      let replyCost = 0;
 
       for await (const event of readChatStream(response)) {
         liveActivity.handle(event);
@@ -604,7 +618,8 @@ function AIAssistantPageContent() {
           if (event.generatedStudySets?.length) generatedStudySets = event.generatedStudySets;
           if (event.pendingActions?.length) pendingActions = event.pendingActions;
           if (typeof event.summary === "string") summaryRef.current = event.summary;
-          if (typeof event.summarizedCount === "number") summarizedCountRef.current = event.summarizedCount;
+          if (typeof event.summarizedCount === "number") setSummarizedCount(event.summarizedCount);
+          if (typeof event.costMicros === "number") replyCost = event.costMicros;
         } else if (event.type === "error") {
           streamError = event.error;
         }
@@ -630,6 +645,7 @@ function AIAssistantPageContent() {
       if (generatedFiles) finalMessage.generatedFiles = generatedFiles;
       if (generatedStudySets) finalMessage.generatedStudySets = generatedStudySets;
       if (pendingActions) finalMessage.pendingActions = pendingActions;
+      if (replyCost) finalMessage.costMicros = replyCost;
       setMessages([...nextMessages, finalMessage]);
 
       if (stopped) setInput((current) => current || trimmed);
@@ -660,6 +676,41 @@ function AIAssistantPageContent() {
     }
   }
 
+  // /compact: the server summarizes all but the last few messages and saves it to this chat.
+  async function compactChat(): Promise<string> {
+    if (isSending) return "Wait for the reply to finish, then try again.";
+    if (messages.length < 6) return "This chat is still short; there's nothing to summarize yet.";
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: messages.map((m) => ({ role: m.role, content: m.text })),
+        summary: summaryRef.current,
+        summarizedCount: summarizedCountRef.current,
+        currentSessionId: sessionId.current,
+        compactOnly: true,
+      }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(data?.error || "Couldn't summarize right now. Please try again.");
+    if (!data.compacted) return "Nothing new to summarize yet.";
+    const folded = data.summarizedCount - summarizedCountRef.current;
+    summaryRef.current = data.summary;
+    setSummarizedCount(data.summarizedCount);
+    return `Summarized ${folded} older messages. The assistant still remembers them, in short form.`;
+  }
+
+  const chatCost = messages.reduce((sum, m) => sum + (m.costMicros ?? 0), 0);
+  const commands = useChatCommands({
+    input,
+    setInput,
+    costMicros: chatCost,
+    replies: messages.filter((m) => m.role === "assistant" && m.costMicros).length,
+    onCompact: compactChat,
+    onNewChat: () => handleNewChat(),
+    onClear: () => handleNewChat(),
+  });
+
   function handleNewChat() {
     generatingWatchRef.current?.();
     generatingWatchRef.current = null;
@@ -674,7 +725,7 @@ function AIAssistantPageContent() {
     sessionId.current = null;
     setActiveSessionId(null);
     summaryRef.current = "";
-    summarizedCountRef.current = 0;
+    setSummarizedCount(0);
     titleRef.current = "";
     document.title = "Catalyst";
     updateSessionUrl(null);
@@ -869,10 +920,17 @@ function AIAssistantPageContent() {
             onSend={(prompt) => void handleSubmit(null, prompt)}
           />
 
+          {commands.notice && (
+            <div className="mx-auto max-w-4xl">
+              <ChatNotice onDismiss={commands.dismissNotice}>{commands.notice}</ChatNotice>
+            </div>
+          )}
+
           <form
             onSubmit={handleSubmit}
             className="relative mx-auto flex max-w-4xl items-center gap-3 rounded-2xl border border-border-light bg-bg-container px-4 py-2 shadow-lg shadow-stone-200/70"
           >
+            <SlashMenu items={commands.suggestions} active={commands.activeSuggestion} onPick={commands.pick} />
             <button
               type="button"
               ref={toolboxBtnRef}
@@ -911,7 +969,10 @@ function AIAssistantPageContent() {
                 stt.stop();
                 setInput(event.target.value.slice(0, MAX_CHAT_INPUT_CHARS));
               }}
-              placeholder={stt.listening ? "Listening..." : "Ask Catalyst anything..."}
+              onKeyDown={(event) => {
+                commands.handleKeyDown(event);
+              }}
+              placeholder={stt.listening ? "Listening..." : "Ask Catalyst anything, or type / for commands"}
               disabled={isSending}
               maxLength={MAX_CHAT_INPUT_CHARS}
               data-tutorial="ai-chat-input"
@@ -942,6 +1003,18 @@ function AIAssistantPageContent() {
               </button>
             )}
           </form>
+          <div className="mx-auto mt-1.5 max-w-4xl">
+            <ChatControls
+              memory={memoryFill(messages, summarizedCount)}
+              summarized={summarizedCount > 0}
+              costMicros={chatCost}
+              cloudAi={commands.cloudAi}
+              speed={commands.speed}
+              onSpeed={commands.changeSpeed}
+              onCompact={hasStarted ? () => void commands.compact() : undefined}
+              compacting={commands.compacting}
+            />
+          </div>
           {stt.error && (
             <p role="status" className="mt-2 text-center text-xs text-alert-error">
               {stt.error}

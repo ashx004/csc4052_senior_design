@@ -25,6 +25,8 @@ export type StoredChatMessage = {
   generatedFiles?: { name: string; url: string }[];
   generatedStudySets?: { kind: "flashcard" | "quiz" | "note"; id: string; courseId: string; name: string }[];
   pendingActions?: { id: string; title: string; details: string[] }[];
+  /** What this reply was charged in AI credit (micro-dollars), when cloud AI was on. */
+  costMicros?: number;
 };
 
 export type ChatSessionState = {
@@ -200,12 +202,18 @@ export async function deleteChatSession(userId: string, sessionId: string): Prom
 export type PanelChatSessionState = {
   messages: StoredChatMessage[];
   generating: boolean;
+  // Same running summary as a main chat: the panel sends it back with each
+  // message so the server doesn't re-summarize a long conversation every turn.
+  summary: string;
+  summarizedCount: number;
 };
 
 function toPanelSessionState(data: any): PanelChatSessionState {
   return {
     messages: Array.isArray(data.messages) ? data.messages : [],
     generating: Boolean(data.generating),
+    summary: typeof data.summary === "string" ? data.summary : "",
+    summarizedCount: typeof data.summarizedCount === "number" ? data.summarizedCount : 0,
   };
 }
 
