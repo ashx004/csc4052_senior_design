@@ -3,6 +3,7 @@ import { adminAuth, adminDb } from "@/src/library/firebaseAdmin";
 import { deleteObject, listObjects } from "@/src/library/gcsStorage";
 import { deleteChunksForUser } from "@/src/library/vectorStore";
 import { ACCOUNT_DELETION_GUARDS } from "@/src/library/accountDeletionGuard";
+import { refundUnusedCredit } from "@/src/library/billing/refunds";
 
 export class AccountDeletionError extends Error {
   constructor(
@@ -25,6 +26,15 @@ function safeErrorCode(error: unknown): string {
 
 function deletionFailure(phase: string, cause: unknown): AccountDeletionError {
   const errorCode = safeErrorCode(cause);
+  if (phase === "refund-credit") {
+    return new AccountDeletionError(
+      "We couldn't refund your unused AI credit just now, so your account wasn't deleted yet. Please try again later, or email contact@zonocsc.com.",
+      "unknown",
+      phase,
+      errorCode,
+      cause
+    );
+  }
   if (phase === "indexed-context") {
     return new AccountDeletionError(
       "Catalyst indexed context (Qdrant) is unavailable. Your account is protected from new writes; please try again later.",
@@ -116,6 +126,11 @@ async function deleteGlobalRecords(uid: string): Promise<void> {
   }
 
   await adminDb.doc(`authLoginChallengeState/${uid}`).delete();
+
+  // Per-request AI usage logs (feature, model, tokens). Payment records live
+  // in wallets/{uid} and are kept, as the privacy policy says.
+  const usage = await adminDb.collection("aiUsage").where("uid", "==", uid).get();
+  await deleteDocuments(adminDb, usage.docs);
 }
 
 /** OAuth tokens are credentials, not retained user data. Revocation is
@@ -160,6 +175,12 @@ export async function deleteAccountData(uid: string): Promise<void> {
     await adminAuth.revokeRefreshTokens(uid);
     const root = await rootRef.get();
     await revokeCalendarAccess(root.data());
+
+    // The terms promise unused AI credit back before the account goes. The
+    // wallet stays frozen, and its ledger is kept as a payment record.
+    phase = "refund-credit";
+    await setPhase(uid, phase);
+    await refundUnusedCredit(uid, { reason: "account-deletion" });
 
     phase = "indexed-context";
     await setPhase(uid, phase);
