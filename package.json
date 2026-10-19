@@ -20,6 +20,7 @@
     "eval:chat": "node --env-file=.env scripts/chatEval.mjs",
     "admin:access": "tsx scripts/setAdmin.ts",
     "billing:report": "tsx scripts/usageReport.ts",
+    "billing:refund": "node --conditions=react-server --import tsx scripts/refundCredit.ts",
     "analytics:check": "node --conditions=react-server --import tsx scripts/checkAnalytics.ts"
   },
   "dependencies": {

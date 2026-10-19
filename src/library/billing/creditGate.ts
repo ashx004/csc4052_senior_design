@@ -33,6 +33,6 @@ export async function aiCreditGate(uid: string): Promise<NextResponse | null> {
   if (wallet.balanceMicros - wallet.heldMicros < MIN_CREDIT_TO_START_MICROS && wallet.heldMicros > 0) {
     if (await sweepStaleHolds(uid)) wallet = await getWallet(uid);
   }
-  if (wallet.balanceMicros - wallet.heldMicros >= MIN_CREDIT_TO_START_MICROS) return null;
+  if (!wallet.frozen && wallet.balanceMicros - wallet.heldMicros >= MIN_CREDIT_TO_START_MICROS) return null;
   return outOfCreditResponse(wallet.balanceMicros);
 }
