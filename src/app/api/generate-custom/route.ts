@@ -6,7 +6,7 @@ import { aiCreditGate } from "@/src/library/billing/creditGate";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import { acquireSlot } from "@/src/library/concurrencyLimit";
 import { firestoreCreate, getIdToken } from "@/src/library/firestoreRest";
-import { generateQuizWithValidation } from "@/src/library/quizGeneration";
+import { generateQuizWithValidation, quizSpares } from "@/src/library/quizGeneration";
 import { generateFlashcardsWithRetry } from "@/src/library/flashcardGeneration";
 import { generatePractice } from "@/src/library/practice/generation";
 import { generateAcrossSources } from "@/src/library/generation/orchestrator";
@@ -121,7 +121,7 @@ async function handlePOST(request: NextRequest) {
                 count,
                 shuffle: false,
                 generate: async (source, quota, alreadyAsked) => {
-                  const result = await generateQuizWithValidation(instruct(source.title, source.text), quota, req.questionTypes, baseUrl, req.modelKey, alreadyAsked, req.difficulty);
+                  const result = await generateQuizWithValidation(instruct(source.title, source.text), quota, req.questionTypes, baseUrl, req.modelKey, alreadyAsked, req.difficulty, { spares: quizSpares(quota) });
                   return { topicName: result.topicName, items: result.questions };
                 },
               })

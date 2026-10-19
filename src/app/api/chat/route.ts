@@ -11,7 +11,7 @@ import { searchWeb } from "@/src/library/webSearch";
 import { searchYoutube } from "@/src/library/youtubeSearch";
 import { generateAndUploadPdf, generateAndUploadPdfToCourse } from "@/src/library/pdfGenerate";
 import { generateFlashcardsWithRetry, MAX_FLASHCARDS } from "@/src/library/flashcardGeneration";
-import { generateQuizWithValidation, MAX_QUIZ_QUESTIONS } from "@/src/library/quizGeneration";
+import { generateQuizWithValidation, quizSpares, MAX_QUIZ_QUESTIONS } from "@/src/library/quizGeneration";
 import { parseQuizDifficulty } from "@/src/library/quizDifficulty";
 import { generateAcrossSources } from "@/src/library/generation/orchestrator";
 import { isSourceSelectionError } from "@/src/library/sources/errors";
@@ -1103,7 +1103,7 @@ async function createStudySetFromSources(
           count,
           shuffle: false,
           generate: async (source, quota, alreadyAsked) => {
-            const result = await generateQuizWithValidation(withFocus(source.text, focus), quota, types, baseUrl, modelKey, alreadyAsked, level);
+            const result = await generateQuizWithValidation(withFocus(source.text, focus), quota, types, baseUrl, modelKey, alreadyAsked, level, { spares: quizSpares(quota) });
             return { topicName: result.topicName, items: result.questions };
           },
         })

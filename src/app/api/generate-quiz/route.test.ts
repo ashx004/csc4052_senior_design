@@ -93,7 +93,8 @@ describe("POST /api/generate-quiz", () => {
       "http://ollama.test",
       undefined,
       [],
-      body.difficulty
+      body.difficulty,
+      { spares: 3 }
     );
   });
 
