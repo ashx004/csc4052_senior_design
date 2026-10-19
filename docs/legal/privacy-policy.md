@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Effective October 18, 2026. Last updated October 18, 2026._
+_Effective October 18, 2026. Last updated October 19, 2026._
 
 ## What we collect
 
@@ -35,9 +35,10 @@ _Effective October 18, 2026. Last updated October 18, 2026._
 Processing Agreement and passes each one to a model host acting as its
 subprocessor. OpenRouter publishes its current list of model hosts and their
 data policies. We configure every request to go only to hosts that **do not
-train on your data** and keep it for the shortest time available. We do not
-send your name or email address with AI requests, only the content needed for
-that request.
+train on your data** and keep it for the shortest time available. AI requests
+carry only the content needed for that request, plus your first name and school
+so the assistant can address you. We never send your full name or email
+address.
 
 If you use **your own API key (BYOK)**, the requests go to that provider under
 your own agreement with them.

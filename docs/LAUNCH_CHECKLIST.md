@@ -83,11 +83,9 @@ server (`docker logs catalyst-stripe-listen`).
 
 ## Legal and organization
 
-- [ ] **Read the legal docs** in `docs/legal/`, ideally with someone who has legal
-      experience. They are written as final but have not been reviewed. Points worth
-      a reviewer's eye are listed in `docs/legal/README.md`.
-- [ ] **Set up the `contact@zonocsc.com` inbox.** The docs promise refunds and privacy
-      requests there.
+- [x] **Legal docs** in `docs/legal/` are published at `/legal/terms`, `/legal/privacy`
+      and `/legal/credits`. Keep them in step with what the code does.
+- [x] **`contact@zonocsc.com` inbox** is set up.
 - [ ] **Louisiana sales tax:** ask an accountant whether metered AI usage is taxable
       for ZonoCSC. If it is, turn on Stripe Tax.
 - [ ] **501(c)(3) (optional):** form a Louisiana nonprofit corporation (Secretary of
