@@ -600,7 +600,8 @@ async function getCourseDetails(env: ToolEnv, args: Record<string, unknown>): Pr
 async function updateCourseDetails(env: ToolEnv, args: Record<string, unknown>): Promise<ToolResult> {
   const c = classOf(env, args.courseId);
   if (!c) return { text: `Error: no class with courseId "${str(args.courseId)}".` };
-  if (!studentRequested("edit", env.messages)) return { text: consentError("edit", `${c.classCode}'s details`) };
+  // The change is shown on a Confirm card before it's saved, so a plain report ("his office moved") is enough to propose it.
+  if (!studentRequested("edit", env.messages, { acceptChangeReports: true })) return { text: consentError("edit", `${c.classCode}'s details`) };
   const fields: Record<string, unknown> = {};
   for (const key of EDITABLE) {
     const v = args[key];
