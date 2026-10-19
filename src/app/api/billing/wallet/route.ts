@@ -29,6 +29,8 @@ export async function GET(request: NextRequest) {
     cloudAi: isCloudBackend(),
     balanceMicros: wallet.balanceMicros,
     heldMicros: wallet.heldMicros,
+    // A refund is being processed: spending is paused until it finishes.
+    frozen: Boolean(wallet.frozen),
     minToStartMicros: MIN_CREDIT_TO_START_MICROS,
     capMicros: MAX_BALANCE_MICROS,
     minTopUpMicros: MIN_TOPUP_MICROS,

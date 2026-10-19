@@ -17,7 +17,9 @@ export class InsufficientCreditError extends Error {
   }
 }
 
-export type WalletState = { balanceMicros: number; heldMicros: number };
+// frozen: a refund (or account deletion) is in progress, so nothing new may
+// be spent while the balance is worked out and paid back.
+export type WalletState = { balanceMicros: number; heldMicros: number; frozen?: boolean };
 export type ChargeDetails = { feature: string; model?: string; inputTokens?: number; outputTokens?: number; rateId?: string };
 
 export const EMPTY_WALLET: WalletState = { balanceMicros: 0, heldMicros: 0 };
@@ -25,6 +27,7 @@ export const EMPTY_WALLET: WalletState = { balanceMicros: 0, heldMicros: 0 };
 /** Pure: what a reservation does to a wallet, or why it can't happen. */
 export function planReserve(wallet: WalletState, amountMicros: number): WalletState {
   if (!Number.isInteger(amountMicros) || amountMicros <= 0) throw new Error("Reserve amount must be a positive integer.");
+  if (wallet.frozen) throw new InsufficientCreditError(0, amountMicros);
   const available = wallet.balanceMicros - wallet.heldMicros;
   if (available < amountMicros) throw new InsufficientCreditError(Math.max(0, available), amountMicros);
   return { ...wallet, heldMicros: wallet.heldMicros + amountMicros };
@@ -42,10 +45,13 @@ export function planSettle(wallet: WalletState, holdMicros: number, actualMicros
 
 const walletRef = (db: Firestore, uid: string) => db.collection("wallets").doc(uid);
 
+function toWallet(data: Record<string, unknown> | undefined): WalletState {
+  return { balanceMicros: Number(data?.balanceMicros ?? 0), heldMicros: Number(data?.heldMicros ?? 0), ...(data?.frozen ? { frozen: true } : {}) };
+}
+
 async function readWallet(tx: Transaction, db: Firestore, uid: string): Promise<WalletState> {
   const snap = await tx.get(walletRef(db, uid));
-  const data = snap.exists ? snap.data() : undefined;
-  return { balanceMicros: Number(data?.balanceMicros ?? 0), heldMicros: Number(data?.heldMicros ?? 0) };
+  return toWallet(snap.exists ? snap.data() : undefined);
 }
 
 function writeLedger(tx: Transaction, db: Firestore, uid: string, entry: Record<string, unknown>) {
@@ -54,8 +60,26 @@ function writeLedger(tx: Transaction, db: Firestore, uid: string, entry: Record<
 
 export async function getWallet(uid: string, db: Firestore = adminDb): Promise<WalletState> {
   const snap = await walletRef(db, uid).get();
-  const data = snap.exists ? snap.data() : undefined;
-  return { balanceMicros: Number(data?.balanceMicros ?? 0), heldMicros: Number(data?.heldMicros ?? 0) };
+  return toWallet(snap.exists ? snap.data() : undefined);
+}
+
+/** Stops (or allows again) all spending from a wallet. */
+export async function setWalletFrozen(uid: string, frozen: boolean, reason: string, db: Firestore = adminDb): Promise<void> {
+  await walletRef(db, uid).set({ frozen, frozenReason: frozen ? reason : null, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+}
+
+export type PurchaseRecord = { paymentIntentId: string; creditMicros: number; reversedMicros: number; appliedAt: Date | null };
+
+/** The student's purchases, newest first, with how much of each has already been refunded. */
+export async function listPurchases(uid: string, db: Firestore = adminDb): Promise<PurchaseRecord[]> {
+  const snap = await db.collection("stripeEvents").where("type", "==", "purchase").where("uid", "==", uid).get();
+  return snap.docs
+    .map((d) => {
+      const x = d.data();
+      return { paymentIntentId: String(x.paymentIntentId ?? ""), creditMicros: Number(x.creditMicros ?? 0), reversedMicros: Number(x.reversedMicros ?? 0), appliedAt: x.appliedAt?.toDate?.() ?? null };
+    })
+    .filter((p) => p.paymentIntentId)
+    .sort((a, b) => (b.appliedAt?.getTime() ?? 0) - (a.appliedAt?.getTime() ?? 0));
 }
 
 /** Holds `amountMicros` for a request about to run. Throws InsufficientCreditError when the balance can't cover it. */
