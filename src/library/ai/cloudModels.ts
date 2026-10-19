@@ -86,8 +86,10 @@ export function outputCap(feature: string): number {
 //             (AI_MODEL_FAST, else AI_MODEL_LIGHT)
 //   balanced  the default model; the chat route's thinking router decides
 //             per question how much to think (chatThinking.ts)
-//   thorough  thinking always on at high effort, with room to finish
-//             (AI_MODEL_THOROUGH, else the default model)
+//   thorough  a stronger reasoning model, thinking at high effort with room
+//             to finish (AI_MODEL_THOROUGH, else the default model). Qwen3.6-35B
+//             solved 10/10 hard math/CS problems where Gemma solved 7
+//             (2026-10-19), at about 3x the cost and 45s a problem.
 export type SpeedOverride = { model?: string; think?: boolean | "high"; maxTokensFactor?: number };
 
 export function speedOverride(feature: string, speed: "fast" | "balanced" | "thorough" | undefined): SpeedOverride {
@@ -96,5 +98,5 @@ export function speedOverride(feature: string, speed: "fast" | "balanced" | "tho
     const model = process.env.AI_MODEL_FAST || process.env.AI_MODEL_LIGHT;
     return { ...(model ? { model } : {}), think: false };
   }
-  return { ...(process.env.AI_MODEL_THOROUGH ? { model: process.env.AI_MODEL_THOROUGH } : {}), think: "high", maxTokensFactor: 2 };
+  return { ...(process.env.AI_MODEL_THOROUGH ? { model: process.env.AI_MODEL_THOROUGH } : {}), think: "high", maxTokensFactor: 3 };
 }

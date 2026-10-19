@@ -5,9 +5,9 @@
 export type ChatSpeed = "fast" | "balanced" | "thorough";
 
 export const CHAT_SPEEDS: { id: ChatSpeed; label: string; description: string; typicalUsd: number }[] = [
-  { id: "fast", label: "Fast", description: "Quickest and cheapest. Good for quick questions; weaker at multi-step tasks like scheduling.", typicalUsd: 0.001 },
-  { id: "balanced", label: "Balanced", description: "Thinks when a question needs it. Best for most studying.", typicalUsd: 0.002 },
-  { id: "thorough", label: "Thorough", description: "Always thinks it through. Slower and costs more; for hard problems and proofs.", typicalUsd: 0.006 },
+  { id: "fast", label: "Fast", description: "Quickest and cheapest. Good for quick questions; weaker at multi-step tasks like scheduling.", typicalUsd: 0.0003 },
+  { id: "balanced", label: "Balanced", description: "Thinks when a question needs it. Best for most studying.", typicalUsd: 0.001 },
+  { id: "thorough", label: "Thorough", description: "A stronger model that works problems through step by step. Slow (often 30+ seconds); for hard math, proofs and tricky code.", typicalUsd: 0.004 },
 ];
 
 const KEY = "chat-speed";

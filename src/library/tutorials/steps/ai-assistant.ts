@@ -22,7 +22,13 @@ const aiAssistantSteps: TutorialStep[] = [
   {
     target: '[data-tutorial="ai-chat-input"]',
     title: "Ask anything",
-    body: "Attach a document with the paperclip, then ask about your classes, notes, or anything else — Catalyst reads your uploaded materials.",
+    body: "Attach a document with the paperclip, then ask about your classes, notes, or anything else — Catalyst reads your uploaded materials. Type / for shortcuts like /compact, /cost and /new.",
+    placement: "top",
+  },
+  {
+    target: '[data-tutorial="ai-chat-controls"]',
+    title: "Memory, cost and speed",
+    body: "The ring shows how full this chat's memory is. When it fills, older messages are summarized so replies stay fast and cheap. Next to it is what the chat has cost, and the speed setting: Fast for quick answers, Thorough for hard problems.",
     placement: "top",
   },
 ];
