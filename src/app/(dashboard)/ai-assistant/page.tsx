@@ -32,7 +32,7 @@ import ThinkingIndicator from "@/src/components/aiAssistant/ThinkingIndicator";
 import ConfirmActionCard from "@/src/components/aiAssistant/ConfirmActionCard";
 import { useStickToBottom } from "@/src/hooks/useStickToBottom";
 import { useChatCommands } from "@/src/hooks/useChatCommands";
-import ChatControls, { ChatNotice, SlashMenu } from "@/src/components/aiAssistant/ChatControls";
+import { ChatNotice, MemoryAndCost, SlashMenu, SpeedPicker } from "@/src/components/aiAssistant/ChatControls";
 import { memoryFill } from "@/src/library/chatCompactionLimits";
 
 // Loaded on demand rather than with the page: the markdown/math renderer is
@@ -930,6 +930,8 @@ function AIAssistantPageContent() {
             classes={chatContext?.classes ?? []}
             disabled={isSending}
             onSend={(prompt) => void handleSubmit(null, prompt)}
+            leading={<MemoryAndCost memory={memoryFill(messages, summarizedCount)} summarized={summarizedCount > 0} costMicros={chatCost} cloudAi={commands.cloudAi} onCompact={hasStarted ? () => void commands.compact() : undefined} compacting={commands.compacting} />}
+            trailing={commands.cloudAi ? <SpeedPicker speed={commands.speed} onSpeed={commands.changeSpeed} /> : null}
           />
 
           {commands.notice && (
@@ -1015,18 +1017,6 @@ function AIAssistantPageContent() {
               </button>
             )}
           </form>
-          <div className="mx-auto mt-1.5 max-w-4xl">
-            <ChatControls
-              memory={memoryFill(messages, summarizedCount)}
-              summarized={summarizedCount > 0}
-              costMicros={chatCost}
-              cloudAi={commands.cloudAi}
-              speed={commands.speed}
-              onSpeed={commands.changeSpeed}
-              onCompact={hasStarted ? () => void commands.compact() : undefined}
-              compacting={commands.compacting}
-            />
-          </div>
           {stt.error && (
             <p role="status" className="mt-2 text-center text-xs text-alert-error">
               {stt.error}

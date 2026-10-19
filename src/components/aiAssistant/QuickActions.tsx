@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, CalendarPlus, FileSearch, FileText, Gauge, ListChecks, NotebookPen, X } from "lucide-react";
+import { BookOpen, CalendarPlus, FileSearch, FileText, Gauge, ListChecks, MoreHorizontal, NotebookPen, X } from "lucide-react";
 import type { ChatClass } from "@/src/library/chatContext";
 import type { CustomType } from "@/src/library/custom/customRequest";
 import type { StudyKind } from "@/src/library/studySets/setupRules";
@@ -149,6 +149,8 @@ export default function QuickActions({
   disabled,
   onSend,
   compact = false,
+  leading,
+  trailing,
 }: {
   classes: ChatClass[];
   /** Pre-selects this class (e.g. on a course page). */
@@ -157,6 +159,9 @@ export default function QuickActions({
   onSend: (prompt: string) => void;
   /** Narrow panels: one column, whatever the window width. */
   compact?: boolean;
+  /** Shown at the start and end of the same row (the chat's memory/cost and speed controls). */
+  leading?: ReactNode;
+  trailing?: ReactNode;
 }) {
   const current = useMemo(() => classes.filter((c) => c.status !== "completed"), [classes]);
   const [openForm, setActive] = useState<{ action: QuickAction; path: string | null } | null>(null);
@@ -204,8 +209,30 @@ export default function QuickActions({
         (active.fields.includes("when") && (!values.date || !values.time));
 
   const wide = compact ? "" : "sm:col-span-2";
+  const actions = current.length === 0 ? [] : ACTIONS;
+  const actionButton = (a: QuickAction, measuring = false) => (
+    <button
+      key={a.id}
+      type="button"
+      tabIndex={measuring ? -1 : undefined}
+      disabled={disabled}
+      onClick={measuring ? undefined : () => (active?.id === a.id ? setActive(null) : open(a))}
+      aria-pressed={measuring ? undefined : active?.id === a.id}
+      className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
+        active?.id === a.id && !measuring
+          ? "border-primary bg-primary text-text-inverse"
+          : "border-border-light bg-bg-container text-text-main hover:border-border-hover hover:bg-bg-warm"
+      }`}
+    >
+      <span className={active?.id === a.id && !measuring ? "" : "text-primary"}>{a.icon}</span>
+      {a.label}
+    </button>
+  );
+  const { rowRef, measureRef, visible, moreOpen, setMoreOpen, moreRef } = useOverflowRow(actions.length);
+  const shown = actions.slice(0, visible);
+  const hidden = actions.slice(visible);
 
-  if (current.length === 0) return null;
+  if (actions.length === 0 && !leading && !trailing) return null;
 
   return (
     <div className="mx-auto mb-2 max-w-4xl">
@@ -394,25 +421,115 @@ export default function QuickActions({
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2 px-1 pb-1" role="toolbar" aria-label="Quick actions" data-tutorial="ai-quick-actions">
-        {ACTIONS.map((a) => (
-          <button
-            key={a.id}
-            type="button"
-            disabled={disabled}
-            onClick={() => (active?.id === a.id ? setActive(null) : open(a))}
-            aria-pressed={active?.id === a.id}
-            className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
-              active?.id === a.id
-                ? "border-primary bg-primary text-text-inverse"
-                : "border-border-light bg-bg-container text-text-main hover:border-border-hover hover:bg-bg-warm"
-            }`}
-          >
-            <span className={active?.id === a.id ? "" : "text-primary"}>{a.icon}</span>
-            {a.label}
-          </button>
-        ))}
+      {/* One row: memory and cost, as many actions as fit, a "more" menu for the rest, speed.
+          Wrapping or a scrollbar cluttered the chat box on desktop and phones alike. */}
+      <div ref={rowRef} className="relative flex items-center gap-1.5 px-1 pb-1">
+        {leading}
+        <div className="flex min-w-0 flex-1 items-center gap-1.5" role="toolbar" aria-label="Quick actions" data-tutorial="ai-quick-actions">
+          {shown.map((a) => actionButton(a))}
+          {hidden.length > 0 && (
+            <div ref={moreRef} className="relative shrink-0">
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => setMoreOpen(!moreOpen)}
+                aria-label="More actions"
+                aria-expanded={moreOpen}
+                className="flex h-[30px] items-center rounded-full border border-border-light bg-bg-container px-2.5 text-text-main transition hover:border-border-hover hover:bg-bg-warm disabled:opacity-50"
+              >
+                <MoreHorizontal size={15} />
+              </button>
+              {moreOpen && (
+                <ul role="menu" className="absolute bottom-full right-0 z-40 mb-2 w-52 overflow-hidden rounded-xl border border-border-light bg-bg-container py-1 shadow-xl">
+                  {hidden.map((a) => (
+                    <li key={a.id}>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMoreOpen(false);
+                          open(a);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text-main hover:bg-bg-warm"
+                      >
+                        <span className="text-primary">{a.icon}</span>
+                        {a.label}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+        {trailing}
+        {/* Off-screen copies, measured to decide how many buttons fit. */}
+        <div ref={measureRef} aria-hidden="true" className="pointer-events-none invisible absolute left-0 top-0 flex gap-1.5">
+          {actions.map((a) => actionButton(a, true))}
+        </div>
       </div>
     </div>
   );
+}
+
+// How many of `count` buttons fit in the row beside its other controls; the
+// rest go in a "more" menu. Measured from an invisible copy of every button,
+// and again whenever the row changes width (window resize, phone rotation,
+// the side panel opening).
+const GAP = 6;
+const MORE_WIDTH = 40;
+
+function useOverflowRow(count: number) {
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const measureRef = useRef<HTMLDivElement | null>(null);
+  const moreRef = useRef<HTMLDivElement | null>(null);
+  const [visible, setVisible] = useState(count);
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  const measure = useCallback(() => {
+    const row = rowRef.current;
+    const copies = measureRef.current;
+    if (!row || !copies) return;
+    const toolbar = row.querySelector<HTMLElement>('[role="toolbar"]');
+    if (!toolbar) return;
+    // The toolbar is flex-1: its width is what's left after the row's other controls.
+    const room = toolbar.getBoundingClientRect().width;
+    const widths = Array.from(copies.children).map((c) => (c as HTMLElement).getBoundingClientRect().width);
+    const total = widths.reduce((sum, w) => sum + w, 0) + GAP * Math.max(0, widths.length - 1);
+    if (total <= room) return setVisible(widths.length);
+    let used = MORE_WIDTH;
+    let fit = 0;
+    for (const w of widths) {
+      if (used + w + GAP > room) break;
+      used += w + GAP;
+      fit += 1;
+    }
+    setVisible(fit);
+  }, []);
+
+  useLayoutEffect(() => {
+    measure();
+    const row = rowRef.current;
+    if (!row || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => measure());
+    observer.observe(row);
+    return () => observer.disconnect();
+  }, [measure, count]);
+
+  // Close the menu on an outside click or Escape.
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMoreOpen(false);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [moreOpen]);
+
+  return { rowRef, measureRef, moreRef, visible: Math.min(visible, count), moreOpen, setMoreOpen };
 }
