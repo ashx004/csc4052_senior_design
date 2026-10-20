@@ -12,6 +12,7 @@ import FocusCard from "@/src/components/studyPlan/FocusCard";
 import NotificationToast from "@/src/components/studyPlan/NotificationToast";
 import ThemeInitializer from "@/src/components/ThemeInitializer";
 import AppUpdates from "@/src/components/AppUpdates";
+import ErrorReporter from "@/src/components/monitoring/ErrorReporter";
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -50,6 +51,7 @@ export default function RootLayout({
       >
         <ThemeInitializer />
         <AppUpdates />
+        <ErrorReporter />
 
         <AuthProvider>
           <AnalyticsProvider>

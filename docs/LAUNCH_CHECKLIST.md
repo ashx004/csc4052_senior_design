@@ -96,6 +96,20 @@ server (`docker logs catalyst-stripe-listen`).
 - [ ] **Decide the real end date** if the service will run past March 18, 2027,
       and update the docs (an in-app notice goes out 30 days before).
 
+## Monitoring and alerts
+
+See `docs/INCIDENT_RESPONSE.md` for what each alert means.
+
+- [ ] **Set `ALERT_EMAILS`** in the server's `.env` (comma-separated team addresses),
+      then restart the container. Resend must be able to send from `RESEND_FROM_EMAIL`.
+- [ ] **UptimeRobot** (free, uptimerobot.com): add an HTTP(s) monitor for
+      `https://catalyst.zonocsc.com/api/health`, every 5 minutes, and add each
+      teammate's email as an alert contact. Add a second monitor for
+      `https://catalyst.zonocsc.com/` so a broken page shows up even when the API is fine.
+- [ ] **Test the alerts** (steps in `docs/INCIDENT_RESPONSE.md` → "Testing the alerts").
+- [ ] **Optional:** set the repository variable `HEALTH_URL` if the domain changes;
+      the backup GitHub uptime check (`.github/workflows/uptime.yml`) uses it.
+
 ## Server
 
 - [ ] **Node 22+ in production.** The project requires Node ≥ 22.19, and this machine
