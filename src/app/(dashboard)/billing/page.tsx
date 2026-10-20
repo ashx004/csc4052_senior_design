@@ -49,7 +49,13 @@ function groupHistory(entries: Entry[]) {
       byKey.set(key, created);
       rows.push(created);
     } else {
-      const label = e.type === "purchase" ? "Added credit" : e.type === "refund" ? "Refund" : e.type === "dispute" ? "Disputed payment" : e.type;
+      const label =
+        e.type === "purchase" ? "Added credit"
+        : e.type === "trial" ? "Free trial credit"
+        : e.type === "refund" ? "Refund to your card"
+        : e.type === "refund-ai" ? `Refunded: ${featureLabel(e.feature)} failed on our side`
+        : e.type === "dispute" ? "Disputed payment"
+        : e.type;
       rows.push({ key: e.id, day, label, amountMicros: e.amountMicros, count: 1, kind: e.type });
     }
   }
@@ -196,7 +202,7 @@ function BillingPage() {
             {rows.map((r) => (
               <li key={r.key} className="flex items-center justify-between gap-3 bg-bg-container px-4 py-2.5 text-sm">
                 <div className="min-w-0">
-                  <p className="truncate text-text-main">{r.label}{r.count > 1 && <span className="text-text-muted"> · {r.count} requests</span>}</p>
+                  <p className="truncate text-text-main" title={r.count > 1 ? "One task can take several AI calls (a quiz from several files makes one per file)." : undefined}>{r.label}{r.count > 1 && <span className="text-text-muted"> · {r.count} AI calls</span>}</p>
                   <p className="text-xs text-text-muted">{r.day}</p>
                 </div>
                 <span className={`shrink-0 font-medium ${r.amountMicros > 0 ? "text-alert-success" : "text-text-main"}`}>

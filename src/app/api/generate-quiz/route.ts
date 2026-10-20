@@ -6,7 +6,7 @@ import { enterAiUser } from "@/src/library/ai/usageScope";
 import { aiCreditGate } from "@/src/library/billing/creditGate";
 import { checkRateLimit } from '@/src/library/rateLimit';
 import {
-  generateQuizWithValidation,
+  generateQuizWithValidation, quizSpares,
   MAX_QUIZ_QUESTIONS,
   type QuestionTypes,
 } from '@/src/library/quizGeneration';
@@ -16,6 +16,7 @@ import { sourcesFromBody } from '@/src/library/sources/requestSources';
 import { isSourceSelectionError } from '@/src/library/sources/errors';
 import { courseIdFromBody, resolveDepsFor } from '@/src/library/sources/resolveDeps';
 import { resolveSources } from '@/src/library/sources/resolveSources';
+import { refundOnFailure } from "@/src/library/billing/refundOnFailure";
 
 // Same GPU/LLM-cost-bearing rationale as api/chat and api/embed-document's
 // own rate limits (see rateLimit.ts) — this route makes an identical kind
@@ -23,7 +24,7 @@ import { resolveSources } from '@/src/library/sources/resolveSources';
 const QUIZ_RATE_LIMIT_WINDOW_MS = 60_000;
 const QUIZ_RATE_LIMIT_MAX = 10; // per user per window — generating a quiz isn't normally rapid-fire
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   try {
     /*
      * Authenticate this API route before allowing it to use the
@@ -154,7 +155,8 @@ export async function POST(request: NextRequest) {
             baseUrl,
             modelKey,
             [...avoid, ...alreadyAsked],
-            level
+            level,
+            { spares: quizSpares(quota) }
           );
           return { topicName: result.topicName, items: result.questions };
         },
@@ -198,3 +200,6 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+// A server error on our side refunds whatever this request spent (refundOnFailure.ts).
+export const POST = refundOnFailure("quiz-generation", handlePOST);

@@ -7,6 +7,7 @@ import { checkRateLimit } from "@/src/library/rateLimit";
 import { resolveOllamaBaseUrl } from "@/src/library/ollamaClient";
 import { gradeWrittenAnswer } from "@/src/library/practice/writtenAnswer";
 import { MAX_WRITTEN_ANSWER_CHARS, type WordProblemItem } from "@/src/library/practice/types";
+import { refundOnFailure } from "@/src/library/billing/refundOnFailure";
 
 // Grades one written word-problem answer. The question and its model answer are
 // read from the student's own saved practice set here on the server, never taken
@@ -17,7 +18,7 @@ const RATE_WINDOW_MS = 60_000;
 const RATE_MAX = 30;
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   try {
     const auth = await verifyRequestAuth(request);
     const idToken = getIdToken(request);
@@ -70,3 +71,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Couldn't check that answer right now. Please try again." }, { status: 500 });
   }
 }
+
+// A server error on our side refunds whatever this request spent (refundOnFailure.ts).
+export const POST = refundOnFailure("practice-grading", handlePOST);

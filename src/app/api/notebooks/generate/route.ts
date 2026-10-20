@@ -5,7 +5,7 @@ import { aiCreditGate } from "@/src/library/billing/creditGate";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import { resolveOllamaBaseUrl } from "@/src/library/ollamaClient";
 import { generateFlashcardsWithRetry } from "@/src/library/flashcardGeneration";
-import { generateQuizWithValidation, MAX_QUIZ_QUESTIONS, type QuestionTypes } from "@/src/library/quizGeneration";
+import { generateQuizWithValidation, quizSpares, MAX_QUIZ_QUESTIONS, type QuestionTypes } from "@/src/library/quizGeneration";
 import { parseQuizDifficulty } from "@/src/library/quizDifficulty";
 import { generateAcrossSources } from "@/src/library/generation/orchestrator";
 import { sourcesFromBody } from "@/src/library/sources/requestSources";
@@ -13,6 +13,7 @@ import { isSourceSelectionError } from "@/src/library/sources/errors";
 import { courseIdFromBody, resolveDepsFor } from "@/src/library/sources/resolveDeps";
 import { MAX_SOURCES, resolveSources } from "@/src/library/sources/resolveSources";
 import type { SkippedSource } from "@/src/library/sources/sourceTypes";
+import { refundOnFailure } from "@/src/library/billing/refundOnFailure";
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 6;
@@ -28,7 +29,7 @@ const DEFAULT_FLASHCARD_COUNT = 20;
  * vector index when a note's resource has one, and budgets each note's text
  * separately instead of concatenating everything into one prompt.
  */
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   try {
     const auth = await verifyRequestAuth(request);
     if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -147,7 +148,8 @@ export async function POST(request: NextRequest) {
                   baseUrl,
                   body.modelKey,
                   alreadyAsked,
-                  level
+                  level,
+                  { spares: quizSpares(quota) }
                 );
                 return { topicName: result.topicName, items: result.questions };
               },
@@ -183,3 +185,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to generate. Please try again." }, { status: 500 });
   }
 }
+
+// A server error on our side refunds whatever this request spent (refundOnFailure.ts).
+export const POST = refundOnFailure("notebook-generation", handlePOST);

@@ -87,6 +87,11 @@ export type SuggestionItem = {
 
 const MAX_TEXT = 2000;
 const MAX_QUESTIONS = 25;
+// A finished quiz can have up to MAX_QUIZ_QUESTIONS (quizGeneration.ts: 50).
+// This was 25 for every list, so asking the sidebar about a 29-question
+// quiz's results failed with "Invalid pageContext". Kept as a number here
+// (contextualAi.ts is browser code; quizGeneration.ts is not).
+export const MAX_QUIZ_RESULT_QUESTIONS = 50;
 const MAX_PAGE_TEXT = 6000;
 const MAX_PAGE_TITLE = 200;
 
@@ -115,7 +120,7 @@ export const quizResultPageContextSchema = z.object({
         isCorrect: z.boolean(),
       })
     )
-    .max(MAX_QUESTIONS),
+    .max(MAX_QUIZ_RESULT_QUESTIONS),
 });
 
 export const learnQuestionsPageContextSchema = z.object({

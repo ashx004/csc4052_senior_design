@@ -27,8 +27,9 @@ import { useStickToBottom } from "@/src/hooks/useStickToBottom";
 import ConfirmActionCard, { type PendingActionCardData } from "./ConfirmActionCard";
 import { notifyDataChanged } from "@/src/library/dataChanged";
 import { useChatCommands } from "@/src/hooks/useChatCommands";
-import ChatControls, { ChatNotice, SlashMenu } from "./ChatControls";
+import { ChatNotice, MemoryAndCost, SlashMenu, SpeedPicker } from "./ChatControls";
 import { memoryFill } from "@/src/library/chatCompactionLimits";
+import { useChatBubbleSpace } from "@/src/hooks/useChatBubbleSpace";
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -628,6 +629,8 @@ export default function ContextualAiPanel({
       disabled={isStreaming}
       compact={!isExpanded}
       onSend={(prompt) => void sendMessage(prompt)}
+      leading={<MemoryAndCost memory={memoryFill(messages, summarizedCount)} summarized={summarizedCount > 0} costMicros={chatCost} cloudAi={commands.cloudAi} onCompact={messages.length ? () => void commands.compact() : undefined} compacting={commands.compacting} />}
+      trailing={commands.cloudAi ? <SpeedPicker speed={commands.speed} onSpeed={commands.changeSpeed} /> : null}
     />
     <div
       className="
@@ -709,19 +712,6 @@ export default function ContextualAiPanel({
       </p>
     )}
 
-    <div className="mt-1.5">
-      <ChatControls
-        compact
-        memory={memoryFill(messages, summarizedCount)}
-        summarized={summarizedCount > 0}
-        costMicros={chatCost}
-        cloudAi={commands.cloudAi}
-        speed={commands.speed}
-        onSpeed={commands.changeSpeed}
-        onCompact={messages.length ? () => void commands.compact() : undefined}
-        compacting={commands.compacting}
-      />
-    </div>
   </div>
 </div>
 
@@ -745,6 +735,7 @@ type LauncherProps = {
 };
 
 export function CatalystLauncher({ onClick, visible, buttonRef }: LauncherProps) {
+  useChatBubbleSpace(visible);
   if (!visible) return null;
 
   return createPortal(

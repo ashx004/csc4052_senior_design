@@ -24,6 +24,7 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); fetchMock.mockReset(); delete process.env.AI_BACKEND; });
 
 const sentBody = (call: number) => JSON.parse(fetchMock.mock.calls[call][1].body);
+const sentBodyOf = (call: unknown[]) => JSON.parse((call[1] as { body: string }).body);
 
 describe("aiFetch", () => {
   it("is plain fetch when the backend is Ollama", async () => {
@@ -169,5 +170,36 @@ describe("aiFetch", () => {
     expect(sentBody(2)).toMatchObject({ model: "google/gemma-4-26b-a4b-it", reasoning: { effort: "high" }, max_tokens: 12288 });
     expect(spend.micros).toBe(3000); // 945 micros reported + 5.5% fee, three times
     delete process.env.AI_MODEL_LIGHT;
+  });
+
+  it("tries each backup in turn when providers fail one after another", async () => {
+    process.env.AI_MODEL_FALLBACK = "openrouter:qwen/qwen3.7-flash, google:gemini-3.1-flash-lite";
+    fetchMock
+      .mockImplementationOnce(async () => new Response("host down", { status: 500 }))
+      .mockImplementationOnce(async () => new Response("busy", { status: 503 }))
+      .mockImplementationOnce(async () => completion("third time lucky"));
+    const res = await aiFetch("http://x/api/chat", ollamaInit("chat", { messages: [] }));
+    expect((await res.json()).message.content).toBe("third time lucky");
+    expect(fetchMock.mock.calls.map((c) => sentBodyOf(c).model)).toEqual(["google/gemma-4-26b-a4b-it", "qwen/qwen3.7-flash", "gemini-3.1-flash-lite"]);
+    expect(events[0]).toMatchObject({ model: "google:gemini-3.1-flash-lite", fallback: true });
+    process.env.AI_MODEL_FALLBACK = "google:gemini-3.1-flash-lite";
+  });
+
+  it("never lists the feature's own model as its backup", async () => {
+    process.env.AI_MODEL_FALLBACK = "openrouter:qwen/qwen3.7-flash, google:gemini-3.1-flash-lite";
+    fetchMock.mockImplementationOnce(async () => new Response("down", { status: 500 })).mockImplementationOnce(async () => completion("ok"));
+    await aiFetch("http://x/api/chat", ollamaInit("quiz-generation", { messages: [] }));
+    expect(fetchMock.mock.calls.map((c) => sentBodyOf(c).model)).toEqual(["qwen/qwen3.7-flash", "gemini-3.1-flash-lite"]);
+    process.env.AI_MODEL_FALLBACK = "google:gemini-3.1-flash-lite";
+  });
+
+  it("keeps developer accounts on Ollama even in full cloud mode", async () => {
+    process.env.AI_OLLAMA_USERS = "dev-1";
+    fetchMock.mockImplementation(async () => completion("x", 0.000001));
+    await runAsAiUser("dev-1", () => aiFetch("http://ollama/api/chat", ollamaInit("chat", { messages: [] })));
+    await runAsAiUser("student-1", () => aiFetch("http://ollama/api/chat", ollamaInit("chat", { messages: [] })));
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(["http://ollama/api/chat", "https://openrouter.ai/api/v1/chat/completions"]);
+    expect(events).toHaveLength(1);
+    delete process.env.AI_OLLAMA_USERS;
   });
 });

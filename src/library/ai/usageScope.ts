@@ -13,7 +13,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 // Next.js can load this module more than once.
 
 export type ChatSpeed = "fast" | "balanced" | "thorough";
-export type AiScope = { uid?: string; speed?: ChatSpeed; spend?: { micros: number } };
+export type SpendTracker = { micros: number; uid?: string; /** The model that wrote the latest chat answer (a backup, if one stepped in). */ chatModel?: string };
+export type AiScope = { uid?: string; speed?: ChatSpeed; spend?: SpendTracker };
 
 function storage(): AsyncLocalStorage<AiScope | undefined> {
   const g = globalThis as typeof globalThis & { __catalystAiScope?: AsyncLocalStorage<AiScope | undefined> };
@@ -38,10 +39,15 @@ export function setAiSpeed(speed: ChatSpeed | undefined): void {
 }
 
 /** Starts adding up what this request's AI calls are charged. Read `micros` when the work is done. */
-export function trackAiSpend(): { micros: number } {
-  const spend = { micros: 0 };
+export function trackAiSpend(): SpendTracker {
+  const spend: SpendTracker = { micros: 0 };
   extend({ spend });
   return spend;
+}
+
+/** Runs `work` with a fresh spend counter the caller can read afterwards (see refundOnFailure). */
+export function runWithSpend<T>(spend: SpendTracker, work: () => T): T {
+  return storage().run({ ...storage().getStore(), spend }, work);
 }
 
 /** Runs `work` with its AI calls billed to `uid`, without touching the caller's scope. */

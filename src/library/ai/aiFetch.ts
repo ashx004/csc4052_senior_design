@@ -1,4 +1,4 @@
-import { fallbackModel, featureGroup, isCloudBackend, modelForFeature, outputCap, speedOverride } from "./cloudModels";
+import { fallbackModels, featureGroup, isCloudBackend, modelForFeature, outputCap, speedOverride } from "./cloudModels";
 import { rateFor } from "./cloudRates";
 import { currentAiScope } from "./usageScope";
 import { chargeForCost, estimateInputTokens, holdFor } from "../billing/pricing";
@@ -53,13 +53,13 @@ export async function aiFetch(url: string, init: RequestInit): Promise<Response>
 
   const speed = speedOverride(feature, scope.speed);
   const primary = speed.model ?? modelForFeature(feature);
-  const backup = fallbackModel();
+  const backups = fallbackModels(primary);
   // OCR transcribes, it doesn't reason: thinking only burned tokens in the benchmark.
   const think = featureGroup(feature) === "ocr" ? false : speed.think;
   const maxTokens = outputCap(feature) * (speed.maxTokensFactor ?? 1);
 
   // Hold the most this request could cost, on whichever model may serve it.
-  const models = backup && backup !== primary ? [primary, backup] : [primary];
+  const models = [primary, ...backups];
   const outputLimit = body.options?.num_predict && body.options.num_predict > 0 ? body.options.num_predict : maxTokens;
   let session: MeterSession;
   try {
@@ -73,8 +73,9 @@ export async function aiFetch(url: string, init: RequestInit): Promise<Response>
 
   let attempt = await callProvider(primary, body, maxTokens, think, init.signal);
   let model = primary;
-  if (shouldFallBack(attempt, init.signal) && backup && backup !== primary) {
-    console.warn(`[ai] ${primary} failed for ${feature} (${attempt.response?.status ?? attempt.error}); retrying on ${backup}.`);
+  for (const backup of backups) {
+    if (!shouldFallBack(attempt, init.signal)) break;
+    console.warn(`[ai] ${model} failed for ${feature} (${attempt.response?.status ?? attempt.error}); retrying on ${backup}.`);
     attempt = await callProvider(backup, body, maxTokens, think, init.signal);
     model = backup;
   }
@@ -100,7 +101,11 @@ export async function aiFetch(url: string, init: RequestInit): Promise<Response>
     const event = toUsageEvent(feature, model, usage, model !== primary);
     // What the chat route shows as this reply's cost. An unknown cost (a
     // stopped stream) is filled in later by the meter, so it counts 0 here.
-    if (scope.spend) scope.spend.micros += chargeForCost(event.costMicros, model);
+    if (scope.spend) {
+      scope.spend.micros += chargeForCost(event.costMicros, model);
+      scope.spend.uid ??= uid;
+      if (feature === "chat") scope.spend.chatModel = model;
+    }
     session.finish({ uid, ...(requestId ? { requestId } : {}), ...(incomplete ? { incomplete } : {}), ...event })
       .catch((error) => console.error("[billing] metering failed:", error));
   };

@@ -37,6 +37,8 @@ export type ChatStreamEvent =
       summarizedCount?: number;
       /** What this reply was charged in AI credit (micro-dollars). */
       costMicros?: number;
+      /** Which model wrote it, by display name (cloud AI only). */
+      model?: string;
     }
   | { type: "error"; error: string }
   // Sent once, only for a brand-new main-assistant session, as soon as the

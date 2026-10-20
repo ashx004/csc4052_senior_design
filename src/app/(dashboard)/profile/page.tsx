@@ -388,8 +388,8 @@ export default function Profile() {
       >
         <h1
           className="
-            absolute left-1/2 -translate-x-1/2 text-center
-            text-lg font-semibold tracking-[0.45em] text-text-main"
+            min-w-0 truncate sm:absolute sm:left-1/2 sm:-translate-x-1/2 text-center
+            whitespace-nowrap text-base font-semibold tracking-[0.2em] sm:text-lg sm:tracking-[0.45em] text-text-main"
         >
           Profile.
         </h1>

@@ -60,94 +60,92 @@ export type ChatControlsProps = {
   compact?: boolean;
 };
 
-export default function ChatControls({ memory, summarized, costMicros, cloudAi, speed, onSpeed, onCompact, compacting, compact }: ChatControlsProps) {
-  const [open, setOpen] = useState<"memory" | "speed" | null>(null);
-  const current = CHAT_SPEEDS.find((s) => s.id === speed) ?? CHAT_SPEEDS[1];
+/** The memory ring and this chat's cost: the left end of the chat bar. */
+export function MemoryAndCost({ memory, summarized, costMicros, cloudAi, onCompact, compacting }: Pick<ChatControlsProps, "memory" | "summarized" | "costMicros" | "cloudAi" | "onCompact" | "compacting">) {
+  const [open, setOpen] = useState(false);
   const percent = Math.round(memory * 100);
-
   return (
-    <div className={`flex items-center gap-1 text-xs text-text-muted ${compact ? "" : "px-1"}`} data-tutorial="ai-chat-controls">
-      <div className="relative">
-        <button
-          type="button"
-          onClick={() => setOpen(open === "memory" ? null : "memory")}
-          className="flex items-center gap-1.5 rounded-lg px-2 py-1 hover:bg-bg-warm"
-          aria-label={`Chat memory ${percent}% full`}
-          title="Chat memory"
-        >
-          <MemoryRing fill={memory} />
-          <span>{percent}%</span>
-        </button>
-        <Popover open={open === "memory"} onClose={() => setOpen(null)}>
-          <p className="text-sm font-semibold text-text-main">Chat memory: {percent}% full</p>
-          <p className="mt-1 text-xs leading-relaxed text-text-muted">
-            The assistant rereads this conversation with every message. When it fills up, older messages are summarized
-            automatically and the latest ones are kept word for word, so replies stay fast and cheap.
-            {summarized && " Earlier parts of this chat are already summarized."}
-          </p>
-          {onCompact && (
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(null);
-                onCompact();
-              }}
-              disabled={compacting}
-              className="mt-2 rounded-lg border border-border-light px-2.5 py-1 text-xs font-medium text-text-main hover:bg-bg-warm disabled:opacity-50"
-            >
-              {compacting ? "Summarizing..." : "Summarize now (/compact)"}
-            </button>
-          )}
-        </Popover>
-      </div>
-
-      {cloudAi && (
-        <span className="px-1" title="AI credit this chat has used">
-          {formatUsd(costMicros)}
-        </span>
-      )}
-
-      {cloudAi && (
-        <div className="relative ml-auto">
+    <div className="relative flex shrink-0 items-center text-xs text-text-muted" data-tutorial="ai-chat-controls">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 rounded-lg px-1.5 py-1 hover:bg-bg-warm"
+        aria-label={`Chat memory ${percent}% full${cloudAi ? `, this chat has cost ${formatUsd(costMicros)}` : ""}`}
+        title="Chat memory and cost"
+      >
+        <MemoryRing fill={memory} />
+        <span>{percent}%</span>
+        {cloudAi && <span className="hidden border-l border-border-light pl-1.5 sm:inline">{formatUsd(costMicros)}</span>}
+      </button>
+      <Popover open={open} onClose={() => setOpen(false)}>
+        <p className="text-sm font-semibold text-text-main">Chat memory: {percent}% full</p>
+        <p className="mt-1 text-xs leading-relaxed text-text-muted">
+          The assistant rereads this conversation with every message. When it fills up, older messages are summarized
+          automatically and the latest ones are kept word for word, so replies stay fast and cheap.
+          {summarized && " Earlier parts of this chat are already summarized."}
+        </p>
+        {cloudAi && <p className="mt-2 text-xs text-text-main">This chat has used <strong>{formatUsd(costMicros)}</strong> of AI credit.</p>}
+        {onCompact && (
           <button
             type="button"
-            onClick={() => setOpen(open === "speed" ? null : "speed")}
-            className="flex items-center gap-1 rounded-lg px-2 py-1 hover:bg-bg-warm"
-            aria-label={`Response speed: ${current.label}`}
-            data-tutorial="ai-chat-speed"
+            onClick={() => {
+              setOpen(false);
+              onCompact();
+            }}
+            disabled={compacting}
+            className="mt-2 rounded-lg border border-border-light px-2.5 py-1 text-xs font-medium text-text-main hover:bg-bg-warm disabled:opacity-50"
           >
-            <Gauge size={14} aria-hidden="true" />
-            {current.label}
-            <ChevronDown size={12} aria-hidden="true" />
+            {compacting ? "Summarizing..." : "Summarize now (/compact)"}
           </button>
-          <Popover open={open === "speed"} onClose={() => setOpen(null)} align="right">
-            <p className="mb-2 text-sm font-semibold text-text-main">Response speed</p>
-            <ul className="space-y-1">
-              {CHAT_SPEEDS.map((s) => (
-                <li key={s.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSpeed(s.id);
-                      setOpen(null);
-                    }}
-                    className={`flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-bg-warm ${s.id === speed ? "bg-bg-warm" : ""}`}
-                  >
-                    <Check size={14} className={`mt-0.5 shrink-0 ${s.id === speed ? "text-primary" : "invisible"}`} aria-hidden="true" />
-                    <span className="min-w-0">
-                      <span className="flex items-baseline justify-between gap-2 text-sm font-medium text-text-main">
-                        {s.label}
-                        <span className="text-xs font-normal text-text-muted">~{formatUsd(usdToMicros(s.typicalUsd))}/msg</span>
-                      </span>
-                      <span className="block text-xs leading-snug text-text-muted">{s.description}</span>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </Popover>
-        </div>
-      )}
+        )}
+      </Popover>
+    </div>
+  );
+}
+
+/** Fast / Balanced / Thorough: the right end of the chat bar. */
+export function SpeedPicker({ speed, onSpeed }: Pick<ChatControlsProps, "speed" | "onSpeed">) {
+  const [open, setOpen] = useState(false);
+  const current = CHAT_SPEEDS.find((s) => s.id === speed) ?? CHAT_SPEEDS[1];
+  return (
+    <div className="relative shrink-0 text-xs text-text-muted">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 rounded-lg px-1.5 py-1 hover:bg-bg-warm"
+        aria-label={`Response speed: ${current.label}`}
+        data-tutorial="ai-chat-speed"
+      >
+        <Gauge size={14} aria-hidden="true" />
+        <span className="hidden sm:inline">{current.label}</span>
+        <ChevronDown size={12} aria-hidden="true" />
+      </button>
+      <Popover open={open} onClose={() => setOpen(false)} align="right">
+        <p className="mb-2 text-sm font-semibold text-text-main">Response speed</p>
+        <ul className="space-y-1">
+          {CHAT_SPEEDS.map((s) => (
+            <li key={s.id}>
+              <button
+                type="button"
+                onClick={() => {
+                  onSpeed(s.id);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-bg-warm ${s.id === speed ? "bg-bg-warm" : ""}`}
+              >
+                <Check size={14} className={`mt-0.5 shrink-0 ${s.id === speed ? "text-primary" : "invisible"}`} aria-hidden="true" />
+                <span className="min-w-0">
+                  <span className="flex items-baseline justify-between gap-2 text-sm font-medium text-text-main">
+                    {s.label}
+                    <span className="text-xs font-normal text-text-muted">~{formatUsd(usdToMicros(s.typicalUsd))}/msg</span>
+                  </span>
+                  <span className="block text-xs leading-snug text-text-muted">{s.description}</span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </Popover>
     </div>
   );
 }

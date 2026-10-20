@@ -273,6 +273,11 @@ export function repeatsEarlierQuestion(question: string, previous: string[]): bo
   });
 }
 
+/** Spare questions to ask for alongside `quota` when a quote check will follow (see generateQuizWithValidation). */
+export function quizSpares(quota: number): number {
+  return Math.max(1, Math.ceil(quota / 4));
+}
+
 export async function generateQuizWithValidation(
   extractedText: string,
   questionCount: number,
@@ -282,13 +287,23 @@ export async function generateQuizWithValidation(
   /** Questions from an earlier version of this quiz - "New questions" must not repeat them. */
   avoidQuestions: string[] = [],
   /** Quiz level; sets the Bloom plan for the prompt. */
-  difficulty: QuizDifficulty = DEFAULT_QUIZ_DIFFICULTY
+  difficulty: QuizDifficulty = DEFAULT_QUIZ_DIFFICULTY,
+  /**
+   * spares: extra questions to ask for, beyond questionCount, and return if
+   * they come. The orchestrator's quote check drops some questions, and each
+   * shortfall used to cost a full second round that re-sent the document (an
+   * 8-question quiz from one small file took 4 calls and 55s). A spare is a
+   * few output tokens. With spares, success is reaching questionCount, so a
+   * short spare list never triggers a repair call.
+   */
+  options: { spares?: number } = {}
 ): Promise<QuizResult> {
   const enabled = enabledQuestionTypes(questionTypes);
   if (!Number.isInteger(questionCount) || questionCount < 1 || questionCount > MAX_QUIZ_QUESTIONS || !enabled.length) {
     throw new Error(`Choose 1–${MAX_QUIZ_QUESTIONS} questions and at least one question type.`);
   }
   const deadline = Date.now() + GENERATION_DEADLINE_MS;
+  const target = Math.min(MAX_QUIZ_QUESTIONS, questionCount + Math.max(0, Math.floor(options.spares ?? 0)));
   const accepted: ParsedQuestion[] = [];
   const seen = new Set<string>(avoidQuestions.map(normalizedQuestion));
   const avoidNote = avoidQuestions.length
@@ -297,7 +312,7 @@ export async function generateQuizWithValidation(
   const definitions = new Set<string>();
   let topicName = "";
   for (let attempt = 0; attempt < MAX_OLLAMA_ATTEMPTS; attempt++) {
-    const needed = questionCount - accepted.length;
+    const needed = target - accepted.length;
     // Some fresh drafts will be rewordings; ask for a few spares to cover them.
     const drafts = avoidQuestions.length ? Math.min(MAX_QUIZ_QUESTIONS, needed + 3) : needed;
     // Plan the real count first, then the spares, so the spares are the ones
@@ -337,10 +352,14 @@ export async function generateQuizWithValidation(
       seen.add(key);
       if (q.type === "matching") definitions.add(definition);
       accepted.push(q);
-      if (accepted.length === questionCount) {
+      if (accepted.length === target) {
         // Build matching pools across both attempts, not separately per repair.
         return { topicName, questions: validateAndNormalize({ topicName, questions: accepted }) };
       }
+    }
+    // Enough for the quiz; missing spares aren't worth another call.
+    if (accepted.length >= questionCount) {
+      return { topicName, questions: validateAndNormalize({ topicName, questions: accepted }) };
     }
   }
   // New questions from an already-quizzed file can run short of fresh material;

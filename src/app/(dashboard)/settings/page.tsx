@@ -120,7 +120,7 @@ export default function Settings() {
     const deletionTriggerRef = useRef<HTMLButtonElement>(null);
 
     const router = useRouter();
-    const [aiModels, setAiModels] = useState<{ main: string | null; ocr: string | null } | null>(null);
+    const [aiModels, setAiModels] = useState<{ cloud: boolean; rows: { label: string; model: string | null }[] } | null>(null);
 
     useEffect(() => {
         fetch("/api/ai-models")
@@ -633,7 +633,7 @@ export default function Settings() {
             <PageTutorial id="settings" steps={settingsSteps} />
             <header className="relative flex h-[73px] shrink-0 items-center justify-between border-b border-border-light bg-bg-container px-6
                             transition-colors duration-300">
-                <h1 className="absolute left-1/2 -translate-x-1/2 text-center text-lg font-semibold tracking-[0.45em] text-text-main">
+                <h1 className="min-w-0 truncate sm:absolute sm:left-1/2 sm:-translate-x-1/2 text-center whitespace-nowrap text-base font-semibold tracking-[0.2em] sm:text-lg sm:tracking-[0.45em] text-text-main">
                     Settings.
                 </h1>
             </header>
@@ -642,11 +642,11 @@ export default function Settings() {
 
 
             {/* Notification
-            <header className="mt-5 relative flex w-3/4 self-center 
+            <header className="mt-5 relative flex w-[94%] sm:w-3/4 self-center 
                 shrink-0 border-b border-black dark:border-gray-600 px-6"> 
             </header> 
 
-            <div className="mt-2 flex w-3/4 self-center justify-between py-3 px-2
+            <div className="mt-2 flex w-[94%] sm:w-3/4 self-center justify-between py-3 px-2
                         bg-[#f7f5f1] text-black hover:bg-gray-200
                         dark:bg-[#171717] dark:text-gray-100 dark:hover:bg-gray-700">
 
@@ -700,7 +700,7 @@ export default function Settings() {
 
             </div>
 
-            <div className="flex w-3/4 self-center px-2 py-1 text-xs text-gray-400">
+            <div className="flex w-[94%] sm:w-3/4 self-center px-2 py-1 text-xs text-gray-400">
                 Get alerts on your device
             </div>
             */ }
@@ -708,11 +708,11 @@ export default function Settings() {
 
 
             {/* Study Reminder
-            <header className="mt-5 relative flex w-3/4 self-center 
+            <header className="mt-5 relative flex w-[94%] sm:w-3/4 self-center 
                 shrink-0 border-b border-black dark:border-gray-600 px-6"> 
             </header> 
 
-            <div className="mt-2 flex w-3/4 self-center justify-between py-3 px-2
+            <div className="mt-2 flex w-[94%] sm:w-3/4 self-center justify-between py-3 px-2
                             bg-[#f7f5f1] text-black hover:bg-gray-200
                             dark:bg-[#171717] dark:text-gray-100 dark:hover:bg-gray-700">
 
@@ -766,7 +766,7 @@ export default function Settings() {
 
             </div>
 
-            <div className="flex w-3/4 self-center px-2 py-1 text-xs text-gray-400">
+            <div className="flex w-[94%] sm:w-3/4 self-center px-2 py-1 text-xs text-gray-400">
                 Get reminder for study sections
             </div>
             */ }
@@ -774,7 +774,7 @@ export default function Settings() {
 
             {/* Email reminders */}
             <header className="mt-5 flex w-3/4 shrink-0 self-center border-b border-border-light px-6" />
-            <section className="mt-2 flex w-3/4 self-center flex-col gap-4 rounded-lg bg-bg-main px-3 py-4">
+            <section className="mt-2 flex w-[94%] sm:w-3/4 self-center flex-col gap-4 rounded-lg bg-bg-main px-3 py-4">
                 <div className="flex items-start justify-between gap-4">
                     <div>
                         <h2 className="text-sm font-medium text-text-main">Email reminders</h2>
@@ -839,11 +839,11 @@ export default function Settings() {
             </section>
 
             {/* Appearance */ }
-            <header className="mt-5 relative flex w-3/4 self-center
+            <header className="mt-5 relative flex w-[94%] sm:w-3/4 self-center
                 shrink-0 border-b border-border-light px-6">
             </header>
 
-            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
+            <div className="mt-2 flex w-[94%] sm:w-3/4 self-center items-center justify-between py-3 px-2
                         bg-bg-main text-text-main hover:bg-bg-warm" data-tutorial="settings-appearance">
 
                 <span className="text-sm">
@@ -877,7 +877,7 @@ export default function Settings() {
             {/* Shows or hides the "Search Catalyst" bar across the top of every
                 page (src/components/search/TopBar.tsx). Ctrl/Cmd+S still works
                 when it's on; pages reclaim the bar's height when it's off. */}
-            <div className="mt-2 flex w-3/4 self-center items-center justify-between gap-3 py-3 px-2
+            <div className="mt-2 flex w-[94%] sm:w-3/4 self-center items-center justify-between gap-3 py-3 px-2
                         bg-bg-main text-text-main hover:bg-bg-warm" data-tutorial="settings-search-bar">
 
                 <div className="min-w-0">
@@ -920,7 +920,7 @@ export default function Settings() {
                 level, and availability varies by device, so a preview
                 button is the only honest way to choose one. */}
             {ttsSupported && (
-                <div className="mt-2 flex w-3/4 self-center flex-col gap-3 py-3 px-2
+                <div className="mt-2 flex w-[94%] sm:w-3/4 self-center flex-col gap-3 py-3 px-2
                             bg-bg-main text-text-main hover:bg-bg-warm sm:flex-row sm:items-center sm:justify-between">
 
                     <div className="min-w-0">
@@ -966,7 +966,7 @@ export default function Settings() {
                 — useful if they skipped one by accident, or just want a
                 refresher. Clears tutorialsSeen for every id; each page's
                 <PageTutorial> then shows again the next time it's visited. */}
-            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
+            <div className="mt-2 flex w-[94%] sm:w-3/4 self-center items-center justify-between py-3 px-2
                         bg-bg-main text-text-main hover:bg-bg-warm" data-tutorial="settings-tutorials">
 
                 <div>
@@ -991,7 +991,7 @@ export default function Settings() {
             {/* Sits right under the tutorial control on purpose - anyone
                 who skipped or opted out of the guided tours still has a
                 self-serve way to get unstuck, without hunting for it. */}
-            <div className="flex w-3/4 self-center items-center justify-between py-3 px-2
+            <div className="flex w-[94%] sm:w-3/4 self-center items-center justify-between py-3 px-2
                         bg-bg-main text-text-main hover:bg-bg-warm" data-tutorial="settings-help">
 
                 <div>
@@ -1012,7 +1012,7 @@ export default function Settings() {
 
             </div>
 
-            <div className="flex w-3/4 self-center items-center justify-between py-3 px-2
+            <div className="flex w-[94%] sm:w-3/4 self-center items-center justify-between py-3 px-2
                         bg-bg-main text-text-main hover:bg-bg-warm">
 
                 <span className="text-sm">
@@ -1028,11 +1028,11 @@ export default function Settings() {
                 />
             </div>
 
-            <div className="flex w-3/4 self-center px-2 py-1 text-xs text-text-muted">
+            <div className="flex w-[94%] sm:w-3/4 self-center px-2 py-1 text-xs text-text-muted">
                 Toggle dark mode, and check Coffee for a warm variant of either theme
             </div>
 
-            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2 bg-bg-main text-text-main hover:bg-bg-warm">
+            <div className="mt-2 flex w-[94%] sm:w-3/4 self-center items-center justify-between py-3 px-2 bg-bg-main text-text-main hover:bg-bg-warm">
                 <div>
                     <span className="text-sm">Auto-collapse navigation</span>
                     <p className="text-xs text-text-muted">Close the navigation after you open a page.</p>
@@ -1046,46 +1046,36 @@ export default function Settings() {
                 />
             </div>
 
-            <header className="mt-5 relative flex w-3/4 self-center
+            <header className="mt-5 relative flex w-[94%] sm:w-3/4 self-center
                 shrink-0 border-b border-border-light px-6">
             </header>
 
-            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
-                        bg-bg-main text-text-main">
-
-                <span className="text-sm">
-                    AI Model
-                </span>
-
-                <span className="text-sm text-text-muted">
-                    {aiModels?.main ?? "—"}
-                </span>
-            </div>
-
-            <div className="flex w-3/4 self-center px-2 py-1 text-xs text-text-muted">
-                Powers AI Chat, Quiz &amp; Flashcard generation, Advising, and Discover
-            </div>
-
-            <div className="mt-2 flex w-3/4 self-center items-center justify-between py-3 px-2
-                        bg-bg-main text-text-main">
-                <span className="text-sm">
-                    Document scanning model
-                </span>
-                <span className="text-sm text-text-muted">
-                    {aiModels?.ocr ?? "—"}
-                </span>
-            </div>
-
-            <div className="flex w-3/4 self-center px-2 py-1 text-xs text-text-muted">
-                Reads text from uploaded photos and scans (OCR)
+            {/* The models this account actually uses, from /api/ai-models: cloud
+                models per feature (and speed), or the self-hosted ones for a
+                developer account. */}
+            <div className="mt-2 w-[94%] sm:w-3/4 self-center px-2 text-text-main">
+                <h3 className="py-2 text-sm font-medium">AI models</h3>
+                <dl className="divide-y divide-border-light rounded-lg border border-border-light">
+                    {(aiModels?.rows ?? [{ label: "Loading...", model: null }]).map((row) => (
+                        <div key={row.label} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-0.5 px-3 py-2.5">
+                            <dt className="text-sm">{row.label}</dt>
+                            <dd className="text-sm text-text-muted">{row.model ?? "—"}</dd>
+                        </div>
+                    ))}
+                </dl>
+                <p className="px-1 py-2 text-xs text-text-muted">
+                    {aiModels?.cloud
+                        ? <>Hosted through OpenRouter by providers that may not train on your data. Pick Fast, Balanced or Thorough under any chat box; costs come out of your <Link href="/billing" className="underline">AI credit</Link>.</>
+                        : "Running on Catalyst's own servers, at no cost."}
+                </p>
             </div>
 
             {/* Focus Mode
-            <header className="mt-5 relative flex w-3/4 self-center 
+            <header className="mt-5 relative flex w-[94%] sm:w-3/4 self-center 
                 shrink-0 border-b border-black dark:border-gray-600 px-6"> 
             </header> 
 
-            <div className="mt-2 flex w-3/4 self-center justify-between py-3 px-2
+            <div className="mt-2 flex w-[94%] sm:w-3/4 self-center justify-between py-3 px-2
                         bg-[#f7f5f1] text-black hover:bg-gray-200
                         dark:bg-[#171717] dark:text-gray-100 dark:hover:bg-gray-700">
 
@@ -1139,7 +1129,7 @@ export default function Settings() {
 
             </div>
 
-            <div className="flex w-3/4 self-center px-2 py-1 text-xs text-gray-400">
+            <div className="flex w-[94%] sm:w-3/4 self-center px-2 py-1 text-xs text-gray-400">
                 Block distractions while studying
             </div>
             */ }
@@ -1148,7 +1138,7 @@ export default function Settings() {
 
 
             {user?.email && !user.emailVerified && (
-                <div className="mt-5 flex w-3/4 self-center items-center justify-between gap-4 rounded border border-border-light bg-bg-main px-4 py-3 text-text-main">
+                <div className="mt-5 flex w-[94%] sm:w-3/4 self-center items-center justify-between gap-4 rounded border border-border-light bg-bg-main px-4 py-3 text-text-main">
                     <div>
                         <p className="text-sm font-medium">Verify your email</p>
                         <p className="mt-1 text-xs text-text-muted">Confirm {user.email} to secure your account and receive account emails.</p>
@@ -1179,14 +1169,14 @@ export default function Settings() {
                     setAccountMessage("");
                     setCurrentPassword("");
                 }}
-                className="mt-2 flex w-3/4 self-center rounded
+                className="mt-2 flex w-[94%] sm:w-3/4 self-center rounded
                         bg-bg-main px-2 py-3 text-sm text-text-main
                         hover:bg-bg-warm"
             >
                 Change Password
             </button>
 
-            <p className="flex w-3/4 self-center px-2 py-1 text-xs text-text-muted">
+            <p className="flex w-[94%] sm:w-3/4 self-center px-2 py-1 text-xs text-text-muted">
                 Update your account password
             </p>
 
@@ -1292,14 +1282,14 @@ export default function Settings() {
                     setAccountMessage("");
                     setCurrentPassword("");
                 }}
-                className="mt-2 flex w-3/4 self-center rounded
+                className="mt-2 flex w-[94%] sm:w-3/4 self-center rounded
                         bg-bg-main px-2 py-3 text-sm text-text-main
                         hover:bg-bg-warm"
             >
                 Change Email
             </button>
 
-            <p className="flex w-3/4 self-center px-2 py-1 text-xs text-text-muted">
+            <p className="flex w-[94%] sm:w-3/4 self-center px-2 py-1 text-xs text-text-muted">
                 Current email: {auth.currentUser?.email ?? "Not available"}
             </p>
 
@@ -1377,7 +1367,7 @@ export default function Settings() {
             {accountError && (
             <p
                 role="alert"
-                className="mt-3 w-3/4 self-center rounded
+                className="mt-3 w-[94%] sm:w-3/4 self-center rounded
                         bg-alert-error-bg px-3 py-2 text-sm text-alert-error" >
                 {accountError}
             </p>
@@ -1386,7 +1376,7 @@ export default function Settings() {
         {accountMessage && (
             <p
                 role="status"
-                className="mt-3 w-3/4 self-center rounded
+                className="mt-3 w-[94%] sm:w-3/4 self-center rounded
                         bg-alert-success-bg px-3 py-2 text-sm text-alert-success" >
                 {accountMessage}
             </p>
@@ -1398,7 +1388,7 @@ export default function Settings() {
 
             {/* Sign-in security */}
             <header className="mt-5 flex w-3/4 shrink-0 self-center border-b border-border-light px-6" />
-            <section className="mt-2 flex w-3/4 self-center flex-col gap-3 rounded-lg bg-bg-main px-3 py-4" aria-labelledby="sign-in-devices-heading">
+            <section className="mt-2 flex w-[94%] sm:w-3/4 self-center flex-col gap-3 rounded-lg bg-bg-main px-3 py-4" aria-labelledby="sign-in-devices-heading">
                 <div className="flex flex-col gap-1">
                     <h2 id="sign-in-devices-heading" className="text-sm font-medium text-text-main">Sign-in security</h2>
                     <p className="text-xs text-text-muted">
@@ -1419,7 +1409,7 @@ export default function Settings() {
 
             {/* Account data */}
             <header className="mt-5 flex w-3/4 shrink-0 self-center border-b border-border-light px-6" />
-            <section className="mt-2 flex w-3/4 self-center flex-col gap-4 rounded-lg bg-bg-main px-3 py-4" aria-labelledby="account-data-heading">
+            <section className="mt-2 flex w-[94%] sm:w-3/4 self-center flex-col gap-4 rounded-lg bg-bg-main px-3 py-4" aria-labelledby="account-data-heading">
                 <div className="flex flex-col gap-1">
                     <h2 id="account-data-heading" className="text-sm font-medium text-text-main">Account data</h2>
                     <p className="text-xs text-text-muted">
@@ -1446,7 +1436,7 @@ export default function Settings() {
                 <div className="rounded-md border border-border-light bg-bg-container p-3">
                     <h3 className="text-sm font-medium text-text-main">Delete account</h3>
                     <p id="account-deletion-description" className="mt-1 text-xs text-text-muted">
-                        Permanently remove your Catalyst account, private study data, uploaded files, indexed document context, public shares, saved reminders, and connected-service credentials. This cannot be undone.
+                        Permanently remove your Catalyst account, private study data, uploaded files, indexed document context, public shares, saved reminders, and connected-service credentials. Any unused AI credit is refunded to your card first. This cannot be undone.
                     </p>
                     <div className="mt-3 flex justify-end">
                         <button
@@ -1467,6 +1457,16 @@ export default function Settings() {
                 {dataExportError && <p role="alert" className="text-xs text-alert-error">{dataExportError}</p>}
                 {dataExportMessage && <p role="status" className="text-xs text-alert-success">{dataExportMessage}</p>}
             </section>
+
+            <footer className="mt-8 mb-10 w-[94%] sm:w-3/4 self-center border-t border-border-light pt-4 text-center text-xs text-text-muted">
+                <nav aria-label="Legal" className="flex flex-wrap justify-center gap-x-4 gap-y-1">
+                    <Link href="/legal/terms" className="hover:text-text-main hover:underline">Terms of Service</Link>
+                    <Link href="/legal/privacy" className="hover:text-text-main hover:underline">Privacy Policy</Link>
+                    <Link href="/legal/credits" className="hover:text-text-main hover:underline">AI Credits &amp; Refunds</Link>
+                    <a href="mailto:contact@zonocsc.com" className="hover:text-text-main hover:underline">contact@zonocsc.com</a>
+                </nav>
+                <p className="mt-2">Catalyst is run by ZonoCSC.</p>
+            </footer>
 
             {showDeletionDialog && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation">
@@ -1546,14 +1546,14 @@ export default function Settings() {
             )}
 
             {/* Sign Out */}
-            <header className="mt-5 relative flex w-3/4 self-center
+            <header className="mt-5 relative flex w-[94%] sm:w-3/4 self-center
                 shrink-0 items-center justify-between border-b border-border-light
                 px-6">
             </header>
 
             <button
                 onClick={handleSignOut}
-                className="mt-2 flex w-3/4 self-center text-sm py-3 px-2
+                className="mt-2 flex w-[94%] sm:w-3/4 self-center text-sm py-3 px-2
                     bg-bg-main text-alert-error rounded hover:bg-bg-warm" >
                 Sign Out
             </button>

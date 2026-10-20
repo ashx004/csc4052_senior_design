@@ -6,7 +6,7 @@ import { aiCreditGate } from "@/src/library/billing/creditGate";
 import { checkRateLimit } from "@/src/library/rateLimit";
 import { acquireSlot } from "@/src/library/concurrencyLimit";
 import { firestoreCreate, getIdToken } from "@/src/library/firestoreRest";
-import { generateQuizWithValidation } from "@/src/library/quizGeneration";
+import { generateQuizWithValidation, quizSpares } from "@/src/library/quizGeneration";
 import { generateFlashcardsWithRetry } from "@/src/library/flashcardGeneration";
 import { generatePractice } from "@/src/library/practice/generation";
 import { generateAcrossSources } from "@/src/library/generation/orchestrator";
@@ -14,6 +14,7 @@ import { isSourceSelectionError } from "@/src/library/sources/errors";
 import { resolveDepsFor } from "@/src/library/sources/resolveDeps";
 import { resolveSources } from "@/src/library/sources/resolveSources";
 import { customSources, parseCustomRequest, withInstructions, type CustomRequest } from "@/src/library/custom/customRequest";
+import { refundOnFailure } from "@/src/library/billing/refundOnFailure";
 
 // One-off study material from the student's own prompt and uploaded files, with
 // no class attached: a quiz, flashcards or a practice set. The files were
@@ -27,7 +28,7 @@ const RATE_MAX = 6;
 const MAX_PRACTICE_CHARS = 50_000;
 const PRACTICE_SLOT = { perKey: 1, total: Number(process.env.PRACTICE_MAX_CONCURRENT) > 0 ? Number(process.env.PRACTICE_MAX_CONCURRENT) : 3 };
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   try {
     const auth = await verifyRequestAuth(request);
     const idToken = getIdToken(request);
@@ -120,7 +121,7 @@ export async function POST(request: NextRequest) {
                 count,
                 shuffle: false,
                 generate: async (source, quota, alreadyAsked) => {
-                  const result = await generateQuizWithValidation(instruct(source.title, source.text), quota, req.questionTypes, baseUrl, req.modelKey, alreadyAsked, req.difficulty);
+                  const result = await generateQuizWithValidation(instruct(source.title, source.text), quota, req.questionTypes, baseUrl, req.modelKey, alreadyAsked, req.difficulty, { spares: quizSpares(quota) });
                   return { topicName: result.topicName, items: result.questions };
                 },
               })
@@ -172,3 +173,6 @@ export async function POST(request: NextRequest) {
 }
 
 export type { CustomRequest };
+
+// A server error on our side refunds whatever this request spent (refundOnFailure.ts).
+export const POST = refundOnFailure("custom-set-generation", handlePOST);

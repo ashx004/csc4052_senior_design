@@ -13,6 +13,7 @@ import { checkRateLimit } from "@/src/library/rateLimit";
 import { stripThinkLeak, extractFirstJsonObject } from "@/src/library/stripThinkLeak";
 import { z } from "zod";
 import { aiFetch } from "@/src/library/ai/aiFetch";
+import { refundOnFailure } from "@/src/library/billing/refundOnFailure";
 
 // --- Config ---
 const OLLAMA_TIMEOUT_MS = 120_000;
@@ -175,7 +176,7 @@ function isValidQuestion(q: z.infer<typeof GeneratedQuestionSchema>): boolean {
 }
 
 // --- Route handler ---
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   // Auth check
   const auth = await verifyRequestAuth(req);
   if (!auth) {
@@ -257,3 +258,6 @@ export async function POST(req: NextRequest) {
     { status: 502 }
   );
 }
+
+// A server error on our side refunds whatever this request spent (refundOnFailure.ts).
+export const POST = refundOnFailure("discover-learn-question", handlePOST);
