@@ -16,16 +16,20 @@ import { currentAiUser } from "./usageScope";
 //   ollama   (or unset) nobody does
 // "testers" needs the route to have called enterAiUser() first, which every
 // AI route does right after verifying the student.
+// AI_OLLAMA_USERS (comma-separated uids) always use the self-hosted Ollama
+// boxes, free and unmetered, whatever AI_BACKEND says: the developers'
+// account, so building and testing never spends credit.
 export function isCloudBackend(): boolean {
   const mode = process.env.AI_BACKEND;
+  const uid = currentAiUser();
+  if (uid && uidList("AI_OLLAMA_USERS").includes(uid)) return false;
   if (mode === "cloud") return true;
   if (mode !== "testers") return false;
-  const uid = currentAiUser();
-  return Boolean(uid && cloudTesters().includes(uid));
+  return Boolean(uid && uidList("AI_CLOUD_TESTERS").includes(uid));
 }
 
-function cloudTesters(): string[] {
-  return (process.env.AI_CLOUD_TESTERS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+function uidList(name: string): string[] {
+  return (process.env[name] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 }
 
 export type FeatureGroup = "default" | "generation" | "ocr" | "light";
@@ -61,9 +65,18 @@ export function modelForFeature(feature: string): string {
   return model;
 }
 
-/** The backup model tried once when the primary provider is down, or "" for none. */
-export function fallbackModel(): string {
-  return process.env.AI_MODEL_FALLBACK ?? "";
+/**
+ * Backup models, tried in order when the one before fails (down, overloaded,
+ * erroring). AI_MODEL_FALLBACK is a comma-separated list. One backup wasn't
+ * enough: on 2026-10-19 OpenRouter's Gemma host returned 500 while Gemini
+ * answered 503 "high demand" at the same moment. A second OpenRouter model
+ * (another host) before Gemini covers that. The feature's own model is skipped.
+ */
+export function fallbackModels(primary: string): string[] {
+  return (process.env.AI_MODEL_FALLBACK ?? "")
+    .split(",")
+    .map((m) => m.trim())
+    .filter((m, i, all) => m && m !== primary && all.indexOf(m) === i);
 }
 
 // Output caps for callers that don't set num_predict. Every cloud token is

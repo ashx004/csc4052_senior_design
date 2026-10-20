@@ -11,7 +11,7 @@ import { searchWeb } from "@/src/library/webSearch";
 import { searchYoutube } from "@/src/library/youtubeSearch";
 import { generateAndUploadPdf, generateAndUploadPdfToCourse } from "@/src/library/pdfGenerate";
 import { generateFlashcardsWithRetry, MAX_FLASHCARDS } from "@/src/library/flashcardGeneration";
-import { generateQuizWithValidation, MAX_QUIZ_QUESTIONS } from "@/src/library/quizGeneration";
+import { generateQuizWithValidation, quizSpares, MAX_QUIZ_QUESTIONS } from "@/src/library/quizGeneration";
 import { parseQuizDifficulty } from "@/src/library/quizDifficulty";
 import { generateAcrossSources } from "@/src/library/generation/orchestrator";
 import { isSourceSelectionError } from "@/src/library/sources/errors";
@@ -22,6 +22,8 @@ import { completeKeys, notebookSetFields, plainSetFields } from "@/src/library/s
 import { warnIfSlowGeneration } from "@/src/library/ollamaHealthCheck";
 import { getStudentProfile, StudentProfile } from "@/src/library/studentProfile";
 import { maybeUpdateStudentProfile } from "@/src/library/studentProfileUpdate";
+import { refundSpend } from "@/src/library/billing/refundOnFailure";
+import { modelDisplayName } from "@/src/library/modelDisplayName";
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { isCloudBackend } from "@/src/library/ai/cloudModels";
 import { enterAiUser, setAiSpeed, trackAiSpend, type ChatSpeed } from "@/src/library/ai/usageScope";
@@ -1102,7 +1104,7 @@ async function createStudySetFromSources(
           count,
           shuffle: false,
           generate: async (source, quota, alreadyAsked) => {
-            const result = await generateQuizWithValidation(withFocus(source.text, focus), quota, types, baseUrl, modelKey, alreadyAsked, level);
+            const result = await generateQuizWithValidation(withFocus(source.text, focus), quota, types, baseUrl, modelKey, alreadyAsked, level, { spares: quizSpares(quota) });
             return { topicName: result.topicName, items: result.questions };
           },
         })
@@ -1860,7 +1862,7 @@ async function compactNow(
       console.error("Failed to save /compact summary:", error)
     );
   }
-  return NextResponse.json({ ...result, compacted, costMicros: spend.micros });
+  return NextResponse.json({ ...result, compacted, costMicros: spend.micros, model: modelDisplayName(spend.chatModel) ?? undefined });
 }
 
 // ── Server-side chat persistence ──────────────────────────────────────────
@@ -1965,6 +1967,7 @@ async function finishChatPersistence(
     summary?: string;
     summarizedCount?: number;
     costMicros?: number;
+    model?: string;
   }
 ): Promise<void> {
   try {
@@ -1978,6 +1981,7 @@ async function finishChatPersistence(
       ...(final.generatedStudySets?.length ? { generatedStudySets: final.generatedStudySets } : {}),
       ...(final.pendingActions?.length ? { pendingActions: final.pendingActions } : {}),
       ...(final.costMicros ? { costMicros: final.costMicros } : {}),
+      ...(final.model ? { model: final.model } : {}),
     };
 
     const fields: Record<string, unknown> = { messages, generating: false, updatedAt: new Date() };
@@ -2296,6 +2300,8 @@ export async function POST(request: NextRequest) {
       let finalAnswerText: string | null = null;
       // Stopped before any text was written: the turn is removed from the saved chat (discardChatTurn).
       let discardStoppedTurn = false;
+      // The turn ended in an error with no usable answer: what it spent is refunded.
+      let turnFailed = false;
       // Persisted alongside the finished reply below; defaults to the raw
       // incoming values and is refreshed once compactionPromise resolves
       // (see the "done" sends below) so an error before that point still
@@ -2877,7 +2883,7 @@ export async function POST(request: NextRequest) {
             pendingActions,
             summary: finalCompaction.summary,
             summarizedCount: finalCompaction.summarizedCount,
-            costMicros: spend.micros,
+            costMicros: spend.micros, model: modelDisplayName(spend.chatModel) ?? undefined,
           });
         }
 
@@ -2944,10 +2950,11 @@ export async function POST(request: NextRequest) {
               pendingActions,
               summary: finalCompaction.summary,
               summarizedCount: finalCompaction.summarizedCount,
-              costMicros: spend.micros,
+              costMicros: spend.micros, model: modelDisplayName(spend.chatModel) ?? undefined,
             });
           } else {
             finalAnswerText = "The assistant needed too many steps to answer. Please try rephrasing your question.";
+            turnFailed = true;
             send({ type: "error", error: finalAnswerText });
           }
         }
@@ -2962,15 +2969,18 @@ export async function POST(request: NextRequest) {
           finalAnswerText = stoppedReplyText(partial);
           discardStoppedTurn = !partial;
           send({ type: "stopped", discarded: discardStoppedTurn });
-          send({ type: "done", documentsRead, generatedFiles, generatedStudySets, pendingActions, summary: persistedSummary, summarizedCount: persistedSummarizedCount, costMicros: spend.micros });
+          send({ type: "done", documentsRead, generatedFiles, generatedStudySets, pendingActions, summary: persistedSummary, summarizedCount: persistedSummarizedCount, costMicros: spend.micros, model: modelDisplayName(spend.chatModel) ?? undefined });
         } else {
           console.error("Chat route error:", error);
           finalAnswerText = describeChatError(error);
+          turnFailed = true;
           send({ type: "error", error: finalAnswerText });
         }
       } finally {
         thoughtRelay.end();
         if (runId) releaseChatRun(auth.uid, runId);
+        // A failed turn costs the student nothing (stopping a reply is not a failure).
+        if (turnFailed) await refundSpend(spend, "chat");
         // Fire-and-forget — never awaited, must not add latency to a
         // response the student is already looking at. Errors are handled
         // entirely inside maybeUpdateStudentProfile itself.
@@ -2997,7 +3007,7 @@ export async function POST(request: NextRequest) {
             pendingActions,
             summary: persistedSummary,
             summarizedCount: persistedSummarizedCount,
-            costMicros: spend.micros,
+            costMicros: spend.micros, model: modelDisplayName(spend.chatModel) ?? undefined,
           });
         }
         try {

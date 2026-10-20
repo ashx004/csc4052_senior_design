@@ -80,6 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // LAN/dev access keeps working because the flag is only added there.
         const secure = window.location.protocol === "https:" ? "; Secure" : "";
         document.cookie = `${SESSION_COOKIE}=${token}; path=/; max-age=3600; SameSite=Lax${secure}`;
+        reportThisDevice();
       } else {
         document.cookie = `${SESSION_COOKIE}=; path=/; max-age=0`;
         clearRememberCookie();
@@ -105,3 +106,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 }
 
 export const useAuth = () => useContext(AuthContext);
+
+// Settings > Sign-in devices lists every browser the account uses, with when
+// it was last active. Reported at most every 30 minutes per tab session; the
+// server keeps it to one write per 10 minutes. Failures don't matter.
+const DEVICE_REPORT_KEY = "catalyst:deviceReportedAt";
+let deviceReportInFlight = false;
+function reportThisDevice() {
+  try {
+    if (Date.now() - Number(sessionStorage.getItem(DEVICE_REPORT_KEY) ?? 0) < 30 * 60_000) return;
+  } catch {
+    // No session storage (private mode): still report, the server throttles.
+  }
+  if (deviceReportInFlight) return;
+  deviceReportInFlight = true;
+  // keepalive: signing in navigates away at once, which cancelled the report
+  // before its device cookie arrived, so every new tab recorded a new device.
+  // The throttle is only set once the report has gone through.
+  fetch("/api/auth/devices", { method: "POST", keepalive: true })
+    .then((res) => {
+      if (!res.ok) return;
+      try {
+        sessionStorage.setItem(DEVICE_REPORT_KEY, String(Date.now()));
+      } catch {
+        // see above
+      }
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      deviceReportInFlight = false;
+    });
+}

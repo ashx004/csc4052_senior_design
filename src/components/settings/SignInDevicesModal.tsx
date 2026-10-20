@@ -3,14 +3,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, Monitor, X } from "lucide-react";
 
-type Device = { id: string; label: string; createdAt: number | null; lastSeenAt: number | null; current: boolean };
+type Device = { id: string; label: string; method: string | null; createdAt: number | null; lastSeenAt: number | null; skipsCode: boolean; current: boolean };
 
 const formatWhen = (ms: number | null) =>
   ms ? new Date(ms).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "Unknown";
 
 /**
- * Browsers that skip the emailed sign-in code. Removing one means the next
- * sign-in on it asks for a code again.
+ * Every browser this account has been used on, any sign-in method. Removing
+ * one forgets it and, if it skipped the emailed code, makes the next password
+ * sign-in there ask for a code again.
  */
 export default function SignInDevicesModal({ onClose }: { onClose: () => void }) {
   const [devices, setDevices] = useState<Device[] | null>(null);
@@ -63,7 +64,7 @@ export default function SignInDevicesModal({ onClose }: { onClose: () => void })
           <div>
             <h3 className="text-base font-semibold text-text-main">Sign-in devices</h3>
             <p className="mt-1 text-sm text-text-muted">
-              You only get an emailed code when you sign in somewhere new. These browsers are remembered and skip it. Remove any you don&apos;t recognize or no longer use.
+              Every browser your account has been used on. Remove any you don&apos;t recognize; if a browser skips the emailed sign-in code, removing it ends that. To sign out somewhere you can&apos;t reach, change your password too.
             </p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="rounded-md p-1 text-text-muted hover:bg-bg-warm">
@@ -76,7 +77,7 @@ export default function SignInDevicesModal({ onClose }: { onClose: () => void })
             <p className="flex items-center gap-2 text-sm text-text-muted"><Loader2 size={14} className="animate-spin" /> Loading...</p>
           )}
           {devices?.length === 0 && (
-            <p className="rounded-lg bg-bg-main p-3 text-sm text-text-muted">No remembered devices. You&apos;ll get a code the next time you sign in with your password.</p>
+            <p className="rounded-lg bg-bg-main p-3 text-sm text-text-muted">No devices recorded yet. This browser appears here within a few minutes of using Catalyst.</p>
           )}
           {devices && devices.length > 0 && (
             <ul className="space-y-2">
@@ -88,8 +89,12 @@ export default function SignInDevicesModal({ onClose }: { onClose: () => void })
                       {device.label}
                       {device.current && <span className="ml-2 rounded bg-bg-warm px-1.5 py-0.5 text-[10px] font-medium text-primary">This device</span>}
                     </p>
-                    <p className="text-xs text-text-muted">Last used {formatWhen(device.lastSeenAt)}</p>
-                    <p className="text-xs text-text-muted">First signed in {formatWhen(device.createdAt)}</p>
+                    <p className="text-xs text-text-muted">
+                      {device.method ? `Signed in with ${device.method}` : "Signed in"}
+                      {device.skipsCode && " · skips the sign-in code"}
+                    </p>
+                    <p className="text-xs text-text-muted">Last active {formatWhen(device.lastSeenAt)}</p>
+                    <p className="text-xs text-text-muted">First seen {formatWhen(device.createdAt)}</p>
                   </div>
                   <button
                     type="button"

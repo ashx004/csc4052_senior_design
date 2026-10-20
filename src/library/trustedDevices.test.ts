@@ -52,3 +52,19 @@ describe("devicesToPrune", () => {
     expect(devicesToPrune(devices, 1)).toEqual(["b", "c"]);
   });
 });
+
+import { isDeviceId, signInMethod } from "./trustedDevices";
+
+describe("sign-in device helpers", () => {
+  it("names the sign-in method from the token's provider", () => {
+    expect(signInMethod("google.com")).toBe("Google");
+    expect(signInMethod("apple.com")).toBe("Apple");
+    expect(signInMethod("custom")).toBe("Password");
+    expect(signInMethod(undefined)).toBe("Unknown");
+  });
+  it("only accepts device ids it could have issued", () => {
+    expect(isDeviceId("0b1e9c4a-3c1f-4f8e-9a51-6f0e2d7c1b2a")).toBe(true);
+    expect(isDeviceId("../other-user")).toBe(false);
+    expect(isDeviceId("")).toBe(false);
+  });
+});

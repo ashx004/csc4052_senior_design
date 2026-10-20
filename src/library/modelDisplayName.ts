@@ -12,6 +12,13 @@ const FRIENDLY_NAMES: Record<string, string> = {
   "gemma4:26b": "Gemma 4 26B",
   "gpt-oss:20b": "gpt-oss 20B",
   "muse-glimmer:latest": "Muse Glimmer",
+  // Cloud models (src/library/ai/cloudModels.ts), named by provider:id.
+  "openrouter:google/gemma-4-26b-a4b-it": "Gemma 4 26B",
+  "openrouter:qwen/qwen3.7-flash": "Qwen3.7 Flash",
+  "openrouter:qwen/qwen3.6-35b-a3b": "Qwen3.6 35B",
+  "openrouter:z-ai/glm-5.3-flash": "GLM-5.3 Flash",
+  "google:gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite",
+  "google:gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
 };
 
 export function modelDisplayName(tag: string | null | undefined): string | null {

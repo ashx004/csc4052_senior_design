@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/src/context/AuthContext";
 import AddCreditModal from "@/src/components/billing/AddCreditModal";
+import { formatUsd } from "@/src/library/billing/money";
 
 // The student's AI credit, everywhere in the app.
 //
@@ -24,6 +25,8 @@ export type Wallet = {
   minTopUpMicros: number;
   topUps: TopUp[];
   estimates: { task: string; typicalUsd: number; note?: string }[];
+  /** Present only on the response that just gave this account its free trial. */
+  trialGrantedMicros?: number;
 };
 
 type BillingContextType = {
@@ -67,13 +70,18 @@ export function BillingProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [modal, setModal] = useState<{ outOfCredit: boolean } | null>(null);
+  const [trialNotice, setTrialNotice] = useState<number | null>(null);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(async () => {
     if (!user) return setWallet(null);
     try {
       const response = await fetch("/api/billing/wallet", { cache: "no-store" });
-      if (response.ok) setWallet((await response.json()) as Wallet);
+      if (response.ok) {
+        const next = (await response.json()) as Wallet;
+        setWallet(next);
+        if (next.trialGrantedMicros) setTrialNotice(next.trialGrantedMicros);
+      }
     } catch {
       // Keep showing the last known balance.
     }
@@ -116,6 +124,13 @@ export function BillingProvider({ children }: { children: ReactNode }) {
   return (
     <BillingContext.Provider value={{ wallet, refresh, openAddCredit }}>
       {children}
+      {trialNotice && user && (
+        <div role="status" className="fixed inset-x-4 bottom-4 z-50 mx-auto max-w-sm rounded-xl border border-border-light bg-bg-container p-4 pr-10 text-sm text-text-main shadow-xl sm:left-auto sm:right-6 sm:mx-0">
+          <p className="font-semibold">Welcome! Here&apos;s {formatUsd(trialNotice)} of free AI credit.</p>
+          <p className="mt-1 text-xs leading-relaxed text-text-muted">That&apos;s enough for a couple hundred chat messages or dozens of quizzes. Add more any time from AI Credits.</p>
+          <button type="button" onClick={() => setTrialNotice(null)} aria-label="Dismiss" className="absolute right-2 top-2 rounded p-1 text-text-muted hover:bg-bg-warm">×</button>
+        </div>
+      )}
       {modal && user && <AddCreditModal wallet={wallet} outOfCredit={modal.outOfCredit} onClose={() => setModal(null)} />}
     </BillingContext.Provider>
   );

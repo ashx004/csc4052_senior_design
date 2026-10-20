@@ -214,3 +214,19 @@ export async function chargeDirect(uid: string, amountMicros: number, details: C
   batch.set(walletRef(db, uid).collection("ledger").doc(), { type: "charge", amountMicros: -amountMicros, ...details, at: FieldValue.serverTimestamp() });
   await batch.commit();
 }
+
+/**
+ * Gives back what a failed task spent: the student shouldn't pay for AI work
+ * that failed on our side (the model returned something unusable, a save
+ * failed, the server errored). The provider still billed ZonoCSC; that's
+ * our cost, not theirs.
+ */
+export async function refundFailedWork(uid: string, amountMicros: number, feature: string, db: Firestore = adminDb): Promise<void> {
+  if (!Number.isInteger(amountMicros) || amountMicros <= 0) return;
+  await db.runTransaction(async (tx) => {
+    const wallet = await readWallet(tx, db, uid);
+    const balanceMicros = wallet.balanceMicros + amountMicros;
+    tx.set(walletRef(db, uid), { balanceMicros, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    writeLedger(tx, db, uid, { type: "refund-ai", amountMicros, balanceAfterMicros: balanceMicros, feature });
+  });
+}

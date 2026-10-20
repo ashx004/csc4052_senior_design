@@ -10,6 +10,7 @@ import { countFromBody, sourcesFromBody } from '@/src/library/sources/requestSou
 import { isSourceSelectionError } from '@/src/library/sources/errors';
 import { courseIdFromBody, resolveDepsFor } from '@/src/library/sources/resolveDeps';
 import { resolveSources } from '@/src/library/sources/resolveSources';
+import { refundOnFailure } from "@/src/library/billing/refundOnFailure";
 
 // Same GPU/LLM-cost-bearing rationale as api/chat and api/embed-document's
 // own rate limits (see rateLimit.ts) — this route makes an identical kind
@@ -20,7 +21,7 @@ const FLASHCARD_RATE_LIMIT_MAX = 10; // per user per window
 /** Cards for a request that names no count. */
 const DEFAULT_FLASHCARD_COUNT = 20;
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   try {
     const auth = await verifyRequestAuth(request);
     if (!auth) {
@@ -133,3 +134,6 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+// A server error on our side refunds whatever this request spent (refundOnFailure.ts).
+export const POST = refundOnFailure("flashcard-generation", handlePOST);

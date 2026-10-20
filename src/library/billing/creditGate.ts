@@ -4,6 +4,7 @@ import { isCloudBackend } from "@/src/library/ai/cloudModels";
 import { OUT_OF_CREDIT_MESSAGE } from "@/src/library/ai/aiFetch";
 import { billingMode } from "./usageMeter";
 import { getWallet, sweepStaleHolds } from "./wallet";
+import { grantTrialIfEligible } from "./trial";
 
 // About what one chat message holds. A student with less than this left gets
 // the "add credit" prompt before a task starts, instead of having it fail
@@ -34,5 +35,7 @@ export async function aiCreditGate(uid: string): Promise<NextResponse | null> {
     if (await sweepStaleHolds(uid)) wallet = await getWallet(uid);
   }
   if (!wallet.frozen && wallet.balanceMicros - wallet.heldMicros >= MIN_CREDIT_TO_START_MICROS) return null;
+  // A brand-new student whose first AI request beat the wallet page load.
+  if (!wallet.frozen && (await grantTrialIfEligible(uid).catch(() => 0)) >= MIN_CREDIT_TO_START_MICROS) return null;
   return outOfCreditResponse(wallet.balanceMicros);
 }

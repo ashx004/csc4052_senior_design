@@ -25,6 +25,7 @@ import { isAccountDeletionInProgress } from "@/src/library/accountDeletionGuard"
 import { generateCourseSummary } from "@/src/library/courseSummary";
 import { saveDocumentText } from "@/src/library/documentTextCache";
 import { JOB_STATUS, isActiveJobStatus, toPublicJob } from "@/src/library/jobStatus";
+import { refundOnFailure } from "@/src/library/billing/refundOnFailure";
 
 const EMBED_RATE_LIMIT_WINDOW_MS = 60_000;
 const EMBED_RATE_LIMIT_MAX = 10; // per user per window — uploads aren't normally rapid-fire
@@ -232,7 +233,7 @@ function getErrorMessage(error: unknown, fallback: string): string {
 // it into chunks, embeds each chunk on the secondary (embeddings) Ollama box,
 // and stores the vectors in a `chunks` subcollection under the resource doc.
 // Called in the background right after a PDF finishes uploading.
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   try {
     const internal = isInternalRequest(request);
     let idToken: string | null = null;
@@ -731,3 +732,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to index document." }, { status: 500 });
   }
 }
+
+// A server error on our side refunds whatever this request spent (refundOnFailure.ts).
+export const POST = refundOnFailure("document-indexing", handlePOST);
