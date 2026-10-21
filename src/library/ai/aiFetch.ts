@@ -1,3 +1,4 @@
+import { monitoredFetch } from "../monitoring/telemetry";
 import { fallbackModels, featureGroup, isCloudBackend, modelForFeature, outputCap, speedOverride } from "./cloudModels";
 import { rateFor } from "./cloudRates";
 import { currentAiScope } from "./usageScope";
@@ -40,7 +41,7 @@ function outOfCredit(): Response {
 }
 
 export async function aiFetch(url: string, init: RequestInit): Promise<Response> {
-  if (!isCloudBackend() || !url.replace(/\/$/, "").endsWith("/api/chat")) return fetch(url, init);
+  if (!isCloudBackend() || !url.replace(/\/$/, "").endsWith("/api/chat")) return monitoredFetch("ai", url, init);
 
   const feature = new Headers(init.headers).get("X-Catalyst-Feature") || "chat";
   // Read now: a stream's later chunks may run outside the route's async scope.
@@ -180,7 +181,7 @@ async function callProvider(model: string, body: OllamaChatBody, maxTokens: numb
 function post(provider: Provider, payload: Record<string, unknown>, signal?: AbortSignal | null) {
   const key = process.env[provider.keyEnv];
   if (!key) throw new Error(`${provider.keyEnv} is not configured.`);
-  return fetch(provider.url, {
+  return monitoredFetch("ai", provider.url, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}`, "X-Title": "Catalyst" },
     body: JSON.stringify(payload),

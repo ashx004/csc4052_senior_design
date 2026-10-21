@@ -1,3 +1,4 @@
+import { monitoredFetch } from "./monitoring/telemetry";
 // Server-only: talks to the Qdrant instance on the primary GPU box
 // (co-located there per an explicit infra decision to keep heavy/persistent
 // services off the already-loaded secondary box, even though the app itself
@@ -80,7 +81,7 @@ export async function listChunksForUser(userId: string): Promise<ChunkPoint["pay
   do {
     const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS, "Qdrant export scroll");
     try {
-      const response = await fetch(`${await baseUrl()}/collections/${COLLECTION}/points/scroll`, {
+      const response = await monitoredFetch("vector", `${await baseUrl()}/collections/${COLLECTION}/points/scroll`, {
         method: "POST",
         headers: headers(),
         body: JSON.stringify({
@@ -146,7 +147,7 @@ export function ensurePayloadIndexes(): Promise<void> {
     for (const field of INDEXED_PAYLOAD_FIELDS) {
       const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS, "Qdrant create index");
       try {
-        const response = await fetch(`${base}/collections/${COLLECTION}/index?wait=true`, {
+        const response = await monitoredFetch("vector", `${base}/collections/${COLLECTION}/index?wait=true`, {
           method: "PUT",
           headers: headers(),
           body: JSON.stringify({ field_name: field, field_schema: "keyword" }),
@@ -191,7 +192,7 @@ export async function upsertChunks(points: ChunkPoint[]): Promise<void> {
   for (let i = 0; i < points.length; i += UPSERT_BATCH) {
     const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS, "Qdrant upsert");
     try {
-      const response = await fetch(`${base}/collections/${COLLECTION}/points`, {
+      const response = await monitoredFetch("vector", `${base}/collections/${COLLECTION}/points`, {
         method: "PUT",
         headers: headers(),
         body: JSON.stringify({ points: points.slice(i, i + UPSERT_BATCH) }),
@@ -219,7 +220,7 @@ export async function searchChunks(
   const base = await baseUrl();
   const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS, "Qdrant search");
   try {
-    const response = await fetch(`${base}/collections/${COLLECTION}/points/search`, {
+    const response = await monitoredFetch("vector", `${base}/collections/${COLLECTION}/points/search`, {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({
@@ -258,7 +259,7 @@ export async function deleteChunksForResource(userId: string, resourceId: string
   const base = await baseUrl();
   const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS, "Qdrant delete");
   try {
-    const response = await fetch(`${base}/collections/${COLLECTION}/points/delete`, {
+    const response = await monitoredFetch("vector", `${base}/collections/${COLLECTION}/points/delete`, {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({
@@ -292,7 +293,7 @@ export async function deleteChunksForUser(userId: string): Promise<void> {
   const base = await baseUrl();
   const { signal, cancel } = createTimeoutSignal(QDRANT_TIMEOUT_MS * 3, "Qdrant account delete");
   try {
-    const response = await fetch(`${base}/collections/${COLLECTION}/points/delete?wait=true`, {
+    const response = await monitoredFetch("vector", `${base}/collections/${COLLECTION}/points/delete?wait=true`, {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({ filter: { must: [{ key: "userId", match: { value: userId } }] } }),

@@ -95,3 +95,13 @@ git tag app-v1.2.0 && git push origin app-v1.2.0
 `.github/workflows/release-apk.yml` builds and signs it and publishes the GitHub Release. It needs the `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD` and `ANDROID_KEY_ALIAS` repository secrets, and the key's SHA-256 fingerprint must match `public/.well-known/assetlinks.json` (the workflow checks). **Never lose the keystore:** installed apps can only be updated with the same key.
 
 Open tabs and installed apps check `/api/app-version`. They offer a refresh after a new deploy, and inside the Android app, a download when a newer APK is released.
+
+
+### Admin analytics and service monitoring
+
+Administrators can view user counts, peak activity, event reports, service checks,
+and interruption history at `/admin/analytics`. Run one continuous monitoring
+worker alongside the site with `NODE_ENV=production npm run worker:monitor`.
+The Docker worker command is `node --conditions=react-server workers/monitorWorker.cjs`.
+It uses the existing server environment. See [analytics setup and monitoring](docs/analytics.md)
+for definitions, retention, and deployment checks.
