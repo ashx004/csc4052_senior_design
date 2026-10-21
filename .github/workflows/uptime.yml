@@ -1,0 +1,32 @@
+name: Uptime check
+
+# Backup uptime monitor: polls /api/health and fails when the site, database,
+# storage or AI boxes are down. GitHub emails a failed scheduled run to whoever
+# last edited this schedule. The main monitor is UptimeRobot, which emails the
+# whole team; GitHub can delay scheduled runs, so this one is only a backup.
+# See docs/INCIDENT_RESPONSE.md.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check /api/health
+        env:
+          HEALTH_URL: ${{ vars.HEALTH_URL || 'https://catalyst.zonocsc.com/api/health' }}
+        run: |
+          # Retries ride out a deploy restart or one dropped request.
+          if body=$(curl -fsS --max-time 20 --retry 2 --retry-delay 30 --retry-all-errors "$HEALTH_URL"); then
+            echo "$body"
+          else
+            echo "::error::$HEALTH_URL is failing. Last response:"
+            curl -sS --max-time 20 "$HEALTH_URL" || true
+            exit 1
+          fi
