@@ -1,5 +1,8 @@
 import "server-only";
 
+import { withDeadline } from "./monitoring/probes";
+import { saveUserCounts } from "./analyticsPeaks";
+import type { RealtimeReport } from "./monitoring/types";
 import { getReportingConfiguration } from "./analyticsReportingConfig";
 import { auth as googleAuth } from "googleapis/build/src/apis/analyticsdata";
 import { analyticsdata_v1beta } from "googleapis/build/src/apis/analyticsdata/v1beta";
@@ -54,7 +57,10 @@ function resolveDateRange(
   return validateDateRange(startDate, endDate, today);
 }
 
-function readReportRows(report: GoogleReport): ReportRow[] {
+export function readReportRows(
+  report: GoogleReport,
+  metricIndex = 0,
+): ReportRow[] {
   const result: ReportRow[] = [];
   if (!report.rows) {
     return result;
@@ -62,7 +68,7 @@ function readReportRows(report: GoogleReport): ReportRow[] {
 
   for (const row of report.rows) {
     let label = "(not set)";
-    let count = 0;
+    let count = NaN;
 
     if (row.dimensionValues && row.dimensionValues.length > 0) {
       const dimension = row.dimensionValues[0];
@@ -71,8 +77,12 @@ function readReportRows(report: GoogleReport): ReportRow[] {
       }
     }
     if (row.metricValues && row.metricValues.length > 0) {
-      const metric = row.metricValues[0];
-      if (metric.value !== undefined && metric.value !== null) {
+      const metric = row.metricValues[metricIndex];
+      if (
+        metric?.value !== undefined &&
+        metric.value !== null &&
+        /^\d+$/.test(metric.value)
+      ) {
         count = Number(metric.value);
       }
     }
@@ -112,7 +122,7 @@ function parseReports(
   endDate: string,
   timeZone: string,
 ): AnalyticsReport {
-  if (!reports || reports.length !== 3) {
+  if (!reports || reports.length !== 5) {
     throw new ReportError(
       502,
       "Analytics returned an incomplete report. Try again.",
@@ -133,7 +143,7 @@ function parseReports(
     }
   }
 
-  const [pageViews, featureEvents, dailyActivity] = reports;
+  const [pageViews, featureEvents, dailyActivity, users, dailyUsers] = reports;
   return {
     startDate,
     endDate,
@@ -142,7 +152,11 @@ function parseReports(
     pages: readReportRows(pageViews),
     events: readReportRows(featureEvents),
     daily: readReportRows(dailyActivity),
+    dailyPageViews: readReportRows(dailyActivity, 1),
     limited: resultsAreLimited,
+    activeUsers: readReportRows(users)[0]?.count ?? 0,
+    dailyUsers: readReportRows(dailyUsers),
+    storageAvailable: true,
   };
 }
 
@@ -256,7 +270,88 @@ async function fetchAnalyticsReport(
       endDate,
       timeZone,
     );
+    try {
+      await withDeadline(saveUserCounts(propertyId, null, report.dailyUsers));
+    } catch {
+      report.storageAvailable = false;
+    }
     return report;
+  } catch (error) {
+    throw reportingError(error);
+  }
+}
+
+let realtimeCache:
+  | { key: string; expiresAt: number; report: RealtimeReport }
+  | undefined;
+let pendingRealtime:
+  | { key: string; request: Promise<RealtimeReport> }
+  | undefined;
+
+export async function getRealtimeReport(): Promise<RealtimeReport> {
+  const configuration = getReportingConfiguration();
+  const key = configuration.propertyId;
+  if (realtimeCache?.key === key && realtimeCache.expiresAt > Date.now())
+    return realtimeCache.report;
+  if (pendingRealtime?.key === key) return pendingRealtime.request;
+  const request = fetchRealtimeReport(configuration);
+  pendingRealtime = { key, request };
+  try {
+    const report = await request;
+    realtimeCache = { key, report, expiresAt: Date.now() + CACHE_LIFETIME_MS };
+    return report;
+  } finally {
+    if (pendingRealtime?.request === request) pendingRealtime = undefined;
+  }
+}
+
+async function fetchRealtimeReport(
+  configuration: ReturnType<typeof getReportingConfiguration>,
+): Promise<RealtimeReport> {
+  const { propertyId, clientEmail, privateKey } = configuration;
+  const auth = new googleAuth.GoogleAuth({
+    credentials: { client_email: clientEmail, private_key: privateKey },
+    scopes: [READ_ONLY_ANALYTICS_SCOPE],
+  });
+  const api = new analyticsdata_v1beta.Analyticsdata({ auth });
+  try {
+    const response = await api.properties.runRealtimeReport(
+      {
+        property: `properties/${propertyId}`,
+        requestBody: {
+          metrics: [{ name: "activeUsers" }],
+          minuteRanges: [{ startMinutesAgo: 4, endMinutesAgo: 0 }],
+        },
+      },
+      { timeout: REQUEST_TIMEOUT_MS },
+    );
+    if (
+      !response.data.metricHeaders?.some(
+        (header) => header.name === "activeUsers",
+      )
+    ) {
+      throw new ReportError(
+        502,
+        "Analytics returned an incomplete realtime report.",
+      );
+    }
+    const concurrentUsers = readReportRows(response.data)[0]?.count ?? 0;
+    const checkedAt = new Date().toISOString();
+    let peaks = null;
+    try {
+      peaks = await withDeadline(
+        saveUserCounts(propertyId, concurrentUsers, [], checkedAt),
+      );
+    } catch {
+      // The current GA4 count remains useful when persistence is unavailable.
+    }
+    return {
+      concurrentUsers,
+      windowMinutes: 5,
+      checkedAt,
+      peaks,
+      storageAvailable: peaks !== null,
+    };
   } catch (error) {
     throw reportingError(error);
   }

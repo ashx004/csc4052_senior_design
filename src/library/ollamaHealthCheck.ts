@@ -1,3 +1,4 @@
+import { emitIncident } from "./monitoring/telemetry";
 // Ollama silently falls back to CPU inference when a box's GPU is
 // unavailable (driver fault, NVML lockup, etc.) — same request, same
 // response shape, just 5-10x slower, with nothing in the API response
@@ -24,6 +25,7 @@ export function warnIfSlowGeneration(
   const tokensPerSec = evalCount / (evalDurationNs / 1e9);
   if (tokensPerSec >= MIN_PLAUSIBLE_TOKENS_PER_SEC) return;
 
+  emitIncident("ai", "slow_generation");
   console.error(
     `⚠️  OLLAMA GPU DEGRADATION SUSPECTED: ${model} on ${baseUrl} generated at ` +
       `${tokensPerSec.toFixed(1)} tok/s (below the ${MIN_PLAUSIBLE_TOKENS_PER_SEC} tok/s floor) — ` +

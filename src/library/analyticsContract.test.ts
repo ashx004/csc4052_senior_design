@@ -87,10 +87,14 @@ describe("analytics contract", () => {
       propertyToday("America/Chicago", new Date("2026-10-05T02:00:00Z")),
     ).toBe("2026-10-04");
     const queries = buildReportRequests("2026-10-01", "2026-10-05");
-    expect(queries).toHaveLength(3);
-    expect(queries[0].dimensions).toEqual([{ name: "pageTitle" }]);
+    expect(queries).toHaveLength(5);
+    expect("dimensions" in queries[0] && queries[0].dimensions).toEqual([
+      { name: "pageTitle" },
+    ]);
     expect(JSON.stringify(queries)).not.toContain("userId");
-    expect(queries[2].dimensionFilter).toMatchObject({
+    expect(
+      "dimensionFilter" in queries[2] && queries[2].dimensionFilter,
+    ).toMatchObject({
       filter: {
         inListFilter: { values: expect.arrayContaining(["quiz_completed"]) },
       },

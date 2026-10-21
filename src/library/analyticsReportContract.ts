@@ -13,7 +13,11 @@ export type AnalyticsReport = {
   pages: ReportRow[];
   events: ReportRow[];
   daily: ReportRow[];
+  dailyPageViews: ReportRow[];
   limited: boolean;
+  activeUsers: number;
+  dailyUsers: ReportRow[];
+  storageAvailable: boolean;
 };
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -100,10 +104,27 @@ export function buildReportRequests(startDate: string, endDate: string) {
   };
   const dailyActivityReport = {
     ...commonFields,
+    metrics: [{ name: "eventCount" }, { name: "screenPageViews" }],
     dimensions: [{ name: "date" }],
     dimensionFilter: approvedEventsFilter,
     orderBys: [{ dimension: { dimensionName: "date" } }],
   };
 
-  return [pageViewsReport, featureEventsReport, dailyActivityReport];
+  const activeUsersReport = {
+    dateRanges: commonFields.dateRanges,
+    metrics: [{ name: "activeUsers" }],
+  };
+  const dailyUsersReport = {
+    ...activeUsersReport,
+    dimensions: [{ name: "date" }],
+    orderBys: [{ dimension: { dimensionName: "date" } }],
+    limit: "366",
+  };
+  return [
+    pageViewsReport,
+    featureEventsReport,
+    dailyActivityReport,
+    activeUsersReport,
+    dailyUsersReport,
+  ];
 }
