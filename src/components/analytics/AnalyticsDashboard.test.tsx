@@ -67,7 +67,7 @@ it("renders true empty analytics separately from missing peaks and failed health
   expect(screen.getByText("No saved peak available")).toBeTruthy();
   expect(screen.getByText("Firestore · Unavailable")).toBeTruthy();
   fireEvent.click(
-    screen.getByRole("button", { name: "Service health", exact: true }),
+    screen.getByRole("button", { name: "Service health" }),
   );
   expect(
     screen.getByText(/incident history could not be read or saved/),
@@ -89,7 +89,7 @@ it("lets admins inspect service health when GA4 is unavailable", async () => {
   render(<AnalyticsDashboard />);
   await screen.findByText("Reporting access is unavailable.");
   fireEvent.click(
-    screen.getByRole("button", { name: "Service health", exact: true }),
+    screen.getByRole("button", { name: "Service health" }),
   );
   expect(screen.getByText("Service check failed")).toBeTruthy();
   expect(
