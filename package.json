@@ -22,7 +22,8 @@
     "admin:access": "tsx scripts/setAdmin.ts",
     "billing:report": "tsx scripts/usageReport.ts",
     "billing:refund": "node --conditions=react-server --import tsx scripts/refundCredit.ts",
-    "analytics:check": "node --conditions=react-server --import tsx scripts/checkAnalytics.ts"
+    "analytics:check": "node --conditions=react-server --import tsx scripts/checkAnalytics.ts",
+    "worker:monitor": "node --conditions=react-server --import tsx scripts/monitorWorker.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1079.0",

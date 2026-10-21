@@ -1,377 +1,295 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
-import type { AnalyticsEvent } from "@/src/library/analyticsContract";
+import { useState, type FormEvent } from "react";
+import { Download, ExternalLink, RefreshCw } from "lucide-react";
+import type { AnalyticsReport } from "@/src/library/analyticsReportContract";
 import type {
-  AnalyticsReport,
-  ReportRow,
-} from "@/src/library/analyticsReportContract";
-
-const WORKFLOW_EVENTS: AnalyticsEvent[] = [
-  "quiz_started",
-  "quiz_completed",
-  "resource_upload_started",
-  "resource_upload_succeeded",
-  "resource_upload_failed",
-  "study_session_started",
-  "study_session_completed",
-];
-
-function ActivityCountsTable({
-  title,
-  rows,
-}: {
-  title: string;
-  rows: ReportRow[];
-}) {
-  return (
-    <section className="min-w-0 rounded-2xl border border-border-light bg-bg-container p-5 shadow-sm sm:p-6">
-      <h2 className="text-base font-semibold text-text-main">{title}</h2>
-      {rows.length === 0 ? (
-        <p className="mt-6 text-sm text-text-muted">
-          No recorded activity for this period.
-        </p>
-      ) : (
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-left text-sm text-text-main">
-            <thead>
-              <tr className="border-b border-border-light text-xs text-text-muted">
-                <th scope="col" className="pb-3 font-medium">
-                  Activity
-                </th>
-                <th scope="col" className="pb-3 text-right font-medium">
-                  Count
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr
-                  key={row.label}
-                  className="border-b border-border-light last:border-0"
-                >
-                  <td className="break-all py-3 pr-4">{row.label}</td>
-                  <td className="py-3 text-right font-medium tabular-nums">
-                    {row.count.toLocaleString()}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function DailyActivityChart({
-  rows,
-  timeZone,
-}: {
-  rows: ReportRow[];
-  timeZone: string;
-}) {
-  let largestCount = 1;
-  for (const row of rows) {
-    if (row.count > largestCount) {
-      largestCount = row.count;
-    }
-  }
-
-  return (
-    <section className="rounded-2xl border border-border-light bg-bg-container p-5 shadow-sm sm:p-6">
-      <h2 className="text-base font-semibold text-text-main">
-        Daily tracked activity
-      </h2>
-      <p className="mt-1 text-xs leading-relaxed text-text-muted">
-        Page views and approved feature events per date · counts · {timeZone}
-      </p>
-      {rows.length === 0 ? (
-        <p className="mt-6 text-sm text-text-muted">
-          No recorded activity for this period.
-        </p>
-      ) : (
-        <div className="mt-6 max-h-80 space-y-3 overflow-y-auto">
-          {rows.map((row) => {
-            const dateLabel = formatReportDate(row.label);
-            const barWidth = (row.count / largestCount) * 100;
-
-            return (
-              <div
-                key={row.label}
-                className="flex items-center gap-3 text-xs sm:text-sm"
-              >
-                <span className="w-20 shrink-0 text-text-muted sm:w-24">
-                  {dateLabel}
-                </span>
-                <div className="h-3 flex-1 overflow-hidden rounded-full bg-bg-warm">
-                  <div
-                    className="h-full rounded-full bg-primary"
-                    style={{ width: `${barWidth}%` }}
-                  />
-                </div>
-                <span className="w-12 text-right font-medium tabular-nums sm:w-16">
-                  {row.count.toLocaleString()}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function formatReportDate(date: string): string {
-  if (!/^\d{8}$/.test(date)) {
-    return date;
-  }
-  const year = date.slice(0, 4);
-  const month = date.slice(4, 6);
-  const day = date.slice(6, 8);
-  return `${year}-${month}-${day}`;
-}
-
-function ReportResults({ report }: { report: AnalyticsReport }) {
-  function getEventCount(eventName: AnalyticsEvent): number {
-    for (const event of report.events) {
-      if (event.label === eventName) {
-        return event.count;
-      }
-    }
-    return 0;
-  }
-
-  const featureEvents: ReportRow[] = [];
-  let totalInteractions = 0;
-  for (const event of report.events) {
-    if (event.label !== "page_view") {
-      featureEvents.push(event);
-      totalInteractions = totalInteractions + event.count;
-    }
-  }
-
-  const workflowCounts: ReportRow[] = [];
-  for (const eventName of WORKFLOW_EVENTS) {
-    workflowCounts.push({ label: eventName, count: getEventCount(eventName) });
-  }
-  const summaryMetrics = [
-    { label: "Page views", count: getEventCount("page_view") },
-    { label: "Tracked interactions", count: totalInteractions },
-    { label: "Quizzes completed", count: getEventCount("quiz_completed") },
-    {
-      label: "Study sessions completed",
-      count: getEventCount("study_session_completed"),
-    },
-  ];
-
-  return (
-    <>
-      <div className="space-y-1 text-xs leading-relaxed text-text-muted sm:text-sm">
-        <p>
-          {report.startDate} – {report.endDate} · {report.timeZone}
-        </p>
-        <p>
-          Report retrieved {new Date(report.retrievedAt).toLocaleString()}. This
-          is the retrieval time, not the latest event time.
-        </p>
-      </div>
-      {report.limited && (
-        <p
-          role="status"
-          className="rounded-xl border border-border-light bg-bg-warm px-4 py-3 text-sm text-text-main"
-        >
-          Google Analytics applied thresholds, sampling, or row limits. Totals
-          may be incomplete.
-        </p>
-      )}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {summaryMetrics.map((metric) => (
-          <div
-            key={metric.label}
-            className="rounded-2xl border border-border-light bg-bg-container p-5 shadow-sm"
-          >
-            <p className="text-sm text-text-muted">{metric.label}</p>
-            <p className="mt-2 text-3xl font-semibold tracking-tight text-text-main tabular-nums">
-              {metric.count.toLocaleString()}
-            </p>
-          </div>
-        ))}
-      </div>
-      <DailyActivityChart rows={report.daily} timeZone={report.timeZone} />
-      <div className="grid gap-4 xl:grid-cols-2">
-        <ActivityCountsTable title="Page views" rows={report.pages} />
-        <ActivityCountsTable title="Feature events" rows={featureEvents} />
-      </div>
-      <ActivityCountsTable
-        title="Workflow starts and outcomes"
-        rows={workflowCounts}
-      />
-      <p className="text-xs leading-relaxed text-text-muted sm:text-sm">
-        Starts and outcomes are independent event counts, not a matched user
-        funnel. A workflow can start and finish in different reporting periods.
-        Source: Google Analytics 4.
-      </p>
-    </>
-  );
-}
+  HealthReport,
+  RealtimeReport,
+} from "@/src/library/monitoring/types";
+import { useAdminReport } from "@/src/hooks/useAdminReport";
+import { AnalyticsEvents } from "./AnalyticsEvents";
+import { Metric, Notice } from "./dashboardShared";
+import { AnalyticsHealth, HealthSummary } from "./AnalyticsHealth";
+import { AnalyticsOverview } from "./AnalyticsOverview";
+import {
+  buttonClass,
+  displayDate,
+  displayTime,
+  inputClass,
+  exportAnalytics,
+} from "./dashboardUtils";
 
 export default function AnalyticsDashboard({
   analyticsUrl,
 }: {
   analyticsUrl?: string;
 }) {
-  const [datePreset, setDatePreset] = useState("7days");
-  const [customStartDate, setCustomStartDate] = useState("");
-  const [customEndDate, setCustomEndDate] = useState("");
-  const [reportQuery, setReportQuery] = useState("start=7days");
-  const [refreshCount, setRefreshCount] = useState(0);
-  const [report, setReport] = useState<AnalyticsReport | null>(null);
-  const [errorMessage, setErrorMessage] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
+  const [preset, setPreset] = useState("7days");
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+  const [query, setQuery] = useState("start=7days");
+  const [refresh, setRefresh] = useState(0);
+  const [tab, setTab] = useState("Overview");
+  const analytics = useAdminReport<AnalyticsReport>(
+    `/api/admin/analytics?${query}`,
+    refresh,
+  );
+  const realtime = useAdminReport<RealtimeReport>(
+    "/api/admin/analytics/realtime",
+    refresh,
+    true,
+  );
+  const health = useAdminReport<HealthReport>(
+    "/api/admin/health",
+    refresh,
+    true,
+  );
+  const report = analytics.data;
+  const live = realtime.data;
+  const eventCount = (name: string) =>
+    report?.events.find((row) => row.label === name)?.count ?? 0;
+  const interactions =
+    report?.events.reduce(
+      (total, row) => total + (row.label === "page_view" ? 0 : row.count),
+      0,
+    ) ?? 0;
 
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function loadReport() {
-      setIsLoading(true);
-      setErrorMessage("");
-      setReport(null);
-
-      try {
-        const response = await fetch(`/api/admin/analytics?${reportQuery}`, {
-          signal: controller.signal,
-          cache: "no-store",
-        });
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || "Could not load analytics.");
-        }
-        if (!controller.signal.aborted) {
-          setReport(data);
-        }
-      } catch (error) {
-        if (!controller.signal.aborted) {
-          let message = "Could not load analytics.";
-          if (error instanceof Error) {
-            message = error.message;
-          }
-          setErrorMessage(message);
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    void loadReport();
-    return function cancelPreviousRequest() {
-      controller.abort();
-    };
-  }, [reportQuery, refreshCount]);
-
-  function applyDateFilter(event: FormEvent<HTMLFormElement>) {
+  function applyFilter(event: FormEvent) {
     event.preventDefault();
-    let nextQuery = `start=${datePreset}`;
-    if (datePreset === "custom") {
-      const dateParameters = new URLSearchParams();
-      dateParameters.set("start", customStartDate);
-      dateParameters.set("end", customEndDate);
-      nextQuery = dateParameters.toString();
-    }
-
-    setReportQuery(nextQuery);
-    setRefreshCount((count) => count + 1);
+    const parameters = new URLSearchParams({
+      start: preset === "custom" ? start : preset,
+    });
+    if (preset === "custom") parameters.set("end", end);
+    setQuery(parameters.toString());
+    setRefresh((value) => value + 1);
   }
 
   return (
     <section className="min-h-screen bg-bg-main px-4 py-8 text-text-main sm:px-8 lg:px-10">
       <div className="mx-auto max-w-7xl space-y-6">
-        <header>
-          <p className="mb-2 text-sm font-medium text-text-muted">
-            Administration
-          </p>
-          <h1 className="text-3xl font-semibold tracking-tight">
-            Usage analytics
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-text-muted">
-            Activity shared by users who enabled analytics. Blocked collection
-            and processing delays can affect these reports.
-          </p>
-          {analyticsUrl && (
-            <a
-              href={analyticsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-4 inline-flex rounded-lg border border-border-light bg-bg-container px-4 py-2 text-sm font-medium hover:bg-bg-warm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        <header className="flex flex-wrap items-center justify-between gap-6">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+              Administration
+            </p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight">
+              Usage analytics
+            </h1>
+            <p className="mt-2 text-sm leading-relaxed text-text-muted">
+              Understand what students use, and how your services are
+              performing.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {analyticsUrl && (
+              <a
+                className={buttonClass}
+                href={analyticsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Google Analytics <ExternalLink size={15} />
+              </a>
+            )}
+            <button
+              className={buttonClass}
+              disabled={!report}
+              onClick={() =>
+                report &&
+                exportAnalytics(report.events, report.startDate, report.endDate)
+              }
             >
-              Open Google Analytics
-            </a>
-          )}
+              <Download size={15} />
+              Export CSV
+            </button>
+          </div>
         </header>
-        <form
-          className="flex flex-wrap items-end gap-3 rounded-2xl border border-border-light bg-bg-container p-5 shadow-sm sm:p-6"
-          onSubmit={applyDateFilter}
-        >
-          <label className="flex flex-col gap-2 text-sm font-medium">
+        <form onSubmit={applyFilter} className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-2 text-xs text-text-muted">
             Date range
             <select
-              className="min-w-40 rounded-lg border border-border-light bg-bg-main px-3 py-2 text-sm text-text-main outline-none focus:border-primary"
-              value={datePreset}
-              onChange={(event) => setDatePreset(event.target.value)}
+              className={inputClass}
+              value={preset}
+              onChange={(event) => setPreset(event.target.value)}
             >
               <option value="7days">Last 7 days</option>
               <option value="30days">Last 30 days</option>
               <option value="custom">Custom dates</option>
             </select>
           </label>
-          {datePreset === "custom" && (
+          {preset === "custom" && (
             <>
-              <label className="flex flex-col gap-2 text-sm font-medium">
+              <label className="flex flex-col gap-2 text-xs text-text-muted">
                 Start date
                 <input
-                  className="rounded-lg border border-border-light bg-bg-main px-3 py-2 text-sm text-text-main outline-none focus:border-primary"
                   type="date"
-                  value={customStartDate}
                   required
-                  onChange={(event) => setCustomStartDate(event.target.value)}
+                  value={start}
+                  onChange={(event) => setStart(event.target.value)}
+                  className={inputClass}
                 />
               </label>
-              <label className="flex flex-col gap-2 text-sm font-medium">
+              <label className="flex flex-col gap-2 text-xs text-text-muted">
                 End date
                 <input
-                  className="rounded-lg border border-border-light bg-bg-main px-3 py-2 text-sm text-text-main outline-none focus:border-primary"
                   type="date"
-                  value={customEndDate}
-                  min={customStartDate}
                   required
-                  onChange={(event) => setCustomEndDate(event.target.value)}
+                  min={start}
+                  value={end}
+                  onChange={(event) => setEnd(event.target.value)}
+                  className={inputClass}
                 />
               </label>
             </>
           )}
           <button
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-text-inverse shadow-sm transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={isLoading}
+            className={`${buttonClass} border-primary bg-primary text-text-inverse hover:bg-primary-hover`}
+            disabled={analytics.loading}
           >
+            <RefreshCw size={15} />
             Apply / refresh
           </button>
+          {report && (
+            <p className="pb-2 text-xs text-text-muted">
+              {displayDate(report.startDate)} – {displayDate(report.endDate)} ·{" "}
+              {report.timeZone}
+            </p>
+          )}
         </form>
-        {isLoading && (
-          <p role="status" className="text-sm text-text-muted">
-            Loading analytics…
-          </p>
+        {health.data && <HealthSummary report={health.data} />}
+        {health.error && (
+          <Notice error>Service status unavailable: {health.error}</Notice>
         )}
-        {errorMessage && (
-          <p
-            role="alert"
-            className="rounded-xl border border-border-light bg-bg-container p-4 text-sm text-text-main"
-          >
-            {errorMessage}
-          </p>
+        <div
+          className="flex gap-6 overflow-x-auto border-b border-border-light"
+          aria-label="Analytics views"
+        >
+          {["Overview", "Event explorer", "Service health"].map((name) => (
+            <button
+              key={name}
+              aria-pressed={tab === name}
+              onClick={() => setTab(name)}
+              className={`whitespace-nowrap border-b-2 pb-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${tab === name ? "border-primary font-semibold text-primary" : "border-transparent text-text-muted"}`}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+        {tab === "Service health" ? (
+          <>
+            {health.loading && !health.data && (
+              <Notice>Checking services…</Notice>
+            )}
+            {health.data && <AnalyticsHealth report={health.data} />}
+          </>
+        ) : (
+          <>
+            {analytics.loading && !report && (
+              <Notice>Loading analytics…</Notice>
+            )}
+            {analytics.error && <Notice error>{analytics.error}</Notice>}
+            {realtime.error && (
+              <Notice error>
+                Realtime users unavailable: {realtime.error}
+              </Notice>
+            )}
+            <div className="grid divide-y divide-border-light overflow-hidden rounded-2xl border border-border-light bg-bg-container sm:grid-cols-2 sm:divide-y-0 xl:grid-cols-4">
+              <Metric
+                label="Concurrent users"
+                value={live?.concurrentUsers ?? null}
+                detail={
+                  live
+                    ? `GA4 active users in the last ${live.windowMinutes} minutes`
+                    : realtime.loading
+                      ? "Loading realtime report…"
+                      : "Realtime count unavailable"
+                }
+              />
+              <Metric
+                label="Active users"
+                value={report?.activeUsers ?? null}
+                detail="Distinct active users in the selected period"
+              />
+              <Metric
+                label="Peak concurrent users"
+                value={live?.peaks?.concurrent ?? null}
+                detail={
+                  live?.peaks
+                    ? `Highest observed 5-minute count · ${displayTime(live.peaks.concurrentAt)}`
+                    : "No saved peak available"
+                }
+              />
+              <Metric
+                label="Peak daily users"
+                value={live?.peaks?.daily ?? null}
+                detail={
+                  live?.peaks?.dailyDate
+                    ? `Highest observed daily count · ${displayDate(live.peaks.dailyDate)}`
+                    : "Highest daily count observed since monitoring began"
+                }
+              />
+            </div>
+            {live && (
+              <p className="text-xs leading-relaxed text-text-muted">
+                Realtime sampled {displayTime(live.checkedAt)}.{" "}
+                {live.peaks &&
+                  `Peak sampling began ${displayTime(live.peaks.since)}.`}{" "}
+                These are GA4 activity estimates, not open connections. Peaks
+                can miss activity between samples.
+              </p>
+            )}
+            {((live && !live.storageAvailable) ||
+              (report && !report.storageAvailable)) && (
+              <Notice error>
+                Counts are available, but saving user history failed. Peak
+                counts may be incomplete.
+              </Notice>
+            )}
+            {report?.limited && (
+              <Notice>
+                Google applied thresholds, sampling, or row limits. Counts may
+                be incomplete.
+              </Notice>
+            )}
+            {report && (
+              <>
+                <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-border-light bg-bg-container xl:grid-cols-4">
+                  <Metric
+                    label="Page views"
+                    value={eventCount("page_view")}
+                    detail="Visits in the selected period"
+                  />
+                  <Metric
+                    label="Feature interactions"
+                    value={interactions}
+                    detail="Approved feature events"
+                  />
+                  <Metric
+                    label="Quizzes completed"
+                    value={eventCount("quiz_completed")}
+                    detail="Recorded quiz completions"
+                  />
+                  <Metric
+                    label="Study sessions completed"
+                    value={eventCount("study_session_completed")}
+                    detail="Recorded session completions"
+                  />
+                </div>
+                {tab === "Overview" ? (
+                  <AnalyticsOverview report={report} />
+                ) : (
+                  <AnalyticsEvents rows={report.events} />
+                )}
+                <p className="text-xs leading-relaxed text-text-muted">
+                  Report retrieved {displayTime(report.retrievedAt)}. GA4
+                  processing may delay recent activity. Document contents, chat
+                  text, names, and emails are excluded from tracked events.
+                </p>
+              </>
+            )}
+          </>
         )}
-        {report && <ReportResults report={report} />}
       </div>
     </section>
   );

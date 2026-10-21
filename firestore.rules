@@ -117,6 +117,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /adminAnalyticsPeaks/{document=**} { allow read, write: if false; }
+    match /adminServiceStatus/{document=**} { allow read, write: if false; }
+    match /adminIncidents/{document=**} { allow read, write: if false; }
+    match /adminMonitoring/{document=**} { allow read, write: if false; }
+
     // ── Default deny ─────────────────────────────────────────────────────
     match /{document=**} {
       allow read, write: if false;

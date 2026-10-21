@@ -30,6 +30,8 @@ RUN set -a && . ./docker/build-placeholders.env && set +a \
 RUN npx esbuild scripts/ocrWorker.ts --bundle --platform=node --format=cjs \
       --target=node22 --outfile=dist/ocrWorker.cjs
 
+RUN node scripts/packageMonitorWorker.mjs
+
 # --- Stage 3: runtime --------------------------------------------------------
 FROM node:22-slim AS runner
 WORKDIR /app
@@ -49,6 +51,8 @@ COPY --from=builder --chown=node:node /app/docs/legal ./docs/legal
 COPY --from=builder --chown=node:node /app/node_modules/pdfjs-dist ./node_modules/pdfjs-dist
 COPY --from=builder --chown=node:node /app/node_modules/pdfkit ./node_modules/pdfkit
 COPY --from=builder --chown=node:node /app/dist/ocrWorker.cjs ./workers/ocrWorker.cjs
+
+COPY --from=builder --chown=node:node /app/dist/monitor-runtime ./
 
 USER node
 EXPOSE 3000
