@@ -5,7 +5,9 @@ import { useState } from "react";
 import RouteError from "./error";
 import NotFound from "./not-found";
 
-const { back, push } = vi.hoisted(() => ({ back: vi.fn(), push: vi.fn() }));
+const { back, push, reportClientError } = vi.hoisted(() => ({ back: vi.fn(), push: vi.fn(), reportClientError: vi.fn() }));
+
+vi.mock("@/src/library/monitoring/reportClientError", () => ({ reportClientError }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/missing-page",
@@ -31,6 +33,16 @@ describe("application route fallbacks", () => {
     expect(reset).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Go to dashboard" }));
     expect(push).toHaveBeenCalledWith("/dashboard");
+    log.mockRestore();
+  });
+
+  it("reports the route failure to error tracking", () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const error = Object.assign(new Error("render failed"), { digest: "abc123" });
+
+    render(<RouteError error={error} reset={vi.fn()} />);
+
+    expect(reportClientError).toHaveBeenCalledWith(error, { digest: "abc123" });
     log.mockRestore();
   });
 
