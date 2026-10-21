@@ -79,3 +79,55 @@ The authenticated admin page redirects logged-out visitors to login, renders an 
 - Test missing configuration, empty periods, invalid dates, and unavailable reporting.
 
 Live Google configuration changes, role grants, deployments, DebugView checks, and production comparisons must be performed by an authorized operator. Local automated tests mock Google/Firebase; they do not establish that live credentials or property permissions are correct.
+
+
+## Admin dashboard and user counts
+
+The dashboard includes the overview, event search, CSV export, and a separate service-health view. It uses the existing Catalyst theme, sidebar, and authentication.
+
+- **Active users:** GA4's distinct `activeUsers` for the selected date range. Daily distinct counts are never added to calculate this total.
+- **Concurrent users:** GA4 realtime `activeUsers` for minutes 4 through 0 (the last five minutes). This is an activity estimate, not a count of connected browsers. Only activity received by GA4 is included.
+- **Peak concurrent users:** highest five-minute count sampled since monitoring began, across all observed dates. Sampling can miss short spikes.
+- **Peak daily users:** highest daily active-user count observed from historical reports. GA4 can revise processed data, so this is an observed high-water mark rather than a permanently final count. The daily documents hold the latest retrieved counts.
+- Realtime and historical reports are independently cached for one minute. Historical dates use `GA4_PROPERTY_TIMEZONE`; realtime sample timestamps use UTC. The browser displays timestamps in the viewer's local timezone.
+
+GA4 requests use five batch slots: pages, approved events, daily activity (including page views), distinct users, and daily users. Realtime uses a separate `runRealtimeReport` call. Existing GA4 Viewer access and the Data API are sufficient; no extra Google role is needed. See [GA4 realtime metrics](https://developers.google.com/analytics/devguides/reporting/data/v1/realtime-api-schema).
+
+## Continuous monitoring on the host
+
+Run **one monitoring worker per deployment** using the same server environment as the website:
+
+```sh
+NODE_ENV=production npm run worker:monitor
+```
+
+Keep it running with the host's process manager and restart it on deployment. No new secret or browser environment variable is required. The worker uses existing Firebase Admin, GA4, GCS, Qdrant, and AI configuration. Development must use the existing test GA4 configuration; production must use production IDs. Services are checked from the machine running the worker, so run it on the host that serves Catalyst.
+
+The Docker image also includes the worker. Run a second container from the same deployed image, with the same server environment / `.env` mount and network access, using this command:
+
+```sh
+node --conditions=react-server workers/monitorWorker.cjs
+```
+
+The worker samples realtime users and health every minute and refreshes seven days of daily counts every 15 minutes to pick up processing delays. Starting it does not grant admin roles, change consent, or generate paid AI completions. The dashboard also samples when an admin opens it; without the worker, there are gaps whenever the page is closed. A missing or stale heartbeat is shown in Service health.
+
+## Service checks and interruption history
+
+`GET /api/admin/health` and `GET /api/admin/analytics/realtime` require the same current Firebase admin claim as the report endpoint. Authentication and revocation checks run before reading caches or probing. Responses are private/no-store and requests are rate-limited per admin.
+
+- **AI models:** verifies configured cloud model catalogs and credentials, plus required Ollama model availability. Secondary embeddings are checked even in cloud mode. A catalog check cannot prove that a paid generation will succeed; real request failures, timeouts, stream errors, and generation slower than 30 seconds are recorded separately. Existing low-throughput Ollama warnings also reach this log.
+- **Vector database:** checks Qdrant `/readyz`, including configured fallback addresses.
+- **File storage:** reads GCS bucket metadata without reading student files. Actual storage helper failures also record a warning.
+- **Firestore:** reads a dedicated monitoring document; it does not read student records. If Firestore itself is down, current probes still render, with an explicit history-unavailable notice.
+
+Probes use bounded deadlines. Missing configuration is distinct from an outage; slow successful checks or fallback connections are degraded. Probes only use server-configured destinations, never URLs from request parameters. Redirects are rejected on credentialed HTTP checks. SDK deadlines bound dashboard waiting; SDK operations may finish in the background because their APIs do not expose cancellation for these reads.
+
+State changes are saved transactionally in `adminServiceStatus` and `adminIncidents`. Repeated unhealthy samples extend the same open incident; a healthy sample closes it. Duration is the time between observations, not exact downtime. A whole-site/host outage cannot be observed by a worker on that same host; use an external uptime monitor for that. No fabricated uptime percentage is shown.
+
+Request warnings are deduplicated per service/type/minute and contain fixed messages only: no URLs, credentials, UIDs, prompts, documents, or upstream response bodies. User-requested cancellations are not counted as service failures. These warnings do not mark every request or model as down.
+
+`adminAnalyticsPeaks/{propertyId}` stores peaks, daily counts, and minute samples. All monitoring collections deny direct client reads/writes, including for admins; only the authenticated server endpoints serve them. The worker deletes expired realtime samples and closed/request incidents in bounded batches after 30 days. Open incidents and aggregate peak/daily records remain. Deploy `firestore.rules` with the application; the existing default-deny rule also protects these new collections.
+
+## Validation
+
+Automated tests cover distinct and empty user counts, realtime API failures, concurrent peak updates, service failures and recovery, missing configuration, slow/failed streams, user cancellations, denied admin endpoints, private responses, and dashboard empty/error states. Local tests use mocked services. Before production rollout, run the worker on the host, confirm its heartbeat, compare a sample against GA4, and exercise the deployed dashboard with an admin account. Do not deliberately interrupt production services to test failure handling.

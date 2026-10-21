@@ -1,3 +1,4 @@
+import { monitoredFetch } from "./monitoring/telemetry";
 import { resolveOllamaBaseUrl } from "./ollamaClient";
 
 // Server-only: talks to the secondary Ollama box (the embeddings-only GPU).
@@ -21,7 +22,7 @@ export async function embedTexts(texts: string[], signal?: AbortSignal): Promise
 }
 
 async function embedBatch(baseUrl: string, texts: string[], signal?: AbortSignal): Promise<number[][]> {
-  const response = await fetch(`${baseUrl}/api/embed`, {
+  const response = await monitoredFetch("ai", `${baseUrl}/api/embed`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

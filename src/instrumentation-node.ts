@@ -1,10 +1,13 @@
 // Node-only server startup (see instrumentation.ts).
 import { setMeter } from "./library/ai/aiFetch";
 import { createMeter } from "./library/billing/usageMeter";
+import { setIncidentSink } from "./library/monitoring/telemetry";
+import { recordRequestIncident } from "./library/monitoring/store";
 
 // The AI client charges through this meter. It's registered here instead of
 // imported by aiFetch.ts, which browser bundles reach through shared modules.
 setMeter(createMeter());
+setIncidentSink(recordRequestIncident);
 
 // Promise rejections nothing awaited (fire-and-forget background work) never
 // reach onRequestError, so they're reported here instead.
