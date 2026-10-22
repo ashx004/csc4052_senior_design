@@ -182,8 +182,14 @@ async function checkStorage(): Promise<string> {
   if (!process.env.GCS_BUCKET || !process.env.GCS_SERVICE_ACCOUNT_JSON)
     throw new NotConfigured();
   const { getBucket } = await import("../gcsStorage");
-  await withDeadline(getBucket().getMetadata());
-  return "Bucket metadata is readable. File contents are not accessed.";
+  await withDeadline(
+    getBucket().getFiles({
+      prefix: "__catalyst_health_probe__/",
+      maxResults: 1,
+      autoPaginate: false,
+    }),
+  );
+  return "File listing is responding. File contents are not accessed.";
 }
 
 async function checkFirestore(): Promise<string> {

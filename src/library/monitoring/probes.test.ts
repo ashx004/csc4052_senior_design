@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { probeServices, runProbe, withDeadline } from "./probes";
-const storage = vi.hoisted(() => ({ getMetadata: vi.fn() }));
+const storage = vi.hoisted(() => ({ getMetadata: vi.fn(), getFiles: vi.fn() }));
 const firestore = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock("../gcsStorage", () => ({ getBucket: () => storage }));
 vi.mock("../firebaseAdmin", () => ({
@@ -82,10 +82,19 @@ it("probes configured models, vector readiness, storage and Firestore without pa
       ? new Response("ready")
       : Response.json({ models: [{ name: "main" }, { name: "embed" }] }),
   );
-  storage.getMetadata.mockResolvedValue([{}]);
+  storage.getFiles.mockResolvedValue([[]]);
+  storage.getMetadata.mockRejectedValue(
+    new Error("Bucket metadata permission denied"),
+  );
   firestore.get.mockResolvedValue({});
   const result = await probeServices();
   expect(result.every((service) => service.status === "healthy")).toBe(true);
+  expect(storage.getMetadata).not.toHaveBeenCalled();
+  expect(storage.getFiles).toHaveBeenCalledWith({
+    prefix: "__catalyst_health_probe__/",
+    maxResults: 1,
+    autoPaginate: false,
+  });
   expect(fetchMock.mock.calls.map((call) => call[0])).toEqual(
     expect.arrayContaining([
       "http://primary/api/tags",

@@ -117,7 +117,7 @@ The worker samples realtime users and health every minute and refreshes seven da
 
 - **AI models:** verifies configured cloud model catalogs and credentials, plus required Ollama model availability. Secondary embeddings are checked even in cloud mode. A catalog check cannot prove that a paid generation will succeed; real request failures, timeouts, stream errors, and generation slower than 30 seconds are recorded separately. Existing low-throughput Ollama warnings also reach this log.
 - **Vector database:** checks Qdrant `/readyz`, including configured fallback addresses.
-- **File storage:** reads GCS bucket metadata without reading student files. Actual storage helper failures also record a warning.
+- **File storage:** checks a bounded object listing under a dedicated probe prefix without downloading student files. This uses the same object-list permission as the app; it does not require bucket-metadata administration permissions. Actual storage helper failures also record a warning.
 - **Firestore:** reads a dedicated monitoring document; it does not read student records. If Firestore itself is down, current probes still render, with an explicit history-unavailable notice.
 
 Probes use bounded deadlines. Missing configuration is distinct from an outage; slow successful checks or fallback connections are degraded. Probes only use server-configured destinations, never URLs from request parameters. Redirects are rejected on credentialed HTTP checks. SDK deadlines bound dashboard waiting; SDK operations may finish in the background because their APIs do not expose cancellation for these reads.
@@ -131,3 +131,24 @@ Request warnings are deduplicated per service/type/minute and contain fixed mess
 ## Validation
 
 Automated tests cover distinct and empty user counts, realtime API failures, concurrent peak updates, service failures and recovery, missing configuration, slow/failed streams, user cancellations, denied admin endpoints, private responses, and dashboard empty/error states. Local tests use mocked services. Before production rollout, run the worker on the host, confirm its heartbeat, compare a sample against GA4, and exercise the deployed dashboard with an admin account. Do not deliberately interrupt production services to test failure handling.
+
+## HTML or gateway errors on admin reports
+
+A report endpoint must return JSON. A Cloudflare HTML page with HTTP 502 means
+that the request failed between the gateway and the application host; it is not
+an empty GA4 report. The dashboard retries non-JSON 502/503/504 responses once,
+then shows the HTTP status instead of a JSON parser error. Authentication errors,
+rate limits, and JSON application errors are not retried immediately.
+
+When this happens, capture the request path, UTC timestamp, status, and Cloudflare
+Ray ID. The host operator should correlate those with the application container,
+reverse proxy or tunnel, and deployment logs. Check for container restarts or
+out-of-memory exits, failed upstream connections, and a deployment that briefly
+routes to an unavailable instance. Compare the same endpoint through the public
+URL and the application's local listening address. A signed-out JSON 401 is an
+expected authentication response, not proof that signed-in reporting works.
+
+After the host problem is corrected, verify the signed-in dashboard through the
+public URL. Changing GA4 credentials or suppressing the error does not repair a
+failing gateway. Do not include session cookies, private keys, or full environment
+files when sharing diagnostics.
