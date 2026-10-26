@@ -1,4 +1,5 @@
 import { eventNames } from "./analyticsContract";
+import type { UserPeaks } from "./monitoring/types";
 
 export type ReportRow = {
   label: string;
@@ -17,6 +18,7 @@ export type AnalyticsReport = {
   limited: boolean;
   activeUsers: number;
   dailyUsers: ReportRow[];
+  peaks?: UserPeaks | null;
   storageAvailable: boolean;
 };
 

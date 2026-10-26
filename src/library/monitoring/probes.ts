@@ -59,28 +59,64 @@ async function withFallback(
 async function checkOllama(server: "PRIMARY" | "SECONDARY", models: string[]) {
   if (!models.length || !process.env.OLLAMA_AUTH_TOKEN)
     throw new NotConfigured();
-  return withFallback(
-    process.env[`OLLAMA_${server}_URL`],
-    process.env[`OLLAMA_${server}_FALLBACK_URL`],
-    async (base) => {
-      const data = await readJson(`${base}/api/tags`, {
-        Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
-      });
-      const names = (data.models ?? []).map(
-        (model: { name: string }) => model.name,
-      );
-      if (
-        !models.every(
-          (model) => names.includes(model) || names.includes(`${model}:latest`),
-        )
-      ) {
-        throw new Error("Configured model is unavailable");
-      }
-    },
-  );
+  const primary = process.env[`OLLAMA_${server}_URL`];
+  const fallbacks = process.env[`OLLAMA_${server}_FALLBACK_URL`];
+  if (!primary) throw new NotConfigured();
+  const targets = [
+    primary,
+    ...(fallbacks ?? "").split(",").filter(Boolean),
+  ].slice(0, 4);
+  const controllers = targets.map(() => new AbortController());
+  try {
+    await Promise.any(
+      targets.map(async (target, index) => {
+        const base = target.trim().replace(/\/$/, "");
+        const response = await fetch(`${base}/api/tags`, {
+          headers: {
+            Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`,
+          },
+          signal:
+            targets.length === 1
+              ? AbortSignal.timeout(PROBE_TIMEOUT_MS)
+              : AbortSignal.any([
+                  controllers[index].signal,
+                  AbortSignal.timeout(PROBE_TIMEOUT_MS),
+                ]),
+          redirect: "error",
+          cache: "no-store",
+        });
+        if (!response.ok) throw new Error("Probe request failed");
+        const data = await response.json();
+        const names = (data.models ?? []).map(
+          (model: { name: string }) => model.name,
+        );
+        if (
+          !models.every(
+            (model) =>
+              names.includes(model) || names.includes(`${model}:latest`),
+          )
+        ) {
+          throw new Error("Configured model is unavailable");
+        }
+      }),
+    );
+    return false;
+  } catch {
+    throw new Error("All probe targets failed");
+  } finally {
+    controllers.forEach((controller) => controller.abort());
+  }
 }
 
-async function checkCloudModel(model: string) {
+type OpenRouterCheck = {
+  models: Promise<{ data?: { id: string }[] }>;
+  key: Promise<unknown>;
+};
+
+async function checkCloudModel(
+  model: string,
+  openRouterCache?: Map<string, OpenRouterCheck>,
+) {
   const { provider, modelId } = providerFor(model);
   const key = process.env[provider.keyEnv];
   if (!key) throw new NotConfigured();
@@ -92,14 +128,19 @@ async function checkCloudModel(model: string) {
       },
     );
   } else {
-    const data = await readJson("https://openrouter.ai/api/v1/models", {
-      Authorization: `Bearer ${key}`,
-    });
+    let cached = openRouterCache?.get(key);
+    if (!cached) {
+      const headers = { Authorization: `Bearer ${key}` };
+      cached = {
+        models: readJson("https://openrouter.ai/api/v1/models", headers),
+        key: readJson("https://openrouter.ai/api/v1/key", headers),
+      };
+      openRouterCache?.set(key, cached);
+    }
+    const data = await cached.models;
     if (!data.data?.some((entry: { id: string }) => entry.id === modelId))
       throw new Error("Model is unavailable");
-    await readJson("https://openrouter.ai/api/v1/key", {
-      Authorization: `Bearer ${key}`,
-    });
+    await cached.key;
   }
 }
 
@@ -109,26 +150,47 @@ async function checkAi(): Promise<string> {
   const checks: (() => Promise<boolean | void>)[] = [];
   if (cloud) {
     if (!process.env.AI_MODEL_DEFAULT) throw new NotConfigured();
-    const keys = [
+    const openRouterCache = new Map<string, OpenRouterCheck>();
+    const primaryKeys = [
       "DEFAULT",
       "GENERATION",
       "OCR",
       "LIGHT",
       "FAST",
       "THOROUGH",
-      "FALLBACK",
     ];
-    const models = [
+    const primaryModels = [
       ...new Set(
-        keys
+        primaryKeys
           .flatMap((key) => (process.env[`AI_MODEL_${key}`] ?? "").split(","))
           .map((value) => value.trim())
           .filter(Boolean),
       ),
     ];
-    checks.push(...models.map((model) => () => checkCloudModel(model)));
-  }
-  if (mode !== "cloud" || process.env.AI_OLLAMA_USERS?.trim()) {
+    const fallbackModels = [
+      ...new Set(
+        (process.env.AI_MODEL_FALLBACK ?? "")
+          .split(",")
+          .map((value) => value.trim())
+          .filter((value) => value && !primaryModels.includes(value)),
+      ),
+    ];
+    checks.push(
+      ...primaryModels.map((model) => () =>
+        checkCloudModel(model, openRouterCache),
+      ),
+    );
+    checks.push(
+      ...fallbackModels.map((model) => async () => {
+        try {
+          await checkCloudModel(model, openRouterCache);
+          return false;
+        } catch {
+          return true;
+        }
+      }),
+    );
+  } else {
     const main = process.env.OLLAMA_MODEL_MAIN;
     if (!main) throw new NotConfigured();
     checks.push(() => checkOllama("PRIMARY", [main]));
@@ -137,7 +199,7 @@ async function checkAi(): Promise<string> {
   const secondaryModels: (string | undefined)[] = [
     process.env.OLLAMA_EMBED_MODEL,
   ];
-  if (mode !== "cloud" || process.env.AI_OLLAMA_USERS?.trim()) {
+  if (!cloud) {
     secondaryModels.push(
       process.env.OLLAMA_MODEL_OCR,
       process.env.OLLAMA_SUMMARY_MODEL,
@@ -182,8 +244,14 @@ async function checkStorage(): Promise<string> {
   if (!process.env.GCS_BUCKET || !process.env.GCS_SERVICE_ACCOUNT_JSON)
     throw new NotConfigured();
   const { getBucket } = await import("../gcsStorage");
-  await withDeadline(getBucket().getMetadata());
-  return "Bucket metadata is readable. File contents are not accessed.";
+  await withDeadline(
+    getBucket().getFiles({
+      prefix: "__catalyst_health_probe__/",
+      maxResults: 1,
+      autoPaginate: false,
+    }),
+  );
+  return "File listing is responding. File contents are not accessed.";
 }
 
 async function checkFirestore(): Promise<string> {

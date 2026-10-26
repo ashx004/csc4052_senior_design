@@ -47,6 +47,19 @@ export default function AnalyticsDashboard({
   );
   const report = analytics.data;
   const live = realtime.data;
+  const peaks =
+    live?.peaks && report?.peaks
+      ? {
+          concurrent: live.peaks.concurrent ?? report.peaks.concurrent,
+          concurrentAt:
+            live.peaks.concurrent !== null
+              ? live.peaks.concurrentAt
+              : report.peaks.concurrentAt,
+          daily: report.peaks.daily ?? live.peaks.daily,
+          dailyDate: report.peaks.dailyDate ?? live.peaks.dailyDate,
+          since: live.peaks.since || report.peaks.since,
+        }
+      : (live?.peaks ?? report?.peaks ?? null);
   const eventCount = (name: string) =>
     report?.events.find((row) => row.label === name)?.count ?? 0;
   const interactions =
@@ -213,28 +226,28 @@ export default function AnalyticsDashboard({
               />
               <Metric
                 label="Peak concurrent users"
-                value={live?.peaks?.concurrent ?? null}
+                value={peaks?.concurrent ?? null}
                 detail={
-                  live?.peaks
-                    ? `Highest observed 5-minute count · ${displayTime(live.peaks.concurrentAt)}`
+                  peaks?.concurrent !== null && peaks?.concurrent !== undefined
+                    ? `Highest observed 5-minute count · ${displayTime(peaks.concurrentAt)}`
                     : "No saved peak available"
                 }
               />
               <Metric
                 label="Peak daily users"
-                value={live?.peaks?.daily ?? null}
+                value={peaks?.daily ?? null}
                 detail={
-                  live?.peaks?.dailyDate
-                    ? `Highest observed daily count · ${displayDate(live.peaks.dailyDate)}`
+                  peaks?.dailyDate
+                    ? `Highest observed daily count · ${displayDate(peaks.dailyDate)}`
                     : "Highest daily count observed since monitoring began"
                 }
               />
             </div>
-            {live && (
+            {(live || peaks) && (
               <p className="text-xs leading-relaxed text-text-muted">
-                Realtime sampled {displayTime(live.checkedAt)}.{" "}
-                {live.peaks &&
-                  `Peak sampling began ${displayTime(live.peaks.since)}.`}{" "}
+                {live && `Realtime sampled ${displayTime(live.checkedAt)}. `}
+                {peaks?.since &&
+                  `Peak sampling began ${displayTime(peaks.since)}.`}{" "}
                 These are GA4 activity estimates, not open connections. Peaks
                 can miss activity between samples.
               </p>
