@@ -8,7 +8,9 @@ import { auth as googleAuth } from "googleapis/build/src/apis/analyticsdata";
 import { analyticsdata_v1beta } from "googleapis/build/src/apis/analyticsdata/v1beta";
 import {
   type AnalyticsReport,
+  type PagePerformanceRow,
   type ReportRow,
+  buildPagePerformanceRequest,
   buildReportRequests,
   propertyToday,
   ReportError,
@@ -98,6 +100,31 @@ export function readReportRows(
   return result;
 }
 
+export function readPagePerformanceRows(
+  report: GoogleReport,
+): PagePerformanceRow[] {
+  const rows: PagePerformanceRow[] = [];
+  for (const row of report.rows ?? []) {
+    const label = row.dimensionValues?.[0]?.value ?? "(not set)";
+    const sampleCount = Number(row.metricValues?.[0]?.value);
+    const averageLoadTimeMs = Number(row.metricValues?.[1]?.value);
+
+    if (
+      !Number.isSafeInteger(sampleCount) ||
+      sampleCount < 0 ||
+      !Number.isFinite(averageLoadTimeMs) ||
+      averageLoadTimeMs < 0
+    ) {
+      throw new ReportError(
+        502,
+        "Analytics returned invalid page-load metrics. Try again.",
+      );
+    }
+    rows.push({ label, sampleCount, averageLoadTimeMs });
+  }
+  return rows;
+}
+
 function hasReportingLimits(report: GoogleReport): boolean {
   const metadata = report.metadata;
   if (metadata && metadata.subjectToThresholding) {
@@ -118,6 +145,7 @@ function hasReportingLimits(report: GoogleReport): boolean {
 
 function parseReports(
   reports: GoogleReport[] | undefined,
+  pagePerformance: GoogleReport,
   startDate: string,
   endDate: string,
   timeZone: string,
@@ -130,7 +158,7 @@ function parseReports(
   }
 
   let resultsAreLimited = false;
-  for (const report of reports) {
+  for (const report of [...reports, pagePerformance]) {
     const reportedTimeZone = report.metadata?.timeZone;
     if (reportedTimeZone && reportedTimeZone !== timeZone) {
       throw new ReportError(
@@ -150,6 +178,7 @@ function parseReports(
     timeZone,
     retrievedAt: new Date().toISOString(),
     pages: readReportRows(pageViews),
+    pagePerformance: readPagePerformanceRows(pagePerformance),
     events: readReportRows(featureEvents),
     daily: readReportRows(dailyActivity),
     dailyPageViews: readReportRows(dailyActivity, 1),
@@ -257,15 +286,25 @@ async function fetchAnalyticsReport(
   const api = new analyticsdata_v1beta.Analyticsdata({ auth });
 
   try {
-    const response = await api.properties.batchRunReports(
-      {
-        property: `properties/${propertyId}`,
-        requestBody: { requests: buildReportRequests(startDate, endDate) },
-      },
-      { timeout: REQUEST_TIMEOUT_MS },
-    );
+    const [response, performanceResponse] = await Promise.all([
+      api.properties.batchRunReports(
+        {
+          property: `properties/${propertyId}`,
+          requestBody: { requests: buildReportRequests(startDate, endDate) },
+        },
+        { timeout: REQUEST_TIMEOUT_MS },
+      ),
+      api.properties.runReport(
+        {
+          property: `properties/${propertyId}`,
+          requestBody: buildPagePerformanceRequest(startDate, endDate),
+        },
+        { timeout: REQUEST_TIMEOUT_MS },
+      ),
+    ]);
     const report = parseReports(
       response.data.reports,
+      performanceResponse.data,
       startDate,
       endDate,
       timeZone,

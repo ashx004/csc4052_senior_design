@@ -5,6 +5,7 @@ import {
   analyticsFileType,
 } from "./analyticsContract";
 import {
+  buildPagePerformanceRequest,
   buildReportRequests,
   propertyToday,
   validateDateRange,
@@ -62,6 +63,22 @@ describe("analytics contract", () => {
       }).success,
     ).toBe(false);
     expect(
+      eventSchemas.page_load.safeParse({
+        page_name: "/courses/[courseId]",
+        load_time_ms: 420,
+        navigation_type: "navigate",
+        metric_version: "navigation_timing_v1",
+      }).success,
+    ).toBe(true);
+    expect(
+      eventSchemas.page_load.safeParse({
+        page_name: "/courses/private-id",
+        load_time_ms: 420.5,
+        navigation_type: "navigate",
+        metric_version: "navigation_timing_v1",
+      }).success,
+    ).toBe(false);
+    expect(
       eventSchemas.quiz_completed.safeParse({
         quiz_type: "full_quiz",
         question_count: 2,
@@ -97,6 +114,16 @@ describe("analytics contract", () => {
     ).toMatchObject({
       filter: {
         inListFilter: { values: expect.arrayContaining(["quiz_completed"]) },
+      },
+    });
+    expect(buildPagePerformanceRequest("2026-10-01", "2026-10-05")).toMatchObject({
+      dimensions: [{ name: "pageTitle" }],
+      metrics: [
+        { name: "eventCount" },
+        { name: "averageCustomEvent:load_time_ms" },
+      ],
+      dimensionFilter: {
+        filter: { stringFilter: { value: "page_load" } },
       },
     });
   });
