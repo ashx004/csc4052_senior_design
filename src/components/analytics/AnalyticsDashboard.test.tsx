@@ -16,6 +16,7 @@ const report: AnalyticsReport = {
   timeZone: "America/Chicago",
   retrievedAt: "2026-10-20T12:00:00Z",
   pages: [],
+  pagePerformance: [],
   events: [],
   daily: [],
   dailyPageViews: [],
@@ -95,6 +96,35 @@ it("lets admins inspect service health when GA4 is unavailable", async () => {
   expect(
     screen.queryByText("No recorded activity for this period."),
   ).toBeNull();
+});
+
+it("shows page-load averages by normalized page", async () => {
+  fetchMock.mockImplementation(async (url: string) => {
+    if (url.includes("health")) return Response.json(health);
+    if (url.includes("realtime"))
+      return Response.json({
+        concurrentUsers: 0,
+        windowMinutes: 5,
+        checkedAt: "2026-10-20T12:00:00Z",
+        peaks: null,
+        storageAvailable: true,
+      });
+    return Response.json({
+      ...report,
+      pagePerformance: [
+        {
+          label: "/courses/[courseId]",
+          sampleCount: 4,
+          averageLoadTimeMs: 472.5,
+        },
+      ],
+    });
+  });
+  render(<AnalyticsDashboard />);
+  await screen.findByText("Page load performance");
+  expect(screen.getAllByText("/courses/[courseId]")).toHaveLength(2);
+  expect(screen.getByText("473 ms")).toBeTruthy();
+  expect(screen.getByText("4")).toBeTruthy();
 });
 
 it("applies date filters, searches real event rows and expands their descriptions", async () => {

@@ -28,6 +28,7 @@ Automatic initial page views are disabled. The root tracker sends one manual pag
 The typed and runtime-validated contract is `src/library/analyticsContract.ts`:
 
 - `page_view`: `page_name` (normalized path).
+- `page_load`: `page_name`, `load_time_ms`, `navigation_type`, `metric_version`.
 - `quiz_started`: `quiz_type`, `question_count`.
 - `quiz_completed`: those properties plus `duration_seconds`.
 - `resource_upload_started`, `resource_upload_succeeded`: `file_type`, `entry_point`.
@@ -35,9 +36,9 @@ The typed and runtime-validated contract is `src/library/analyticsContract.ts`:
 - `study_session_started`: `task_type`.
 - `study_session_completed`: `task_type`, `duration_seconds`.
 
-Durations are seconds. Quiz durations are elapsed attempt time; study durations exclude pauses. GA supplies timestamps. Local deduplication identifiers are never sent; deduplication is bounded to the current tab's memory. Browser closure, blockers, offline operation, and consent changes mean counts are best-effort rather than an audit ledger. Events are not persisted or replayed after opt-in.
+Quiz and study durations are seconds. `page_load.load_time_ms` is milliseconds from the browser's completed Navigation Timing record (with legacy browser timing only as a fallback); it is sent once for the initial document navigation and is omitted when no valid browser timing is available. Quiz durations are elapsed attempt time; study durations exclude pauses. GA supplies timestamps. Local deduplication identifiers are never sent; deduplication is bounded to the current tab's memory. Browser closure, blockers, offline operation, and consent changes mean counts are best-effort rather than an audit ledger. Events are not persisted or replayed after opt-in.
 
-No custom dimensions are required by the dashboard. It queries built-in `eventName`, `pageTitle`, and `date` with `eventCount`; `pageTitle` contains the normalized route. If analyzing extra properties in GA, register `quiz_type`, `file_type`, `entry_point`, and `task_type` as event-scoped custom dimensions, and `duration_seconds` as a custom metric with seconds units. Newly registered custom dimensions are not retroactive. Do not add user IDs, raw errors, names, content, or arbitrary strings to the contract.
+The dashboard queries built-in `eventName`, `pageTitle`, and `date` with `eventCount`; `pageTitle` contains the normalized route. Its page-load performance table additionally requires `load_time_ms` to be registered as an event-scoped custom metric with milliseconds units. Register `quiz_type`, `file_type`, `entry_point`, `task_type`, `navigation_type`, and `metric_version` as event-scoped custom dimensions when analyzing those properties in GA. Newly registered custom dimensions and metrics are not retroactive. GA4 supplies a count and average for custom metrics, but not percentile values; p50/p75/p95 reporting requires a raw-event warehouse. Do not add user IDs, raw errors, names, content, or arbitrary strings to the contract.
 
 ## Reporting setup
 
@@ -51,7 +52,7 @@ No custom dimensions are required by the dashboard. It queries built-in `eventNa
 
 Reporting accepts only a date range, capped at 366 inclusive days. Queries are fixed to approved events. Results are cached for 60 seconds in server memory, with bounded entries. Identical concurrent requests share one Google request; at most 10 distinct reports can be in flight. Each admin can request 30 reports per minute using the project’s existing process-local limiter. Multiple server instances would need a shared limiter. Every request verifies current administrator access before accessing this cache. HTTP responses are private/no-store. Report retrieval time is not event freshness. Standard reports can take time to process; thresholds, sampling, and row limits are identified in the UI. Compare using identical date ranges, property timezone, and event filters.
 
-The dashboard shows aggregate event counts, not unique people or matched conversion funnels. A completion can belong to an earlier period's start. No raw event browser or session replay is provided.
+The dashboard shows aggregate event counts and page-load sample counts/averages, not unique people or matched conversion funnels. A completion can belong to an earlier period's start. No raw event browser or session replay is provided.
 
 ## Grant or revoke administrator access
 
@@ -71,7 +72,7 @@ The authenticated admin page redirects logged-out visitors to login, renders an 
 
 - Run `npm run typecheck`, `npm test`, and `npm run build`.
 - With a new account, verify the sharing switch is initially on but no Analytics script initializes before saving. Repeat with Google/Apple signup, opt-out, reload, logout/account switching, and another tab. Verify an opt-out remains saved and another account cannot change it.
-- With test configuration and opt-in, navigate including dynamic routes; verify sanitized URLs/titles/referrers in browser network requests and DebugView.
+- With test configuration and opt-in, navigate including dynamic routes; verify sanitized URLs/titles/referrers in browser network requests and DebugView. On an initial document visit, verify one `page_load` event with a normalized `page_name`, `load_time_ms`, navigation type, and `navigation_timing_v1` metric version.
 - Start/complete a quiz and study session; upload a resource and OCR page; verify one start and corresponding outcome. A quiz result view is not a new attempt. Indexing failure must not change storage-success counts.
 - Toggle consent off during loading, after tracking, and in another tab; verify no subsequent collection. Inspect SDK-generated events as well as application events.
 - Compare dashboard and GA4 counts using the same dates and approved event filters, allowing processing time.

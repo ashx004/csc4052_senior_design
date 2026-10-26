@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { PAGE_LOAD_METRIC_VERSION } from "./pageLoadTiming";
 
 const MAX_DURATION_SECONDS = 7 * 24 * 60 * 60;
+const MAX_DURATION_MILLISECONDS = MAX_DURATION_SECONDS * 1000;
 
 const quizProperties = {
   quiz_type: z.enum(["full_quiz", "targeted_practice"]),
@@ -27,6 +29,20 @@ function isNormalizedPageName(pageName: string): boolean {
 export const eventSchemas = {
   page_view: z
     .object({ page_name: z.string().refine(isNormalizedPageName) })
+    .strict(),
+  page_load: z
+    .object({
+      page_name: z.string().refine(isNormalizedPageName),
+      load_time_ms: z.number().int().min(0).max(MAX_DURATION_MILLISECONDS),
+      navigation_type: z.enum([
+        "navigate",
+        "reload",
+        "back_forward",
+        "prerender",
+        "unknown",
+      ]),
+      metric_version: z.literal(PAGE_LOAD_METRIC_VERSION),
+    })
     .strict(),
   quiz_started: z.object(quizProperties).strict(),
   quiz_completed: z
