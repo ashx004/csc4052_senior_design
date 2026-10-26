@@ -19,7 +19,7 @@ type NavigationTimingEntry = {
 };
 
 type BrowserPerformance = {
-  getEntriesByType?: (type: string) => PerformanceEntry[];
+  getEntriesByType?: (type: string) => NavigationTimingEntry[];
   timing?: { navigationStart: number; loadEventEnd: number };
 };
 
@@ -50,13 +50,9 @@ function navigationType(type: unknown): PageLoadNavigationType {
 export function readPageLoadMeasurement(
   browserPerformance: BrowserPerformance,
 ): PageLoadMeasurement | null {
-  const entry = browserPerformance
-    .getEntriesByType?.("navigation")
-    .find((candidate): candidate is PerformanceEntry & NavigationTimingEntry =>
-      "duration" in candidate,
-    );
+  const entry = browserPerformance.getEntriesByType?.("navigation").find(() => true);
   const entryDuration = entry && validDuration(entry.duration);
-  if (entryDuration !== null && entryDuration !== undefined) {
+  if (entry && entryDuration !== null && entryDuration !== undefined) {
     return {
       load_time_ms: entryDuration,
       navigation_type: navigationType(entry.type),
