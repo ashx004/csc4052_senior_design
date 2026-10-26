@@ -10,7 +10,7 @@ describe("readPageLoadMeasurement", () => {
       getEntriesByType: () =>
         [
           { name: "https://catalyst.test/dashboard", duration: 123.6, type: "reload" },
-        ] as PerformanceEntry[],
+        ],
     });
 
     expect(measurement).toEqual({
@@ -40,7 +40,7 @@ describe("readPageLoadMeasurement", () => {
     expect(
       readPageLoadMeasurement({
         getEntriesByType: () =>
-          [{ name: "navigation", duration: Number.NaN }] as PerformanceEntry[],
+          [{ duration: Number.NaN }],
       }),
     ).toBeNull();
   });
