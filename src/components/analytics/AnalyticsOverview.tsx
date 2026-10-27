@@ -5,14 +5,46 @@ import type {
 import { displayDate, panelClass } from "./dashboardUtils";
 
 const pageNames: Record<string, string> = {
+  "/": "Landing",
+  "/login": "Sign in",
+  "/signup": "Sign up",
   "/learning": "Learning",
+  "/learning/classes": "Class learning",
+  "/learning/study-plan": "Study plan",
   "/classes": "Classes",
   "/dashboard": "Home",
   "/notes": "Notes",
+  "/notes/ocr": "Scan notes (OCR)",
+  "/notes/[noteId]": "Note viewer",
   "/ai-assistant": "AI Assistant",
   "/calendar": "Calendar",
+  "/advising_new": "Advising",
   "/profile": "Profile",
   "/settings": "Settings",
+  "/billing": "Billing",
+  "/help": "Help",
+  "/summary": "Summaries",
+  "/discover": "Discover",
+  "/custom/new": "New custom study set",
+  "/custom/[setId]": "Custom study set",
+  "/share/[shareId]": "Shared item",
+  "/legal/[doc]": "Legal document",
+  "/courses/[courseId]": "Course home",
+  "/courses/[courseId]/due-dates": "Course due dates",
+  "/courses/[courseId]/learning": "Course learning",
+  "/courses/[courseId]/notes": "Course notes",
+  "/courses/[courseId]/summaries": "Course summaries",
+  "/courses/[courseId]/discover": "Course discover",
+  "/courses/[courseId]/discover/blocks": "Course study blocks",
+  "/courses/[courseId]/discover/[publicSetId]": "Shared course set",
+  "/courses/[courseId]/assignments": "Course assignments",
+  "/courses/[courseId]/flashcards": "Course flashcards",
+  "/courses/[courseId]/flashcards/[setId]": "Course flashcard set",
+  "/courses/[courseId]/practice": "Course practice",
+  "/courses/[courseId]/practice/[setId]": "Course practice set",
+  "/courses/[courseId]/quizzes/[quizId]": "Course quiz",
+  "/admin/analytics": "Usage analytics (Admin)",
+  "/other": "Other routes",
 };
 
 function count(rows: ReportRow[], label: string) {
@@ -145,7 +177,11 @@ export function ActivityChart({ report }: { report: AnalyticsReport }) {
 
 export function AnalyticsOverview({ report }: { report: AnalyticsReport }) {
   const pages = [...report.pages].sort((a, b) => b.count - a.count);
-  const leading = pages[0];
+  const maxPageViews = Math.max(1, pages[0]?.count ?? 1);
+  const leading =
+    pages.find(
+      (page) => page.label !== "/other" && page.label !== "/admin/analytics",
+    ) ?? pages[0];
   const totalViews = count(report.events, "page_view");
   const workflows = [
     { name: "Quizzes", start: "quiz_started", outcome: "quiz_completed" },
@@ -224,7 +260,7 @@ export function AnalyticsOverview({ report }: { report: AnalyticsReport }) {
                   <div
                     className="h-full rounded-full bg-primary"
                     style={{
-                      width: `${(page.count / Math.max(1, leading?.count ?? 1)) * 100}%`,
+                      width: `${(page.count / maxPageViews) * 100}%`,
                     }}
                   />
                 </div>
