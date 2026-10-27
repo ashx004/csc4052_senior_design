@@ -13,9 +13,9 @@
   inset: 0;
   z-index: 60;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  padding: 48px 16px;
+  padding: 32px;
   overflow-y: auto;
   background: color-mix(in srgb, var(--wc-ink) 38%, transparent);
   color: var(--wc-ink);
@@ -50,20 +50,20 @@
 
 .sheet {
   width: 100%;
-  max-width: 400px;
-  margin: auto 0;
+  max-width: 980px;
+  margin: auto;
   background: var(--wc-bg);
   border: 1px solid var(--wc-border);
-  border-radius: 22px;
-  padding: 26px;
-  box-shadow: 0 16px 42px color-mix(in srgb, var(--wc-ink) 14%, transparent);
+  border-radius: 18px;
+  padding: 28px 32px 32px;
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--wc-ink) 12%, transparent);
 }
 
 .top {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 
 .iconButton {
@@ -74,13 +74,17 @@
   background: transparent;
   color: var(--wc-ink);
   opacity: 0.5;
-  padding: 2px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
   border-radius: 8px;
   cursor: pointer;
+  transition: background-color 160ms ease, opacity 160ms ease;
 }
 
 .iconButton:hover {
   opacity: 0.8;
+  background: var(--wc-cream);
 }
 
 .back {
@@ -89,7 +93,8 @@
   gap: 8px;
   border: 0;
   background: transparent;
-  padding: 0;
+  min-height: 40px;
+  padding: 0 4px;
   font-size: 15px;
   font-weight: 500;
   color: var(--wc-muted);
@@ -119,10 +124,15 @@
 }
 
 .head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 170px;
+  align-items: center;
+  gap: 40px;
+  margin-bottom: 20px;
+}
+
+.summaryCopy {
+  min-width: 0;
 }
 
 .title {
@@ -150,6 +160,7 @@
 
 .ring {
   flex-shrink: 0;
+  justify-self: center;
 }
 
 .ringTrack {
@@ -179,9 +190,9 @@
   display: flex;
   gap: 13px;
   background: var(--wc-cream);
-  border-radius: 15px;
+  border-radius: 12px;
   padding: 16px;
-  margin: 20px 0;
+  margin: 18px 0 0;
 }
 
 .note p {
@@ -224,7 +235,7 @@
 
 .rows {
   list-style: none;
-  margin: 0 0 20px;
+  margin: 0 0 18px;
   padding: 0;
 }
 
@@ -233,9 +244,9 @@
   align-items: center;
   gap: 13px;
   border: 1px solid var(--wc-border);
-  border-radius: 15px;
-  padding: 13px 14px;
-  margin-bottom: 11px;
+  border-radius: 11px;
+  padding: 10px 12px;
+  margin-bottom: 9px;
 }
 
 .rowTile {
@@ -267,34 +278,40 @@
 }
 
 .formats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
   margin-bottom: 20px;
 }
 
 .format {
   position: relative;
-  margin-bottom: 12px;
+  min-width: 0;
 }
 
 .formatMain {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 14px;
   width: 100%;
+  min-height: 112px;
+  height: 100%;
   text-align: left;
-  border-radius: 17px;
-  padding: 16px 48px 16px 16px;
+  border-radius: 12px;
+  padding: 16px 42px 16px 16px;
   border: 1px solid var(--wc-border);
   background: var(--wc-bg);
   color: var(--wc-ink);
   cursor: pointer;
   font: inherit;
+  transition: background-color 160ms ease, border-color 160ms ease;
 }
 
 .formatMain:hover,
 .formatMain:focus-visible,
 .formatSelected {
   background: var(--wc-lavender);
-  border-color: transparent;
+  border-color: color-mix(in srgb, var(--wc-ink) 8%, var(--wc-border));
 }
 
 .formatMain:disabled {
@@ -338,7 +355,7 @@
 }
 
 .formatWithPlan .formatArrow {
-  top: 18px;
+  top: 20px;
   transform: none;
 }
 
@@ -351,8 +368,9 @@
   gap: 5px;
   border: 1px solid var(--wc-border);
   background: var(--wc-bg);
-  border-radius: 999px;
-  padding: 6px 12px;
+  min-height: 32px;
+  border-radius: 9px;
+  padding: 6px 11px;
   font-size: 12.5px;
   font-weight: 500;
   color: var(--wc-muted);
@@ -370,7 +388,8 @@
 }
 
 .formatWithPlan .formatMain {
-  padding-right: 88px;
+  padding-right: 42px;
+  padding-bottom: 48px;
 }
 
 .radio {
@@ -405,6 +424,7 @@
 
 .radioRow {
   padding-right: 16px;
+  cursor: pointer;
 }
 
 .radioRow:focus-within {
@@ -436,9 +456,10 @@
   background: var(--wc-ink);
   color: var(--wc-bg);
   border: 0;
-  border-radius: 14px;
-  padding: 17px;
-  font-size: 16px;
+  min-height: 48px;
+  border-radius: 11px;
+  padding: 13px 16px;
+  font-size: 15px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -457,12 +478,38 @@
   background: var(--wc-bg);
   color: var(--wc-ink);
   border: 1px solid var(--wc-border);
-  border-radius: 14px;
-  padding: 14px;
+  min-height: 48px;
+  border-radius: 11px;
+  padding: 12px 16px;
   font-size: 15px;
   font-weight: 500;
-  margin-top: 11px;
+  margin-top: 10px;
   cursor: pointer;
+}
+
+.resultActions {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr 1fr;
+  gap: 12px;
+}
+
+.resultActions .ghost {
+  margin-top: 0;
+}
+
+.cta:hover:not(:disabled),
+.ghost:hover:not(:disabled),
+.planButton:hover:not(:disabled) {
+  filter: brightness(0.98);
+}
+
+.iconButton:focus-visible,
+.back:focus-visible,
+.cta:focus-visible,
+.ghost:focus-visible,
+.planButton:focus-visible {
+  outline: 2px solid var(--wc-ink);
+  outline-offset: 2px;
 }
 
 .ghost:disabled {
@@ -485,4 +532,78 @@
   background: var(--wc-rose);
   border-radius: 12px;
   padding: 10px 12px;
+}
+
+@media (max-width: 760px) {
+  .overlay {
+    align-items: flex-start;
+    padding: 16px;
+  }
+
+  .sheet {
+    max-width: 600px;
+    padding: 22px;
+    border-radius: 16px;
+  }
+
+  .head {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 24px;
+  }
+
+  .formats,
+  .resultActions {
+    grid-template-columns: 1fr;
+  }
+
+  .formatMain {
+    min-height: 96px;
+  }
+}
+
+@media (max-width: 520px) {
+  .overlay {
+    padding: 0;
+  }
+
+  .sheet {
+    min-height: 100dvh;
+    border-radius: 0;
+    border-right: 0;
+    border-left: 0;
+    padding: 20px 18px 24px;
+  }
+
+  .head {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .ring {
+    justify-self: start;
+  }
+
+  .title,
+  .layerTitle {
+    font-size: 24px;
+  }
+
+  .row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .count {
+    width: 100%;
+    padding-left: 53px;
+    margin-top: -16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ringArc,
+  .iconButton,
+  .formatMain {
+    transition: none;
+  }
 }
