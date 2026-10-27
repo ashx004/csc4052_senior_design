@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { Download, ExternalLink, RefreshCw } from "lucide-react";
+import type { PerformanceReport } from "@/src/library/billing/aiPerformance";
 import type { AnalyticsReport } from "@/src/library/analyticsReportContract";
 import type {
   HealthReport,
@@ -11,12 +12,14 @@ import { useAdminReport } from "@/src/hooks/useAdminReport";
 import { AnalyticsEvents } from "./AnalyticsEvents";
 import { Metric, Notice } from "./dashboardShared";
 import { AnalyticsHealth, HealthSummary } from "./AnalyticsHealth";
+import { AnalyticsPerformance } from "./AnalyticsPerformance";
 import { AnalyticsOverview } from "./AnalyticsOverview";
 import {
   buttonClass,
   displayDate,
   displayTime,
   inputClass,
+  windowDays,
   exportAnalytics,
 } from "./dashboardUtils";
 
@@ -44,6 +47,12 @@ export default function AnalyticsDashboard({
     "/api/admin/health",
     refresh,
     true,
+  );
+  const performanceDays = windowDays(query);
+  const customApplied = new URLSearchParams(query).has("end");
+  const performance = useAdminReport<PerformanceReport>(
+    `/api/admin/ai-usage?days=${performanceDays}`,
+    refresh,
   );
   const report = analytics.data;
   const live = realtime.data;
@@ -165,7 +174,7 @@ export default function AnalyticsDashboard({
           className="flex gap-6 overflow-x-auto border-b border-border-light"
           aria-label="Analytics views"
         >
-          {["Overview", "Event explorer", "Service health"].map((name) => (
+          {["Overview", "Event explorer", "Service health", "AI performance"].map((name) => (
             <button
               key={name}
               aria-pressed={tab === name}
@@ -176,7 +185,26 @@ export default function AnalyticsDashboard({
             </button>
           ))}
         </div>
-        {tab === "Service health" ? (
+        {tab === "AI performance" ? (
+          <>
+            {performance.loading && !performance.data && (
+              <Notice>Loading AI performance…</Notice>
+            )}
+            {customApplied && (
+              <Notice>
+                Custom dates aren&apos;t supported here; showing the last 7
+                days.
+              </Notice>
+            )}
+            {performance.error && <Notice error>{performance.error}</Notice>}
+            {performance.data && (
+              <AnalyticsPerformance
+                report={performance.data}
+                days={performanceDays}
+              />
+            )}
+          </>
+        ) : tab === "Service health" ? (
           <>
             {health.loading && !health.data && (
               <Notice>Checking services…</Notice>

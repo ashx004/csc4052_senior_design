@@ -23,14 +23,18 @@ export function Metric({
   detail,
 }: {
   label: string;
-  value: number | null;
+  value: number | string | null;
   detail: string;
 }) {
   return (
     <div className="min-w-0 p-5 sm:p-6">
       <p className="text-xs text-text-muted">{label}</p>
       <p className="mt-3 text-3xl font-semibold tracking-tight tabular-nums">
-        {value === null ? "—" : value.toLocaleString()}
+        {value === null
+          ? "—"
+          : typeof value === "string"
+            ? value
+            : value.toLocaleString()}
       </p>
       <p className="mt-2 text-xs leading-relaxed text-text-muted">{detail}</p>
     </div>

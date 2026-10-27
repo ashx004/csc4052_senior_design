@@ -34,6 +34,46 @@ describe("aiFetch", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("http://ollama/api/chat");
   });
 
+  it("records local Ollama requests without charging for them", async () => {
+    delete process.env.AI_BACKEND;
+    fetchMock.mockResolvedValue(new Response("ok"));
+    await aiFetch("http://ollama/api/chat", ollamaInit("chat", { model: "gemma3" }));
+    expect(events[0]).toMatchObject({ feature: "chat", model: "ollama:gemma3", costMicros: 0, inputTokens: 0, outputTokens: 0, status: "ok" });
+    expect(events[0].timings.durationMs).toBeGreaterThanOrEqual(0);
+    expect(events[0].timings.waitMs).toBeNull();
+  });
+
+  it("works with no meter registered and a missing or malformed body", async () => {
+    delete process.env.AI_BACKEND;
+    setMeter(null);
+    fetchMock.mockResolvedValue(new Response("ok"));
+    await expect(aiFetch("http://ollama/api/chat", { method: "POST" })).resolves.toBeInstanceOf(Response);
+    setUsageSink((e) => events.push(e));
+    await aiFetch("http://ollama/api/chat", { method: "POST", body: "{not json" });
+    expect(events[0]).toMatchObject({ model: "ollama:unknown", status: "ok" });
+  });
+
+  it("records local failures with a coarse kind only, and still throws or returns the response", async () => {
+    delete process.env.AI_BACKEND;
+    fetchMock.mockResolvedValueOnce(new Response("secret text", { status: 500 }));
+    const res = await aiFetch("http://ollama/api/chat", ollamaInit("chat", { model: "m" }));
+    expect(res.status).toBe(500);
+    expect(events[0]).toMatchObject({ status: "error", httpStatus: 500, errorKind: "provider_error" });
+    fetchMock.mockRejectedValueOnce(new TypeError("fetch failed"));
+    await expect(aiFetch("http://ollama/api/chat", ollamaInit("chat", { model: "m" }))).rejects.toThrow();
+    expect(events[1]).toMatchObject({ status: "error", errorKind: "network" });
+    expect(JSON.stringify(events)).not.toContain("secret text");
+  });
+
+  it("records a streamed local call when the stream ends", async () => {
+    delete process.env.AI_BACKEND;
+    fetchMock.mockResolvedValue(new Response("a\nb\n"));
+    const res = await aiFetch("http://ollama/api/chat", ollamaInit("chat", { model: "m", stream: true }));
+    expect(events).toHaveLength(0);
+    expect(await res.text()).toBe("a\nb\n");
+    expect(events[0]).toMatchObject({ model: "ollama:m", status: "ok" });
+  });
+
   it("routes each feature to its model and caps OCR output with thinking off", async () => {
     fetchMock.mockResolvedValue(completion("text", 0.0001));
     const res = await aiFetch("http://x/api/chat", ollamaInit("ocr", { messages: [{ role: "user", content: "read" }] }));
@@ -50,6 +90,45 @@ describe("aiFetch", () => {
     expect((await res.json()).message.content).toBe("from gemini");
     // 100 in at $0.25/M + 20 out at $1.50/M = 25 + 30 micros
     expect(events[0]).toMatchObject({ model: "google:gemini-3.1-flash-lite", costMicros: 55, costSource: "rate-table", fallback: true });
+  });
+
+  it("records a failed provider call as an error row", async () => {
+    fetchMock.mockResolvedValue(new Response("boom", { status: 500 }));
+    await aiFetch("http://x/api/chat", ollamaInit("chat", { messages: [] }));
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ status: "error", httpStatus: 500, costMicros: 0, inputTokens: 0, errorKind: "provider_error" });
+    expect(events[0].timings.durationMs).toBeGreaterThanOrEqual(0);
+    expect(JSON.stringify(events[0])).not.toContain("boom");
+  });
+
+  it.each([[408, "timeout"], [429, "rate_limit"], [404, "provider_error"]])("classifies HTTP %i as %s", async (status, kind) => {
+    fetchMock.mockResolvedValue(new Response("x", { status }));
+    await aiFetch("http://x/api/chat", ollamaInit("chat", { messages: [] }));
+    expect(events[0]).toMatchObject({ status: "error", httpStatus: status, errorKind: kind });
+  });
+
+  it.each([["network", () => new TypeError("fetch failed")], ["timeout", () => new DOMException("t", "TimeoutError")], ["unknown", () => new Error("boom")]])("records a thrown %s error", async (kind, make) => {
+    fetchMock.mockRejectedValue(make());
+    await expect(aiFetch("http://x/api/chat", ollamaInit("chat", { messages: [] }))).rejects.toThrow();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ status: "error", errorKind: kind, costMicros: 0 });
+    expect(events[0].httpStatus).toBeUndefined();
+  });
+
+  it("records an aborted call as aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    fetchMock.mockRejectedValue(new DOMException("aborted", "AbortError"));
+    await expect(aiFetch("http://x/api/chat", { ...ollamaInit("chat", {}), signal: controller.signal })).rejects.toThrow();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ status: "error", errorKind: "aborted" });
+  });
+
+  it("records one row when a backup model answers after a failure", async () => {
+    fetchMock.mockResolvedValueOnce(new Response("down", { status: 503 })).mockResolvedValueOnce(completion("ok"));
+    await aiFetch("http://x/api/chat", ollamaInit("chat", { messages: [] }));
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ status: "ok", fallback: true });
   });
 
   it("does not fall back after the student pressed Stop", async () => {
@@ -106,7 +185,7 @@ describe("aiFetch", () => {
     const res = await runAsAiUser("student-b", () => aiFetch("http://x/api/chat", ollamaInit("chat", { stream: true, messages: [] })));
     await res.text();
     expect(events).toEqual([expect.objectContaining({ uid: "student-b", requestId: "gen-2", costMicros: 1 })]);
-    expect(events[0].incomplete).toBeUndefined();
+    expect(events[0].status).toBe("ok");
   });
 
   it("reports a stopped stream once, as incomplete, so its real cost can be looked up", async () => {
@@ -116,7 +195,61 @@ describe("aiFetch", () => {
     const reader = res.body!.getReader();
     await reader.read();
     await reader.cancel();
-    expect(events).toEqual([expect.objectContaining({ uid: "student-c", requestId: "gen-3", incomplete: true })]);
+    expect(events).toEqual([expect.objectContaining({ uid: "student-c", requestId: "gen-3", status: "incomplete" })]);
+  });
+
+  it("records how long a non-streamed request took", async () => {
+    fetchMock.mockResolvedValue(completion("text", 0.0001));
+    await aiFetch("http://x/api/chat", ollamaInit("ocr", { messages: [] }));
+    expect(events[0].status).toBe("ok");
+    expect(events[0].timings.durationMs).toBeGreaterThanOrEqual(0);
+    expect(events[0].timings.overheadMs).toBeGreaterThanOrEqual(0);
+    expect(events[0].timings.waitMs).toBeNull();
+    expect(events[0].timings.genMs).toBeNull();
+    expect(events[0].timings.deliverMs).toBeNull();
+  });
+
+  it("splits a streamed request into wait, generate and deliver", async () => {
+    let clock = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
+    const enc = new TextEncoder();
+    const steps = [
+      { at: 300, text: 'data: {"id":"g","choices":[{"delta":{"content":"Hi"}}]}\n\n' },
+      { at: 700, text: 'data: {"choices":[{"delta":{"content":" there"}}]}\n\n' },
+      { at: 800, text: 'data: {"choices":[{"finish_reason":"stop","delta":{}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"cost":0.000001}}\n\ndata: [DONE]\n\n' },
+    ];
+    let i = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) {
+        if (i === steps.length) { clock = 900; c.close(); return; }
+        clock = steps[i].at;
+        c.enqueue(enc.encode(steps[i++].text));
+      },
+    }, { highWaterMark: 0 });
+    fetchMock.mockImplementation(async () => { clock = 100; return new Response(body); });
+    const res = await aiFetch("http://x/api/chat", ollamaInit("chat", { stream: true, messages: [] }));
+    await res.text();
+    const t = events[0].timings;
+    // started 0, first content 300, last content 700, stream closed at 900
+    expect(t).toEqual({ durationMs: 900, waitMs: 300, genMs: 400, deliverMs: 200, overheadMs: 0 });
+    expect(t.waitMs! + t.genMs! + t.deliverMs!).toBeLessThanOrEqual(t.durationMs);
+    vi.restoreAllMocks();
+  });
+
+  it("counts a failed first attempt in durationMs", async () => {
+    let clock = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
+    fetchMock
+      .mockImplementationOnce(async () => { clock = 5000; return new Response("down", { status: 503 }); })
+      .mockImplementationOnce(async () => { clock = 5200; return completion("from gemini"); });
+    await aiFetch("http://x/api/chat", ollamaInit("quiz-generation", { messages: [] }));
+    const t = events[0].timings;
+    expect(events[0].fallback).toBe(true);
+    // the failed attempt (to 5000) plus the backup's reply (to 5200)
+    expect(t.durationMs).toBe(5200);
+    // the stages describe only the attempt that answered, so the lost time shows as overhead
+    expect(t.overheadMs).toBe(5000);
+    vi.restoreAllMocks();
   });
 
   it("in testers mode sends only listed accounts to the cloud", async () => {
@@ -127,7 +260,8 @@ describe("aiFetch", () => {
     await runAsAiUser("student-z", () => aiFetch("http://ollama/api/chat", ollamaInit("chat", { messages: [] })));
     await aiFetch("http://ollama/api/chat", ollamaInit("chat", { messages: [] }));
     expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(["https://openrouter.ai/api/v1/chat/completions", "http://ollama/api/chat", "http://ollama/api/chat"]);
-    expect(events).toHaveLength(1);
+    // One metered cloud row plus two free local rows.
+    expect(events.map((e) => e.model.split(":")[0])).toEqual(["openrouter", "ollama", "ollama"]);
     delete process.env.AI_CLOUD_TESTERS;
   });
 
@@ -199,7 +333,9 @@ describe("aiFetch", () => {
     await runAsAiUser("dev-1", () => aiFetch("http://ollama/api/chat", ollamaInit("chat", { messages: [] })));
     await runAsAiUser("student-1", () => aiFetch("http://ollama/api/chat", ollamaInit("chat", { messages: [] })));
     expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(["http://ollama/api/chat", "https://openrouter.ai/api/v1/chat/completions"]);
-    expect(events).toHaveLength(1);
+    // The developer's local call is timed (free); the student's cloud call is metered.
+    expect(events.map((e) => e.model.split(":")[0])).toEqual(["ollama", "openrouter"]);
+    expect(events[0]).toMatchObject({ uid: "dev-1", costMicros: 0 });
     delete process.env.AI_OLLAMA_USERS;
   });
 });
