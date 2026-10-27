@@ -2,11 +2,14 @@
 // route test for why only the edges are mocked: resolveSources, ownsUrl,
 // allocateQuotas and verifyGrounding all run for real here.
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
 
 vi.mock("@/src/library/verifyAuth", () => ({ verifyRequestAuth: vi.fn() }));
-vi.mock("@/src/library/ollamaClient", () => ({ resolveOllamaBaseUrl: vi.fn(async () => "http://ollama.test") }));
+vi.mock("@/src/library/ollamaClient", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/src/library/ollamaClient")>()),
+  resolveOllamaBaseUrl: vi.fn(async () => "http://ollama.test"),
+}));
 vi.mock("@/src/library/documentTextCache", () => ({ getDocumentText: vi.fn() }));
 vi.mock("@/src/library/firebaseAdmin", () => ({ adminDb: { doc: () => ({ get: async () => ({ data: () => undefined }) }) } }));
 vi.mock("@/src/library/ollamaEmbeddings", () => ({ embedTexts: vi.fn() }));
@@ -19,6 +22,7 @@ vi.mock("@/src/library/quizGeneration", async (importOriginal) => ({
 import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { getDocumentText } from "@/src/library/documentTextCache";
 import { generateQuizWithValidation } from "@/src/library/quizGeneration";
+import { setUsageSink } from "@/src/library/ai/aiFetch";
 import { POST } from "./route";
 
 const TEXT = "A queue holds seventeen items and overflows with code ZEPHYR-47.";
@@ -207,5 +211,60 @@ describe("POST /api/generate-quiz", () => {
     expect(JSON.stringify(body)).not.toContain("MinIO");
     expect(errors.mock.calls.flat().join(" ")).toContain("MinIO connection refused");
     errors.mockRestore();
+  });
+});
+
+// --- Both AI providers: the real generator runs, only the provider's HTTP reply is faked ---
+const providerReply = (backend: "ollama" | "cloud", payload: unknown) =>
+  backend === "cloud"
+    ? Response.json({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(payload) } }], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } })
+    : Response.json({ done: true, done_reason: "stop", message: { role: "assistant", content: JSON.stringify(payload) } });
+
+describe("POST /api/generate-quiz on both AI providers", () => {
+  const fetchMock = vi.fn();
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    setUsageSink(() => {});
+    Object.assign(process.env, {
+      AI_MODEL_DEFAULT: "openrouter:google/gemma-4-26b-a4b-it",
+      AI_MODEL_GENERATION: "openrouter:qwen/qwen3.7-flash",
+      AI_MODEL_OCR: "openrouter:z-ai/glm-5.3-flash",
+      AI_MODEL_FALLBACK: "google:gemini-3.1-flash-lite",
+      OPENROUTER_API_KEY: "or-key",
+      GOOGLE_AI_API_KEY: "g-key",
+      OLLAMA_AUTH_TOKEN: "token",
+      OLLAMA_MODEL_MAIN: "test-main",
+      OLLAMA_PRIMARY_URL: "http://ollama.test",
+    });
+  });
+  afterEach(() => { vi.unstubAllGlobals(); fetchMock.mockReset(); delete process.env.AI_BACKEND; });
+
+  it.each(["ollama", "cloud"] as const)("returns schema-valid questions on %s", async (backend) => {
+    if (backend === "cloud") process.env.AI_BACKEND = "cloud"; else delete process.env.AI_BACKEND;
+    const real = await vi.importActual<typeof import("@/src/library/quizGeneration")>("@/src/library/quizGeneration");
+    vi.mocked(generateQuizWithValidation).mockImplementation(real.generateQuizWithValidation);
+    vi.mocked(verifyRequestAuth).mockResolvedValue({ uid: nextUid() } as Awaited<ReturnType<typeof verifyRequestAuth>>);
+    vi.mocked(getDocumentText).mockResolvedValue(TEXT);
+    const payload = {
+      topicName: "Queues",
+      questions: Array.from({ length: 13 }, (_, i) => ({
+        type: "multiple_choice", question: `Real question ${i}`, options: ["a", "b", "c", "d"],
+        correctAnswer: "a", sourceQuote: QUOTE,
+      })),
+    };
+    fetchMock.mockResolvedValue(providerReply(backend, payload));
+
+    const auth = await verifyRequestAuth({} as NextRequest);
+    const response = await post({ docUrl: `/api/download?key=users/${auth!.uid}/lecture.pdf`, docName: "Lecture.pdf", questionCount: 10, questionTypes: TYPES });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain(backend === "cloud" ? "openrouter.ai" : "ollama.test");
+    expect(body.topicName).toBe("Queues");
+    expect(body.questions).toHaveLength(10);
+    for (const q of body.questions) {
+      expect(q).toMatchObject({ id: expect.any(String), type: "multiple_choice", question: expect.any(String), options: expect.any(Array), correctAnswer: "a" });
+    }
   });
 });

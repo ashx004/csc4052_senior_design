@@ -36,3 +36,10 @@ export function exportAnalytics(rows: ReportRow[], start: string, end: string) {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+/** Days for the AI performance window: only the "Nd" presets (1..31) are honoured. Custom ranges are not supported by the endpoint, so they get 7. */
+export function windowDays(query: string) {
+  const match = /^(\d+)days$/.exec(new URLSearchParams(query).get("start") ?? "");
+  const days = match ? Number(match[1]) : NaN;
+  return Number.isInteger(days) && days >= 1 && days <= 31 ? days : 7;
+}
