@@ -306,6 +306,19 @@ describe("generateTasks", () => {
     })).toBe(true);
   });
 
+  it("names the concept in the reason when the topic came from a weak spot", () => {
+    const task = generateTasks(config, [
+      { ...baseTopic, conceptLabel: "Chain Rule", quizMastery: 0.4 },
+    ], new Map())[0];
+    expect(task.reason).toContain("Chain Rule");
+  });
+
+  it("raises priority for a concept missed more than once", () => {
+    const once = scoreTopic({ ...baseTopic, conceptLabel: "Chain Rule", repeatMissCount: 1 }, null, false);
+    const twice = scoreTopic({ ...baseTopic, conceptLabel: "Chain Rule", repeatMissCount: 3 }, null, false);
+    expect(twice.totalScore).toBeGreaterThan(once.totalScore);
+  });
+
   it("each task has a human-readable reason", () => {
     const tasks = generateTasks(config, topics, new Map());
     for (const task of tasks) {

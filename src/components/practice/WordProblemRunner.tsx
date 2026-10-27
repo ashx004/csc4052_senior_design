@@ -72,7 +72,7 @@ export default function WordProblemRunner({
   function markCorrect() {
     if (!outcome || outcome.score >= 1) return;
     setOutcome({ score: 1, note: "Marked correct by you." });
-    setResults((all) => all.map((r, i) => (i === all.length - 1 ? { ...r, score: 1 } : r)));
+    setResults((all) => all.map((r, i) => (i === all.length - 1 ? { ...r, score: 1, selfMarked: true } : r)));
   }
 
   function next() {

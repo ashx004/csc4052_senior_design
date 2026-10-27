@@ -108,6 +108,7 @@ function averageMastery(topic: EligibleTopic): number | null {
 }
 
 export function isWeakTopic(topic: EligibleTopic): boolean {
+  if (topic.conceptLabel) return true;
   const average = averageMastery(topic);
   return average !== null && average < 0.6;
 }
@@ -116,6 +117,7 @@ export function chooseActivityType(
   topic: EligibleTopic,
   preference: ActivityPreference
 ): ActivityType {
+  if (topic.activityTarget?.kind === "concept_practice") return "quiz";
   if (topic.targetId === null) return "reading";
   if (preference !== "auto") return preference as ActivityType;
 
@@ -151,6 +153,17 @@ function buildReason(scored: ScoredTopic, activityType: ActivityType): string {
     parts.push("not reviewed recently");
   }
 
+  const conceptLabel = scored.conceptLabel?.trim();
+  if (conceptLabel) {
+    if (scored.repeatMissCount && scored.repeatMissCount > 0) {
+      parts.push("missed more than once");
+    }
+    if (parts.length === 0) {
+      parts.push("missed on a recent quiz");
+    }
+    return `${conceptLabel} — ${parts.join(", ")}`;
+  }
+
   if (scored.quizMastery === null && scored.flashcardEngagement === null) {
     const activityLabel =
       activityType === "quiz"
@@ -164,7 +177,6 @@ function buildReason(scored: ScoredTopic, activityType: ActivityType): string {
   if (parts.length === 0) {
     parts.push("general review");
   }
-
   const capitalized = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
   return parts.length === 1
     ? capitalized
@@ -384,7 +396,9 @@ export function generateTasks(
     const flashcardTopic = scored.find(
       (topic) => topic.activityType === "flashcards" && topic.targetId !== null
     );
-    const readingTopic = scored[0];
+    const readingTopic = scored.find(
+      (topic) => topic.activityTarget?.kind !== "concept_practice"
+    );
 
     if (quizTopic && flashcardTopic && readingTopic) {
       addTask(readingTopic, "reading", null);

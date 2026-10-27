@@ -27,6 +27,8 @@ import {
   needsDocumentSelection,
 } from "@/src/library/studyPlan/recommendationEngine";
 import { getVisibleStudyTasks } from "@/src/library/studyPlan/taskVisibility";
+import { conceptTopicsFromWeakSpots } from "@/src/library/studyPlan/conceptTopics";
+import { createConceptWeakSpotRepository } from "@/src/library/studyPlan/conceptWeakSpotRepository";
 import { getEmptyRecommendationReason } from "@/src/library/studyPlan/recommendationDiagnostics";
 import { LEARNING_ROUTES, type LearningSurface } from "@/src/library/learning/routes";
 import { hasUsablePlan } from "@/src/library/studyPlan/planState";
@@ -597,6 +599,16 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
           lastStudiedAt: null,
           skipCount: 0,
         });
+      }
+
+      const conceptRepository = createConceptWeakSpotRepository(user.uid);
+      for (const cls of classes) {
+        try {
+          const openSpots = await conceptRepository.listOpen(cls.id);
+          topics.push(...conceptTopicsFromWeakSpots(openSpots, cls.className, cls.classCode));
+        } catch {
+          // Concept weak spots are additive; a failed read must not block the rest of the plan.
+        }
       }
 
       const exams = new Map<string, number>();

@@ -6,6 +6,7 @@ import { resolveOllamaBaseUrl } from '@/src/library/ollamaClient';
 import { checkRateLimit } from '@/src/library/rateLimit';
 import { generateFlashcardsWithRetry, MAX_FLASHCARDS } from '@/src/library/flashcardGeneration';
 import { generateAcrossSources } from '@/src/library/generation/orchestrator';
+import { parseConceptFocus } from '@/src/library/generation/conceptFocus';
 import { countFromBody, sourcesFromBody } from '@/src/library/sources/requestSources';
 import { isSourceSelectionError } from '@/src/library/sources/errors';
 import { courseIdFromBody, resolveDepsFor } from '@/src/library/sources/resolveDeps';
@@ -41,7 +42,9 @@ async function handlePOST(request: NextRequest) {
 
     const requestBody = await request.json();
     const sourceInput = sourcesFromBody(requestBody);
-    const { previousQuestions, modelKey } = requestBody as { previousQuestions?: string[]; modelKey?: string };
+    const { previousQuestions, modelKey, focus: focusInput } = requestBody as { previousQuestions?: string[]; modelKey?: string; focus?: unknown };
+    // Optional: aims the cards at specific concepts. Malformed means unfocused.
+    const focus = parseConceptFocus(focusInput);
     // Optional: a legacy docUrl-only request carries no courseId, so
     // indexStatusOf reports "not indexed" and every source takes the
     // raw-text path — exactly today's behavior.
@@ -95,7 +98,8 @@ async function handlePOST(request: NextRequest) {
             baseUrl,
             modelKey,
             [...(previousQuestions ?? []), ...alreadyAsked],
-            quota
+            quota,
+            focus
           );
           return { topicName: result.topicName, items: result.questions };
         },

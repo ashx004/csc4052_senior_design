@@ -15,7 +15,13 @@ import {
   type DocumentData,
   type Firestore,
 } from "firebase/firestore";
+import type { ConceptSessionEvidence } from "./conceptMasteryEngine";
 import {
+  conceptMasteryId,
+  conceptMasteryPath,
+  conceptSessionPath,
+  conceptWeakSpotId,
+  conceptWeakSpotPath,
   documentMasteryId,
   documentMasteryPath,
   learningActivityEventId,
@@ -30,7 +36,15 @@ import {
   quizSetPath,
   quizSetsCollection,
 } from "./firestorePaths";
+import {
+  createConceptWeakSpotRepository,
+  conceptMasteryData,
+  conceptSessionData,
+  toStoredData as conceptWeakSpotData,
+  type FocusedSessionRepository,
+} from "./conceptWeakSpotRepository";
 import type {
+  ConceptWeakSpot,
   MissedQuestionsSuggestion,
   NewLearningActivityEvent,
   NewQuizAttempt,
@@ -98,6 +112,28 @@ export interface StoredQuizAttempt {
   completedAt: number;
 }
 
+export type ApplyQuizOutcomeInput = Omit<PersistQuizOutcomeInput, "suggestion"> & {
+  /** Legacy missed-questions suggestion; omitted once weak spots replace it. */
+  suggestion?: MissedQuestionsSuggestion;
+  sourceDocKey?: string | null;
+  /** Written in the same transaction that marks the attempt processed, so a retry cannot count a miss twice. */
+  conceptWeakSpots?: ConceptWeakSpot[];
+  /**
+   * Focused-session rows and mastery for this attempt, written in the same transaction as the
+   * weak spots and the processed mark. If any of it fails nothing is written and the attempt stays
+   * pending, so a retry recomputes from the same stored state instead of counting a miss twice.
+   */
+  conceptSessions?: (ConceptSessionEvidence & { courseId: string })[];
+  conceptMastery?: { conceptKey: string; value: number; level: string; sourceSessionIds: string[] }[];
+};
+
+export interface ApplyNamedMissesInput {
+  courseId: string;
+  quizId: string;
+  attemptId: string;
+  weakSpots: ConceptWeakSpot[];
+}
+
 export interface LearningProgressRepository {
   createQuizAttempt(input: NewQuizAttempt): Promise<string>;
   getQuizAttempt(
@@ -107,11 +143,14 @@ export interface LearningProgressRepository {
   ): Promise<StoredQuizAttempt | null>;
   getQuizContext(courseId: string, quizId: string): Promise<QuizContext | null>;
   listFullAttemptEvidence(courseId: string, sourceDocKey: string): Promise<QuizAttemptEvidence[]>;
-  getSuggestion(
-    courseId: string,
-    quizId: string,
-  ): Promise<(MissedQuestionsSuggestion & { id: string }) | null>;
-  applyQuizOutcome(input: PersistQuizOutcomeInput): Promise<"processed" | "already_processed">;
+  getQuizQuestionConcepts(courseId: string, quizId: string): Promise<Record<string, string>>;
+  conceptWeakSpots: FocusedSessionRepository;
+  applyQuizOutcome(input: ApplyQuizOutcomeInput): Promise<"processed" | "already_processed">;
+  /**
+   * Saves weak spots for misses named after processing, and marks the attempt in the same
+   * transaction. A pending attempt is left alone: processing it later reads the saved labels.
+   */
+  applyNamedMisses(input: ApplyNamedMissesInput): Promise<"recorded" | "already_recorded" | "not_processed">;
   recordActivityEvent(input: NewLearningActivityEvent): Promise<string>;
   markAttemptFailed(
     courseId: string,
@@ -216,49 +255,26 @@ function toAttemptEvidence(
   return evidence;
 }
 
-function toSuggestion(
-  id: string,
-  data: Record<string, unknown>,
-): (MissedQuestionsSuggestion & { id: string }) | null {
-  if (data.type !== "missed_questions") return null;
-  const status = data.status;
-  if (
-    status !== "active" &&
-    status !== "added" &&
-    status !== "dismissed" &&
-    status !== "resolved" &&
-    status !== "unavailable"
-  ) {
-    return null;
+function readQuestionConcepts(data: Record<string, unknown>): Record<string, string> {
+  const concepts: Record<string, string> = {};
+  if (!Array.isArray(data.questions)) return concepts;
+  for (const item of data.questions) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    if (typeof row.id !== "string" || typeof row.concept !== "string") continue;
+    if (row.concept.trim() !== "") concepts[row.id] = row.concept;
   }
-  const questionFailureCounts =
-    data.questionFailureCounts && typeof data.questionFailureCounts === "object"
-      ? Object.fromEntries(
-          Object.entries(data.questionFailureCounts as Record<string, unknown>).filter(
-            (entry): entry is [string, number] => typeof entry[1] === "number",
-          ),
-        )
-      : {};
-  return {
-    type: "missed_questions",
-    courseId: typeof data.courseId === "string" ? data.courseId : "",
-    sourceDocKey: readSourceDocKey(data),
-    quizId: typeof data.quizId === "string" ? data.quizId : "",
-    questionIds: readQuestionIds(data.questionIds),
-    questionFailureCounts,
-    status,
-    priority: typeof data.priority === "number" ? data.priority : 0,
-    linkedTaskId: typeof data.linkedTaskId === "string" ? data.linkedTaskId : null,
-    sourceAttemptId: typeof data.sourceAttemptId === "string" ? data.sourceAttemptId : "",
-    id,
-  };
+  return concepts;
 }
 
 export function createLearningProgressRepository(
   uid: string,
   store: LearningProgressStore,
+  conceptWeakSpots: FocusedSessionRepository = createConceptWeakSpotRepository(uid),
 ): LearningProgressRepository {
   return {
+    conceptWeakSpots,
+
     async createQuizAttempt(input: NewQuizAttempt): Promise<string> {
       const attemptsCollection = quizAttemptsCollection(uid, input.courseId, input.quizId);
       const attemptId = await store.newId(attemptsCollection);
@@ -353,23 +369,20 @@ export function createLearningProgressRepository(
       return evidence;
     },
 
-    async getSuggestion(courseId: string, quizId: string) {
-      const id = learningSuggestionId(courseId, quizId);
-      const snap = await store.getDoc(learningSuggestionPath(uid, id));
-      if (!snap.exists) return null;
-      const data = snap.data();
-      if (!data) return null;
-      return toSuggestion(id, data);
+    async getQuizQuestionConcepts(courseId: string, quizId: string) {
+      const snap = await store.getDoc(quizSetPath(uid, courseId, quizId));
+      if (!snap.exists) return {};
+      return readQuestionConcepts(snap.data() ?? {});
     },
 
-    async applyQuizOutcome(input: PersistQuizOutcomeInput) {
+    async applyQuizOutcome(input: ApplyQuizOutcomeInput) {
       const attemptPath = quizAttemptPath(uid, input.courseId, input.quizId, input.attemptId);
       const suggestionPath = learningSuggestionPath(
         uid,
         learningSuggestionId(input.courseId, input.quizId),
       );
       const pendingPath = pendingQuizAttemptPath(uid, input.attemptId);
-      const sourceDocKey = input.suggestion.sourceDocKey;
+      const sourceDocKey = input.suggestion?.sourceDocKey ?? input.sourceDocKey ?? null;
       const writtenAt = store.serverTimestamp();
 
       return store.runTransaction(async (transaction) => {
@@ -380,10 +393,27 @@ export function createLearningProgressRepository(
         }
         if (attempt.data()?.processingStatus === "processed") return "already_processed";
 
-        transaction.set(suggestionPath, {
-          ...input.suggestion,
-          updatedAt: writtenAt,
-        });
+        for (const spot of input.conceptWeakSpots ?? []) {
+          transaction.set(
+            conceptWeakSpotPath(uid, conceptWeakSpotId(spot.courseId, spot.conceptKey)),
+            conceptWeakSpotData(spot),
+          );
+        }
+        for (const row of input.conceptSessions ?? []) {
+          transaction.set(conceptSessionPath(uid, row.id), conceptSessionData(row));
+        }
+        for (const value of input.conceptMastery ?? []) {
+          transaction.set(
+            conceptMasteryPath(uid, conceptMasteryId(input.courseId, value.conceptKey)),
+            conceptMasteryData(input.courseId, value),
+          );
+        }
+        if (input.suggestion) {
+          transaction.set(suggestionPath, {
+            ...input.suggestion,
+            updatedAt: writtenAt,
+          });
+        }
         transaction.update(attemptPath, {
           processingStatus: "processed",
           processedAt: writtenAt,
@@ -400,6 +430,27 @@ export function createLearningProgressRepository(
         }
         transaction.delete(pendingPath);
         return "processed";
+      });
+    },
+
+    async applyNamedMisses(input: ApplyNamedMissesInput) {
+      const attemptPath = quizAttemptPath(uid, input.courseId, input.quizId, input.attemptId);
+      return store.runTransaction(async (transaction) => {
+        const attempt = await transaction.get(attemptPath);
+        const data = attempt.data();
+        if (!attempt.exists || data?.processingStatus !== "processed") return "not_processed";
+        if (data.namedMissesRecorded === true) return "already_recorded";
+        for (const spot of input.weakSpots) {
+          transaction.set(
+            conceptWeakSpotPath(uid, conceptWeakSpotId(spot.courseId, spot.conceptKey)),
+            conceptWeakSpotData(spot),
+          );
+        }
+        transaction.update(attemptPath, {
+          namedMissesRecorded: true,
+          namedMissesRecordedAt: store.serverTimestamp(),
+        });
+        return "recorded";
       });
     },
 

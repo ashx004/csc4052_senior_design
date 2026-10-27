@@ -81,7 +81,21 @@ describe("POST /api/generate-flashcards", () => {
     expect(body.skipped).toEqual([]);
     // The default is 20 cards from one source, and the source's text is what
     // reaches the model.
-    expect(generateFlashcardsWithRetry).toHaveBeenCalledWith(TEXT, "http://ollama.test", undefined, [], 20);
+    expect(generateFlashcardsWithRetry).toHaveBeenCalledWith(TEXT, "http://ollama.test", undefined, [], 20, undefined);
+  });
+
+  it("forwards a concept focus to the generator", async () => {
+    const auth = await verifyRequestAuth({} as NextRequest);
+    const focus = { quotas: [{ conceptKey: "chain rule", label: "Chain Rule", items: 4 }], avoid: ["Old question?"] };
+    const response = await post({
+      docUrl: `/api/download?key=users/${auth!.uid}/lecture.pdf`,
+      docName: "Lecture.pdf",
+      count: 4,
+      focus,
+    });
+
+    expect(response.status).toBe(200);
+    expect(generateFlashcardsWithRetry).toHaveBeenCalledWith(TEXT, "http://ollama.test", undefined, [], 4, focus);
   });
 
   it("honors the percent-encoded form of an owned key", async () => {

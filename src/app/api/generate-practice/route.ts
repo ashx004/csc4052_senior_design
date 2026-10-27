@@ -9,6 +9,7 @@ import { getDocumentText } from "@/src/library/documentTextCache";
 import { generatePractice, MAX_PRACTICE_ITEMS } from "@/src/library/practice/generation";
 import { PRACTICE_KINDS, type DragDropMode, type PracticeDifficulty, type PracticeKind } from "@/src/library/practice/types";
 import { refundOnFailure } from "@/src/library/billing/refundOnFailure";
+import { parseConceptFocus } from "@/src/library/generation/conceptFocus";
 
 // Generates a practice set (fill in the blank, word problems or drag and drop)
 // from one of the student's own documents. Same shape and safeguards as
@@ -49,7 +50,9 @@ async function handlePOST(request: NextRequest) {
     }
 
     const body = await request.json().catch(() => null);
-    const { docUrl, docName, kind, count, difficulty, modes, modelKey, avoidQuestions } = (body ?? {}) as Record<string, unknown>;
+    const { docUrl, docName, kind, count, difficulty, modes, modelKey, avoidQuestions, focus: focusInput } = (body ?? {}) as Record<string, unknown>;
+    // Optional: aims the set at specific concepts. Malformed means unfocused.
+    const focus = parseConceptFocus(focusInput);
 
     if (typeof docUrl !== "string" || !docUrl) return NextResponse.json({ error: "Document URL is required" }, { status: 400 });
     if (!PRACTICE_KINDS.includes(kind as PracticeKind)) return NextResponse.json({ error: "Choose a practice type." }, { status: 400 });
@@ -107,6 +110,7 @@ async function handlePOST(request: NextRequest) {
         baseUrl,
         modelKey: typeof modelKey === "string" ? modelKey : undefined,
         avoid,
+        focus,
       });
       return NextResponse.json({ topicName: result.topicName, items: result.items });
     } catch (error) {

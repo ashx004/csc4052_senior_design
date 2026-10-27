@@ -94,7 +94,8 @@ describe("POST /api/generate-quiz", () => {
       undefined,
       [],
       body.difficulty,
-      { spares: 3 }
+      { spares: 3 },
+      undefined
     );
   });
 
@@ -103,6 +104,21 @@ describe("POST /api/generate-quiz", () => {
     await post(legacy(auth!.uid, { avoidQuestions: ["old one", "  ", 7] }));
 
     expect(vi.mocked(generateQuizWithValidation).mock.calls[0][5]).toEqual(["old one"]);
+  });
+
+  it("passes a valid focus through to the generator", async () => {
+    const auth = await verifyRequestAuth({} as NextRequest);
+    const focus = { quotas: [{ conceptKey: "chain rule", label: "Chain Rule", items: 10 }], avoid: ["old one"] };
+    await post(legacy(auth!.uid, { focus }));
+
+    expect(vi.mocked(generateQuizWithValidation).mock.calls[0][8]).toEqual(focus);
+  });
+
+  it("treats a malformed focus as unfocused", async () => {
+    const auth = await verifyRequestAuth({} as NextRequest);
+    await post(legacy(auth!.uid, { focus: { quotas: [{ label: 5 }], avoid: "x" } }));
+
+    expect(vi.mocked(generateQuizWithValidation).mock.calls[0][8]).toBeUndefined();
   });
 
   // The rewrite moved this check from the route into ownsUrl. It must still
