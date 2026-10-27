@@ -149,6 +149,45 @@ describe("getActivityUrlFromTarget", () => {
       "/courses/course-1/flashcards?setId=set-1&taskId=task-1"
     );
   });
+
+  describe("concept_practice", () => {
+    const base = {
+      kind: "concept_practice" as const,
+      conceptKeys: ["joins"],
+      conceptLabels: ["Joins"],
+      sourceDocKeys: ["doc-1"],
+      questionCount: 6,
+      generationClaimedAtMs: null,
+    };
+
+    it("returns the course learning URL until a set has been generated", () => {
+      const target = { ...base, practiceType: "quiz" as const, generatedSetId: null };
+      expect(getActivityUrlFromTarget("course-1", target, "task-1")).toBe(
+        "/courses/course-1/learning"
+      );
+    });
+
+    it("routes a generated quiz to the quiz URL", () => {
+      const target = { ...base, practiceType: "quiz" as const, generatedSetId: "s1" };
+      expect(getActivityUrlFromTarget("course-1", target, "task-1")).toBe(
+        "/courses/course-1/quizzes/s1?mode=take&taskId=task-1"
+      );
+    });
+
+    it("routes generated flashcards to the flashcards URL", () => {
+      const target = { ...base, practiceType: "flashcards" as const, generatedSetId: "s1" };
+      expect(getActivityUrlFromTarget("course-1", target)).toBe(
+        "/courses/course-1/flashcards?setId=s1"
+      );
+    });
+
+    it("routes other generated practice types to the practice URL", () => {
+      const target = { ...base, practiceType: "fill_blank" as const, generatedSetId: "s1" };
+      expect(getActivityUrlFromTarget("course-1", target, "task-1")).toBe(
+        "/courses/course-1/practice/s1?taskId=task-1"
+      );
+    });
+  });
 });
 
 describe("formatElapsedTime", () => {

@@ -10,6 +10,7 @@ import {
   MAX_QUIZ_QUESTIONS,
   type QuestionTypes,
 } from '@/src/library/quizGeneration';
+import { parseConceptFocus } from '@/src/library/generation/conceptFocus';
 import { parseQuizDifficulty } from '@/src/library/quizDifficulty';
 import { generateAcrossSources } from '@/src/library/generation/orchestrator';
 import { sourcesFromBody } from '@/src/library/sources/requestSources';
@@ -57,13 +58,17 @@ async function handlePOST(request: NextRequest) {
       modelKey,
       avoidQuestions,
       difficulty,
+      focus: focusInput,
     } = requestBody as {
       questionCount?: unknown;
       questionTypes?: QuestionTypes;
       modelKey?: string;
       avoidQuestions?: unknown;
       difficulty?: unknown;
+      focus?: unknown;
     };
+    // Optional: aims the quiz at specific concepts. Malformed means unfocused.
+    const focus = parseConceptFocus(focusInput);
     // "New questions" on a quiz sends the old ones so they aren't repeated.
     const avoid = Array.isArray(avoidQuestions)
       ? avoidQuestions.filter((q: unknown): q is string => typeof q === 'string' && q.trim().length > 0).slice(0, 60).map((q: string) => q.slice(0, 500))
@@ -156,7 +161,8 @@ async function handlePOST(request: NextRequest) {
             modelKey,
             [...avoid, ...alreadyAsked],
             level,
-            { spares: quizSpares(quota) }
+            { spares: quizSpares(quota) },
+            focus
           );
           return { topicName: result.topicName, items: result.questions };
         },

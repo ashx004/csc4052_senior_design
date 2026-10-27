@@ -1,11 +1,15 @@
-import { learningSuggestionId } from "./firestorePaths";
-import { reconcileMissedQuestions } from "./learningSuggestionEngine";
+import { attemptConceptResults } from "./conceptAttemptResults";
+import { conceptKey } from "./conceptKey";
+import { reconcileConceptWeakSpots } from "./conceptWeakSpotEngine";
 import type {
+  ApplyQuizOutcomeInput,
   LearningProgressRepository,
   StoredQuizAttempt,
 } from "./learningProgressRepository";
+import { itemsFromQuizAttempt, planFocusedSession } from "./focusedSessionService";
 import { computeDocumentMastery } from "./masteryEngine";
 import type {
+  ConceptWeakSpot,
   MissedQuestionsSuggestion,
   PendingAttemptRef,
   QuizAttemptType,
@@ -102,6 +106,69 @@ function failedOutcome(attemptId: string, facts: AttemptFacts | null): QuizProgr
   };
 }
 
+interface WeakSpotWrites {
+  weakSpots: ConceptWeakSpot[];
+  conceptSessions: ApplyQuizOutcomeInput["conceptSessions"];
+  conceptMastery: ApplyQuizOutcomeInput["conceptMastery"];
+}
+
+// Works out every concept write for one attempt without saving any of it. The caller commits
+// them in the same transaction that marks the attempt processed, so a failure anywhere leaves
+// the attempt pending and nothing written: a retry starts from the same stored counts.
+async function conceptWritesForAttempt(
+  repo: LearningProgressRepository,
+  courseId: string,
+  quizId: string,
+  attemptId: string,
+  sourceDocKey: string | null,
+  facts: AttemptFacts,
+): Promise<WeakSpotWrites> {
+  const concepts = await repo.getQuizQuestionConcepts(courseId, quizId);
+  const questions = facts.questionResults.map((result) => ({
+    id: result.questionId,
+    concept: concepts[result.questionId],
+  }));
+  const results = attemptConceptResults(questions, facts.questionResults, quizId, sourceDocKey);
+  const existing = await repo.conceptWeakSpots.listAll(courseId);
+  const reconciled = reconcileConceptWeakSpots(existing, results, Date.now()).map((spot) =>
+    existing.includes(spot) ? spot : { ...spot, courseId },
+  );
+
+  // Retry Wrong Answers re-asks the exact questions just missed, so getting them right records
+  // the misses as cleared but is not evidence the concept is learned: it never retires.
+  if (facts.attemptType === "targeted_practice") {
+    return {
+      weakSpots: reconciled.filter((spot) => !existing.includes(spot)),
+      conceptSessions: [],
+      conceptMastery: [],
+    };
+  }
+
+  // Score the same attempt against the reconciled spots, so a concept this attempt just opened
+  // can also be retired by its score. This never reconciles misses a second time.
+  const plan = await planFocusedSession(repo.conceptWeakSpots, reconciled, {
+    sessionId: attemptId,
+    courseId,
+    kind: "quiz",
+    completedAtMs: Date.now(),
+    items: itemsFromQuizAttempt(
+      questions.map((question) => {
+        const label = question.concept;
+        return {
+          id: question.id,
+          conceptKey: typeof label === "string" && label.trim() !== "" ? conceptKey(label) : undefined,
+        };
+      }),
+      facts.questionResults,
+    ),
+  });
+  const retirements = new Map(plan.weakSpots.map((spot) => [spot.conceptKey, spot]));
+  const weakSpots = reconciled
+    .map((spot) => retirements.get(spot.conceptKey) ?? spot)
+    .filter((spot) => !existing.some((before) => before === spot));
+  return { weakSpots, conceptSessions: plan.sessions, conceptMastery: plan.mastery };
+}
+
 async function deriveAndApply(
   repo: LearningProgressRepository,
   courseId: string,
@@ -113,94 +180,28 @@ async function deriveAndApply(
   const sourceDocKey = context?.sourceDocKey ?? null;
   const evidence =
     sourceDocKey != null ? await repo.listFullAttemptEvidence(courseId, sourceDocKey) : [];
-  const existing = await repo.getSuggestion(courseId, quizId);
-  const results: Record<string, boolean> = {};
-  for (const result of facts.questionResults) {
-    results[result.questionId] = result.isCorrect;
-  }
-  const suggestion = await suggestionAfterAttempt(repo, {
-    courseId,
-    quizId,
-    attemptId,
-    attemptType: facts.attemptType,
-    results,
-    sourceDocKey,
-    completedAt: facts.completedAt,
-    existing,
-  });
+  // Persisted by applyQuizOutcome in the same transaction that marks the attempt processed,
+  // so a failed apply writes nothing and a retry starts from the same stored counts.
+  const writes = await conceptWritesForAttempt(repo, courseId, quizId, attemptId, sourceDocKey, facts);
   const mastery = sourceDocKey != null ? computeDocumentMastery(evidence) : null;
-  const suggestionId = existing?.id ?? learningSuggestionId(courseId, quizId);
   await repo.applyQuizOutcome({
     courseId,
     quizId,
     attemptId,
     mastery,
-    suggestion,
+    sourceDocKey,
+    conceptWeakSpots: writes.weakSpots,
+    conceptSessions: writes.conceptSessions,
+    conceptMastery: writes.conceptMastery,
     taskId: facts.taskId,
   });
   return {
     attemptId,
     score: facts.score,
     total: facts.total,
-    suggestion: { ...suggestion, id: suggestionId },
+    suggestion: null,
     taskShouldComplete: facts.taskId != null,
   };
-}
-
-function suggestionBody(
-  suggestion: MissedQuestionsSuggestion & { id: string },
-): MissedQuestionsSuggestion {
-  return {
-    type: suggestion.type,
-    courseId: suggestion.courseId,
-    sourceDocKey: suggestion.sourceDocKey,
-    quizId: suggestion.quizId,
-    questionIds: [...suggestion.questionIds],
-    questionFailureCounts: { ...suggestion.questionFailureCounts },
-    status: suggestion.status,
-    priority: suggestion.priority,
-    linkedTaskId: suggestion.linkedTaskId,
-    sourceAttemptId: suggestion.sourceAttemptId,
-  };
-}
-
-async function suggestionAfterAttempt(
-  repo: LearningProgressRepository,
-  input: {
-    courseId: string;
-    quizId: string;
-    attemptId: string;
-    attemptType: QuizAttemptType;
-    results: Record<string, boolean>;
-    sourceDocKey: string | null;
-    completedAt: number | null;
-    existing: (MissedQuestionsSuggestion & { id: string }) | null;
-  },
-): Promise<MissedQuestionsSuggestion> {
-  const sourceAttemptId = input.existing?.sourceAttemptId ?? "";
-  if (
-    input.existing &&
-    sourceAttemptId !== "" &&
-    sourceAttemptId !== input.attemptId &&
-    input.completedAt != null
-  ) {
-    const sourceAttempt = await repo.getQuizAttempt(
-      input.courseId,
-      input.quizId,
-      sourceAttemptId,
-    );
-    if (sourceAttempt && sourceAttempt.completedAt > input.completedAt) {
-      return suggestionBody(input.existing);
-    }
-  }
-  return reconcileMissedQuestions(input.existing, {
-    id: input.attemptId,
-    attemptType: input.attemptType,
-    results: input.results,
-    courseId: input.courseId,
-    quizId: input.quizId,
-    sourceDocKey: input.sourceDocKey,
-  });
 }
 
 function factsFromStored(stored: StoredQuizAttempt): AttemptFacts {
@@ -261,6 +262,50 @@ export async function processSavedAttempt(
     await recordFailure(repo, ref.courseId, ref.quizId, ref.attemptId, error);
     return failedOutcome(ref.attemptId, facts);
   }
+}
+
+export interface RecordNamedMissesInput {
+  courseId: string;
+  quizId: string;
+  attemptId: string;
+  /** Labels the naming route returned, keyed by question id. */
+  labels: Record<string, string>;
+}
+
+/**
+ * Records misses on untagged questions once they have been named after the attempt was
+ * processed. The repository marks the attempt in the same transaction, so a second call for
+ * the same attempt writes nothing. Correct answers are left out: they were never named, and
+ * this path never scores retirement.
+ */
+export async function recordNamedMisses(
+  repo: LearningProgressRepository,
+  input: RecordNamedMissesInput,
+): Promise<"recorded" | "already_recorded" | "not_processed" | "nothing_to_record"> {
+  const stored = await repo.getQuizAttempt(input.courseId, input.quizId, input.attemptId);
+  if (!stored) return "nothing_to_record";
+  const misses = stored.questionResults.filter(
+    (result) => !result.isCorrect && typeof input.labels[result.questionId] === "string",
+  );
+  if (misses.length === 0) return "nothing_to_record";
+  const context = await repo.getQuizContext(input.courseId, input.quizId);
+  const results = attemptConceptResults(
+    misses.map((result) => ({ id: result.questionId, concept: input.labels[result.questionId] })),
+    misses,
+    input.quizId,
+    context?.sourceDocKey ?? null,
+  );
+  const existing = await repo.conceptWeakSpots.listAll(input.courseId);
+  const weakSpots = reconcileConceptWeakSpots(existing, results, Date.now())
+    .filter((spot) => !existing.includes(spot))
+    .map((spot) => ({ ...spot, courseId: input.courseId }));
+  if (weakSpots.length === 0) return "nothing_to_record";
+  return repo.applyNamedMisses({
+    courseId: input.courseId,
+    quizId: input.quizId,
+    attemptId: input.attemptId,
+    weakSpots,
+  });
 }
 
 export async function retryPendingAttempts(

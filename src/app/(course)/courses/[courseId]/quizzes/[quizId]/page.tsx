@@ -2,7 +2,7 @@
 
 import { createAnalyticsAttemptId } from '@/src/library/analyticsContract';
 import { track } from '@/src/library/analytics';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
@@ -27,7 +27,29 @@ import { ArrowLeft, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import QuestionCard from '@/src/components/quizzes/QuestionCard';
 import MatchingQuestionGroup from '@/src/components/quizzes/MatchingQuestionGroup';
 import QuizResults from '@/src/components/quizzes/QuizResults';
-import QuizPracticeSuggestion from '@/src/components/quizzes/QuizPracticeSuggestion';
+import WeakConceptModal, { type WeakConceptBusy } from '@/src/components/quizzes/WeakConceptModal';
+import { missedConcepts, retryWeakSpot, type ModalConcept } from '@/src/components/quizzes/weakConceptModalView';
+import {
+  askedQuestionTexts,
+  commitStudyTask,
+  documentName,
+  documentUrl,
+  generateConceptFlashcards,
+  generateConceptQuiz,
+  nameMissedConcepts,
+  practiceCounts,
+  saveConceptLabels,
+  todayPlanDate,
+  type ConceptPracticeType,
+} from '@/src/components/quizzes/weakConceptPractice';
+import { usePracticeGeneration } from '@/src/hooks/usePracticeGeneration';
+import { allocateConceptQuotas } from '@/src/library/generation/allocateConceptQuotas';
+import { mergeAvoid, type ConceptFocus } from '@/src/library/generation/conceptFocus';
+import {
+  buildConceptPracticeTask,
+  buildRetryWrongAnswersTasks,
+} from '@/src/library/studyPlan/addSuggestionToPlan';
+import { createConceptWeakSpotRepository } from '@/src/library/studyPlan/conceptWeakSpotRepository';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
 import { buildQuizSuggestions, type QuizResultPageContext } from '@/src/library/Contextual_AI/contextualAi';
 import { useChatContext } from '@/src/hooks/useChatContext';
@@ -40,14 +62,13 @@ import {
   studyTaskPath,
 } from '@/src/library/studyPlan/firestorePaths';
 import { filterAvailableQuestions } from '@/src/library/studyPlan/learningSuggestionEngine';
-import { missedQuestionTexts } from '@/src/library/studyPlan/missedQuestionText';
-import { generateTargetedPracticeQuiz } from '@/src/library/studyPlan/targetedPractice';
 import { DEFAULT_QUIZ_DIFFICULTY, parseQuizDifficulty, storedQuizDifficulty, difficultyLabel, type QuizDifficulty } from '@/src/library/quizDifficulty';
 import { resolvePracticeQuestions } from '@/src/library/studyPlan/quizSuggestionView';
 import type { QuizProgressOutcome } from '@/src/library/studyPlan/learningProgressService';
 import type {
   ActivityTarget,
   ActivityType,
+  ConceptWeakSpot,
   LearningSuggestionStatus,
   MissedQuestionsSuggestion,
 } from '@/src/library/studyPlan/types';
@@ -357,9 +378,10 @@ export default function QuizTakingPage() {
 
   const courseId = params.courseId as string;
   const quizId = params.quizId as string;
-  const { submitQuiz } = useLearningProgress();
+  const { submitQuiz, recordNamedMisses } = useLearningProgress();
 
-  const { displayName: courseDisplayName } = useCourseInfo(courseId);
+  const { displayName: courseDisplayName, courseCode, className } = useCourseInfo(courseId);
+  const practiceGeneration = usePracticeGeneration(courseId);
 
   const [quizName, setQuizName] = useState('Quiz');
   const [quizDifficulty, setQuizDifficulty] = useState<QuizDifficulty | null>(null);
@@ -369,9 +391,6 @@ export default function QuizTakingPage() {
   const [regenerating, setRegenerating] = useState(false);
   const [regenerateError, setRegenerateError] = useState<string | null>(null);
   const [allQuestions, setAllQuestions] = useState<QuizQuestion[]>([]);
-  const [practicing, setPracticing] = useState(false);
-  const practicingRef = useRef(false);
-  const [practiceError, setPracticeError] = useState<string | null>(null);
   const [activeQuestions, setActiveQuestions] = useState<QuizQuestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -390,7 +409,19 @@ export default function QuizTakingPage() {
   const [practiceTask, setPracticeTask] = useState<{ id: string; sourceSuggestionId: string | null } | null>(null);
   const [practiceUnavailable, setPracticeUnavailable] = useState<PracticeReturnLinks | null>(null);
   const [quizOutcome, setQuizOutcome] = useState<QuizProgressOutcome | null>(null);
-  const [suggestionHidden, setSuggestionHidden] = useState(false);
+
+  // The post-quiz modal. The score renders at once; concept names fill in when naming returns.
+  const [weakModalOpen, setWeakModalOpen] = useState(false);
+  const [namedLabels, setNamedLabels] = useState<Record<string, string>>({});
+  const [namingInFlight, setNamingInFlight] = useState(false);
+  const [openWeakSpots, setOpenWeakSpots] = useState<ConceptWeakSpot[]>([]);
+  const [modalBusy, setModalBusy] = useState<WeakConceptBusy>(null);
+  const modalBusyRef = useRef(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [planNotice, setPlanNotice] = useState<string | null>(null);
+  const namingRunRef = useRef(0);
+  // Keyed by what was queued, so a second tap returns the first task instead of adding another.
+  const queuedTaskIdsRef = useRef(new Map<string, string>());
 
   const [catalystOpen, setCatalystOpen] = useState(false);
   const catalystBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -739,19 +770,17 @@ export default function QuizTakingPage() {
   // if saving has not returned an attempt yet.
   const resultsScore = viewedAttempt ? viewedAttempt.score : (quizOutcome?.score ?? score);
   const resultsTotal = viewedAttempt ? viewedAttempt.total : (quizOutcome?.total ?? total);
-  const suggestionForCard: (MissedQuestionsSuggestion & { id: string }) | null =
-    mode === 'results' && !viewedAttempt && !suggestionHidden
-      ? (quizOutcome?.suggestion ?? null)
-      : null;
   const courseDocuments = catalystChatContext?.classes.find((item) => item.classId === courseId)?.documents ?? [];
-  const openResourceId = resolveCourseResourceId(
-    suggestionForCard?.sourceDocKey ?? quizSource?.key ?? null,
-    null,
-    quizSource?.key ?? null,
-    quizResourceId,
-    courseDocuments,
+
+  const attemptConcepts = useMemo(
+    () => missedConcepts(activeQuestions, answers, namedLabels, openWeakSpots),
+    [activeQuestions, answers, namedLabels, openWeakSpots],
   );
-  const openDocumentLabel = openResourceId ? 'Open source document' : 'Back to course';
+  const retrySpot = retryWeakSpot(
+    openWeakSpots,
+    attemptConcepts.concepts.map((concept) => concept.conceptKey),
+  );
+  const showWeakModal = mode === 'results' && weakModalOpen && !viewedAttempt;
 
   const handleAnswerChange = (questionId: string, answer: string) => {
     setAnswers((prev) => ({ ...prev, [questionId]: answer }));
@@ -767,6 +796,7 @@ export default function QuizTakingPage() {
     if (!user || !allAnswered || submitting) return;
     setSubmitting(true);
     setQuizOutcome(null);
+    let savedAttemptId: string | null = null;
 
     try {
       const linkedTaskId = practiceTask
@@ -797,7 +827,7 @@ export default function QuizTakingPage() {
         );
       }
       setQuizOutcome(result.attemptId ? result : null);
-      setSuggestionHidden(false);
+      savedAttemptId = result.attemptId || null;
       await fetchPastAttempts();
       // Best-effort: the AI assistant's sense of how the student is doing.
       refreshCourseConfidence(user.uid, courseId).catch((e) => console.error('Refreshing course confidence failed:', e));
@@ -808,17 +838,226 @@ export default function QuizTakingPage() {
     }
 
     setMode('results');
+    setNamedLabels({});
+    setOpenWeakSpots([]);
+    setModalError(null);
+    practiceGeneration.clearError();
+    setPlanNotice(null);
+    setWeakModalOpen(true);
+    void nameAttemptConcepts(user.uid, savedAttemptId, activeQuestions, answers);
     scrollToTop();
   };
 
-  const handleAddToPlan = () => {
-    const suggestionId = suggestionForCard?.id ?? null;
-    if (!suggestionId) return;
-    router.push(`/learning?suggestionId=${encodeURIComponent(suggestionId)}`);
+  // Runs behind the open modal. A failed load or naming call leaves the misses
+  // listed as unnamed, so the modal keeps its "still working out" copy.
+  const nameAttemptConcepts = async (
+    uid: string,
+    attemptId: string | null,
+    questions: QuizQuestion[],
+    attemptAnswers: Record<string, string>,
+  ) => {
+    const run = ++namingRunRef.current;
+    let spots: ConceptWeakSpot[] = [];
+    try {
+      spots = await createConceptWeakSpotRepository(uid).listOpen(courseId);
+    } catch (error) {
+      console.error('Loading weak spots failed:', error);
+    }
+    if (run !== namingRunRef.current) return;
+    setOpenWeakSpots(spots);
+
+    const unnamed = new Set(missedConcepts(questions, attemptAnswers, {}, spots).unnamedIds);
+    if (unnamed.size === 0) return;
+    setNamingInFlight(true);
+    try {
+      const labels = await nameMissedConcepts(
+        questions.filter((question) => unnamed.has(question.id)),
+        spots,
+      );
+      if (run !== namingRunRef.current) return;
+      setNamedLabels(labels);
+      saveConceptLabels(uid, courseId, quizId, labels).catch((error) =>
+        console.error('Saving concept labels failed:', error),
+      );
+      // The attempt was processed before these names existed, so its misses on these
+      // questions are recorded now. The attempt is marked, so this happens once.
+      if (attemptId && Object.keys(labels).length > 0) {
+        recordNamedMisses({ courseId, quizId, attemptId, labels })
+          .then(async (status) => {
+            if (status !== 'recorded' || run !== namingRunRef.current) return;
+            const refreshed = await createConceptWeakSpotRepository(uid).listOpen(courseId);
+            if (run === namingRunRef.current) setOpenWeakSpots(refreshed);
+          })
+          .catch((error) => console.error('Recording named misses failed:', error));
+      }
+    } catch (error) {
+      console.error('Naming concepts failed:', error);
+    } finally {
+      if (run === namingRunRef.current) setNamingInFlight(false);
+    }
   };
 
-  const handleOpenSourceDocument = () => {
-    router.push(courseHref(courseId, openResourceId));
+  const closeWeakModal = useCallback(() => {
+    setWeakModalOpen(false);
+    setModalError(null);
+  }, []);
+
+  const courseForTasks = { name: className || 'Course', code: courseCode || 'Course' };
+
+  const conceptSourceKeys = (concepts: ModalConcept[]): string[] => {
+    const keys = new Set(concepts.map((concept) => concept.conceptKey));
+    return [...new Set([
+      ...(quizSource?.key ? [quizSource.key] : []),
+      ...openWeakSpots.filter((spot) => keys.has(spot.conceptKey)).flatMap((spot) => spot.sourceDocKeys),
+    ])];
+  };
+
+  const conceptFocus = async (type: ConceptPracticeType): Promise<{ focus: ConceptFocus; totalItems: number } | null> => {
+    const counts = practiceCounts(type);
+    const { quotas, totalItems } = allocateConceptQuotas(
+      attemptConcepts.concepts.map(({ conceptKey, label, missCount }) => ({ conceptKey, label, missCount })),
+      counts.requested,
+      counts.max,
+    );
+    if (quotas.length === 0) return null;
+    // This quiz's questions go first, so they survive the route's cap on the avoid list.
+    const current = allQuestions.map((question) => question.question).filter(Boolean);
+    const asked = user
+      ? await askedQuestionTexts(user.uid, courseId, conceptSourceKeys(attemptConcepts.concepts)).catch((error) => {
+          console.error('Loading earlier questions failed:', error);
+          return [];
+        })
+      : [];
+    return {
+      focus: { quotas, avoid: mergeAvoid(current, asked) },
+      totalItems,
+    };
+  };
+
+  const beginModalAction = (busy: NonNullable<WeakConceptBusy>): boolean => {
+    if (modalBusyRef.current) return false;
+    modalBusyRef.current = true;
+    setModalBusy(busy);
+    setModalError(null);
+    practiceGeneration.clearError();
+    return true;
+  };
+
+  const endModalAction = () => {
+    modalBusyRef.current = false;
+    setModalBusy(null);
+  };
+
+  // Generates first and routes only once the new set exists. A failure leaves
+  // the weak spots as they are and keeps the modal open to try again.
+  const handleStartConceptPractice = async (type: ConceptPracticeType) => {
+    if (!user || !beginModalAction({ action: 'start', type })) return;
+    try {
+      const planned = await conceptFocus(type);
+      const sourceDocKey = conceptSourceKeys(attemptConcepts.concepts)[0] ?? null;
+      if (!planned) throw new Error('There are no concepts to practice yet.');
+      if (!sourceDocKey) throw new Error("Couldn't find the source document for this quiz.");
+      const { focus, totalItems } = planned;
+
+      let route: string | null = null;
+      if (type === 'quiz') {
+        const setId = await generateConceptQuiz({ uid: user.uid, courseId, sourceDocKey, focus });
+        route = `/courses/${courseId}/quizzes/${setId}?mode=take`;
+      } else if (type === 'flashcards') {
+        const setId = await generateConceptFlashcards({ uid: user.uid, courseId, sourceDocKey, focus, count: totalItems });
+        route = `/courses/${courseId}/flashcards/${setId}`;
+      } else {
+        const setId = await practiceGeneration.generate({
+          source: { sourceDocKey, name: documentName(sourceDocKey), url: documentUrl(sourceDocKey) },
+          kind: type,
+          count: totalItems,
+          difficulty: DEFAULT_QUIZ_DIFFICULTY,
+          avoid: focus.avoid,
+          focus,
+        });
+        if (setId) route = `/courses/${courseId}/practice/${setId}`;
+      }
+
+      if (!route) {
+        endModalAction();
+        return;
+      }
+      router.push(route);
+    } catch (error) {
+      console.error('Starting concept practice failed:', error);
+      setModalError(error instanceof Error ? error.message : 'Something went wrong. Please try again.');
+      endModalAction();
+    }
+  };
+
+  const handlePlanConceptPractice = async (type: ConceptPracticeType) => {
+    if (!user || !beginModalAction({ action: 'plan', type })) return;
+    try {
+      const planned = await conceptFocus(type);
+      if (!planned) throw new Error('There are no concepts to practice yet.');
+      const planDate = todayPlanDate();
+      const draft = buildConceptPracticeTask({
+        courseId,
+        course: courseForTasks,
+        planDate,
+        quotas: planned.focus.quotas,
+        sourceDocKeys: conceptSourceKeys(attemptConcepts.concepts),
+        practiceType: type,
+      });
+      const queueKey = `${type}:${planned.focus.quotas.map((quota) => quota.conceptKey).join('|')}`;
+      const taskId = await commitStudyTask({
+        uid: user.uid,
+        courseId,
+        suggestionKey: `concept-practice-${quizId}`,
+        course: courseForTasks,
+        planDate,
+        draft,
+        existingTaskId: queuedTaskIdsRef.current.get(queueKey) ?? null,
+      });
+      if (!taskId) throw new Error("Couldn't add this to your plan. Please try again.");
+      queuedTaskIdsRef.current.set(queueKey, taskId);
+      endModalAction();
+      closeWeakModal();
+      setPlanNotice('Added to your study plan.');
+    } catch (error) {
+      console.error('Adding concept practice to the plan failed:', error);
+      setModalError(error instanceof Error ? error.message : "Couldn't add this to your plan. Please try again.");
+      endModalAction();
+    }
+  };
+
+  const handleRetryWrongAnswers = async () => {
+    if (!user || !retrySpot || !beginModalAction({ action: 'retry' })) return;
+    try {
+      const planDate = todayPlanDate();
+      const drafts = buildRetryWrongAnswersTasks(retrySpot, courseForTasks, planDate);
+      let saved = 0;
+      for (const draft of drafts) {
+        const target = draft.activityTarget;
+        if (target.kind !== 'quiz') continue;
+        const queueKey = `retry:${target.quizId}:${(target.questionIds ?? []).join('|')}`;
+        const taskId = await commitStudyTask({
+          uid: user.uid,
+          courseId,
+          suggestionKey: target.quizId,
+          course: courseForTasks,
+          planDate,
+          draft,
+          existingTaskId: queuedTaskIdsRef.current.get(queueKey) ?? null,
+        });
+        if (!taskId) continue;
+        queuedTaskIdsRef.current.set(queueKey, taskId);
+        saved += 1;
+      }
+      if (saved === 0) throw new Error("Couldn't add these questions to your plan. Please try again.");
+      endModalAction();
+      closeWeakModal();
+      setPlanNotice(saved === 1 ? 'Added your wrong answers to your study plan.' : `Added ${saved} retry tasks to your study plan.`);
+    } catch (error) {
+      console.error('Adding retry tasks failed:', error);
+      setModalError(error instanceof Error ? error.message : "Couldn't add these questions to your plan. Please try again.");
+      endModalAction();
+    }
   };
 
   const handleRetestMissed = () => {
@@ -846,32 +1085,6 @@ export default function QuizTakingPage() {
     setMode('taking');
     router.push(`/courses/${courseId}/quizzes/${quizId}?mode=take`);
     scrollToTop();
-  };
-
-  const handlePracticeWeakSpot = async () => {
-    if (!user || !suggestionForCard || practicingRef.current) return;
-    const sourceDocKey = suggestionForCard.sourceDocKey ?? quizSource?.key ?? null;
-    if (!sourceDocKey) {
-      setPracticeError("Couldn't find the source document for this quiz.");
-      return;
-    }
-    practicingRef.current = true;
-    setPracticing(true);
-    setPracticeError(null);
-    try {
-      const newId = await generateTargetedPracticeQuiz({
-        uid: user.uid,
-        courseId,
-        sourceDocKey,
-        conceptLabel: quizName,
-        avoidQuestions: missedQuestionTexts(suggestionForCard.questionIds, allQuestions),
-      });
-      router.push(`/courses/${courseId}/quizzes/${newId}?mode=take`);
-    } catch (err) {
-      setPracticeError(err instanceof Error ? err.message : 'Failed to generate practice questions.');
-      practicingRef.current = false;
-      setPracticing(false);
-    }
   };
 
   // A new quiz set from the same file that avoids this quiz's questions. It's a
@@ -1174,18 +1387,19 @@ export default function QuizTakingPage() {
             {mode === 'results' && (
               <div className="mb-6" data-tutorial="course-quiz-actions">
                 <QuizResults score={resultsScore} total={resultsTotal} />
-                <QuizPracticeSuggestion
-                  suggestion={suggestionForCard}
-                  quizName={quizName}
-                  onAdd={handleAddToPlan}
-                  onLater={() => setSuggestionHidden(true)}
-                  onOpenDocument={handleOpenSourceDocument}
-                  onCreateQuiz={() => router.push(`/courses/${courseId}/learning`)}
-                  onPractice={handlePracticeWeakSpot}
-                  practicing={practicing}
-                  practiceError={practiceError}
-                  openDocumentLabel={openDocumentLabel}
-                />
+                {planNotice && (
+                  <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-border-light bg-bg-container px-5 py-3 text-sm text-text-main" role="status">
+                    <span>{planNotice}</span>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <Link href="/learning" className="font-semibold underline-offset-2 hover:underline">
+                        Open study plan
+                      </Link>
+                      <button type="button" onClick={() => setPlanNotice(null)} className="text-text-muted hover:text-text-main" aria-label="Dismiss">
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1254,6 +1468,24 @@ export default function QuizTakingPage() {
           </>
         )}
       </div>
+
+      {showWeakModal && (
+        <WeakConceptModal
+          quizName={quizName}
+          score={resultsScore}
+          total={resultsTotal}
+          concepts={attemptConcepts.concepts}
+          namingPending={attemptConcepts.unnamedIds.length > 0}
+          namingInFlight={namingInFlight}
+          busy={modalBusy}
+          error={modalError ?? practiceGeneration.error}
+          canRetry={retrySpot !== null}
+          onClose={closeWeakModal}
+          onStart={handleStartConceptPractice}
+          onPlan={handlePlanConceptPractice}
+          onRetry={handleRetryWrongAnswers}
+        />
+      )}
 
       {mode === 'results' && quizPageContext && catalystChatContext && (
         <>

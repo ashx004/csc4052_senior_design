@@ -95,6 +95,28 @@ describe("quiz generation contract", () => {
   });
 });
 
+describe("quiz focus", () => {
+  const focus = { quotas: [{ conceptKey: "chain rule", label: "Chain Rule", items: 3 }], avoid: ["Old question about something else entirely?"] };
+  it("sends the focus fragment and merges focus.avoid into the avoid list", async () => {
+    request.mockResolvedValueOnce(reply([mc(1), mc(2), mc(3)]));
+    await generateQuizWithValidation("Source text", 3, { multipleChoice: true }, "http://ai", undefined, [], undefined, {}, focus);
+    const content = body(0).messages[1].content as string;
+    expect(content).toContain("Chain Rule");
+    expect(content).toContain('conceptKey: "chain rule"');
+    expect(content).toContain("Old question about something else entirely?");
+  });
+  it("drops a question that repeats one supplied only through focus.avoid", async () => {
+    request.mockResolvedValueOnce(reply([{ ...mc(1), question: "Old question about something else entirely?" }, mc(2), mc(3), mc(4)]));
+    const result = await generateQuizWithValidation("Source text", 3, { multipleChoice: true }, "http://ai", undefined, [], undefined, {}, focus);
+    expect(result.questions.map((q) => q.question)).not.toContain("Old question about something else entirely?");
+  });
+  it("keeps conceptKey from the model", async () => {
+    request.mockResolvedValueOnce(reply([{ ...mc(1), conceptKey: "chain rule" }, mc(2), mc(3)]));
+    const result = await generateQuizWithValidation("Source text", 3, { multipleChoice: true }, "http://ai", undefined, [], undefined, {}, focus);
+    expect(result.questions.find((q) => q.question === "Question 1?")).toMatchObject({ conceptKey: "chain rule" });
+  });
+});
+
 describe("quiz levels and question quality", () => {
   const prompt = (n: number) => body(n).messages[1].content as string;
   const tf = { type: "true_false", question: "Is it true?", options: ["True", "False"], correctAnswer: "True" };

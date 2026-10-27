@@ -57,6 +57,22 @@ export function getActivityUrlFromTarget(
     }
     case "flashcard_set":
       return appendTaskId(`/courses/${courseId}/flashcards?setId=${target.setId}`, taskId);
+    case "concept_practice": {
+      // Generation happens when the task starts (see startDecision); until then
+      // there is nothing to open, so land on the course learning page.
+      const setId = target.generatedSetId;
+      if (!setId) return `/courses/${courseId}/learning`;
+      switch (target.practiceType) {
+        case "quiz":
+          return appendTaskId(`/courses/${courseId}/quizzes/${setId}?mode=take`, taskId);
+        case "flashcards":
+          return appendTaskId(`/courses/${courseId}/flashcards?setId=${setId}`, taskId);
+        default: {
+          const url = `/courses/${courseId}/practice/${setId}`;
+          return taskId ? withTaskId(url, taskId) : url;
+        }
+      }
+    }
   }
 }
 

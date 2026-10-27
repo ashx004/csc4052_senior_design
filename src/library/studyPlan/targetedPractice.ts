@@ -1,5 +1,7 @@
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { getEffectiveModelKey } from '@/src/library/chatMode';
+import type { ConceptFocus } from '@/src/library/generation/conceptFocus';
+import { conceptKey } from '@/src/library/studyPlan/conceptKey';
 import { DEFAULT_QUIZ_DIFFICULTY, type QuizDifficulty } from '@/src/library/quizDifficulty';
 
 export const TARGETED_PRACTICE_QUESTION_COUNT = 10;
@@ -25,11 +27,19 @@ export function targetedPracticeName(conceptLabel: string): string {
 }
 
 /**
+ * Names a weak-spot practice set from the concepts it is aimed at.
+ */
+export function targetedPracticeNameFromFocus(focus: ConceptFocus): string {
+  const labels = focus.quotas.map((q) => q.label.trim()).filter(Boolean);
+  return targetedPracticeName(labels.join(', '));
+}
+
+/**
  * Builds the request body for the targeted practice quiz generation API.
  */
 export function buildTargetedPracticeRequest(input: {
   sourceDocKey: string;
-  conceptLabel: string;
+  focus: ConceptFocus;
   avoidQuestions: readonly string[];
   modelKey: string;
 }): {
@@ -40,6 +50,7 @@ export function buildTargetedPracticeRequest(input: {
   modelKey: string;
   avoidQuestions: string[];
   difficulty: QuizDifficulty;
+  focus: ConceptFocus;
 } {
   const docName = input.sourceDocKey.split('/').pop()?.replace(/^\d+[-_]/, '') || 'document';
   return {
@@ -50,6 +61,7 @@ export function buildTargetedPracticeRequest(input: {
     modelKey: input.modelKey,
     avoidQuestions: [...input.avoidQuestions],
     difficulty: DEFAULT_QUIZ_DIFFICULTY,
+    focus: input.focus,
   };
 }
 
@@ -60,15 +72,26 @@ export async function generateTargetedPracticeQuiz(input: {
   uid: string;
   courseId: string;
   sourceDocKey: string;
-  conceptLabel: string;
-  avoidQuestions: readonly string[];
+  /** Aims the quiz at specific concepts. Without it, the quiz targets `conceptLabel` alone. */
+  focus?: ConceptFocus;
+  /** Fallback name for callers that pass no `focus`. */
+  conceptLabel?: string;
+  /** Fallback avoid list for callers that pass no `focus`; with a focus, `focus.avoid` is used. */
+  avoidQuestions?: readonly string[];
 }): Promise<string> {
   const { db } = await import('@/src/library/firebase');
   const modelKey = getEffectiveModelKey('quiz');
+  const label = conceptLabelFromQuizName(input.conceptLabel ?? '') || 'Weak spot';
+  // A caller's focus is sent as given, and focus.avoid (every question already asked) is the avoid list.
+  // conceptLabel and avoidQuestions only back-fill callers that pass no focus.
+  const focus: ConceptFocus = input.focus ?? {
+    quotas: [{ conceptKey: conceptKey(label), label, items: TARGETED_PRACTICE_QUESTION_COUNT }],
+    avoid: [...(input.avoidQuestions ?? [])],
+  };
   const requestBody = buildTargetedPracticeRequest({
     sourceDocKey: input.sourceDocKey,
-    conceptLabel: input.conceptLabel,
-    avoidQuestions: input.avoidQuestions,
+    focus,
+    avoidQuestions: focus.avoid,
     modelKey,
   });
 
@@ -86,7 +109,7 @@ export async function generateTargetedPracticeQuiz(input: {
   const newDoc = await addDoc(
     collection(db, 'users', input.uid, 'enrollment', input.courseId, 'quizSets'),
     {
-      name: targetedPracticeName(input.conceptLabel),
+      name: targetedPracticeNameFromFocus(focus),
       sourceDocKey: input.sourceDocKey,
       questions: data.questions,
       questionTypes: TARGETED_PRACTICE_QUESTION_TYPES,

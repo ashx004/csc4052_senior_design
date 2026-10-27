@@ -7,12 +7,14 @@ import { createFirebaseLearningProgressRepository } from "@/src/library/studyPla
 import {
   finishFlashcardReview as recordFlashcardReview,
   finishReading as recordReading,
+  recordNamedMisses as recordAttemptNamedMisses,
   retryPendingAttempts as retrySavedAttempts,
   submitQuizResult,
   type ActivityProgressResult,
   type FinishFlashcardReviewInput,
   type FinishReadingInput,
   type QuizProgressOutcome,
+  type RecordNamedMissesInput,
   type SubmitQuizResultInput,
 } from "@/src/library/studyPlan/learningProgressService";
 
@@ -111,8 +113,17 @@ export function useLearningProgress() {
     [repository],
   );
 
+  const recordNamedMisses = useCallback(
+    async (input: RecordNamedMissesInput) => {
+      if (!repository) return "nothing_to_record" as const;
+      return recordAttemptNamedMisses(repository, input);
+    },
+    [repository],
+  );
+
   return {
     submitQuiz,
+    recordNamedMisses,
     finishReading,
     finishFlashcardReview,
     retryPendingAttempts,

@@ -5,10 +5,12 @@ import {
   studyTaskPath,
   studyTasksCollection,
 } from "./firestorePaths";
-import type { MissedQuestionsSuggestion, TaskStatus } from "./types";
+import type { ConceptWeakSpot, MissedQuestionsSuggestion, TaskStatus } from "./types";
 import {
   afterSuccessfulPlan,
   beginAddWithoutPlan,
+  buildConceptPracticeTask,
+  buildRetryWrongAnswersTasks,
   buildTaskFromSuggestion,
   cancelPendingAdd,
   cancelPendingSetup,
@@ -417,5 +419,152 @@ describe("suggestion task dedupe", () => {
         });
       }
     }
+  });
+});
+
+describe("buildConceptPracticeTask", () => {
+  it("builds an ungenerated concept_practice task titled with the labels", () => {
+    const draft = buildConceptPracticeTask({
+      courseId: "course-1",
+      course: courseInfo(),
+      planDate: "2026-09-27",
+      quotas: [
+        { conceptKey: "joins", label: "Joins", items: 4 },
+        { conceptKey: "indexes", label: "Indexes", items: 3 },
+      ],
+      sourceDocKeys: ["doc-1"],
+      practiceType: "quiz",
+    });
+    expect(draft.title).toBe("Practice: Joins, Indexes");
+    expect(draft.activityTarget).toEqual({
+      kind: "concept_practice",
+      conceptKeys: ["joins", "indexes"],
+      conceptLabels: ["Joins", "Indexes"],
+      sourceDocKeys: ["doc-1"],
+      practiceType: "quiz",
+      questionCount: 7,
+      generatedSetId: null,
+      generationClaimedAtMs: null,
+    });
+    expect(draft.courseId).toBe("course-1");
+    expect(draft.status).toBe("recommended");
+    expect(draft.activityType).toBe("quiz");
+  });
+
+  it("uses the flashcards activity type for a flashcard practice task", () => {
+    const draft = buildConceptPracticeTask({
+      courseId: "course-1",
+      course: courseInfo(),
+      planDate: "2026-09-27",
+      quotas: [{ conceptKey: "joins", label: "Joins", items: 4 }],
+      sourceDocKeys: [],
+      practiceType: "flashcards",
+    });
+    expect(draft.activityType).toBe("flashcards");
+  });
+});
+
+describe("buildRetryWrongAnswersTasks", () => {
+  const weakSpot: ConceptWeakSpot = {
+    courseId: "course-1",
+    conceptKey: "joins",
+    label: "Joins",
+    misses: [
+      { questionId: "q1", quizId: "quizA", failureCount: 1 },
+      { questionId: "q2", quizId: "quizB", failureCount: 2 },
+      { questionId: "q3", quizId: "quizA", failureCount: 3 },
+    ],
+    sourceDocKeys: ["doc-1"],
+    status: "open",
+    openedAtMs: 1,
+    retiredAtMs: null,
+    timesReopened: 0,
+  };
+
+  it("returns one missed_questions quiz draft per quizId", () => {
+    const drafts = buildRetryWrongAnswersTasks(weakSpot, courseInfo(), "2026-09-27");
+    expect(drafts).toHaveLength(2);
+    const a = drafts.find((d) => d.targetId === "quizA");
+    expect(a?.activityTarget).toEqual({
+      kind: "quiz",
+      quizId: "quizA",
+      sourceDocKey: "doc-1",
+      mode: "missed_questions",
+      questionIds: ["q3", "q1"],
+    });
+    expect(a?.sourceSuggestionId).toBe(learningSuggestionId("course-1", "quizA"));
+    expect(drafts.find((d) => d.targetId === "quizB")?.activityTarget).toMatchObject({
+      quizId: "quizB",
+      questionIds: ["q2"],
+    });
+  });
+
+  it("stores a concept-practice draft when no suggestion document exists", async () => {
+    const store = new MemoryStore();
+    const sug = suggestionWithQuestions(1);
+    const draft = buildConceptPracticeTask({
+      courseId: "course-1",
+      course: courseInfo(),
+      planDate: "2026-09-27",
+      quotas: [{ conceptKey: "joins", label: "Joins", items: 4 }],
+      sourceDocKeys: ["doc-1"],
+      practiceType: "quiz",
+    });
+    const taskId = await store.runTransaction((writer) =>
+      commitSuggestionTask(writer, {
+        uid: UID,
+        suggestion: sug,
+        planDate: "2026-09-27",
+        course: courseInfo(),
+        existingTaskId: null,
+        draft,
+      }),
+    );
+    expect(taskId).toBe("task-1");
+    expect(store.docs.get(studyTaskPath(UID, taskId!))).toMatchObject({
+      title: "Practice: Joins",
+      activityTarget: { kind: "concept_practice", generatedSetId: null },
+    });
+    expect(store.docs.has(suggestionPath(sug))).toBe(false);
+    expect(store.docs.size).toBe(1);
+  });
+
+  it("still returns null with no draft and no suggestion document", async () => {
+    const store = new MemoryStore();
+    const sug = suggestionWithQuestions(1);
+    const result = await store.runTransaction((writer) =>
+      commitSuggestionTask(writer, {
+        uid: UID,
+        suggestion: sug,
+        planDate: "2026-09-27",
+        course: courseInfo(),
+        existingTaskId: null,
+      }),
+    );
+    expect(result).toBeNull();
+    expect(store.docs.size).toBe(0);
+  });
+
+  it("commits a retry draft through commitSuggestionTask", async () => {
+    const store = new MemoryStore();
+    const sug = suggestionWithQuestions(2, { quizId: "quizA", courseId: "course-1" });
+    store.seed(suggestionPath(sug), { ...sug });
+    const [draft] = buildRetryWrongAnswersTasks(
+      { ...weakSpot, misses: [weakSpot.misses[0]] },
+      courseInfo(),
+      "2026-09-27",
+    );
+    const taskId = await store.runTransaction((writer) =>
+      commitSuggestionTask(writer, {
+        uid: UID,
+        suggestion: sug,
+        planDate: "2026-09-27",
+        course: courseInfo(),
+        existingTaskId: null,
+        draft,
+      }),
+    );
+    const saved = store.docs.get(studyTaskPath(UID, taskId!));
+    expect(saved?.activityTarget).toMatchObject({ mode: "missed_questions", questionIds: ["q1"] });
   });
 });
