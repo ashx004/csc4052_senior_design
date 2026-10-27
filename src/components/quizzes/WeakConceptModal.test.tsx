@@ -44,6 +44,12 @@ describe("WeakConceptModal layer 1", () => {
     expect(html).not.toContain("<img");
   });
 
+  it("groups the result actions as one accessible choice set", () => {
+    const html = render();
+    expect(html).toContain('role="group"');
+    expect(html).toContain('aria-label="Result actions"');
+  });
+
   it("keeps the score and explains while naming is pending", () => {
     const html = render({ concepts: [], namingPending: true, namingInFlight: true });
     expect(html).toContain("6/10");

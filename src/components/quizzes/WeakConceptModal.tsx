@@ -238,16 +238,16 @@ export default function WeakConceptModal({
         </div>
 
         <div className={styles.head}>
-          <div>
+          <div className={styles.summaryCopy}>
             <h2 className={styles.title} id="weak-concept-title">{quizName}</h2>
             <p className={styles.muted}>{headline.tone === "clear" ? "Nice work!" : "You're getting there!"}</p>
+
+            <div className={styles.note}>
+              <Icon name="insights" size={23} className={styles.noteIcon} />
+              <p>{headline.noteText}</p>
+            </div>
           </div>
           <ScoreRing score={score} total={total} />
-        </div>
-
-        <div className={styles.note}>
-          <Icon name="insights" size={23} className={styles.noteIcon} />
-          <p>{headline.noteText}</p>
         </div>
 
         {headline.tone === "weak" && (
@@ -272,20 +272,22 @@ export default function WeakConceptModal({
               <p className={styles.pendingRow}>Still naming a few more…</p>
             )}
 
-            <button
-              type="button"
-              className={styles.cta}
-              onClick={() => setLayer("format")}
-              disabled={concepts.length === 0 || working}
-            >
-              Practice these concepts now <Icon name="arrow-right" size={19} />
-            </button>
-            <button type="button" className={styles.ghost} onClick={onRetry} disabled={!canRetry || working}>
-              <Icon name="clock" size={17} /> {busy?.action === "retry" ? "Adding…" : "Retry wrong answers"}
-            </button>
-            <button type="button" className={styles.ghost} onClick={onClose}>
-              Maybe later
-            </button>
+            <div className={styles.resultActions} role="group" aria-label="Result actions">
+              <button
+                type="button"
+                className={styles.cta}
+                onClick={() => setLayer("format")}
+                disabled={concepts.length === 0 || working}
+              >
+                Practice these concepts now <Icon name="arrow-right" size={19} />
+              </button>
+              <button type="button" className={styles.ghost} onClick={onRetry} disabled={!canRetry || working}>
+                <Icon name="clock" size={17} /> {busy?.action === "retry" ? "Adding…" : "Retry wrong answers"}
+              </button>
+              <button type="button" className={styles.ghost} onClick={onClose}>
+                Maybe later
+              </button>
+            </div>
           </>
         )}
 
