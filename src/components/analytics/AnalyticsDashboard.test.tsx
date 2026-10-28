@@ -122,7 +122,8 @@ it("shows page-load averages by normalized page", async () => {
   });
   render(<AnalyticsDashboard />);
   await screen.findByText("Page load performance");
-  expect(screen.getAllByText("/courses/[courseId]")).toHaveLength(2);
+  expect(screen.getByText("Course home")).toBeTruthy();
+  expect(screen.getByText("/courses/[courseId]")).toBeTruthy();
   expect(screen.getByText("473 ms")).toBeTruthy();
   expect(screen.getByText("4")).toBeTruthy();
 });
