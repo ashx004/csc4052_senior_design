@@ -66,7 +66,7 @@ export default function ToolboxPanel({
       ref={panelRef}
       role="dialog"
       aria-label="Available AI tools"
-      className="absolute bottom-full left-0 z-20 mb-2 w-80 rounded-xl border border-border-light bg-bg-container p-3 shadow-lg shadow-stone-200/70"
+      className="absolute bottom-full left-0 z-20 mb-2 max-h-[calc(100dvh-10rem)] w-80 overflow-y-auto overscroll-contain rounded-xl border border-border-light bg-bg-container p-3 shadow-lg shadow-stone-200/70"
     >
       <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-text-muted">Always available</p>
       <ul className="space-y-1">
