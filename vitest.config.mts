@@ -17,9 +17,9 @@ export default defineConfig({
   oxc: { jsx: { runtime: "automatic" } },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "."),
+      "@": path.resolve(import.meta.dirname, "."),
       // Next.js makes "server-only" a no-op on the server; under plain Node it throws.
-      "server-only": path.resolve(__dirname, "src/test/serverOnlyStub.ts"),
+      "server-only": path.resolve(import.meta.dirname, "src/test/serverOnlyStub.ts"),
     },
   },
 });

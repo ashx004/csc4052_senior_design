@@ -4,7 +4,8 @@ import { jwtVerify, createRemoteJWKSet } from "jose";
 // Verifies the Firebase ID token cookie directly against Google's public
 // keys at the edge — no Firebase Admin SDK / service account needed. This is
 // the standard pattern for Firebase Auth + Next.js Edge Middleware.
-const PROJECT_ID = "studora-933f8";
+const PROJECT_ID = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? "studora-933f8";
+const isLocalE2e = process.env.E2E_LOCAL === "true";
 const JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com")
 );
@@ -30,6 +31,11 @@ export async function middleware(request: NextRequest) {
   if (!token || !remembered) {
     return redirectToLogin(request);
   }
+
+  // Firebase Emulator tokens are not signed by Google's production JWKS.
+  // This branch is only supplied by npm run e2e:local and still requires both
+  // session cookies, which are written by the real emulator Auth client.
+  if (isLocalE2e) return NextResponse.next();
 
   try {
     await jwtVerify(token, JWKS, {

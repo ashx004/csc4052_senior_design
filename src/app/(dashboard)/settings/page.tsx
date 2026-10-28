@@ -1177,7 +1177,7 @@ export default function Settings() {
                 Change Password
             </button>
 
-            <p className="flex w-[94%] sm:w-3/4 self-center px-2 py-1 text-xs text-text-muted">
+            <p suppressHydrationWarning className="flex w-[94%] sm:w-3/4 self-center px-2 py-1 text-xs text-text-muted">
                 Update your account password
             </p>
 
