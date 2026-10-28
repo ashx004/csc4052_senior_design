@@ -25,6 +25,15 @@ test("signup requires terms acknowledgement before submission", async ({ page })
   await expect(submit).toBeEnabled();
 });
 
+test("login and signup link to each other", async ({ page }) => {
+  await page.goto("/login");
+  await page.getByRole("button", { name: "Create an account" }).click();
+  await expect(page).toHaveURL(/\/signup$/);
+
+  await page.getByRole("button", { name: "Already have an account\? Log in" }).click();
+  await expect(page).toHaveURL(/\/login$/);
+});
+
 for (const document of ["terms", "privacy", "credits"]) {
   test(`legal document ${document} is public`, async ({ page }) => {
     await page.goto(`/legal/${document}`);

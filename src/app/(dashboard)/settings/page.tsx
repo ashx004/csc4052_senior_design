@@ -620,8 +620,8 @@ export default function Settings() {
         try {
             await signOut(auth);
 
-            // Sends the signed-out user back to the login page
-            router.push("/login");
+            // Sends the signed-out user back to the landing page
+            router.push("/");
         } catch (error) {
             console.error("Sign-out failed:", error);
         }
