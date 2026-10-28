@@ -185,6 +185,7 @@ function parseReports(
     limited: resultsAreLimited,
     activeUsers: readReportRows(users)[0]?.count ?? 0,
     dailyUsers: readReportRows(dailyUsers),
+    peaks: null,
     storageAvailable: true,
   };
 }
@@ -310,7 +311,9 @@ async function fetchAnalyticsReport(
       timeZone,
     );
     try {
-      await withDeadline(saveUserCounts(propertyId, null, report.dailyUsers));
+      report.peaks = await withDeadline(
+        saveUserCounts(propertyId, null, report.dailyUsers),
+      );
     } catch {
       report.storageAvailable = false;
     }
@@ -364,11 +367,15 @@ async function fetchRealtimeReport(
       },
       { timeout: REQUEST_TIMEOUT_MS },
     );
-    if (
-      !response.data.metricHeaders?.some(
-        (header) => header.name === "activeUsers",
-      )
-    ) {
+    const hasActiveUsersHeader = response.data.metricHeaders?.some(
+      (header) => header.name === "activeUsers",
+    );
+    const isEmptyRealtimeReport =
+      !response.data.rows?.length &&
+      (response.data.kind === "analyticsData#runRealtimeReport" ||
+        Array.isArray(response.data.rows) ||
+        response.data.rowCount === 0);
+    if (!hasActiveUsersHeader && !isEmptyRealtimeReport) {
       throw new ReportError(
         502,
         "Analytics returned an incomplete realtime report.",

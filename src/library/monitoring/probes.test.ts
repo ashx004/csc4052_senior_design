@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { probeServices, runProbe, withDeadline } from "./probes";
-const storage = vi.hoisted(() => ({ getMetadata: vi.fn() }));
+const storage = vi.hoisted(() => ({ getMetadata: vi.fn(), getFiles: vi.fn() }));
 const firestore = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock("../gcsStorage", () => ({ getBucket: () => storage }));
 vi.mock("../firebaseAdmin", () => ({
@@ -82,10 +82,19 @@ it("probes configured models, vector readiness, storage and Firestore without pa
       ? new Response("ready")
       : Response.json({ models: [{ name: "main" }, { name: "embed" }] }),
   );
-  storage.getMetadata.mockResolvedValue([{}]);
+  storage.getFiles.mockResolvedValue([[]]);
+  storage.getMetadata.mockRejectedValue(
+    new Error("Bucket metadata permission denied"),
+  );
   firestore.get.mockResolvedValue({});
   const result = await probeServices();
   expect(result.every((service) => service.status === "healthy")).toBe(true);
+  expect(storage.getMetadata).not.toHaveBeenCalled();
+  expect(storage.getFiles).toHaveBeenCalledWith({
+    prefix: "__catalyst_health_probe__/",
+    maxResults: 1,
+    autoPaginate: false,
+  });
   expect(fetchMock.mock.calls.map((call) => call[0])).toEqual(
     expect.arrayContaining([
       "http://primary/api/tags",
@@ -145,4 +154,39 @@ it("checks cloud model metadata and credentials while still checking Ollama embe
   expect(
     (await probeServices()).find((service) => service.id === "ai")?.status,
   ).toBe("unconfigured");
+});
+
+it("does not probe primary Ollama in cloud or testers mode even with AI_OLLAMA_USERS set, and uses secondary fallback URL concurrently", async () => {
+  for (const [name, value] of Object.entries({
+    AI_BACKEND: "cloud",
+    AI_OLLAMA_USERS: "uid-1,uid-2",
+    AI_MODEL_DEFAULT: "openrouter:qwen/qwen3.7-flash",
+    AI_MODEL_FALLBACK: "openrouter:missing/fallback-model",
+    OPENROUTER_API_KEY: "router-test-key",
+    OLLAMA_AUTH_TOKEN: "ollama-test-key",
+    OLLAMA_MODEL_MAIN: "qwen3.5:35b",
+    OLLAMA_EMBED_MODEL: "qwen3-embedding:4b",
+    OLLAMA_PRIMARY_URL: "http://offline-primary",
+    OLLAMA_SECONDARY_URL: "http://unreachable-lan-secondary",
+    OLLAMA_SECONDARY_FALLBACK_URL: "https://ollama2.example.com/secondary",
+  }))
+    vi.stubEnv(name, value);
+  fetchMock.mockImplementation(async (url: string) => {
+    if (url.startsWith("http://offline-primary"))
+      throw new Error("primary ollama should not be called");
+    if (url.startsWith("http://unreachable-lan-secondary"))
+      throw new Error("lan unreachable");
+    if (url === "https://ollama2.example.com/secondary/api/tags")
+      return Response.json({ models: [{ name: "qwen3-embedding:4b" }] });
+    if (url.endsWith("/api/v1/models"))
+      return Response.json({ data: [{ id: "qwen/qwen3.7-flash" }] });
+    return Response.json({});
+  });
+  const ai = (await probeServices()).find((service) => service.id === "ai");
+  expect(ai?.status).toBe("degraded");
+  expect(
+    fetchMock.mock.calls.some(([url]) =>
+      String(url).startsWith("http://offline-primary"),
+    ),
+  ).toBe(false);
 });

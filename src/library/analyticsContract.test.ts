@@ -38,6 +38,17 @@ describe("analytics contract", () => {
     expect(normalizeAnalyticsPath("/courses/private/notes/")).toBe(
       "/courses/[courseId]/notes",
     );
+    expect(normalizeAnalyticsPath("/courses/private/practice/set-1")).toBe(
+      "/courses/[courseId]/practice/[setId]",
+    );
+    expect(normalizeAnalyticsPath("/courses/private/flashcards/set-1")).toBe(
+      "/courses/[courseId]/flashcards/[setId]",
+    );
+    expect(normalizeAnalyticsPath("/custom/set-1")).toBe("/custom/[setId]");
+    expect(normalizeAnalyticsPath("/legal/privacy")).toBe("/legal/[doc]");
+    expect(normalizeAnalyticsPath("/learning/study-plan")).toBe(
+      "/learning/study-plan",
+    );
   });
 
   it("rejects incomplete and unexpected route shapes", () => {
