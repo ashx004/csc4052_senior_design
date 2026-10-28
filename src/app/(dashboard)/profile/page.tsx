@@ -388,7 +388,7 @@ export default function Profile() {
       >
         <h1
           className="
-            min-w-0 truncate sm:absolute sm:left-1/2 sm:-translate-x-1/2 text-center
+            absolute left-1/2 min-w-0 -translate-x-1/2 truncate text-center
             whitespace-nowrap text-base font-semibold tracking-[0.2em] sm:text-lg sm:tracking-[0.45em] text-text-main"
         >
           Profile.
@@ -397,7 +397,7 @@ export default function Profile() {
 
       <main className="flex flex-1 flex-col overflow-y-auto px-10 py-10">
         {/* University picker */}
-        <section className="w-full xl:w-1/2" data-tutorial="profile-university">
+        <section className="mx-auto w-full xl:w-1/2" data-tutorial="profile-university">
           <h2 className="text-lg font-semibold">Your university</h2>
           <p className="mt-1 text-sm text-text-muted">
             Used to personalize Advising&apos;s course recommendations. We
@@ -471,7 +471,7 @@ export default function Profile() {
         </section>
 
         {/* Catalyst learning summary */}
-        <section className="mt-10 w-full xl:w-1/2" data-tutorial="profile-learned">
+        <section className="mx-auto mt-10 w-full xl:w-1/2" data-tutorial="profile-learned">
           <h2 className="text-lg font-semibold text-text-main">
             What Catalyst has learned about you
           </h2>
@@ -548,7 +548,7 @@ export default function Profile() {
         </section>
 
         {/* Editable personal information */}
-        <section className="mt-10 w-full xl:w-1/2" data-tutorial="profile-personal">
+        <section className="mx-auto mt-10 w-full xl:w-1/2" data-tutorial="profile-personal">
           <div className="mb-5 flex items-center justify-between">
             <h2 className="text-lg font-semibold">Personal Information</h2>
 
@@ -659,7 +659,7 @@ export default function Profile() {
         </section>
 
         {/* Current classes */}
-        <section className="mt-10">
+        <section className="mx-auto mt-10 w-full xl:w-1/2">
           <button
             type="button"
             onClick={() => setShowClasses((currentValue) => !currentValue)}
@@ -704,7 +704,7 @@ export default function Profile() {
             classes so this page (and, via chatContext.ts, the AI) never
             represents a finished class as one the student is still taking. */}
         {!enrollmentsLoading && completedEnrollments.length > 0 && (
-          <section className="mt-10">
+          <section className="mx-auto mt-10 w-full xl:w-1/2">
             <button
               type="button"
               onClick={() => setShowCompletedClasses((currentValue) => !currentValue)}
