@@ -68,6 +68,13 @@ export default function AddCreditModal({ wallet, outOfCredit, onClose }: { walle
           </p>
         )}
 
+        {wallet?.trialPendingVerificationMicros ? (
+          <p className="mt-3 rounded-lg border border-border-light px-3 py-2 text-sm text-text-main">
+            Or verify your email to get <strong>{formatUsd(wallet.trialPendingVerificationMicros)}</strong> of free credit.
+            <span className="text-text-muted"> Open the link we emailed you, then come back.</span>
+          </p>
+        ) : null}
+
         <fieldset className="mt-4">
           <legend className="text-sm font-medium text-text-main">Amount</legend>
           <div className="mt-2 grid grid-cols-3 gap-2">
