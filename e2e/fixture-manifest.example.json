@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "projectId": "replace-with-dedicated-e2e-project",
+  "student": {
+    "courseId": "seeded-course-id",
+    "quizId": "seeded-quiz-id",
+    "flashcardSetId": "seeded-flashcard-set-id",
+    "practiceSetId": "seeded-practice-set-id",
+    "publicSetId": "seeded-public-study-set-id",
+    "noteId": "seeded-note-id",
+    "shareId": "seeded-public-share-id",
+    "customSetId": "seeded-custom-set-id"
+  }
+}

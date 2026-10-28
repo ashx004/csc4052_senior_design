@@ -1,0 +1,20 @@
+
+> catalyst@0.0.0 e2e:local
+> firebase emulators:exec --project catalyst-e2e --only auth,firestore "node scripts/e2eLocal.mjs"
+
+[36m[1mi  emulators:[22m[39m Starting emulators: auth, firestore
+[36m[1mi  firestore:[22m[39m Firestore Emulator logging to [1mfirestore-debug.log[22m
+[32m[1m+  firestore:[22m[39m Firestore Emulator was started in standard edition.
+[32m[1m+  firestore:[22m[39m Firestore Emulator UI websocket is running on 9150.
+[36m[1mi [22m[39m Running script: [1mnode scripts/e2eLocal.mjs[22m
+Local E2E fixtures seeded in catalyst-e2e.
+ 
+[36m[1mi  emulators:[22m[39m Received SIGINT (Ctrl-C) for the first time. Starting a clean shutdown.
+[36m[1mi  emulators:[22m[39m Please wait for a clean shutdown or send the SIGINT (Ctrl-C) signal again to stop right now.
+[36m[1mi  emulators:[22m[39m Shutting down emulators.
+[36m[1mi  firestore:[22m[39m Stopping Firestore Emulator
+[33m[1m! [22m[39m Firestore Emulator has exited upon receiving signal: SIGINT
+[36m[1mi  auth:[22m[39m Stopping Authentication Emulator
+[36m[1mi  hub:[22m[39m Stopping emulator hub
+[36m[1mi  logging:[22m[39m Stopping Logging Emulator
+[33m[1m! [22m[39m Script exited unsuccessfully (code 3221225786)
