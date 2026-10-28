@@ -166,3 +166,39 @@ it("applies date filters, searches real event rows and expands their description
   fireEvent.click(screen.getByRole("button", { name: /Quiz completed/ }));
   expect(screen.getByText(/A student finishes a quiz/)).toBeTruthy();
 });
+
+it("displays saved peaks from the analytics report when realtime fails and highlights student pages over /other", async () => {
+  fetchMock.mockImplementation(async (url: string) => {
+    if (url.includes("health")) return Response.json(health);
+    if (url.includes("realtime"))
+      return new Response("<html>502 Bad Gateway</html>", {
+        status: 502,
+        headers: { "content-type": "text/html" },
+      });
+    return Response.json({
+      ...report,
+      activeUsers: 5,
+      events: [{ label: "page_view", count: 94 }],
+      pages: [
+        { label: "/other", count: 36 },
+        { label: "/admin/analytics", count: 30 },
+        { label: "/advising_new", count: 28 },
+      ],
+      peaks: {
+        concurrent: 4,
+        concurrentAt: "2026-10-19T15:00:00Z",
+        daily: 3,
+        dailyDate: "20261015",
+        since: "2026-10-15T00:00:00Z",
+      },
+    });
+  });
+  render(<AnalyticsDashboard />);
+  await screen.findByText("Advising leads the activity.");
+  await screen.findByText(
+    /Realtime users unavailable: The report endpoint returned a web page instead of data \(HTTP 502\)/,
+  );
+  expect(screen.getByText("4")).toBeTruthy();
+  expect(screen.getByText("3")).toBeTruthy();
+  expect(screen.queryByText("No saved peak available")).toBeNull();
+});

@@ -233,6 +233,11 @@ it("uses GA4's distinct active user total instead of adding daily users", async 
   expect(report.activeUsers).toBe(15);
   expect(report.dailyUsers).toHaveLength(2);
   expect(report.dailyPageViews[0].count).toBe(8);
+  expect(report.peaks).toEqual({
+    concurrent: 9,
+    daily: 25,
+    since: "2026-01-01",
+  });
   expect(reportingMocks.saveUserCounts).toHaveBeenCalledWith(
     "123",
     null,
@@ -287,6 +292,9 @@ it("distinguishes empty realtime data, broken reports, and unavailable persisten
   for (const response of [
     {},
     {
+      rows: [{ metricValues: [{ value: "1" }] }],
+    },
+    {
       metricHeaders: [{ name: "activeUsers" }],
       rows: [{ metricValues: [{ value: "-1" }] }],
     },
@@ -294,8 +302,8 @@ it("distinguishes empty realtime data, broken reports, and unavailable persisten
     reportingMocks.runRealtimeReport.mockResolvedValueOnce({ data: response });
     await expect(getRealtimeReport()).rejects.toMatchObject({ status: 502 });
   }
-  reportingMocks.runRealtimeReport.mockResolvedValue({
-    data: { metricHeaders: [{ name: "activeUsers" }], rows: [] },
+  reportingMocks.runRealtimeReport.mockResolvedValueOnce({
+    data: { kind: "analyticsData#runRealtimeReport" },
   });
   reportingMocks.saveUserCounts.mockRejectedValue(new Error("storage offline"));
   expect(await getRealtimeReport()).toMatchObject({
