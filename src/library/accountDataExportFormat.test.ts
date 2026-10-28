@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountExportFilename, encodeAccountExportValue, objectArchivePath } from "./accountDataExportFormat";
+import { accountExportFilename, decodeAccountExportValue, encodeAccountExportValue, objectArchivePath } from "./accountDataExportFormat";
 import { shouldIncludeFirebaseData } from "./accountDataExport";
 
 describe("account data export formatting", () => {
@@ -30,5 +30,35 @@ describe("account data export formatting", () => {
     expect(shouldIncludeFirebaseData(undefined)).toBe(true);
     expect(shouldIncludeFirebaseData("FALSE")).toBe(false);
     expect(shouldIncludeFirebaseData("true")).toBe(true);
+  });
+});
+
+describe("decodeAccountExportValue", () => {
+  const factories = {
+    geopoint: (latitude: number, longitude: number) => ({ geo: [latitude, longitude] }),
+    reference: (path: string) => (path.startsWith("users/me/") ? { ref: path } : null),
+  };
+
+  it("reverses the export encoding", () => {
+    const date = new Date("2026-10-01T12:00:00.000Z");
+    const encoded = encodeAccountExportValue({ when: date, bytes: Buffer.from("hi"), list: [1, "a", null] });
+    expect(decodeAccountExportValue(encoded, factories)).toEqual({ when: date, bytes: Buffer.from("hi"), list: [1, "a", null] });
+  });
+
+  it("only rebuilds references into the importing account", () => {
+    const value = {
+      mine: { __catalystExportType: "reference", path: "users/me/enrollment/a" },
+      theirs: { __catalystExportType: "reference", path: "users/other/enrollment/a" },
+      place: { __catalystExportType: "geopoint", latitude: 1, longitude: 2 },
+    };
+    expect(decodeAccountExportValue(value, factories)).toEqual({
+      mine: { ref: "users/me/enrollment/a" },
+      theirs: "users/other/enrollment/a",
+      place: { geo: [1, 2] },
+    });
+  });
+
+  it("drops an invalid timestamp instead of storing a broken date", () => {
+    expect(decodeAccountExportValue({ __catalystExportType: "timestamp", value: "not a date" }, factories)).toBeNull();
   });
 });
