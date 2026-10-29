@@ -1460,7 +1460,20 @@ export default function Settings() {
                 {dataExportMessage && <p role="status" className="text-xs text-alert-success">{dataExportMessage}</p>}
             </section>
 
-            <footer className="mt-8 mb-10 w-[94%] sm:w-3/4 self-center border-t border-border-light pt-4 text-center text-xs text-text-muted">
+            {/* Sign Out */}
+            <header className="mt-5 relative flex w-[94%] sm:w-3/4 self-center
+                shrink-0 items-center justify-between border-b border-border-light
+                px-6">
+            </header>
+
+            <button
+                onClick={handleSignOut}
+                className="mt-2 flex w-[94%] sm:w-3/4 self-center text-sm py-3 px-2
+                    bg-bg-main text-alert-error rounded hover:bg-bg-warm" >
+                Sign Out
+            </button>
+
+            <footer className="mt-2 mb-10 w-[94%] sm:w-3/4 self-center border-t border-border-light pt-4 text-center text-xs text-text-muted">
                 <nav aria-label="Legal" className="flex flex-wrap justify-center gap-x-4 gap-y-1">
                     <Link href="/legal/terms" className="hover:text-text-main hover:underline">Terms of Service</Link>
                     <Link href="/legal/privacy" className="hover:text-text-main hover:underline">Privacy Policy</Link>
@@ -1547,18 +1560,6 @@ export default function Settings() {
                 </div>
             )}
 
-            {/* Sign Out */}
-            <header className="mt-5 relative flex w-[94%] sm:w-3/4 self-center
-                shrink-0 items-center justify-between border-b border-border-light
-                px-6">
-            </header>
-
-            <button
-                onClick={handleSignOut}
-                className="mt-2 flex w-[94%] sm:w-3/4 self-center text-sm py-3 px-2
-                    bg-bg-main text-alert-error rounded hover:bg-bg-warm" >
-                Sign Out
-            </button>
 
 
         </section>

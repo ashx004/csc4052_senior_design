@@ -395,9 +395,9 @@ export default function Profile() {
         </h1>
       </header>
 
-      <main className="flex flex-1 flex-col overflow-y-auto px-10 py-10">
+      <main className="flex flex-1 flex-col overflow-y-auto py-10">
         {/* University picker */}
-        <section className="w-full xl:w-1/2" data-tutorial="profile-university">
+        <section className="w-[94%] sm:w-3/4 self-center" data-tutorial="profile-university">
           <h2 className="text-lg font-semibold">Your university</h2>
           <p className="mt-1 text-sm text-text-muted">
             Used to personalize Advising&apos;s course recommendations. We
@@ -471,7 +471,7 @@ export default function Profile() {
         </section>
 
         {/* Catalyst learning summary */}
-        <section className="mt-10 w-full xl:w-1/2" data-tutorial="profile-learned">
+        <section className="mt-10 w-[94%] sm:w-3/4 self-center" data-tutorial="profile-learned">
           <h2 className="text-lg font-semibold text-text-main">
             What Catalyst has learned about you
           </h2>
@@ -548,7 +548,7 @@ export default function Profile() {
         </section>
 
         {/* Editable personal information */}
-        <section className="mt-10 w-full xl:w-1/2" data-tutorial="profile-personal">
+        <section className="mt-10 w-[94%] sm:w-3/4 self-center" data-tutorial="profile-personal">
           <div className="mb-5 flex items-center justify-between">
             <h2 className="text-lg font-semibold">Personal Information</h2>
 
@@ -659,7 +659,7 @@ export default function Profile() {
         </section>
 
         {/* Current classes */}
-        <section className="mt-10">
+        <section className="mt-10 w-[94%] sm:w-3/4 self-center">
           <button
             type="button"
             onClick={() => setShowClasses((currentValue) => !currentValue)}
@@ -704,7 +704,7 @@ export default function Profile() {
             classes so this page (and, via chatContext.ts, the AI) never
             represents a finished class as one the student is still taking. */}
         {!enrollmentsLoading && completedEnrollments.length > 0 && (
-          <section className="mt-10">
+          <section className="mt-10 w-[94%] sm:w-3/4 self-center">
             <button
               type="button"
               onClick={() => setShowCompletedClasses((currentValue) => !currentValue)}
