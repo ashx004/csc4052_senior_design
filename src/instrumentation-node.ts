@@ -18,7 +18,8 @@ process.on("unhandledRejection", (reason) => {
   );
 });
 
-const MONITOR_POLL_MS = 60_000;
+const HEARTBEAT_POLL_MS = 60_000;
+const REALTIME_WARM_MS = 5 * 60_000;
 const ANALYTICS_WARM_MS = 15 * 60_000;
 
 if (
@@ -26,28 +27,31 @@ if (
   process.env.NEXT_PHASE !== "phase-production-build"
 ) {
   let running = false;
+  let lastRealtimeAt = 0;
   let lastAnalyticsAt = 0;
 
   const tick = async () => {
     if (running) return;
     running = true;
     try {
-      const [{ getHealthReport }, { getRealtimeReport, getAnalyticsReport }, { deleteExpiredMonitoringData, recordWorkerHeartbeat }] =
+      const [{ getRealtimeReport, getAnalyticsReport }, { deleteExpiredMonitoringData, recordWorkerHeartbeat }] =
         await Promise.all([
-          import("./library/monitoring/health"),
           import("./library/analyticsReports"),
           import("./library/monitoring/store"),
         ]);
       await recordWorkerHeartbeat().catch(() => null);
       const now = Date.now();
-      const tasks: Promise<unknown>[] = [
-        getHealthReport(),
-        getRealtimeReport().catch(() => null),
-        deleteExpiredMonitoringData(process.env.GA4_PROPERTY_ID),
-      ];
+      const tasks: Promise<unknown>[] = [];
+      if (now - lastRealtimeAt >= REALTIME_WARM_MS) {
+        lastRealtimeAt = now;
+        tasks.push(getRealtimeReport().catch(() => null));
+      }
       if (now - lastAnalyticsAt >= ANALYTICS_WARM_MS) {
         lastAnalyticsAt = now;
-        tasks.push(getAnalyticsReport("7days", "").catch(() => null));
+        tasks.push(
+          getAnalyticsReport("7days", "").catch(() => null),
+          deleteExpiredMonitoringData(process.env.GA4_PROPERTY_ID).catch(() => null),
+        );
       }
       await Promise.allSettled(tasks);
     } catch {
@@ -64,6 +68,6 @@ if (
 
   const intervalTimer = setInterval(() => {
     void tick();
-  }, MONITOR_POLL_MS);
+  }, HEARTBEAT_POLL_MS);
   intervalTimer.unref?.();
 }
