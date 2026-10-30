@@ -55,7 +55,8 @@ function interruptionDuration(
 export function AnalyticsHealth({ report }: { report: HealthReport }) {
   const workerRecent =
     report.workerLastSeen &&
-    Date.parse(report.checkedAt) - Date.parse(report.workerLastSeen) < 180_000;
+    Date.parse(report.checkedAt) - Date.parse(report.workerLastSeen) <
+      20 * 60_000;
   return (
     <div className="space-y-6">
       {!workerRecent && (

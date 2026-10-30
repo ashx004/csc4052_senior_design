@@ -6,9 +6,23 @@ const INCIDENT_CACHE_TTL_MS = 10 * 60_000;
 const HEARTBEAT_WRITE_INTERVAL_MS = 15 * 60_000;
 const RETENTION_SWEEP_INTERVAL_MS = 6 * 3600_000;
 
+type MonitoringGlobalState = {
+  lastWorkerHeartbeatIso?: string | null;
+  lastWorkerHeartbeatWriteAt?: number;
+};
+
+const globalMonitoring = globalThis as typeof globalThis & {
+  __catalystMonitoringState?: MonitoringGlobalState;
+};
+
+function getGlobalState(): MonitoringGlobalState {
+  if (!globalMonitoring.__catalystMonitoringState) {
+    globalMonitoring.__catalystMonitoringState = {};
+  }
+  return globalMonitoring.__catalystMonitoringState;
+}
+
 let incidentCache: { expiresAt: number; incidents: Incident[] } | null = null;
-let lastWorkerHeartbeatIso: string | null = null;
-let lastWorkerHeartbeatWriteAt = 0;
 let lastRetentionSweepAt = 0;
 
 export async function saveServiceStatus(status: ServiceStatus) {
@@ -114,22 +128,23 @@ export async function readIncidentHistory(): Promise<Incident[]> {
 
 export async function recordWorkerHeartbeat() {
   const now = Date.now();
-  lastWorkerHeartbeatIso = new Date(now).toISOString();
-  if (now - lastWorkerHeartbeatWriteAt < HEARTBEAT_WRITE_INTERVAL_MS) return;
-  lastWorkerHeartbeatWriteAt = now;
+  const state = getGlobalState();
+  state.lastWorkerHeartbeatIso = new Date(now).toISOString();
+  if (now - (state.lastWorkerHeartbeatWriteAt ?? 0) < HEARTBEAT_WRITE_INTERVAL_MS) {
+    return;
+  }
+  state.lastWorkerHeartbeatWriteAt = now;
   const { adminDb } = await import("../firebaseAdmin");
   await adminDb
     .collection("adminMonitoring")
     .doc("worker")
-    .set({ lastSeen: lastWorkerHeartbeatIso });
+    .set({ lastSeen: state.lastWorkerHeartbeatIso });
 }
 
 export async function readWorkerHeartbeat(): Promise<string | null> {
-  if (
-    lastWorkerHeartbeatIso &&
-    Date.now() - Date.parse(lastWorkerHeartbeatIso) < 180_000
-  ) {
-    return lastWorkerHeartbeatIso;
+  const inMemory = getGlobalState().lastWorkerHeartbeatIso ?? null;
+  if (inMemory && Date.now() - Date.parse(inMemory) < 180_000) {
+    return inMemory;
   }
   try {
     const { adminDb } = await import("../firebaseAdmin");
@@ -137,9 +152,9 @@ export async function readWorkerHeartbeat(): Promise<string | null> {
       .collection("adminMonitoring")
       .doc("worker")
       .get();
-    return snapshot.data()?.lastSeen ?? lastWorkerHeartbeatIso;
+    return snapshot.data()?.lastSeen ?? inMemory;
   } catch (error) {
-    if (lastWorkerHeartbeatIso) return lastWorkerHeartbeatIso;
+    if (inMemory) return inMemory;
     throw error;
   }
 }
