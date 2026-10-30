@@ -190,6 +190,29 @@ it("returns a page-level count and average load time", async () => {
   });
 });
 
+it("still returns core analytics when the optional page_load custom metric is not registered in GA4", async () => {
+  reportingMocks.batchRunReports.mockResolvedValueOnce({
+    data: {
+      reports: [
+        { rows: [{ dimensionValues: [{ value: "/dashboard" }], metricValues: [{ value: "12" }] }] },
+        { rows: [{ dimensionValues: [{ value: "page_view" }], metricValues: [{ value: "12" }] }] },
+        { rows: [] },
+        { rows: [{ metricValues: [{ value: "5" }] }] },
+        { rows: [] },
+      ],
+    },
+  });
+  reportingMocks.runReport.mockRejectedValueOnce({
+    response: { status: 400 },
+    message: "Field averageCustomEvent:load_time_ms is not a valid metric.",
+  });
+  const { getAnalyticsReport } = await import("./analyticsReports");
+  const report = await getAnalyticsReport("2026-01-01", "2026-01-05");
+  expect(report.activeUsers).toBe(5);
+  expect(report.pages).toEqual([{ label: "/dashboard", count: 12 }]);
+  expect(report.pagePerformance).toEqual([]);
+});
+
 it("rejects reversed, future, and oversized date ranges before Google is called", async () => {
   const { getAnalyticsReport } = await import("./analyticsReports");
   for (const [start, end] of [
