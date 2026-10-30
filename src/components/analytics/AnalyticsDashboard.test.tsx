@@ -78,6 +78,34 @@ it("renders true empty analytics separately from missing peaks and failed health
   ).toBeNull();
 });
 
+it("still has a route out when AnalyticsDashboard no longer carries the tab", async () => {
+  render(<AnalyticsDashboard />);
+  await screen.findByText("No recorded activity for this period.");
+  expect(screen.queryByRole("button", { name: "AI performance" })).toBeNull();
+  const link = screen.getByRole("link", { name: /AI performance/ });
+  expect(link.getAttribute("href")).toBe("/admin/analytics/ai?days=7");
+  // The AI data is read only when an admin opens the AI pages.
+  expect(fetchMock.mock.calls.some(([url]) => String(url).includes("ai-usage"))).toBe(false);
+});
+
+it("carries a preset window to the AI pages and says a custom range is not carried", async () => {
+  render(<AnalyticsDashboard />);
+  await screen.findByText("No recorded activity for this period.");
+  fireEvent.change(screen.getByLabelText("Date range"), { target: { value: "30days" } });
+  fireEvent.click(screen.getByRole("button", { name: "Apply / refresh" }));
+  await waitFor(() =>
+    expect(screen.getByRole("link", { name: /AI performance/ }).getAttribute("href")).toBe("/admin/analytics/ai?days=30"),
+  );
+  expect(screen.queryByText(/Custom dates aren.t supported/)).toBeNull();
+
+  fireEvent.change(screen.getByLabelText("Date range"), { target: { value: "custom" } });
+  fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-10-01" } });
+  fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2026-10-05" } });
+  fireEvent.click(screen.getByRole("button", { name: "Apply / refresh" }));
+  await screen.findByText(/Custom dates aren.t supported on the AI pages; the link opens the last 7 days\./);
+  expect(screen.getByRole("link", { name: /AI performance/ }).getAttribute("href")).toBe("/admin/analytics/ai?days=7");
+});
+
 it("lets admins inspect service health when GA4 is unavailable", async () => {
   fetchMock.mockImplementation(async (url: string) =>
     url.includes("health")

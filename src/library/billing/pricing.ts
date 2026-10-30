@@ -72,13 +72,47 @@ export function holdFor(models: string[], inputTokens: number, maxOutputTokens: 
 // What the billing page shows before a student starts a task. From the
 // benchmark (scripts/cloud-benchmark-results.md) with real-chat context
 // added, rounded up and fee included. Replace with dry-run averages once
-// `npm run billing:report` has a few days of data.
+// `npm run billing:report` has a few days of data. Rows listed in
+// TASK_FEATURES are replaced by measured medians when enough data exists.
 export const TASK_ESTIMATES: { task: string; typicalUsd: number; note?: string }[] = [
-  { task: "Chat message", typicalUsd: 0.001, note: "more with documents, web search or Thorough speed" },
-  { task: "Quiz (10 questions)", typicalUsd: 0.003 },
-  { task: "Flashcard set", typicalUsd: 0.002 },
-  { task: "Practice problems", typicalUsd: 0.003 },
+  { task: "Chat message", typicalUsd: 0.001, note: "typical message; long documents, web search or Thorough speed cost more" },
+  { task: "Quiz (10 questions)", typicalUsd: 0.003, note: "per document; a set built from several notes costs this for each" },
+  { task: "Flashcard set", typicalUsd: 0.002, note: "per document; a set built from several notes costs this for each" },
+  { task: "Practice problems", typicalUsd: 0.003, note: "per document; a set built from several notes costs this for each" },
   { task: "Handwritten page (OCR)", typicalUsd: 0.002 },
   { task: "Uploading a document for search", typicalUsd: 0.002, note: "per 20 pages" },
   { task: "Advising schedule", typicalUsd: 0.01 },
 ];
+
+// Task name -> the X-Catalyst-Feature id that bills ONE such task. A wrong id
+// fails silently (the row keeps its estimate), so each was checked at its call site:
+//   chat: src/app/api/chat/route.ts (header literal "chat")
+//   quiz/flashcard/practice-generation: src/library/structuredGeneration.ts:29
+//   ocr: src/library/ocrClient.ts:78
+//   advising-generate-schedule: src/library/advisingOllama.ts:2018
+// "Uploading a document for search" is NOT mapped: contextual-chunking is billed
+// once per chunk, so its per-request median is not a per-20-pages figure.
+export const TASK_FEATURES: Record<string, string> = {
+  "Chat message": "chat",
+  "Quiz (10 questions)": "quiz-generation",
+  "Flashcard set": "flashcard-generation",
+  "Practice problems": "practice-generation",
+  "Handwritten page (OCR)": "ocr",
+  "Advising schedule": "advising-generate-schedule",
+};
+
+const MIN_MEASURED_MICROS = 100;
+
+/** The hardcoded list with typicalUsd swapped for the measured median (in micros) wherever the map has that task's feature. */
+export function measuredEstimates(
+  hardcoded: typeof TASK_ESTIMATES,
+  medianMicrosByFeature: Map<string, number>,
+): typeof TASK_ESTIMATES {
+  return hardcoded.map((entry) => {
+    const feature = TASK_FEATURES[entry.task];
+    const micros = feature ? medianMicrosByFeature.get(feature) : undefined;
+    // Under 100 micros the page would print "$0.0000" (and "1,000,000 per $1"), so keep the honest estimate.
+    if (micros === undefined || !Number.isFinite(micros) || micros < MIN_MEASURED_MICROS) return entry;
+    return { ...entry, typicalUsd: micros / 1_000_000 };
+  });
+}

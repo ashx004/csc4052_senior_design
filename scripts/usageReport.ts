@@ -40,7 +40,7 @@ async function main() {
   const { adminDb } = await import("../src/library/firebaseAdmin");
   const since = new Date(Date.now() - days * 86_400_000);
   const snap = await adminDb.collection("aiUsage").where("at", ">=", since).orderBy("at").get();
-  const rows: (UsageRow & { id: string })[] = snap.docs.map((doc) => {
+  const rows: (UsageRow & { id: string })[] = snap.docs.filter((doc) => doc.data().status !== "error").map((doc) => {
     const d = doc.data();
     return {
       id: doc.id,
@@ -52,7 +52,7 @@ async function main() {
       costMicros: Number(d.costMicros ?? 0),
       costSource: String(d.costSource),
       requestId: d.requestId ?? null,
-      incomplete: Boolean(d.incomplete),
+      incomplete: d.status === "incomplete" || Boolean(d.incomplete), // rows before the status field carry the old boolean
       at: d.at?.toDate?.() ?? new Date(0),
     };
   });
@@ -68,7 +68,7 @@ async function main() {
       row.outputTokens = Number(gen.native_tokens_completion ?? row.outputTokens);
       row.costSource = "provider-lookup";
       row.incomplete = false;
-      await adminDb.collection("aiUsage").doc(row.id).update({ costMicros: row.costMicros, inputTokens: row.inputTokens, outputTokens: row.outputTokens, costSource: row.costSource, incomplete: false, resolvedAt: new Date() });
+      await adminDb.collection("aiUsage").doc(row.id).update({ costMicros: row.costMicros, inputTokens: row.inputTokens, outputTokens: row.outputTokens, costSource: row.costSource, status: "ok", incomplete: false, resolvedAt: new Date() });
     }
   }
 

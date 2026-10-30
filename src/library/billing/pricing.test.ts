@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { chargeForCost, estimateInputTokens, holdFor } from "./pricing";
+import { TASK_ESTIMATES, TASK_FEATURES, chargeForCost, estimateInputTokens, holdFor, measuredEstimates } from "./pricing";
 
 afterEach(() => { delete process.env.BILLING_OPENROUTER_FEE; });
 
@@ -29,5 +29,28 @@ describe("pricing", () => {
   it("estimates input high, counting images", () => {
     expect(estimateInputTokens({ messages: [{ content: "x".repeat(300) }] })).toBe(100);
     expect(estimateInputTokens({ messages: [{ content: "", images: ["a", "b"] }] })).toBe(6000);
+  });
+});
+
+describe("measuredEstimates", () => {
+  it("uses the measured median where there is enough data", () => {
+    const out = measuredEstimates(TASK_ESTIMATES, new Map([["quiz-generation", 4200]]));
+    expect(out.find((e) => e.task === "Quiz (10 questions)")!.typicalUsd).toBeCloseTo(0.0042);
+    expect(out.find((e) => e.task === "Chat message")).toEqual(TASK_ESTIMATES[0]);
+  });
+
+  it("keeps the hardcoded estimate for a feature with no data, or a zero median", () => {
+    expect(measuredEstimates(TASK_ESTIMATES, new Map())).toEqual(TASK_ESTIMATES);
+    expect(measuredEstimates(TASK_ESTIMATES, new Map([["chat", 0]]))).toEqual(TASK_ESTIMATES);
+  });
+
+  it("keeps the estimate when the median would print as $0.0000", () => {
+    expect(measuredEstimates(TASK_ESTIMATES, new Map([["chat", 99]]))).toEqual(TASK_ESTIMATES);
+    expect(measuredEstimates(TASK_ESTIMATES, new Map([["chat", 100]]))[0].typicalUsd).toBeCloseTo(0.0001);
+  });
+
+  it("only maps tasks that exist in the table", () => {
+    const tasks = TASK_ESTIMATES.map((e) => e.task);
+    for (const task of Object.keys(TASK_FEATURES)) expect(tasks).toContain(task);
   });
 });

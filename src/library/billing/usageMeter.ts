@@ -51,7 +51,14 @@ export function usageRecord(event: UsageEvent, chargeMicros: number, charged: bo
     rateId: event.rateId ?? null,
     requestId: event.requestId ?? null,
     fallback: event.fallback,
-    incomplete: event.incomplete ?? false,
+    status: event.status,
+    durationMs: event.timings.durationMs,
+    waitMs: event.timings.waitMs,
+    genMs: event.timings.genMs,
+    overheadMs: event.timings.overheadMs,
+    deliverMs: event.timings.deliverMs,
+    httpStatus: event.httpStatus ?? null,
+    errorKind: event.errorKind ?? null,
     charged,
   };
 }
@@ -79,10 +86,10 @@ async function lookUpOpenRouterCost(requestId: string): Promise<{ costMicros: nu
 
 /** Fills in the real cost of a request whose stream ended early, when the provider can tell us. */
 async function resolveCost(event: UsageEvent): Promise<UsageEvent & { known: boolean }> {
-  if (!event.incomplete && event.costSource !== "unknown") return { ...event, known: true };
+  if (event.status !== "incomplete" && event.costSource !== "unknown") return { ...event, known: true };
   if (event.requestId && event.model.startsWith("openrouter:")) {
     const found = await lookUpOpenRouterCost(event.requestId);
-    if (found) return { ...event, ...found, costSource: "provider", incomplete: false, known: true };
+    if (found) return { ...event, ...found, costSource: "provider", status: "ok", known: true };
   }
   return { ...event, known: false };
 }
@@ -101,8 +108,21 @@ async function writeUsage(db: Firestore, record: ReturnType<typeof usageRecord>)
   }
 }
 
+// A failed request is unbilled but still leaves a row, so error rates are visible.
+async function recordFailure(db: Firestore, mode: BillingMode, event?: UsageEvent) {
+  if (!event || mode === "off") return;
+  logLine(event);
+  await writeUsage(db, usageRecord({ ...event, status: "error", inputTokens: 0, outputTokens: 0, costMicros: 0 }, 0, false));
+}
+
 export function createMeter(db: Firestore = adminDb): Meter {
   return {
+    // Local AI is free: a row for the dashboard only. No hold, no wallet, no charge.
+    async record(event) {
+      if (billingMode() === "off") return;
+      logLine(event);
+      await writeUsage(db, usageRecord({ ...event, inputTokens: 0, outputTokens: 0, costMicros: 0 }, 0, false));
+    },
     async start({ uid, feature, holdMicros }): Promise<MeterSession> {
       const mode = billingMode();
 
@@ -114,7 +134,7 @@ export function createMeter(db: Firestore = adminDb): Meter {
             const resolved = await resolveCost(event);
             await writeUsage(db, usageRecord(resolved, chargeForCost(resolved.costMicros, resolved.model), false));
           },
-          async abandon() {},
+          async abandon(event) { await recordFailure(db, mode, event); },
         };
       }
 
@@ -136,7 +156,7 @@ export function createMeter(db: Firestore = adminDb): Meter {
             }
             await writeUsage(db, usageRecord(resolved, chargeMicros, true));
           },
-          async abandon() {},
+          async abandon(event) { await recordFailure(db, mode, event); },
         };
       }
 
@@ -164,12 +184,13 @@ export function createMeter(db: Firestore = adminDb): Meter {
           }
           await writeUsage(db, usageRecord(resolved, chargeMicros, true));
         },
-        async abandon() {
+        async abandon(event) {
           try {
             await releaseCredit(uid, holdId, feature, db);
           } catch (error) {
             console.error("[billing] could not release hold", holdId, error instanceof Error ? error.message : error);
           }
+          await recordFailure(db, mode, event);
         },
       };
     },

@@ -3,7 +3,7 @@ import { verifyRequestAuth } from "@/src/library/verifyAuth";
 import { getWallet, recentLedger, sweepStaleHolds } from "@/src/library/billing/wallet";
 import { MAX_BALANCE_MICROS, MIN_TOPUP_MICROS, creditForPayment, usdToMicros } from "@/src/library/billing/money";
 import { TOP_UP_OPTIONS_USD } from "@/src/library/billing/stripe";
-import { TASK_ESTIMATES } from "@/src/library/billing/pricing";
+import { currentEstimates } from "@/src/library/billing/estimatesCache";
 import { MIN_CREDIT_TO_START_MICROS } from "@/src/library/billing/creditGate";
 import { billingMode } from "@/src/library/billing/usageMeter";
 import { enterAiUser } from "@/src/library/ai/usageScope";
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
       const creditMicros = creditForPayment(usdToMicros(usd));
       return { usd, creditMicros, fits: wallet.balanceMicros + creditMicros <= MAX_BALANCE_MICROS };
     }),
-    estimates: TASK_ESTIMATES,
+    estimates: currentEstimates(),
     ...(includeHistory ? { history: await recentLedger(auth.uid, 200) } : {}),
   });
 }
