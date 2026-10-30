@@ -50,6 +50,16 @@ async function claimNextJob(): Promise<{ id: string; data: DocumentJob; attempts
     .get();
 
   for (const candidate of candidates.docs) {
+    const candidateData = candidate.data() as DocumentJob;
+    const candidateStatus = candidate.data()?.status;
+    const eligibleQueued =
+      candidateStatus === JOB_STATUS.pending &&
+      isReadyToRun(candidateData.nextAttemptAt);
+    const eligibleReclaim =
+      candidateStatus === JOB_STATUS.inProgress &&
+      hasExpiredLease(candidateData.leaseExpiresAt);
+    if (!eligibleQueued && !eligibleReclaim) continue;
+
     const claimed = await adminDb.runTransaction(async (transaction) => {
       const fresh = await transaction.get(candidate.ref);
       if (!fresh.exists) return null;
