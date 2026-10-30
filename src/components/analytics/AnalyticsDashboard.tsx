@@ -1,8 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type FormEvent } from "react";
-import { Download, ExternalLink, RefreshCw } from "lucide-react";
-import type { PerformanceReport } from "@/src/library/billing/aiPerformance";
+import { ArrowRight, Download, ExternalLink, RefreshCw } from "lucide-react";
 import type { AnalyticsReport } from "@/src/library/analyticsReportContract";
 import type {
   HealthReport,
@@ -12,7 +12,6 @@ import { useAdminReport } from "@/src/hooks/useAdminReport";
 import { AnalyticsEvents } from "./AnalyticsEvents";
 import { Metric, Notice } from "./dashboardShared";
 import { AnalyticsHealth, HealthSummary } from "./AnalyticsHealth";
-import { AnalyticsPerformance } from "./AnalyticsPerformance";
 import { AnalyticsOverview } from "./AnalyticsOverview";
 import {
   buttonClass,
@@ -48,12 +47,8 @@ export default function AnalyticsDashboard({
     refresh,
     true,
   );
-  const performanceDays = windowDays(query);
+  const aiDays = windowDays(query);
   const customApplied = new URLSearchParams(query).has("end");
-  const performance = useAdminReport<PerformanceReport>(
-    `/api/admin/ai-usage?days=${performanceDays}`,
-    refresh,
-  );
   const report = analytics.data;
   const live = realtime.data;
   const eventCount = (name: string) =>
@@ -170,41 +165,38 @@ export default function AnalyticsDashboard({
         {health.error && (
           <Notice error>Service status unavailable: {health.error}</Notice>
         )}
-        <div
-          className="flex gap-6 overflow-x-auto border-b border-border-light"
-          aria-label="Analytics views"
-        >
-          {["Overview", "Event explorer", "Service health", "AI performance"].map((name) => (
-            <button
-              key={name}
-              aria-pressed={tab === name}
-              onClick={() => setTab(name)}
-              className={`whitespace-nowrap border-b-2 pb-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${tab === name ? "border-primary font-semibold text-primary" : "border-transparent text-text-muted"}`}
-            >
-              {name}
-            </button>
-          ))}
-        </div>
-        {tab === "AI performance" ? (
-          <>
-            {performance.loading && !performance.data && (
-              <Notice>Loading AI performance…</Notice>
-            )}
+        <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2 border-b border-border-light">
+          <div
+            className="flex gap-6 overflow-x-auto"
+            aria-label="Analytics views"
+          >
+            {["Overview", "Event explorer", "Service health"].map((name) => (
+              <button
+                key={name}
+                aria-pressed={tab === name}
+                onClick={() => setTab(name)}
+                className={`whitespace-nowrap border-b-2 pb-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${tab === name ? "border-primary font-semibold text-primary" : "border-transparent text-text-muted"}`}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-3 pb-3">
             {customApplied && (
-              <Notice>
-                Custom dates aren&apos;t supported here; showing the last 7
-                days.
-              </Notice>
+              <span className="text-xs text-text-muted">
+                Custom dates aren&apos;t supported on the AI pages; the link
+                opens the last 7 days.
+              </span>
             )}
-            {performance.error && <Notice error>{performance.error}</Notice>}
-            {performance.data && (
-              <AnalyticsPerformance
-                report={performance.data}
-                days={performanceDays}
-              />
-            )}
-          </>
-        ) : tab === "Service health" ? (
+            <Link
+              href={`/admin/analytics/ai?days=${aiDays}`}
+              className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              AI performance <ArrowRight aria-hidden size={15} />
+            </Link>
+          </div>
+        </div>
+        {tab === "Service health" ? (
           <>
             {health.loading && !health.data && (
               <Notice>Checking services…</Notice>

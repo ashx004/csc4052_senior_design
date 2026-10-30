@@ -384,7 +384,7 @@ function LaunchCard({ kind, onClick }: { kind: StudyKind; onClick: () => void })
         </button>
       </div>
       <Image
-        src={quiz ? '/illustrations/study/quiz-reader.png' : '/illustrations/study/flashcard-student.png'}
+        src={quiz ? '/illustrations/study/quiz-reader.webp' : '/illustrations/study/flashcard-student.webp'}
         alt=""
         width={420}
         height={420}

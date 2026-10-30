@@ -1,5 +1,28 @@
 import { expect, it } from "vitest";
-import { windowDays } from "./dashboardUtils";
+import { aiFeatureView, aiWindowDays, windowDays } from "./dashboardUtils";
+
+it("reads a drill-down page's ?view=, falling back to slow when it is missing or unrecognised", () => {
+  expect(aiFeatureView("slow")).toBe("slow");
+  expect(aiFeatureView("cost")).toBe("cost");
+  expect(aiFeatureView("fail")).toBe("fail");
+  expect(aiFeatureView(["fail", "cost"])).toBe("fail");
+  for (const raw of [undefined, "", "COST", "costs", "toString", []]) expect(aiFeatureView(raw), String(raw)).toBe("slow");
+});
+
+it("reads the AI pages' ?days=, clamped to 1..31", () => {
+  expect(aiWindowDays("14")).toBe(14);
+  expect(aiWindowDays("1")).toBe(1);
+  expect(aiWindowDays("90")).toBe(31);
+  expect(aiWindowDays("0")).toBe(1);
+});
+it("gives the AI pages 30 days when ?days= is absent or malformed", () => {
+  expect(aiWindowDays(undefined)).toBe(30);
+  expect(aiWindowDays("")).toBe(30);
+  expect(aiWindowDays("7.5")).toBe(30);
+  expect(aiWindowDays("-3")).toBe(30);
+  expect(aiWindowDays("abc")).toBe(30);
+  expect(aiWindowDays(["14", "30"])).toBe(14);
+});
 
 it("honours the Nd presets", () => {
   expect(windowDays("start=7days")).toBe(7);
