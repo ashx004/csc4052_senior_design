@@ -36,3 +36,26 @@ export function exportAnalytics(rows: ReportRow[], start: string, end: string) {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+/** Days for the AI performance window: only the "Nd" presets (1..31) are honoured. Custom ranges are not supported by the endpoint, so they get 7. */
+export function windowDays(query: string) {
+  const match = /^(\d+)days$/.exec(new URLSearchParams(query).get("start") ?? "");
+  const days = match ? Number(match[1]) : NaN;
+  return Number.isInteger(days) && days >= 1 && days <= 31 ? days : 7;
+}
+
+/** Days for the AI pages from their `?days=`: a whole number clamped to 1..31, else 30. A month opens on enough
+ * nightly summaries to show a trend, where a quiet week can be empty. */
+export function aiWindowDays(raw: string | string[] | undefined) {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (!value || !/^\d+$/.test(value)) return 30;
+  return Math.min(31, Math.max(1, Number(value)));
+}
+
+export type AiFeatureView = "slow" | "cost" | "fail";
+
+/** A drill-down page's `?view=`; anything missing or unrecognised is the slow view, so a hand-typed link still renders. */
+export function aiFeatureView(raw: string | string[] | undefined): AiFeatureView {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return value === "cost" || value === "fail" ? value : "slow";
+}
