@@ -1,10 +1,11 @@
 import "server-only";
 import { TASK_ESTIMATES, measuredEstimates } from "./pricing";
-import { medianCostByFeature } from "./aiPerformance";
-import { loadUsageRows } from "./aiUsageReports";
+import { medianChargeByFeature } from "./dailyRollup";
+import { dayKeysBack, readDays } from "./rollupStore";
 
 export const ESTIMATE_DAYS = 30;
-export const ESTIMATE_TTL_MS = 10 * 60 * 1000;
+/** Day documents change once a night, so hours of staleness cost nothing and save the read quota. */
+export const ESTIMATE_TTL_MS = 6 * 60 * 60 * 1000;
 export const ESTIMATE_FAILURE_TTL_MS = 60 * 1000;
 export const ESTIMATE_READ_TIMEOUT_MS = 20 * 1000;
 
@@ -18,8 +19,9 @@ function refresh(): void {
       // A hung Firestore call must not pin `inflight` for the instance's lifetime.
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("usage read timed out")), ESTIMATE_READ_TIMEOUT_MS); });
-      const { rows } = await Promise.race([loadUsageRows(ESTIMATE_DAYS), timeout]).finally(() => clearTimeout(timer));
-      cached = { expiresAt: Date.now() + ESTIMATE_TTL_MS, estimates: measuredEstimates(TASK_ESTIMATES, medianCostByFeature(rows)) };
+      // Day documents, never raw aiUsage rows: every page load can land here, and the read quota is 50,000 a day.
+      const { rollups } = await Promise.race([readDays(dayKeysBack(ESTIMATE_DAYS)), timeout]).finally(() => clearTimeout(timer));
+      cached = { expiresAt: Date.now() + ESTIMATE_TTL_MS, estimates: measuredEstimates(TASK_ESTIMATES, medianChargeByFeature(rollups)) };
     } catch (e) {
       console.error("Measured estimates failed; showing last known values:", e);
       // Keep whatever we last had (or the defaults) and wait a minute before retrying.

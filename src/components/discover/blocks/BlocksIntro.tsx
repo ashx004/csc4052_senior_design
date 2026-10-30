@@ -14,7 +14,7 @@ export default function BlocksIntro({ onStart }: BlocksIntroProps) {
     <div className="flex min-h-[60vh] flex-col items-center justify-center px-4 py-8 text-center">
       <div className="relative mb-8 h-[240px] w-full max-w-[620px] overflow-hidden rounded-2xl sm:h-[300px]">
         <img
-          src="/block_game.png"
+          src="/block_game.webp"
           alt="Blocks"
           className="absolute inset-0 h-full w-full scale-110 object-cover object-center"
         />

@@ -1,0 +1,50 @@
+name: AI usage rollup
+
+# Nightly: builds yesterday's UTC day of AI usage into aiUsageDaily/{day} and
+# refreshes the GCS snapshot the admin AI dashboard falls back to when
+# Firestore's daily read quota is spent. 08:20 UTC is 00:20 PST / 01:20 PDT,
+# after that quota's midnight-Pacific reset all year, so the build gets the freshest budget.
+# GitHub emails a failed scheduled run to whoever last edited this schedule.
+# Run it by hand with a day to backfill one that was missed.
+
+on:
+  schedule:
+    - cron: "20 8 * * *"
+  workflow_dispatch:
+    inputs:
+      day:
+        description: "UTC day to rebuild, YYYY-MM-DD (empty for yesterday)"
+        required: false
+        type: string
+
+permissions: {}
+
+jobs:
+  rollup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Build the day rollup
+        env:
+          ROLLUP_URL: ${{ vars.AI_ROLLUP_URL || 'https://catalyst.zonocsc.com/api/internal/ai-rollup' }}
+          INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
+          DAY: ${{ inputs.day }}
+        run: |
+          if [ -z "$INTERNAL_API_SECRET" ]; then
+            echo "::error::The INTERNAL_API_SECRET repository secret is not set."
+            exit 1
+          fi
+          url="$ROLLUP_URL"
+          if [ -n "$DAY" ]; then url="$url?day=$DAY"; fi
+          # A file, not stdout, so curl can truncate it on a retry and only the last response is kept.
+          body=$(mktemp)
+          # Retries ride out a deploy restart or one dropped request. --data "" sends an empty POST.
+          if curl -sS --fail-with-body --max-time 180 --retry 2 --retry-delay 60 --retry-all-errors \
+              -H "x-internal-secret: $INTERNAL_API_SECRET" --data "" -o "$body" "$url"; then
+            cat "$body"
+          else
+            # Not re-requested for the response: every request rebuilds the day and spends Firestore reads.
+            echo "::error::The AI usage rollup for ${DAY:-yesterday} failed at $ROLLUP_URL. Server response below; see the server logs for more."
+            cat "$body"
+            exit 1
+          fi

@@ -3,7 +3,7 @@
 import { useAuth } from "@/src/context/AuthContext";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {Home,Briefcase,Calendar,MessageSquare,Users,User,BookOpen, Notebook, BarChart3 } from "lucide-react";
+import {Home,Briefcase,Calendar,MessageSquare,Users,User,BookOpen, Notebook, BarChart3, Gauge } from "lucide-react";
 import Sidebar from "./Sidebar";
 
 const links = [
@@ -20,22 +20,26 @@ const links = [
 export default function GeneralSidebar() {
   const pathname = usePathname();
   const { isAdmin } = useAuth();
-  const analyticsLink = {
-    label: "Analytics",
-    href: "/admin/analytics",
-    icon: BarChart3,
-  };
+  const adminLinks = [
+    { label: "Analytics", href: "/admin/analytics", icon: BarChart3 },
+    { label: "AI performance", href: "/admin/analytics/ai", icon: Gauge },
+  ];
   const visibleLinks = [...links];
   if (isAdmin) {
-    visibleLinks.push(analyticsLink);
+    visibleLinks.push(...adminLinks);
   }
+
+  // A section stays highlighted on its sub-pages (Notes on /notes/ocr and /notes/<id>). The longest match wins, so
+  // /admin/analytics/ai lights up AI performance alone rather than Analytics as well.
+  const activeHref = visibleLinks.reduce((best, { href }) => (
+    (pathname === href || pathname.startsWith(`${href}/`)) && href.length > best.length ? href : best
+  ), "");
 
   return (
     <Sidebar>
       <ul className="flex flex-col gap-1" data-tutorial="sidebar-nav">
         {visibleLinks.map(({ label, href, icon: Icon }) => {
-          // A section stays highlighted on its sub-pages (Notes on /notes/ocr and /notes/<id>).
-          const isActive = pathname === href || pathname.startsWith(`${href}/`);
+          const isActive = href === activeHref;
 
           return (
             <li key={href}>

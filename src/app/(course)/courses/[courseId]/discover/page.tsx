@@ -213,7 +213,7 @@ export default function DiscoverPage() {
             </div>
             <div className="relative h-48 overflow-hidden md:h-auto md:min-h-[250px]">
               <img
-                src="/block_game.png"
+                src="/block_game.webp"
                 alt=""
                 className="absolute inset-0 h-full w-full scale-110 object-cover object-center"
               />

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { medianCostByFeature, percentile, summarizePerformance, type PerformanceRow } from "./aiPerformance";
+import { percentile, summarizePerformance, usageDocToRow, type PerformanceRow } from "./aiPerformance";
 
 const row = (o: Partial<PerformanceRow> = {}): PerformanceRow => ({
   feature: "chat", model: "openrouter:x", status: "ok" as PerformanceRow["status"],
@@ -72,30 +72,36 @@ describe("summarizePerformance", () => {
   });
 });
 
-describe("medianCostByFeature", () => {
-  it("ignores features below the minimum when taking median cost", () => {
-    const rows = [...Array.from({ length: 5 }, () => row({ feature: "ocr" })), ...Array.from({ length: 20 }, (_, i) => row({ costMicros: i }))];
-    const m = medianCostByFeature(rows, 20);
-    expect(m.has("ocr")).toBe(false);
-    expect(m.get("chat")).toBe(9.5);
+describe("usageDocToRow", () => {
+  it("reads the legacy boolean incomplete as a stopped stream unless a status is recorded", () => {
+    expect(usageDocToRow({ incomplete: true }).status).toBe("incomplete");
+    expect(usageDocToRow({ incomplete: false }).status).toBe("ok");
+    expect(usageDocToRow({ status: "error", incomplete: true }).status).toBe("error");
+    expect(usageDocToRow({ status: "weird" }).status).toBe("ok");
   });
-  it("leaves stopped streams out of the median", () => {
-    const rows = [...Array.from({ length: 20 }, () => row({ costMicros: 10 })), row({ status: "incomplete" as PerformanceRow["status"], costMicros: 1 })];
-    expect(medianCostByFeature(rows, 20).get("chat")).toBe(10);
-    expect(medianCostByFeature(rows.slice(0, 19).concat(rows[20]), 20).has("chat")).toBe(false);
+  it("marks a cost unknown unless both a source and a charge were recorded", () => {
+    expect(usageDocToRow({ costMicros: 100, chargeMicros: 106, costSource: "provider" })).toMatchObject({ costMicros: 100, chargeMicros: 106, costSource: "provider" });
+    expect(usageDocToRow({ costMicros: 100, costSource: "provider" }).costSource).toBe("unknown");
+    expect(usageDocToRow({ costMicros: 100, chargeMicros: 106 }).costSource).toBe("unknown");
   });
-  it("takes the median of what the student was charged, not provider cost", () => {
-    const rows = Array.from({ length: 20 }, () => row({ costMicros: 100, chargeMicros: 106 }));
-    expect(medianCostByFeature(rows, 20).get("chat")).toBe(106);
+  it("names an empty, missing or non-string feature or model 'unknown'", () => {
+    for (const bad of ["", undefined, 7, null]) {
+      expect(usageDocToRow({ feature: bad, model: bad })).toMatchObject({ feature: "unknown", model: "unknown" });
+    }
+    expect(usageDocToRow({ feature: "chat", model: "openrouter:a/b.c" })).toMatchObject({ feature: "chat", model: "openrouter:a/b.c" });
   });
-  it("skips rows whose cost was never resolved", () => {
-    const real = Array.from({ length: 20 }, () => row({ costMicros: 100, chargeMicros: 106 }));
-    const unknown = Array.from({ length: 30 }, () => row({ costMicros: 0, chargeMicros: 0, costSource: "unknown" }));
-    expect(medianCostByFeature([...real, ...unknown], 20).get("chat")).toBe(106);
-    expect(medianCostByFeature([...real.slice(0, 19), ...unknown], 20).has("chat")).toBe(false);
+  it("defaults a bare legacy document to an untimed, failure-free row and never copies uid", () => {
+    const row = usageDocToRow({ uid: "a1b2c3d4e5f6", at: { toDate: () => new Date(1000) } });
+    expect(row).toEqual({
+      feature: "unknown", model: "unknown", status: "ok",
+      durationMs: null, waitMs: null, genMs: null, overheadMs: 0, deliverMs: null,
+      inputTokens: 0, outputTokens: 0, costMicros: 0, chargeMicros: 0, costSource: "unknown",
+      at: new Date(1000), fallback: false, httpStatus: null, errorKind: null,
+    });
+    expect(usageDocToRow({}).at).toEqual(new Date(0));
   });
-  it("leaves local and error rows out of the threshold count", () => {
-    const rows = [...Array.from({ length: 10 }, () => row()), ...Array.from({ length: 10 }, () => row({ model: "ollama:x", costMicros: 500 })), row({ status: "error" as PerformanceRow["status"], costMicros: 500 })];
-    expect(medianCostByFeature(rows, 20).has("chat")).toBe(false);
+  it("keeps failure detail only when it has the right type", () => {
+    expect(usageDocToRow({ fallback: true, httpStatus: 429, errorKind: "rate-limit" })).toMatchObject({ fallback: true, httpStatus: 429, errorKind: "rate-limit" });
+    expect(usageDocToRow({ fallback: "yes", httpStatus: "500", errorKind: 7 })).toMatchObject({ fallback: false, httpStatus: null, errorKind: null });
   });
 });
