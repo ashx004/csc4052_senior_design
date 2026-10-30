@@ -14,6 +14,10 @@ export type PerformanceRow = {
   /** How costMicros was resolved. "unknown" means never resolved, so the 0 is not a real price. */
   costSource: string;
   at: Date;
+  /** Served by a fallback model after the first choice failed. */
+  fallback?: boolean;
+  /** Failure detail: the provider's HTTP status and a coarse class. Never message text. */
+  httpStatus?: number | null; errorKind?: string | null;
 };
 
 export type FeatureStats = {
@@ -34,14 +38,55 @@ export type PerformanceReport = {
   total: { requests: number; errors: number; inputTokens: number; outputTokens: number; costMicros: number };
 };
 
-const isLocal = (row: PerformanceRow) => row.model.startsWith("ollama:");
-const isError = (row: PerformanceRow) => row.status === "error";
+export const isLocal = (row: PerformanceRow) => row.model.startsWith("ollama:");
+export const isError = (row: PerformanceRow) => row.status === "error";
 /** Rows whose costMicros means something: local calls are free and failures were never billed. Stopped streams stay (partial usage may be billed). */
-const isBilled = (row: PerformanceRow) => !isLocal(row) && !isError(row);
+export const isBilled = (row: PerformanceRow) => !isLocal(row) && !isError(row);
 
-const isIncomplete = (row: PerformanceRow) => row.status === "incomplete";
+export const isIncomplete = (row: PerformanceRow) => row.status === "incomplete";
 /** Rows whose duration says something about speed: a failed or stopped request ran short. */
-const isTimed = (row: PerformanceRow) => !isError(row) && !isIncomplete(row) && row.durationMs !== null;
+export const isTimed = (row: PerformanceRow) => !isError(row) && !isIncomplete(row) && row.durationMs !== null;
+
+const num = (v: unknown, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
+const numOrNull = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+/** Feature and model become map keys in the day rollup, and Firestore rejects an empty key. */
+const name = (v: unknown) => (typeof v === "string" && v.length > 0 ? v : "unknown");
+
+/**
+ * One aiUsage document's data as a row. Takes plain data; `at` only needs a toDate(). Never copies uid.
+ * Rows from before the timing fields existed get null durations and stages (untimed, not instant);
+ * rows from before the failure fields get fallback false and null httpStatus/errorKind.
+ */
+export function usageDocToRow(d: Record<string, unknown>): PerformanceRow {
+  const status = d.status ?? (d.incomplete ? "incomplete" : "ok");
+  const at = d.at as { toDate?: () => Date } | null | undefined;
+  return {
+    feature: name(d.feature),
+    model: name(d.model),
+    // Rows written before the status rename carry a boolean `incomplete` instead.
+    status: status === "error" || status === "incomplete" ? status : "ok",
+    durationMs: numOrNull(d.durationMs),
+    waitMs: numOrNull(d.waitMs),
+    genMs: numOrNull(d.genMs),
+    overheadMs: num(d.overheadMs, 0),
+    deliverMs: numOrNull(d.deliverMs),
+    inputTokens: num(d.inputTokens, 0),
+    outputTokens: num(d.outputTokens, 0),
+    costMicros: num(d.costMicros, 0), // provider cost (admin dashboard)
+    chargeMicros: num(d.chargeMicros, 0), // what the student paid (/billing)
+    // A row with no recorded charge or source never had its cost resolved.
+    costSource: typeof d.costSource === "string" && typeof d.chargeMicros === "number" ? d.costSource : "unknown",
+    at: at?.toDate?.() ?? new Date(0),
+    fallback: d.fallback === true,
+    httpStatus: numOrNull(d.httpStatus),
+    errorKind: typeof d.errorKind === "string" ? d.errorKind : null,
+  };
+}
+
+/** Durations of the rows that say something about speed: the set every percentile is taken over. */
+export function timedDurations(rows: PerformanceRow[]): number[] {
+  return rows.filter(isTimed).map((r) => r.durationMs as number);
+}
 
 /** Mean of the non-null values, or null when there are none. */
 const meanOf = (values: (number | null)[]) => {
@@ -110,27 +155,4 @@ export function summarizePerformance(
     { requests: 0, errors: 0, inputTokens: 0, outputTokens: 0, costMicros: 0 },
   );
   return { ...window, features, total };
-}
-
-/** Median amount charged to the student per request, per feature (fee included). Rows with unresolved cost are skipped. Local, failed and stopped rows are ignored, including in the threshold count. */
-export function medianCostByFeature(rows: PerformanceRow[], minRequests = 20): Map<string, number> {
-  const byFeature = new Map<string, number[]>();
-  for (const row of rows) {
-    // Stopped streams are partial, so they would skew a per-request median low.
-    if (!isBilled(row) || isIncomplete(row)) continue;
-    // Unresolved cost (model missing from the rate table, legacy rows) is a 0 that means "unknown", not "free".
-    if (row.costSource === "unknown") continue;
-    const list = byFeature.get(row.feature) ?? [];
-    // chargeMicros, not costMicros: /billing shows what the student pays (fee included), not the provider's price.
-    list.push(row.chargeMicros);
-    byFeature.set(row.feature, list);
-  }
-  const out = new Map<string, number>();
-  for (const [feature, costs] of byFeature) {
-    if (costs.length < minRequests) continue;
-    costs.sort((a, b) => a - b);
-    const mid = Math.floor(costs.length / 2);
-    out.set(feature, costs.length % 2 ? costs[mid] : (costs[mid - 1] + costs[mid]) / 2);
-  }
-  return out;
 }
