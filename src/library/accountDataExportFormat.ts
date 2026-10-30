@@ -42,6 +42,44 @@ export function encodeAccountExportValue(value: unknown): unknown {
   );
 }
 
+/** How the importer turns the markers above back into Firestore values. Kept
+ * as callbacks so this module stays free of firebase-admin. */
+export type AccountImportFactories = {
+  geopoint: (latitude: number, longitude: number) => unknown;
+  /** Returns the reference to write, or null to keep the path as a plain string. */
+  reference: (path: string) => unknown | null;
+};
+
+/** The inverse of encodeAccountExportValue. Timestamps come back as Dates and
+ * bytes as Buffers, both of which Firestore Admin stores natively. */
+export function decodeAccountExportValue(value: unknown, factories: AccountImportFactories): unknown {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((entry) => decodeAccountExportValue(entry, factories));
+
+  const candidate = value as Record<string, unknown>;
+  switch (candidate[TYPE]) {
+    case "timestamp": {
+      const date = new Date(String(candidate.value));
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+    case "bytes":
+      return Buffer.from(String(candidate.base64 ?? ""), "base64");
+    case "geopoint":
+      return typeof candidate.latitude === "number" && typeof candidate.longitude === "number"
+        ? factories.geopoint(candidate.latitude, candidate.longitude)
+        : null;
+    case "reference": {
+      const path = String(candidate.path ?? "");
+      return factories.reference(path) ?? path;
+    }
+    case "unsupported":
+      return typeof candidate.value === "string" ? candidate.value : null;
+  }
+  return Object.fromEntries(
+    Object.entries(candidate).map(([key, entry]) => [key, decodeAccountExportValue(entry, factories)])
+  );
+}
+
 /** Archive entries do not mirror object keys: uploaded file names can contain
  * path-like characters. Keep the recognizable original basename/extension,
  * but sanitize it and append an ordinal so duplicate names cannot collide. */
