@@ -151,9 +151,12 @@ class MemoryStore implements LearningProgressStore {
     const writes: WriteOp[] = [];
     const transaction: LearningProgressTransaction = {
       get: (path) => this.getDoc(path),
-      set: (path, data) => {
+      set: (path, data, options) => {
         writes.push({ op: "set", path, data: { ...data } });
-        this.docs.set(path, { ...data });
+        // Mirrors Firestore: a plain set replaces the document, { merge: true } keeps fields the
+        // written data omits. Concept mastery relies on that to preserve lastAskedLevel.
+        const existing = options?.merge ? (this.docs.get(path) ?? {}) : {};
+        this.docs.set(path, { ...existing, ...data });
       },
       update: (path, data) => {
         writes.push({ op: "update", path, data: { ...data } });
@@ -434,6 +437,33 @@ describe("learning progress repository", () => {
     });
   });
 
+  it("keeps a stored lastAskedLevel when the attempt records no level for that concept", async () => {
+    const store = new MemoryStore();
+    const repo = createLearningProgressRepository(UID, store);
+    seedAttempt(store);
+    const masteryPath = conceptMasteryPath(UID, conceptMasteryId("course-1", "chain rule"));
+    // An earlier leveled attempt already recorded the anchor the ladder clamps against.
+    store.docs.set(masteryPath, {
+      courseId: "course-1",
+      conceptKey: "chain rule",
+      value: 50,
+      level: "weak",
+      sourceSessionIds: [],
+      lastAskedLevel: "exam",
+    });
+
+    // This attempt came from a pre-levels set, so its row carries no lastAskedLevel at all.
+    await repo.applyQuizOutcome({
+      ...outcome(),
+      conceptMastery: [{ conceptKey: "chain rule", value: 90, level: "strong", sourceSessionIds: ["s1"] }],
+    });
+
+    const stored = store.docs.get(masteryPath);
+    expect(stored).toMatchObject({ value: 90, level: "strong" });
+    // Clearing this would drop the one-rung clamp and let the next level jump two rungs.
+    expect(stored).toMatchObject({ lastAskedLevel: "exam" });
+  });
+
   it("does not write weak spots again when the attempt is already processed", async () => {
     const store = new MemoryStore();
     const repo = createLearningProgressRepository(UID, store);
@@ -576,6 +606,7 @@ describe("learning progress repository", () => {
     expect(await repo.getQuizContext("course-1", "counted")).toEqual({
       sourceDocKey: "notes-a",
       fullQuizQuestionCount: 8,
+      conceptLevels: {},
     });
 
     store.docs.set(quizSetPath(UID, "course-1", "from-questions"), {
@@ -586,12 +617,23 @@ describe("learning progress repository", () => {
     expect(await repo.getQuizContext("course-1", "from-questions")).toEqual({
       sourceDocKey: "notes-b",
       fullQuizQuestionCount: 2,
+      conceptLevels: {},
     });
 
     store.docs.set(quizSetPath(UID, "course-1", "empty"), { sourceDocKey: 4 });
     expect(await repo.getQuizContext("course-1", "empty")).toEqual({
       sourceDocKey: null,
       fullQuizQuestionCount: 0,
+      conceptLevels: {},
+    });
+
+    store.docs.set(quizSetPath(UID, "course-1", "leveled"), {
+      sourceDocKey: "notes-c",
+      questionCount: 3,
+      conceptLevels: { "chain rule": "exam", "bad one": "extreme", "not a level": 4 },
+    });
+    expect((await repo.getQuizContext("course-1", "leveled"))?.conceptLevels).toEqual({
+      "chain rule": "exam",
     });
   });
 

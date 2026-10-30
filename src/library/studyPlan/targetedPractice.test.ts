@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { addDoc } from "firebase/firestore";
-import { conceptLabelFromQuizName, generateTargetedPracticeQuiz, targetedPracticeName, buildTargetedPracticeRequest, TARGETED_PRACTICE_QUESTION_COUNT, TARGETED_PRACTICE_QUESTION_TYPES } from "./targetedPractice";
+import type { ConceptFocus } from "@/src/library/generation/conceptFocus";
+import { conceptLabelFromQuizName, dailyPlanQuizNameFromFocus, generateTargetedPracticeQuiz, targetedPracticeName, buildTargetedPracticeRequest, highestQuotaLevel, TARGETED_PRACTICE_QUESTION_COUNT, TARGETED_PRACTICE_QUESTION_TYPES } from "./targetedPractice";
 
 vi.mock("firebase/firestore", () => ({ addDoc: vi.fn(async () => ({ id: "new-quiz" })), collection: vi.fn(), serverTimestamp: vi.fn() }));
 vi.mock("@/src/library/firebase", () => ({ db: {} }));
@@ -11,6 +12,7 @@ describe("conceptLabelFromQuizName", () => {
     expect(conceptLabelFromQuizName("Derivatives (new questions)")).toBe("Derivatives");
     expect(conceptLabelFromQuizName("Derivatives (new questions 2)")).toBe("Derivatives");
     expect(conceptLabelFromQuizName("Derivatives (weak-spot practice)")).toBe("Derivatives");
+    expect(conceptLabelFromQuizName("Derivatives (daily practice)")).toBe("Derivatives");
   });
 
   it("leaves plain names and trims", () => {
@@ -160,5 +162,60 @@ describe("generateTargetedPracticeQuiz focus", () => {
     await generateTargetedPracticeQuiz({ uid: "u", courseId: "c", sourceDocKey: "k/1-a.pdf", conceptLabel: "Derivatives (new questions)", avoidQuestions: ["missed"] });
     expect(sent().focus.quotas).toEqual([{ conceptKey: "derivatives", label: "Derivatives", items: 10 }]);
     expect(sent().avoidQuestions).toEqual(["missed"]);
+  });
+});
+
+describe("buildTargetedPracticeRequest difficulty", () => {
+  const focus: ConceptFocus = { quotas: [{ conceptKey: "chain rule", label: "Chain Rule", items: 10 }], avoid: [] };
+
+  it("sends the requested level instead of the default", () => {
+    const body = buildTargetedPracticeRequest({ sourceDocKey: "k", focus, avoidQuestions: [], modelKey: "m", difficulty: "challenge" });
+    expect(body.difficulty).toBe("challenge");
+  });
+
+  it("still defaults to exam when no level is given", () => {
+    expect(buildTargetedPracticeRequest({ sourceDocKey: "k", focus, avoidQuestions: [], modelKey: "m" }).difficulty).toBe("exam");
+  });
+
+  it("reports the highest level in a mixed focus", () => {
+    expect(highestQuotaLevel({
+      quotas: [
+        { conceptKey: "a", label: "A", items: 1, level: "review" },
+        { conceptKey: "b", label: "B", items: 1, level: "challenge" },
+      ],
+      avoid: [],
+    })).toBe("challenge");
+  });
+
+  it("reports the highest level when it is listed first", () => {
+    expect(highestQuotaLevel({
+      quotas: [
+        { conceptKey: "a", label: "A", items: 1, level: "challenge" },
+        { conceptKey: "b", label: "B", items: 1, level: "review" },
+      ],
+      avoid: [],
+    })).toBe("challenge");
+  });
+
+  it("reports exam for a focus with no levels", () => {
+    expect(highestQuotaLevel({ quotas: [{ conceptKey: "a", label: "A", items: 1 }], avoid: [] })).toBe("exam");
+  });
+});
+
+describe("dailyPlanQuizNameFromFocus", () => {
+  it("names a daily set after its concepts without borrowing the weak-spot suffix", () => {
+    const name = dailyPlanQuizNameFromFocus({
+      quotas: [
+        { conceptKey: "joins", label: "Joins", items: 5 },
+        { conceptKey: "indexes", label: "Indexes", items: 5 },
+      ],
+      avoid: [],
+    });
+    expect(name).toBe("Joins, Indexes (daily practice)");
+    expect(name).not.toContain("weak-spot");
+  });
+
+  it("falls back to a generic name when no quota carries a label", () => {
+    expect(dailyPlanQuizNameFromFocus({ quotas: [], avoid: [] })).toBe("Daily quiz (daily practice)");
   });
 });

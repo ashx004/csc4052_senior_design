@@ -1,4 +1,5 @@
 import { MIN_SCORED_ITEMS_TO_RETIRE } from "@/src/library/studyPlan/conceptRetirement";
+import type { QuizDifficulty } from "@/src/library/quizDifficulty";
 import { allocateQuotas } from "./allocateQuotas";
 
 export interface ConceptDemand {
@@ -11,6 +12,8 @@ export interface ConceptQuota {
   conceptKey: string;
   label: string;
   items: number;
+  /** The level this concept is quizzed at. Absent means "use the request's single difficulty". */
+  level?: QuizDifficulty;
 }
 
 export function allocateConceptQuotas(

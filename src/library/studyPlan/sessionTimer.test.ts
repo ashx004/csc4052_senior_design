@@ -5,6 +5,7 @@ import {
   getActivityUrlFromTarget,
   formatElapsedTime,
   resolveTaskActivityUrl,
+  sessionActivityUrl,
 } from "./sessionTimer";
 
 function ts(ms: number) {
@@ -157,6 +158,7 @@ describe("getActivityUrlFromTarget", () => {
       conceptLabels: ["Joins"],
       sourceDocKeys: ["doc-1"],
       questionCount: 6,
+      conceptLevels: {},
       generationClaimedAtMs: null,
     };
 
@@ -249,6 +251,20 @@ describe("resolveTaskActivityUrl", () => {
     };
     expect(resolveTaskActivityUrl(task, "task-1")).toBe(
       "/courses/csc430/quizzes/quiz1?mode=take&taskId=task-1"
+    );
+  });
+});
+
+describe("sessionActivityUrl", () => {
+  it("uses the explicit URL, so a leveled quiz session points at the generated set", () => {
+    expect(
+      sessionActivityUrl("/courses/c1/quizzes/new-set?mode=take&taskId=t1", "quiz", "c1", "old-set"),
+    ).toBe("/courses/c1/quizzes/new-set?mode=take&taskId=t1");
+  });
+
+  it("derives the URL from the target when none is given, as before", () => {
+    expect(sessionActivityUrl(undefined, "quiz", "c1", "old-set")).toBe(
+      "/courses/c1/quizzes/old-set?mode=take",
     );
   });
 });

@@ -1,3 +1,4 @@
+import { conceptKey } from "./conceptKey";
 import { selectPracticeQuestionIds } from "./learningSuggestionEngine";
 import {
   learningSuggestionId,
@@ -134,6 +135,13 @@ export function buildConceptPracticeTask(
       sourceDocKeys: input.sourceDocKeys,
       practiceType: input.practiceType,
       questionCount,
+      // A quota that carries the level its concept earned passes it to the generated set.
+      // Keys are normalized so the generator's lookup by normalized key finds them.
+      conceptLevels: Object.fromEntries(
+        input.quotas.flatMap((quota) =>
+          quota.level ? [[conceptKey(quota.conceptKey), quota.level] as const] : [],
+        ),
+      ),
       generatedSetId: null,
       generationClaimedAtMs: null,
     },

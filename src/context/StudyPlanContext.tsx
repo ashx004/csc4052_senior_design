@@ -58,7 +58,8 @@ interface StudyPlanContextValue {
     activityType: ActivityType,
     targetId: string | null,
     timerMode?: TimerMode,
-    targetSeconds?: number | null
+    targetSeconds?: number | null,
+    activityUrl?: string
   ) => Promise<string | null>;
   attachTaskToSession: (
     taskId: string,

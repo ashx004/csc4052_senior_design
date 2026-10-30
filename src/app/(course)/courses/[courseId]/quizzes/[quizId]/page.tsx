@@ -49,7 +49,10 @@ import {
   buildConceptPracticeTask,
   buildRetryWrongAnswersTasks,
 } from '@/src/library/studyPlan/addSuggestionToPlan';
-import { createConceptWeakSpotRepository } from '@/src/library/studyPlan/conceptWeakSpotRepository';
+import { createConceptWeakSpotRepository, readConceptMastery } from '@/src/library/studyPlan/conceptWeakSpotRepository';
+// Aliased: `conceptKey` is already used as a destructured field name in this file.
+import { conceptKey as conceptKeyOf } from '@/src/library/studyPlan/conceptKey';
+import { chooseConceptLevel } from '@/src/library/studyPlan/quizLevelLadder';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
 import { buildQuizSuggestions, type QuizResultPageContext } from '@/src/library/Contextual_AI/contextualAi';
 import { useChatContext } from '@/src/hooks/useChatContext';
@@ -385,6 +388,7 @@ export default function QuizTakingPage() {
 
   const [quizName, setQuizName] = useState('Quiz');
   const [quizDifficulty, setQuizDifficulty] = useState<QuizDifficulty | null>(null);
+  const [quizMixedLevels, setQuizMixedLevels] = useState(false);
   // Where the quiz came from, so "New questions" can build a fresh set from the same file.
   const [quizSource, setQuizSource] = useState<{ key: string; questionTypes: unknown } | null>(null);
   const [quizResourceId, setQuizResourceId] = useState<string | null>(null);
@@ -468,6 +472,7 @@ export default function QuizTakingPage() {
 
         setQuizName(data.name || 'Quiz');
         setQuizDifficulty(storedQuizDifficulty(data.difficulty));
+        setQuizMixedLevels(data.mixedLevels === true);
         setQuizSource(
           typeof data.sourceDocKey === 'string' && data.sourceDocKey
             ? { key: data.sourceDocKey, questionTypes: data.questionTypes }
@@ -928,8 +933,31 @@ export default function QuizTakingPage() {
           return [];
         })
       : [];
+    // Every concept here is one the student just missed, so it is asked at the level the ladder
+    // gives it rather than the generator's `exam` default. Without mastery the ladder's entry
+    // level is `review`, which is the right place to restart a concept you got wrong.
+    const stored = user
+      ? await readConceptMastery(user.uid, courseId).catch((error) => {
+          console.error('Loading concept mastery failed:', error);
+          return new Map<string, { value: number; lastAskedLevel: QuizDifficulty | null }>();
+        })
+      : new Map<string, { value: number; lastAskedLevel: QuizDifficulty | null }>();
+    const leveled = quotas.map((quota) => {
+      const mastery = stored.get(conceptKeyOf(quota.conceptKey));
+      return {
+        ...quota,
+        level: chooseConceptLevel({
+          conceptMastery: mastery?.value ?? null,
+          documentMastery: null,
+          lastAskedLevel: mastery?.lastAskedLevel ?? null,
+          // This attempt's miss count is not the cross-attempt repeat signal the hold wants.
+          repeatMissCount: 0,
+          daysUntilExam: null,
+        }),
+      };
+    });
     return {
-      focus: { quotas, avoid: mergeAvoid(current, asked) },
+      focus: { quotas: leveled, avoid: mergeAvoid(current, asked) },
       totalItems,
     };
   };
@@ -961,7 +989,8 @@ export default function QuizTakingPage() {
 
       let route: string | null = null;
       if (type === 'quiz') {
-        const setId = await generateConceptQuiz({ uid: user.uid, courseId, sourceDocKey, focus });
+        // Pinned: a set the student asked for from this modal belongs in the course sidebar.
+        const setId = await generateConceptQuiz({ uid: user.uid, courseId, sourceDocKey, focus, pinned: true });
         route = `/courses/${courseId}/quizzes/${setId}?mode=take`;
       } else if (type === 'flashcards') {
         const setId = await generateConceptFlashcards({ uid: user.uid, courseId, sourceDocKey, focus, count: totalItems });
@@ -1315,6 +1344,11 @@ export default function QuizTakingPage() {
             {quizDifficulty && (
               <span className="shrink-0 rounded-full border border-border-light px-2 py-0.5 text-[11px] font-medium text-text-muted">
                 {difficultyLabel(quizDifficulty)}
+              </span>
+            )}
+            {quizDifficulty && quizMixedLevels && (
+              <span className="shrink-0 rounded-full border border-border-light px-2 py-0.5 text-[11px] font-medium text-text-muted">
+                Mixed levels
               </span>
             )}
           </div>

@@ -1,4 +1,5 @@
 import type { Timestamp } from "firebase/firestore";
+import type { QuizDifficulty } from "@/src/library/quizDifficulty";
 
 export type ChickenState =
   | "egg"
@@ -95,6 +96,8 @@ export type ActivityTarget =
       sourceDocKeys: string[];
       practiceType: "quiz" | "flashcards" | "fill_blank" | "word_problem" | "drag_drop";
       questionCount: number;
+      /** Level per concept key. Empty means no per-concept level: use the request default. */
+      conceptLevels: Record<string, QuizDifficulty>;
       generatedSetId: string | null;
       generationClaimedAtMs: number | null;
     };
@@ -257,6 +260,8 @@ export type NewLearningActivityEvent = Omit<LearningActivityEvent, "completedAt"
 export interface QuizContext {
   sourceDocKey: string | null;
   fullQuizQuestionCount: number;
+  /** Level each concept was asked at, keyed by normalized concept key. Empty for legacy sets. */
+  conceptLevels: Record<string, QuizDifficulty>;
 }
 
 export interface PersistQuizOutcomeInput {

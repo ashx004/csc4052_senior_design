@@ -9,6 +9,7 @@ import {
   CalendarClock,
   Trash2,
   ArrowRight,
+  Loader2,
 } from "lucide-react";
 
 interface TaskActionsProps {
@@ -20,6 +21,8 @@ interface TaskActionsProps {
   onDelete?: () => void;
   onPause?: () => void;
   onComplete?: () => void;
+  /** True while this task's quiz is being generated: Start shows a spinner and is disabled. */
+  starting?: boolean;
 }
 
 export default function TaskActions({
@@ -31,6 +34,7 @@ export default function TaskActions({
   onDelete,
   onPause,
   onComplete,
+  starting = false,
 }: TaskActionsProps) {
   if (task.status === "completed" || task.status === "skipped") return null;
 
@@ -41,9 +45,12 @@ export default function TaskActions({
       {task.status === "recommended" && (
         <button
           onClick={onStart}
-          className="flex items-center gap-1 rounded-lg bg-navy px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+          disabled={starting}
+          aria-busy={starting}
+          className="flex items-center gap-1 rounded-lg bg-navy px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-70"
         >
-          <Play size={12} /> Start
+          {starting ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+          {starting ? "Preparing quiz..." : "Start"}
         </button>
       )}
 

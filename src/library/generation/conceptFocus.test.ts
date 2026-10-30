@@ -70,3 +70,38 @@ describe("parseConceptFocus", () => {
     expect(parseConceptFocus(undefined)).toBeUndefined();
   });
 });
+
+describe("per-concept level", () => {
+  it("states each concept's level in the prompt", () => {
+    const prompt = conceptFocusPrompt({
+      quotas: [
+        { conceptKey: "recursion", label: "Recursion", items: 2, level: "review" },
+        { conceptKey: "big-o", label: "Big O", items: 2, level: "challenge" },
+      ],
+      avoid: [],
+    });
+    expect(prompt).toContain("Recursion");
+    expect(prompt).toContain('"review" level');
+    expect(prompt).toContain("Big O");
+    expect(prompt).toContain('"challenge" level');
+  });
+
+  it("keeps the prompt for quotas without a level exactly as it was", () => {
+    const quotas = [{ conceptKey: "recursion", label: "Recursion", items: 2 }];
+    expect(conceptFocusPrompt({ quotas, avoid: [] })).toBe(
+      '\n\nFocus this set on the following concepts, with the number of items each needs:\n' +
+        '- Recursion (conceptKey: "recursion"): exactly 2 items\n\n' +
+        'Every generated item must include a "conceptKey" field whose value is exactly one of the conceptKey strings above, naming the concept that item tests. Do not invent other conceptKey values.',
+    );
+  });
+
+  it("parses a valid level", () => {
+    const parsed = parseConceptFocus({ quotas: [{ conceptKey: "a", label: "A", items: 1, level: "challenge" }] });
+    expect(parsed?.quotas[0].level).toBe("challenge");
+  });
+
+  it("drops an unknown or missing level instead of keeping it", () => {
+    expect(parseConceptFocus({ quotas: [{ conceptKey: "a", label: "A", items: 1, level: "impossible" }] })?.quotas[0].level).toBeUndefined();
+    expect(parseConceptFocus({ quotas: [{ conceptKey: "a", label: "A", items: 1 }] })?.quotas[0].level).toBeUndefined();
+  });
+});

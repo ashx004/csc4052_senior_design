@@ -7,8 +7,11 @@ import {
   writeBatch,
   type Firestore,
 } from "firebase/firestore";
+import { conceptKey } from "./conceptKey";
+import { QUIZ_DIFFICULTIES, type QuizDifficulty } from "@/src/library/quizDifficulty";
 import type { ConceptSessionEvidence } from "./conceptMasteryEngine";
 import {
+  conceptMasteryCollection,
   conceptMasteryId,
   conceptMasteryPath,
   conceptSessionPath,
@@ -25,13 +28,25 @@ export interface ConceptWeakSpotRepository {
   save(spots: ConceptWeakSpot[]): Promise<void>;
 }
 
+/**
+ * One concept's mastery to store. `level` is the mastery band (weak, developing, strong);
+ * `lastAskedLevel` is the quiz difficulty the concept was last asked at, a different thing.
+ */
+export interface ConceptMasteryInput {
+  conceptKey: string;
+  value: number;
+  level: string;
+  sourceSessionIds: string[];
+  lastAskedLevel?: QuizDifficulty | null;
+}
+
 export interface FocusedSessionRepository extends ConceptWeakSpotRepository {
   listConceptSessions(courseId: string, conceptKeys: string[]): Promise<ConceptSessionEvidence[]>;
   /** Rows carry their course so the stored document can be found again by course. */
   saveConceptSessions(sessions: (ConceptSessionEvidence & { courseId: string })[]): Promise<void>;
   saveConceptMastery(
     courseId: string,
-    values: { conceptKey: string; value: number; level: string; sourceSessionIds: string[] }[],
+    values: ConceptMasteryInput[],
   ): Promise<void>;
 }
 
@@ -116,7 +131,7 @@ export function conceptSessionData(
 
 export function conceptMasteryData(
   courseId: string,
-  value: { conceptKey: string; value: number; level: string; sourceSessionIds: string[] },
+  value: ConceptMasteryInput,
 ): Record<string, unknown> {
   return {
     courseId,
@@ -124,8 +139,39 @@ export function conceptMasteryData(
     value: value.value,
     level: value.level,
     sourceSessionIds: value.sourceSessionIds,
+    // Only written when the caller supplies it. A caller that omits it (a flashcard session)
+    // must leave a stored level alone, while an explicit null clears it.
+    ...("lastAskedLevel" in value ? { lastAskedLevel: value.lastAskedLevel ?? null } : {}),
     updatedAtMs: Date.now(),
   };
+}
+
+/**
+ * Stored concept mastery for one course, keyed by normalized concept key. A missing
+ * lastAskedLevel (rows saved before it existed) reads as null, which the level ladder treats as no anchor.
+ */
+export async function readConceptMastery(
+  uid: string,
+  courseId: string,
+): Promise<Map<string, { value: number; lastAskedLevel: QuizDifficulty | null }>> {
+  const { db } = await import("@/src/library/firebase");
+  const snap = await getDocs(
+    query(collection(db, conceptMasteryCollection(uid)), where("courseId", "==", courseId)),
+  );
+  const mastery = new Map<string, { value: number; lastAskedLevel: QuizDifficulty | null }>();
+  for (const item of snap.docs) {
+    const data = item.data();
+    if (typeof data.conceptKey !== "string" || typeof data.value !== "number") continue;
+    const asked = data.lastAskedLevel;
+    mastery.set(conceptKey(data.conceptKey), {
+      value: data.value,
+      lastAskedLevel:
+        typeof asked === "string" && (QUIZ_DIFFICULTIES as readonly string[]).includes(asked)
+          ? (asked as QuizDifficulty)
+          : null,
+    });
+  }
+  return mastery;
 }
 
 export function createConceptWeakSpotRepository(uid: string): FocusedSessionRepository {
@@ -188,6 +234,8 @@ export function createConceptWeakSpotRepository(uid: string): FocusedSessionRepo
         batch.set(
           doc(db, conceptMasteryPath(uid, conceptMasteryId(courseId, value.conceptKey))),
           conceptMasteryData(courseId, value),
+          // Merge so a focused session never erases the level a quiz attempt recorded.
+          { merge: true },
         );
       }
       await batch.commit();

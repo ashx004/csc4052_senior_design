@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { conceptTopicsFromWeakSpots } from "./conceptTopics";
 import { generateTasks } from "./recommendationEngine";
-import type { ConceptWeakSpot, SetupConfig } from "./types";
+import type { ActivityTarget, ConceptWeakSpot, SetupConfig } from "./types";
 
 const planConfig = (activityPreference: SetupConfig["activityPreference"]): SetupConfig => ({
   availableMinutes: 60,
@@ -29,6 +29,38 @@ function open(key: string, label: string, missCount: number): ConceptWeakSpot {
 }
 
 describe("conceptTopicsFromWeakSpots", () => {
+  it("asks a weak concept at review rather than the exam default", () => {
+    const mastery = new Map([["chain rule", { value: 30, lastAskedLevel: "exam" as const }]]);
+    const topics = conceptTopicsFromWeakSpots([open("chain rule", "Chain Rule", 1)], "Calculus", "MATH 201", {
+      conceptMastery: mastery,
+      daysUntilExam: null,
+    });
+
+    const target = topics[0].activityTarget as Extract<ActivityTarget, { kind: "concept_practice" }>;
+    expect(target.conceptLevels).toEqual({ "chain rule": "review" });
+  });
+
+  it("holds a repeatedly missed concept at review even with an exam in two days", () => {
+    const spot = open("chain rule", "Chain Rule", 2);
+    spot.misses = spot.misses.map((miss) => ({ ...miss, failureCount: 2 }));
+    const mastery = new Map([["chain rule", { value: 70, lastAskedLevel: "exam" as const }]]);
+    const topics = conceptTopicsFromWeakSpots([spot], "Calculus", "MATH 201", {
+      conceptMastery: mastery,
+      daysUntilExam: 2,
+    });
+
+    const target = topics[0].activityTarget as Extract<ActivityTarget, { kind: "concept_practice" }>;
+    expect(target.conceptLevels).toEqual({ "chain rule": "review" });
+  });
+
+  it("leaves conceptLevels empty when no mastery is supplied, keeping today's behaviour", () => {
+    const topics = conceptTopicsFromWeakSpots([open("chain rule", "Chain Rule", 1)], "Calculus", "MATH 201");
+
+    const target = topics[0].activityTarget as Extract<ActivityTarget, { kind: "concept_practice" }>;
+    expect(target.conceptLevels).toEqual({});
+  });
+
+
   it("turns each open weak spot into a candidate carrying its concept label", () => {
     const topics = conceptTopicsFromWeakSpots([open("chain rule", "Chain Rule", 3)], "Calculus", "MATH 201");
     expect(topics).toHaveLength(1);
@@ -51,6 +83,7 @@ describe("conceptTopicsFromWeakSpots", () => {
       sourceDocKeys: ["users/u/resources/calc.pdf"],
       practiceType: "quiz",
       questionCount: 6,
+      conceptLevels: {},
       generatedSetId: null,
       generationClaimedAtMs: null,
     });
