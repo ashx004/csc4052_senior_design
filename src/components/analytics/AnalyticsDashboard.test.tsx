@@ -16,6 +16,7 @@ const report: AnalyticsReport = {
   timeZone: "America/Chicago",
   retrievedAt: "2026-10-20T12:00:00Z",
   pages: [],
+  pagePerformance: [],
   events: [],
   daily: [],
   dailyPageViews: [],
@@ -125,6 +126,36 @@ it("lets admins inspect service health when GA4 is unavailable", async () => {
   ).toBeNull();
 });
 
+it("shows page-load averages by normalized page", async () => {
+  fetchMock.mockImplementation(async (url: string) => {
+    if (url.includes("health")) return Response.json(health);
+    if (url.includes("realtime"))
+      return Response.json({
+        concurrentUsers: 0,
+        windowMinutes: 5,
+        checkedAt: "2026-10-20T12:00:00Z",
+        peaks: null,
+        storageAvailable: true,
+      });
+    return Response.json({
+      ...report,
+      pagePerformance: [
+        {
+          label: "/courses/[courseId]",
+          sampleCount: 4,
+          averageLoadTimeMs: 472.5,
+        },
+      ],
+    });
+  });
+  render(<AnalyticsDashboard />);
+  await screen.findByText("Page load performance");
+  expect(screen.getByText("Course home")).toBeTruthy();
+  expect(screen.getByText("/courses/[courseId]")).toBeTruthy();
+  expect(screen.getByText("473 ms")).toBeTruthy();
+  expect(screen.getByText("4")).toBeTruthy();
+});
+
 it("applies date filters, searches real event rows and expands their descriptions", async () => {
   fetchMock.mockImplementation(async (url: string) => {
     if (url.includes("health")) return Response.json(health);
@@ -163,4 +194,40 @@ it("applies date filters, searches real event rows and expands their description
   expect(screen.queryByText("page_view")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: /Quiz completed/ }));
   expect(screen.getByText(/A student finishes a quiz/)).toBeTruthy();
+});
+
+it("displays saved peaks from the analytics report when realtime fails and highlights student pages over /other", async () => {
+  fetchMock.mockImplementation(async (url: string) => {
+    if (url.includes("health")) return Response.json(health);
+    if (url.includes("realtime"))
+      return new Response("<html>502 Bad Gateway</html>", {
+        status: 502,
+        headers: { "content-type": "text/html" },
+      });
+    return Response.json({
+      ...report,
+      activeUsers: 5,
+      events: [{ label: "page_view", count: 94 }],
+      pages: [
+        { label: "/other", count: 36 },
+        { label: "/admin/analytics", count: 30 },
+        { label: "/advising_new", count: 28 },
+      ],
+      peaks: {
+        concurrent: 4,
+        concurrentAt: "2026-10-19T15:00:00Z",
+        daily: 3,
+        dailyDate: "20261015",
+        since: "2026-10-15T00:00:00Z",
+      },
+    });
+  });
+  render(<AnalyticsDashboard />);
+  await screen.findByText("Advising leads the activity.");
+  await screen.findByText(
+    /Realtime users unavailable: The report endpoint returned a web page instead of data \(HTTP 502\)/,
+  );
+  expect(screen.getByText("4")).toBeTruthy();
+  expect(screen.getByText("3")).toBeTruthy();
+  expect(screen.queryByText("No saved peak available")).toBeNull();
 });

@@ -17,3 +17,57 @@ process.on("unhandledRejection", (reason) => {
     reportError({ source: "server", message: err.message, name: err.name, stack: err.stack, route: "(background task)", build: process.env.NEXT_PUBLIC_BUILD_ID }),
   );
 });
+
+const HEARTBEAT_POLL_MS = 60_000;
+const REALTIME_WARM_MS = 5 * 60_000;
+const ANALYTICS_WARM_MS = 15 * 60_000;
+
+if (
+  process.env.NODE_ENV === "production" &&
+  process.env.NEXT_PHASE !== "phase-production-build"
+) {
+  let running = false;
+  let lastRealtimeAt = 0;
+  let lastAnalyticsAt = 0;
+
+  const tick = async () => {
+    if (running) return;
+    running = true;
+    try {
+      const [{ getRealtimeReport, getAnalyticsReport }, { deleteExpiredMonitoringData, recordWorkerHeartbeat }] =
+        await Promise.all([
+          import("./library/analyticsReports"),
+          import("./library/monitoring/store"),
+        ]);
+      await recordWorkerHeartbeat().catch(() => null);
+      const now = Date.now();
+      const tasks: Promise<unknown>[] = [];
+      if (now - lastRealtimeAt >= REALTIME_WARM_MS) {
+        lastRealtimeAt = now;
+        tasks.push(getRealtimeReport().catch(() => null));
+      }
+      if (now - lastAnalyticsAt >= ANALYTICS_WARM_MS) {
+        lastAnalyticsAt = now;
+        tasks.push(
+          getAnalyticsReport("7days", "").catch(() => null),
+          deleteExpiredMonitoringData(process.env.GA4_PROPERTY_ID).catch(() => null),
+        );
+      }
+      await Promise.allSettled(tasks);
+    } catch {
+      // Background monitoring errors are non-fatal.
+    } finally {
+      running = false;
+    }
+  };
+
+  const initialTimer = setTimeout(() => {
+    void tick();
+  }, 5_000);
+  initialTimer.unref?.();
+
+  const intervalTimer = setInterval(() => {
+    void tick();
+  }, HEARTBEAT_POLL_MS);
+  intervalTimer.unref?.();
+}

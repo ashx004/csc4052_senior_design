@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { PAGE_LOAD_METRIC_VERSION } from "./pageLoadTiming";
 
 const MAX_DURATION_SECONDS = 7 * 24 * 60 * 60;
+const MAX_DURATION_MILLISECONDS = MAX_DURATION_SECONDS * 1000;
 
 const quizProperties = {
   quiz_type: z.enum(["full_quiz", "targeted_practice"]),
@@ -27,6 +29,20 @@ function isNormalizedPageName(pageName: string): boolean {
 export const eventSchemas = {
   page_view: z
     .object({ page_name: z.string().refine(isNormalizedPageName) })
+    .strict(),
+  page_load: z
+    .object({
+      page_name: z.string().refine(isNormalizedPageName),
+      load_time_ms: z.number().int().min(0).max(MAX_DURATION_MILLISECONDS),
+      navigation_type: z.enum([
+        "navigate",
+        "reload",
+        "back_forward",
+        "prerender",
+        "unknown",
+      ]),
+      metric_version: z.literal(PAGE_LOAD_METRIC_VERSION),
+    })
     .strict(),
   quiz_started: z.object(quizProperties).strict(),
   quiz_completed: z
@@ -62,6 +78,8 @@ const STATIC_PAGES = [
   "/dashboard",
   "/classes",
   "/learning",
+  "/learning/classes",
+  "/learning/study-plan",
   "/ai-assistant",
   "/notes",
   "/notes/ocr",
@@ -69,9 +87,11 @@ const STATIC_PAGES = [
   "/advising_new",
   "/profile",
   "/settings",
+  "/billing",
   "/help",
   "/summary",
   "/discover",
+  "/custom/new",
   "/admin/analytics",
   "/other",
 ];
@@ -83,6 +103,7 @@ const COURSE_SECTIONS = [
   "discover",
   "assignments",
   "flashcards",
+  "practice",
 ];
 
 export function normalizeAnalyticsPath(path: string): string {
@@ -113,6 +134,12 @@ export function normalizeAnalyticsPath(path: string): string {
   if (section === "share" && parts.length === 2) {
     return "/share/[shareId]";
   }
+  if (section === "custom" && parts.length === 2) {
+    return "/custom/[setId]";
+  }
+  if (section === "legal" && parts.length === 2) {
+    return "/legal/[doc]";
+  }
   if (section !== "courses") {
     return "/other";
   }
@@ -129,6 +156,12 @@ export function normalizeAnalyticsPath(path: string): string {
   }
   if (courseSection === "quizzes") {
     return "/courses/[courseId]/quizzes/[quizId]";
+  }
+  if (courseSection === "flashcards") {
+    return "/courses/[courseId]/flashcards/[setId]";
+  }
+  if (courseSection === "practice") {
+    return "/courses/[courseId]/practice/[setId]";
   }
   if (courseSection === "discover" && parts[3] === "blocks") {
     return "/courses/[courseId]/discover/blocks";
