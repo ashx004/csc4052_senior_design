@@ -60,7 +60,9 @@ export async function GET(request: NextRequest) {
     let status = 503;
     if (error instanceof AdminAccessError || error instanceof ReportError) {
       message = error.message;
-      status = error.status;
+      // Avoid returning HTTP 502 so reverse proxies (e.g. Cloudflare) do not
+      // replace the JSON error payload with a generic Bad Gateway response.
+      status = error.status === 502 ? 503 : error.status;
     }
 
     return Response.json(

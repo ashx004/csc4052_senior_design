@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/src/context/AuthContext";
 import AddCreditModal from "@/src/components/billing/AddCreditModal";
+import TrialVerifyNotice from "@/src/components/billing/TrialVerifyNotice";
 import { formatUsd } from "@/src/library/billing/money";
 
 // The student's AI credit, everywhere in the app.
@@ -27,6 +28,8 @@ export type Wallet = {
   estimates: { task: string; typicalUsd: number; note?: string }[];
   /** Present only on the response that just gave this account its free trial. */
   trialGrantedMicros?: number;
+  /** The free trial this account gets once its email is verified. */
+  trialPendingVerificationMicros?: number;
 };
 
 type BillingContextType = {
@@ -131,6 +134,9 @@ export function BillingProvider({ children }: { children: ReactNode }) {
           <button type="button" onClick={() => setTrialNotice(null)} aria-label="Dismiss" className="absolute right-2 top-2 rounded p-1 text-text-muted hover:bg-bg-warm">×</button>
         </div>
       )}
+      {!trialNotice && user && wallet?.trialPendingVerificationMicros ? (
+        <TrialVerifyNotice user={user} trialMicros={wallet.trialPendingVerificationMicros} refresh={refresh} />
+      ) : null}
       {modal && user && <AddCreditModal wallet={wallet} outOfCredit={modal.outOfCredit} onClose={() => setModal(null)} />}
     </BillingContext.Provider>
   );

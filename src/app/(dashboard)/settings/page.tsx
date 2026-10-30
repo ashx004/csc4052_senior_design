@@ -29,6 +29,7 @@ import { useTutorial } from "@/src/context/TutorialContext";
 import PageTutorial from "@/src/components/tutorial/PageTutorial";
 import settingsSteps from "@/src/library/tutorials/steps/settings";
 import SignInDevicesModal from "@/src/components/settings/SignInDevicesModal";
+import DataImportCard from "@/src/components/settings/DataImportCard";
 import {
     getAvailableVoices,
     getStoredVoiceURI,
@@ -619,8 +620,8 @@ export default function Settings() {
         try {
             await signOut(auth);
 
-            // Sends the signed-out user back to the login page
-            router.push("/login");
+            // Sends the signed-out user back to the landing page
+            router.push("/");
         } catch (error) {
             console.error("Sign-out failed:", error);
         }
@@ -1176,7 +1177,7 @@ export default function Settings() {
                 Change Password
             </button>
 
-            <p className="flex w-[94%] sm:w-3/4 self-center px-2 py-1 text-xs text-text-muted">
+            <p suppressHydrationWarning className="flex w-[94%] sm:w-3/4 self-center px-2 py-1 text-xs text-text-muted">
                 Update your account password
             </p>
 
@@ -1413,7 +1414,7 @@ export default function Settings() {
                 <div className="flex flex-col gap-1">
                     <h2 id="account-data-heading" className="text-sm font-medium text-text-main">Account data</h2>
                     <p className="text-xs text-text-muted">
-                        Download a portable copy of your Catalyst information and uploaded files.
+                        Download a portable copy of your Catalyst information and uploaded files, or restore your classes from one.
                     </p>
                 </div>
                 <div className="rounded-md border border-border-light bg-bg-container p-3">
@@ -1433,6 +1434,7 @@ export default function Settings() {
                         </button>
                     </div>
                 </div>
+                <DataImportCard />
                 <div className="rounded-md border border-border-light bg-bg-container p-3">
                     <h3 className="text-sm font-medium text-text-main">Delete account</h3>
                     <p id="account-deletion-description" className="mt-1 text-xs text-text-muted">

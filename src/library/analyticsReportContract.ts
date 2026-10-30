@@ -1,8 +1,15 @@
 import { eventNames } from "./analyticsContract";
+import type { UserPeaks } from "./monitoring/types";
 
 export type ReportRow = {
   label: string;
   count: number;
+};
+
+export type PagePerformanceRow = {
+  label: string;
+  sampleCount: number;
+  averageLoadTimeMs: number;
 };
 
 export type AnalyticsReport = {
@@ -11,12 +18,14 @@ export type AnalyticsReport = {
   timeZone: string;
   retrievedAt: string;
   pages: ReportRow[];
+  pagePerformance: PagePerformanceRow[];
   events: ReportRow[];
   daily: ReportRow[];
   dailyPageViews: ReportRow[];
   limited: boolean;
   activeUsers: number;
   dailyUsers: ReportRow[];
+  peaks?: UserPeaks | null;
   storageAvailable: boolean;
 };
 
@@ -127,4 +136,27 @@ export function buildReportRequests(startDate: string, endDate: string) {
     activeUsersReport,
     dailyUsersReport,
   ];
+}
+
+/**
+ * This stays separate from buildReportRequests because GA4 batchRunReports
+ * accepts at most five requests. The load-time average requires the registered
+ * event-scoped custom metric `load_time_ms`.
+ */
+export function buildPagePerformanceRequest(startDate: string, endDate: string) {
+  return {
+    dateRanges: [{ startDate, endDate }],
+    dimensions: [{ name: "pageTitle" }],
+    metrics: [
+      { name: "eventCount" },
+      { name: "averageCustomEvent:load_time_ms" },
+    ],
+    dimensionFilter: {
+      filter: {
+        fieldName: "eventName",
+        stringFilter: { matchType: "EXACT" as const, value: "page_load" },
+      },
+    },
+    limit: "1000",
+  };
 }

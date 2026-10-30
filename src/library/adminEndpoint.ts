@@ -41,6 +41,7 @@ export async function adminEndpoint(
   } catch (error) {
     const known =
       error instanceof AdminAccessError || error instanceof ReportError;
+    const status = known ? (error.status === 502 ? 503 : error.status) : 503;
     return Response.json(
       {
         error: known
@@ -50,7 +51,7 @@ export async function adminEndpoint(
             : "Monitoring is temporarily unavailable.",
       },
       {
-        status: known ? error.status : 503,
+        status,
         headers,
       },
     );

@@ -5,14 +5,46 @@ import type {
 import { displayDate, panelClass } from "./dashboardUtils";
 
 const pageNames: Record<string, string> = {
+  "/": "Landing",
+  "/login": "Sign in",
+  "/signup": "Sign up",
   "/learning": "Learning",
+  "/learning/classes": "Class learning",
+  "/learning/study-plan": "Study plan",
   "/classes": "Classes",
   "/dashboard": "Home",
   "/notes": "Notes",
+  "/notes/ocr": "Scan notes (OCR)",
+  "/notes/[noteId]": "Note viewer",
   "/ai-assistant": "AI Assistant",
   "/calendar": "Calendar",
+  "/advising_new": "Advising",
   "/profile": "Profile",
   "/settings": "Settings",
+  "/billing": "Billing",
+  "/help": "Help",
+  "/summary": "Summaries",
+  "/discover": "Discover",
+  "/custom/new": "New custom study set",
+  "/custom/[setId]": "Custom study set",
+  "/share/[shareId]": "Shared item",
+  "/legal/[doc]": "Legal document",
+  "/courses/[courseId]": "Course home",
+  "/courses/[courseId]/due-dates": "Course due dates",
+  "/courses/[courseId]/learning": "Course learning",
+  "/courses/[courseId]/notes": "Course notes",
+  "/courses/[courseId]/summaries": "Course summaries",
+  "/courses/[courseId]/discover": "Course discover",
+  "/courses/[courseId]/discover/blocks": "Course study blocks",
+  "/courses/[courseId]/discover/[publicSetId]": "Shared course set",
+  "/courses/[courseId]/assignments": "Course assignments",
+  "/courses/[courseId]/flashcards": "Course flashcards",
+  "/courses/[courseId]/flashcards/[setId]": "Course flashcard set",
+  "/courses/[courseId]/practice": "Course practice",
+  "/courses/[courseId]/practice/[setId]": "Course practice set",
+  "/courses/[courseId]/quizzes/[quizId]": "Course quiz",
+  "/admin/analytics": "Usage analytics (Admin)",
+  "/other": "Other routes",
 };
 
 function count(rows: ReportRow[], label: string) {
@@ -145,7 +177,11 @@ export function ActivityChart({ report }: { report: AnalyticsReport }) {
 
 export function AnalyticsOverview({ report }: { report: AnalyticsReport }) {
   const pages = [...report.pages].sort((a, b) => b.count - a.count);
-  const leading = pages[0];
+  const maxPageViews = Math.max(1, pages[0]?.count ?? 1);
+  const leading =
+    pages.find(
+      (page) => page.label !== "/other" && page.label !== "/admin/analytics",
+    ) ?? pages[0];
   const totalViews = count(report.events, "page_view");
   const workflows = [
     { name: "Quizzes", start: "quiz_started", outcome: "quiz_completed" },
@@ -224,7 +260,7 @@ export function AnalyticsOverview({ report }: { report: AnalyticsReport }) {
                   <div
                     className="h-full rounded-full bg-primary"
                     style={{
-                      width: `${(page.count / Math.max(1, leading?.count ?? 1)) * 100}%`,
+                      width: `${(page.count / maxPageViews) * 100}%`,
                     }}
                   />
                 </div>
@@ -276,6 +312,52 @@ export function AnalyticsOverview({ report }: { report: AnalyticsReport }) {
           </p>
         </section>
       </div>
+      <section className={panelClass}>
+        <h2 className="font-semibold">Page load performance</h2>
+        <p className="mt-1 text-sm text-text-muted">
+          Average completed document load time by normalized page.
+        </p>
+        {report.pagePerformance.length === 0 ? (
+          <p className="py-8 text-sm text-text-muted">
+            No page-load measurements for this period.
+          </p>
+        ) : (
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full min-w-[34rem] text-left text-sm">
+              <thead className="border-b border-border-light text-xs text-text-muted">
+                <tr>
+                  <th className="pb-3 pr-4 font-medium">Page</th>
+                  <th className="pb-3 pr-4 text-right font-medium">Samples</th>
+                  <th className="pb-3 text-right font-medium">Average load</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...report.pagePerformance]
+                  .sort((a, b) => b.averageLoadTimeMs - a.averageLoadTimeMs)
+                  .map((page) => (
+                    <tr key={page.label} className="border-b border-border-light last:border-0">
+                      <td className="py-3 pr-4">
+                        <p className="font-medium">
+                          {pageNames[page.label] ?? page.label}
+                        </p>
+                        <p className="mt-1 text-xs text-text-muted">{page.label}</p>
+                      </td>
+                      <td className="py-3 pr-4 text-right tabular-nums">
+                        {page.sampleCount.toLocaleString()}
+                      </td>
+                      <td className="py-3 text-right font-medium tabular-nums">
+                        {Math.round(page.averageLoadTimeMs).toLocaleString()} ms
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="mt-4 text-xs leading-relaxed text-text-muted">
+          Source: GA4 custom metric `load_time_ms` · {report.startDate} – {report.endDate}
+        </p>
+      </section>
     </div>
   );
 }

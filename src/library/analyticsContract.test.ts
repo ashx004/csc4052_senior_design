@@ -5,6 +5,7 @@ import {
   analyticsFileType,
 } from "./analyticsContract";
 import {
+  buildPagePerformanceRequest,
   buildReportRequests,
   propertyToday,
   validateDateRange,
@@ -37,6 +38,17 @@ describe("analytics contract", () => {
     expect(normalizeAnalyticsPath("/courses/private/notes/")).toBe(
       "/courses/[courseId]/notes",
     );
+    expect(normalizeAnalyticsPath("/courses/private/practice/set-1")).toBe(
+      "/courses/[courseId]/practice/[setId]",
+    );
+    expect(normalizeAnalyticsPath("/courses/private/flashcards/set-1")).toBe(
+      "/courses/[courseId]/flashcards/[setId]",
+    );
+    expect(normalizeAnalyticsPath("/custom/set-1")).toBe("/custom/[setId]");
+    expect(normalizeAnalyticsPath("/legal/privacy")).toBe("/legal/[doc]");
+    expect(normalizeAnalyticsPath("/learning/study-plan")).toBe(
+      "/learning/study-plan",
+    );
   });
 
   it("rejects incomplete and unexpected route shapes", () => {
@@ -59,6 +71,22 @@ describe("analytics contract", () => {
     expect(
       eventSchemas.study_session_started.safeParse({
         task_type: "private text",
+      }).success,
+    ).toBe(false);
+    expect(
+      eventSchemas.page_load.safeParse({
+        page_name: "/courses/[courseId]",
+        load_time_ms: 420,
+        navigation_type: "navigate",
+        metric_version: "navigation_timing_v1",
+      }).success,
+    ).toBe(true);
+    expect(
+      eventSchemas.page_load.safeParse({
+        page_name: "/courses/private-id",
+        load_time_ms: 420.5,
+        navigation_type: "navigate",
+        metric_version: "navigation_timing_v1",
       }).success,
     ).toBe(false);
     expect(
@@ -97,6 +125,16 @@ describe("analytics contract", () => {
     ).toMatchObject({
       filter: {
         inListFilter: { values: expect.arrayContaining(["quiz_completed"]) },
+      },
+    });
+    expect(buildPagePerformanceRequest("2026-10-01", "2026-10-05")).toMatchObject({
+      dimensions: [{ name: "pageTitle" }],
+      metrics: [
+        { name: "eventCount" },
+        { name: "averageCustomEvent:load_time_ms" },
+      ],
+      dimensionFilter: {
+        filter: { stringFilter: { value: "page_load" } },
       },
     });
   });

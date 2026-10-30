@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
 import { searchSite } from "@/src/library/search/siteSearch";
@@ -24,7 +24,9 @@ export default function SearchBar({ extraEntries = [], compact = false }: Search
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const listboxId = useId();
+  // There is one global search box. A stable ID avoids a hydration mismatch
+  // when a persisted dashboard preference changes the client component tree.
+  const listboxId = "catalyst-search-results";
 
   const [query, setQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);

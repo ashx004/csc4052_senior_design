@@ -239,7 +239,7 @@ export async function buildAccountDataExport(uid: string): Promise<Buffer> {
     "It excludes credentials, OAuth tokens, password hashes, one-time login challenges, and server secrets.",
     ...(firebaseData ? [] : ["Additional account records were not included in this temporary export."]),
     "The files/objects paths are safe archive names; their original storage keys are recorded in manifest.json.",
-    "A future Catalyst restore imports this data into a newly authenticated account and rebuilds document indexing.",
+    "To restore your classes, upload this ZIP unchanged in Catalyst under Settings > Account data > Import my data.",
     "",
   ].join("\n"));
   zip.file("manifest.json", JSON.stringify({
