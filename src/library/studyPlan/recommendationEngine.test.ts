@@ -189,6 +189,44 @@ describe("chooseActivityType", () => {
     ).toBe("reading");
   });
 
+  it("honours a non-auto preference for a quiz-set topic that carries a concept_practice target", () => {
+    const leveled: EligibleTopic = {
+      ...baseTopic,
+      activityTarget: {
+        kind: "concept_practice",
+        conceptKeys: ["joins"],
+        conceptLabels: ["Joins"],
+        conceptLevels: { joins: "review" },
+        sourceDocKeys: ["users/u/resources/doc.pdf"],
+        practiceType: "quiz",
+        questionCount: 10,
+        generatedSetId: null,
+        generationClaimedAtMs: null,
+      },
+    };
+    expect(chooseActivityType(leveled, "reading")).toBe("reading");
+    expect(chooseActivityType(leveled, "flashcards")).toBe("flashcards");
+  });
+
+  it("still forces quiz for a weak-spot concept topic whatever the preference", () => {
+    const weakSpotTopic: EligibleTopic = {
+      ...baseTopic,
+      conceptLabel: "Joins",
+      activityTarget: {
+        kind: "concept_practice",
+        conceptKeys: ["joins"],
+        conceptLabels: ["Joins"],
+        conceptLevels: { joins: "review" },
+        sourceDocKeys: ["users/u/resources/doc.pdf"],
+        practiceType: "quiz",
+        questionCount: 5,
+        generatedSetId: null,
+        generationClaimedAtMs: null,
+      },
+    };
+    expect(chooseActivityType(weakSpotTopic, "reading")).toBe("quiz");
+  });
+
   it("returns reading for a course-level fallback topic even when quiz is preferred", () => {
     expect(
       chooseActivityType(
@@ -304,6 +342,19 @@ describe("generateTasks", () => {
       const topic = topics.find((tp) => tp.topicLabel === t.topicLabel);
       return (topic?.quizMastery ?? 0) < 0.60;
     })).toBe(true);
+  });
+
+  it("names the concept in the reason when the topic came from a weak spot", () => {
+    const task = generateTasks(config, [
+      { ...baseTopic, conceptLabel: "Chain Rule", quizMastery: 0.4 },
+    ], new Map())[0];
+    expect(task.reason).toContain("Chain Rule");
+  });
+
+  it("raises priority for a concept missed more than once", () => {
+    const once = scoreTopic({ ...baseTopic, conceptLabel: "Chain Rule", repeatMissCount: 1 }, null, false);
+    const twice = scoreTopic({ ...baseTopic, conceptLabel: "Chain Rule", repeatMissCount: 3 }, null, false);
+    expect(twice.totalScore).toBeGreaterThan(once.totalScore);
   });
 
   it("each task has a human-readable reason", () => {

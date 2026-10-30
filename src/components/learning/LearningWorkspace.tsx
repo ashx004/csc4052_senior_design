@@ -27,6 +27,8 @@ import {
   needsDocumentSelection,
 } from "@/src/library/studyPlan/recommendationEngine";
 import { getVisibleStudyTasks } from "@/src/library/studyPlan/taskVisibility";
+import { conceptTopicsFromWeakSpots } from "@/src/library/studyPlan/conceptTopics";
+import { createConceptWeakSpotRepository, readConceptMastery } from "@/src/library/studyPlan/conceptWeakSpotRepository";
 import { getEmptyRecommendationReason } from "@/src/library/studyPlan/recommendationDiagnostics";
 import { LEARNING_ROUTES, type LearningSurface } from "@/src/library/learning/routes";
 import { hasUsablePlan } from "@/src/library/studyPlan/planState";
@@ -48,6 +50,8 @@ import {
   filterTopicsAlreadyInPlan,
 } from "@/src/library/studyPlan/taskSuggestions";
 import { resolveTaskActivityUrl } from "@/src/library/studyPlan/sessionTimer";
+import { resolveActivityTarget } from "@/src/library/studyPlan/activityTarget";
+import { useConceptPracticeStart } from "@/src/hooks/useConceptPracticeStart";
 import {
   afterSuccessfulPlan,
   beginAddWithoutPlan,
@@ -59,9 +63,17 @@ import {
   suggestionAfterLater,
 } from "@/src/library/studyPlan/addSuggestionToPlan";
 import { isRecommendedSuggestion } from "@/src/library/studyPlan/quizSuggestionView";
+import { isGeneratedForPlan } from "@/src/library/studyPlan/quizSetLevels";
 import { nextAddIntent } from "@/src/library/studyPlan/addIntent";
 import { missedQuestionTexts } from "@/src/library/studyPlan/missedQuestionText";
 import { conceptLabelFromQuizName, generateTargetedPracticeQuiz } from "@/src/library/studyPlan/targetedPractice";
+import {
+  buildDailyQuizFocus,
+  conceptEvidenceFromQuestions,
+  DAILY_QUIZ_MAX_QUESTIONS,
+  DAILY_QUIZ_QUESTION_COUNT,
+  type StoredConceptMastery,
+} from "@/src/library/studyPlan/dailyQuizTarget";
 import {
   documentMasteryId,
   learningActivityEventsCollection,
@@ -304,6 +316,21 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
   const handledAddSuggestionIdRef = useRef<string | null>(null);
   const [addToast, setAddToast] = useState<string | null>(null);
   const clearAddToast = useCallback(() => setAddToast(null), []);
+  // Failures get their own channel: routing them through addToast made a generation error
+  // render with the "Added to your plan" tick and colour.
+  const [errorToast, setErrorToast] = useState<string | null>(null);
+  const clearErrorToast = useCallback(() => setErrorToast(null), []);
+  const {
+    ensureGeneratedSet,
+    generatingTaskId,
+    error: practiceStartError,
+    clearError: clearPracticeStartError,
+  } = useConceptPracticeStart(user?.uid ?? null);
+  useEffect(() => {
+    if (!practiceStartError) return;
+    setErrorToast(practiceStartError);
+    clearPracticeStartError();
+  }, [practiceStartError, clearPracticeStartError]);
   // Moving between Learning routes remounts this component, so transient UI
   // (task highlight, toast) travels in the URL and is consumed by the destination.
   const openStudyPlan = useCallback(
@@ -469,6 +496,33 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
 
       const topics: EligibleTopic[] = [];
       const lastStudied = await latestStudyTimes(user.uid);
+      const exams = new Map<string, number>();
+      for (const event of allEvents) {
+        const cat = event.category ?? inferEventCategory(event);
+        if (cat === "exam" || cat === "deadline") {
+          const daysUntil = Math.ceil(
+            (new Date(event.startTime).getTime() - Date.now()) /
+              (1000 * 60 * 60 * 24)
+          );
+          if (daysUntil >= 0 && daysUntil <= 14) {
+            for (const cls of classes) {
+              if (
+                event.title
+                  .toLowerCase()
+                  .includes(cls.classCode.toLowerCase()) ||
+                event.title.toLowerCase().includes(cls.className.toLowerCase())
+              ) {
+                const existing = exams.get(cls.id);
+                if (existing === undefined || daysUntil < existing) {
+                  exams.set(cls.id, daysUntil);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      const masteryByCourse = new Map<string, Map<string, StoredConceptMastery>>();
       for (const cls of classes) {
         const resourceSnap = await getDocs(
           collection(db, "users", user.uid, "enrollment", cls.id, "resources")
@@ -498,11 +552,24 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
           return masterySignals.get(signalId)?.value ?? null;
         };
 
+        let storedConceptMastery = new Map<string, StoredConceptMastery>();
+        try {
+          storedConceptMastery = await readConceptMastery(user.uid, cls.id);
+        } catch {
+          // Concept mastery only refines levels; without it every concept seeds from the document.
+        }
+        // Kept for the weak-spot loop below, so that read happens once per course, not twice.
+        masteryByCourse.set(cls.id, storedConceptMastery);
+
         const quizSnap = await getDocs(
           collection(db, "users", user.uid, "enrollment", cls.id, "quizSets")
         );
         for (const qs of quizSnap.docs) {
           const data = qs.data();
+          // A set the plan generated for a daily task is not study material to recommend: it
+          // would make tomorrow's task a quiz derived from today's quiz, borrow its name for
+          // the task title, and grow the topic pool by one set per day.
+          if (isGeneratedForPlan(data)) continue;
           const topicLabel = data.topicName ?? data.name ?? qs.id;
           const matched = findResourceForSourceDocKey(data.sourceDocKey, courseResources);
           const activityTarget = matched ? documentTargetForResource(matched) : undefined;
@@ -514,6 +581,36 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
             topicLabel,
             masteryValue,
           );
+          const focus =
+            typeof data.sourceDocKey === "string" && data.sourceDocKey
+              ? buildDailyQuizFocus({
+                  concepts: conceptEvidenceFromQuestions(
+                    Array.isArray(data.questions) ? data.questions : [],
+                    storedConceptMastery,
+                  ),
+                  documentMastery: mastery.quizMastery,
+                  daysUntilExam: exams.get(cls.id) ?? null,
+                  questionCount: DAILY_QUIZ_QUESTION_COUNT,
+                  maxCount: DAILY_QUIZ_MAX_QUESTIONS,
+                })
+              : null;
+          // With no focus the task keeps the plain document target so it can always be opened.
+          const leveledTarget: ActivityTarget | undefined = focus
+            ? {
+                kind: "concept_practice",
+                conceptKeys: focus.quotas.map((quota) => quota.conceptKey),
+                conceptLabels: focus.quotas.map((quota) => quota.label),
+                conceptLevels: Object.fromEntries(
+                  focus.quotas.flatMap((quota) => (quota.level ? [[quota.conceptKey, quota.level]] : [])),
+                ),
+                sourceDocKeys: [data.sourceDocKey],
+                practiceType: "quiz",
+                questionCount: focus.quotas.reduce((sum, quota) => sum + quota.items, 0),
+                generatedSetId: null,
+                generationClaimedAtMs: null,
+              }
+            : undefined;
+          const quizTarget = leveledTarget ?? activityTarget;
           topics.push({
             courseId: cls.id,
             courseName: cls.className,
@@ -521,7 +618,7 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
             topicLabel,
             targetId: qs.id,
             activityType: "quiz",
-            ...(activityTarget ? { activityTarget } : {}),
+            ...(quizTarget ? { activityTarget: quizTarget } : {}),
             quizMastery: mastery.quizMastery,
             flashcardEngagement: mastery.flashcardEngagement,
             lastStudiedAt: studiedAtFor(lastStudied, cls.id, data.sourceDocKey),
@@ -599,29 +696,20 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
         });
       }
 
-      const exams = new Map<string, number>();
-      for (const event of allEvents) {
-        const cat = event.category ?? inferEventCategory(event);
-        if (cat === "exam" || cat === "deadline") {
-          const daysUntil = Math.ceil(
-            (new Date(event.startTime).getTime() - Date.now()) /
-              (1000 * 60 * 60 * 24)
+      const conceptRepository = createConceptWeakSpotRepository(user.uid);
+      for (const cls of classes) {
+        try {
+          const openSpots = await conceptRepository.listOpen(cls.id);
+          // A weak spot is a concept the student missed, so it is asked at the level the ladder
+          // gives it — usually `review` — instead of the generator's `exam` default.
+          topics.push(
+            ...conceptTopicsFromWeakSpots(openSpots, cls.className, cls.classCode, {
+              conceptMastery: masteryByCourse.get(cls.id) ?? new Map(),
+              daysUntilExam: exams.get(cls.id) ?? null,
+            }),
           );
-          if (daysUntil >= 0 && daysUntil <= 14) {
-            for (const cls of classes) {
-              if (
-                event.title
-                  .toLowerCase()
-                  .includes(cls.classCode.toLowerCase()) ||
-                event.title.toLowerCase().includes(cls.className.toLowerCase())
-              ) {
-                const existing = exams.get(cls.id);
-                if (existing === undefined || daysUntil < existing) {
-                  exams.set(cls.id, daysUntil);
-                }
-              }
-            }
-          }
+        } catch {
+          // Concept weak spots are additive; a failed read must not block the rest of the plan.
         }
       }
 
@@ -932,8 +1020,19 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
   const handleStartTask = useCallback(
     async (taskId: string) => {
       if (!user) return;
-      const task = tasks.find((t) => t.id === taskId);
-      if (!task) return;
+      const found = tasks.find((t) => t.id === taskId);
+      if (!found) return;
+
+      // A daily concept-practice quiz is built the first time its task opens. If that cannot
+      // happen (still being prepared, or it failed) nothing changes and we do not navigate:
+      // the message reaches the student as a toast and the task stays startable.
+      let task = found;
+      const foundTarget = resolveActivityTarget(found);
+      if (foundTarget?.kind === "concept_practice" && foundTarget.practiceType === "quiz") {
+        const setId = await ensureGeneratedSet(found);
+        if (!setId) return;
+        task = { ...found, activityTarget: { ...foundTarget, generatedSetId: setId } };
+      }
 
       const url = resolveTaskActivityUrl(task, taskId);
 
@@ -964,12 +1063,13 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
         task.activityType,
         task.targetId,
         "countup",
-        task.estimatedMinutes * 60
+        task.estimatedMinutes * 60,
+        url
       );
 
       router.push(url);
     },
-    [user, tasks, session, pauseSession, updateTaskStatus, startSession, attachTaskToSession, router]
+    [user, tasks, session, pauseSession, updateTaskStatus, startSession, attachTaskToSession, ensureGeneratedSet, router]
   );
 
   // "Continue" on an already in-progress task: just reopen its activity,
@@ -1599,6 +1699,7 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
       <BoardView
         tasks={visibleTasks}
         highlightedTaskId={highlightedTaskId}
+        startingTaskId={generatingTaskId}
         onStart={handleStartTask}
         onContinue={handleOpenTaskActivity}
         onSkip={handleSkipTask}
@@ -1622,6 +1723,7 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
       <ListView
         tasks={visibleTasks}
         highlightedTaskId={highlightedTaskId}
+        startingTaskId={generatingTaskId}
         onStart={handleStartTask}
         onContinue={handleOpenTaskActivity}
         onSkip={handleSkipTask}
@@ -1920,6 +2022,7 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
           onCancel={() => setRescheduleTarget(null)}
         />
         <ActionToast message={addToast} onDone={clearAddToast} />
+        <ActionToast message={errorToast} onDone={clearErrorToast} variant="error" />
         {showTaskPicker && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/35 p-4">
             <div

@@ -46,6 +46,7 @@ const GROUPS: Record<string, FeatureGroup> = {
   "query-clarifier": "light",
   "student-profile": "light",
   "contextual-chunking": "light",
+  "name-concepts": "light",
 };
 
 export function featureGroup(feature: string): FeatureGroup {

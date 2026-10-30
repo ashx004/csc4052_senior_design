@@ -51,6 +51,16 @@ describe("FillBlankRunner", () => {
     fireEvent.click(screen.getByRole("button", { name: /See results/ }));
     expect(onFinish.mock.calls[0][0][0].score).toBe(1);
   });
+
+  it("flags an answer the student marked correct themselves", () => {
+    const onFinish = vi.fn();
+    render(<FillBlankRunner items={[items[0]]} onFinish={onFinish} />);
+    fireEvent.change(screen.getByLabelText("Blank 1"), { target: { value: "cell core" } });
+    fireEvent.click(screen.getByRole("button", { name: "Check" }));
+    fireEvent.click(screen.getByRole("button", { name: /My answer is correct/ }));
+    fireEvent.click(screen.getByRole("button", { name: /See results/ }));
+    expect(onFinish.mock.calls[0][0][0]).toMatchObject({ itemId: "q1", score: 1, selfMarked: true });
+  });
 });
 
 describe("DragDropRunner", () => {

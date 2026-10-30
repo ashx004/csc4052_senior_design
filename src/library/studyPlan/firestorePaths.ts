@@ -59,6 +59,42 @@ export function documentMasteryId(courseId: string, sourceDocKey: string): strin
   return slashFreeKey([courseId, sourceDocKey]);
 }
 
+export function conceptWeakSpotsCollection(uid: string): string {
+  return `users/${uid}/conceptWeakSpots`;
+}
+
+export function conceptWeakSpotPath(uid: string, id: string): string {
+  return `${conceptWeakSpotsCollection(uid)}/${id}`;
+}
+
+export function conceptWeakSpotId(courseId: string, conceptKey: string): string {
+  return slashFreeKey([courseId, conceptKey]);
+}
+
+export function conceptSessionsCollection(uid: string): string {
+  return `users/${uid}/conceptSessions`;
+}
+
+export function conceptSessionPath(uid: string, id: string): string {
+  return `${conceptSessionsCollection(uid)}/${id}`;
+}
+
+export function conceptMasteryCollection(uid: string): string {
+  return `users/${uid}/conceptMastery`;
+}
+
+export function conceptMasteryPath(uid: string, id: string): string {
+  return `${conceptMasteryCollection(uid)}/${id}`;
+}
+
+export function conceptMasteryId(courseId: string, conceptKey: string): string {
+  return slashFreeKey([courseId, conceptKey]);
+}
+
+export function conceptSessionId(courseId: string, sessionId: string, conceptKey: string): string {
+  return slashFreeKey([courseId, sessionId, conceptKey]);
+}
+
 export function learningSuggestionsCollection(uid: string): string {
   return `users/${uid}/learningSuggestions`;
 }
@@ -67,6 +103,7 @@ export function learningSuggestionPath(uid: string, suggestionId: string): strin
   return `${learningSuggestionsCollection(uid)}/${suggestionId}`;
 }
 
+// Legacy: learningSuggestions is superseded by conceptWeakSpots; old documents are abandoned, not migrated.
 export function learningSuggestionId(courseId: string, quizId: string): string {
   return slashFreeKey([courseId, quizId]);
 }

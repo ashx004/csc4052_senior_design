@@ -1,4 +1,5 @@
 import type { Timestamp } from "firebase/firestore";
+import type { QuizDifficulty } from "@/src/library/quizDifficulty";
 
 export type ChickenState =
   | "egg"
@@ -87,6 +88,18 @@ export type ActivityTarget =
       sourceDocKey: string | null;
       mode: "full" | "missed_questions";
       questionIds?: string[];
+    }
+  | {
+      kind: "concept_practice";
+      conceptKeys: string[];
+      conceptLabels: string[];
+      sourceDocKeys: string[];
+      practiceType: "quiz" | "flashcards" | "fill_blank" | "word_problem" | "drag_drop";
+      questionCount: number;
+      /** Level per concept key. Empty means no per-concept level: use the request default. */
+      conceptLevels: Record<string, QuizDifficulty>;
+      generatedSetId: string | null;
+      generationClaimedAtMs: number | null;
     };
 
 export interface StatusChange {
@@ -247,6 +260,8 @@ export type NewLearningActivityEvent = Omit<LearningActivityEvent, "completedAt"
 export interface QuizContext {
   sourceDocKey: string | null;
   fullQuizQuestionCount: number;
+  /** Level each concept was asked at, keyed by normalized concept key. Empty for legacy sets. */
+  conceptLevels: Record<string, QuizDifficulty>;
 }
 
 export interface PersistQuizOutcomeInput {
@@ -377,6 +392,7 @@ export interface EligibleTopic {
   lastStudiedAt: Timestamp | null;
   skipCount: number;
   repeatMissCount?: number;
+  conceptLabel?: string;
   activityTarget?: ActivityTarget;
 }
 
@@ -407,4 +423,24 @@ export interface GeneratedTask {
   reason: string;
   priorityScore: number;
   activityTarget?: ActivityTarget;
+}
+
+export type ConceptWeakSpotStatus = "open" | "retired";
+
+export interface ConceptMiss {
+  questionId: string;
+  quizId: string;
+  failureCount: number;
+}
+
+export interface ConceptWeakSpot {
+  courseId: string;
+  conceptKey: string;
+  label: string;
+  misses: ConceptMiss[];
+  sourceDocKeys: string[];
+  status: ConceptWeakSpotStatus;
+  openedAtMs: number;
+  retiredAtMs: number | null;
+  timesReopened: number;
 }

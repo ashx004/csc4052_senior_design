@@ -103,7 +103,7 @@ export default function Sidebar({ children }: SidebarProps) {
         {/* Inner wrapper — fixed width prevents text from wrapping during the width animation.
             On short screens (phones, landscape) the whole column scrolls, so Settings at the
             bottom is always reachable; h-dvh tracks the space left by the browser's bars. */}
-        <div className="flex h-full min-w-[18rem] flex-col overflow-y-auto overscroll-contain">
+        <div className="no-scrollbar flex h-full min-w-[18rem] flex-col overflow-y-auto overscroll-contain">
           {/* Header: logo + close */}
           <div className="flex h-[68px] shrink-0 items-center justify-between px-5">
             <h1 className="text-xl font-bold tracking-[0.15em] text-white">

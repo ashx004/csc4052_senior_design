@@ -37,6 +37,8 @@ export interface FillBlankItem {
   text: string;
   blanks: Blank[];
   explanation: string;
+  /** The focus concept this item was written for, when generation was focused. */
+  conceptKey?: string;
 }
 
 export interface WordProblemItem {
@@ -54,6 +56,8 @@ export interface WordProblemItem {
   keyPoints: string[];
   /** The worked solution, shown after answering. */
   solution: string;
+  /** The focus concept this item was written for, when generation was focused. */
+  conceptKey?: string;
 }
 
 export type DragDropMode = "match" | "categorize" | "sequence";
@@ -80,6 +84,8 @@ export interface DragDropItem {
   /** Time allowed for this round. */
   timeLimitSeconds: number;
   explanation: string;
+  /** The focus concept this item was written for, when generation was focused. */
+  conceptKey?: string;
 }
 
 export type PracticeItem = FillBlankItem | WordProblemItem | DragDropItem;
@@ -103,6 +109,8 @@ export interface ItemResult {
   response: unknown;
   /** Seconds spent (drag-and-drop rounds). */
   seconds?: number;
+  /** The student pressed "My answer is correct", so the score is theirs, not the checker's. */
+  selfMarked?: boolean;
 }
 
 export interface PracticeAttempt {

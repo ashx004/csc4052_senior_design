@@ -35,6 +35,19 @@ export function getActivityUrl(
   }
 }
 
+/**
+ * The URL a study session remembers as its activity. An explicit URL wins: a leveled daily
+ * quiz opens a generated set, while the task's targetId still names the original set.
+ */
+export function sessionActivityUrl(
+  explicitUrl: string | undefined,
+  activityType: ActivityType,
+  courseId: string,
+  targetId: string | null
+): string {
+  return explicitUrl ?? getActivityUrl(activityType, courseId, targetId);
+}
+
 function appendTaskId(url: string, taskId?: string): string {
   if (!taskId) return url;
   return `${url}&taskId=${taskId}`;
@@ -57,6 +70,22 @@ export function getActivityUrlFromTarget(
     }
     case "flashcard_set":
       return appendTaskId(`/courses/${courseId}/flashcards?setId=${target.setId}`, taskId);
+    case "concept_practice": {
+      // Generation happens when the task starts (see startDecision); until then
+      // there is nothing to open, so land on the course learning page.
+      const setId = target.generatedSetId;
+      if (!setId) return `/courses/${courseId}/learning`;
+      switch (target.practiceType) {
+        case "quiz":
+          return appendTaskId(`/courses/${courseId}/quizzes/${setId}?mode=take`, taskId);
+        case "flashcards":
+          return appendTaskId(`/courses/${courseId}/flashcards?setId=${setId}`, taskId);
+        default: {
+          const url = `/courses/${courseId}/practice/${setId}`;
+          return taskId ? withTaskId(url, taskId) : url;
+        }
+      }
+    }
   }
 }
 

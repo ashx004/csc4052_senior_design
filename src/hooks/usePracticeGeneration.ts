@@ -5,6 +5,7 @@ import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db } from "@/src/library/firebase";
 import { useAuth } from "@/src/context/AuthContext";
 import { getEffectiveModelKey } from "@/src/library/chatMode";
+import type { ConceptFocus } from "@/src/library/generation/conceptFocus";
 import { KIND_LABELS, type DragDropMode, type PracticeDifficulty, type PracticeItem, type PracticeKind } from "@/src/library/practice/types";
 
 export interface PracticeSource {
@@ -22,6 +23,19 @@ export interface PracticeRequestInput {
   modes?: DragDropMode[];
   /** Earlier question texts, so "new questions" don't repeat them. */
   avoid?: string[];
+  /** Aims the set at specific concepts. */
+  focus?: ConceptFocus;
+}
+
+/** The message for a failed generation request. */
+export function generationFailureMessage(status: number, error: unknown): string {
+  if (typeof error === "string" && error) return error;
+  // No JSON body means a proxy answered instead of the app - usually
+  // a gateway timeout because the model took too long.
+  const timedOut = [502, 504, 524].includes(status);
+  return timedOut
+    ? "Building the practice took too long and the connection timed out. Try fewer questions or rounds, or try again in a minute."
+    : `Failed to generate practice (error ${status}). Please try again.`;
 }
 
 /** Generates a practice set from a document and saves it to the course. Resolves with the new set's ID. */
@@ -47,20 +61,13 @@ export function usePracticeGeneration(courseId: string) {
             difficulty: input.difficulty,
             modes: input.modes,
             avoidQuestions: input.avoid,
+            focus: input.focus,
             modelKey: getEffectiveModelKey("quiz"),
           }),
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
-          // No JSON body means a proxy answered instead of the app - usually
-          // a gateway timeout because the model took too long.
-          const timedOut = [502, 504, 524].includes(response.status);
-          throw new Error(
-            data.error ||
-              (timedOut
-                ? "Building the practice took too long and the connection timed out. Try fewer questions or rounds, or try again in a minute."
-                : `Failed to generate practice (error ${response.status}). Please try again.`)
-          );
+          throw new Error(generationFailureMessage(response.status, data.error));
         }
 
         const items = data.items as PracticeItem[];

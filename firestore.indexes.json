@@ -15,6 +15,14 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "leaseExpiresAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "conceptWeakSpots",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "courseId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

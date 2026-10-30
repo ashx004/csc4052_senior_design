@@ -95,6 +95,74 @@ describe("quiz generation contract", () => {
   });
 });
 
+describe("quiz focus", () => {
+  const focus = { quotas: [{ conceptKey: "chain rule", label: "Chain Rule", items: 3 }], avoid: ["Old question about something else entirely?"] };
+  it("sends the focus fragment and merges focus.avoid into the avoid list", async () => {
+    request.mockResolvedValueOnce(reply([mc(1), mc(2), mc(3)]));
+    await generateQuizWithValidation("Source text", 3, { multipleChoice: true }, "http://ai", undefined, [], undefined, {}, focus);
+    const content = body(0).messages[1].content as string;
+    expect(content).toContain("Chain Rule");
+    expect(content).toContain('conceptKey: "chain rule"');
+    expect(content).toContain("Old question about something else entirely?");
+  });
+  it("drops a question that repeats one supplied only through focus.avoid", async () => {
+    request.mockResolvedValueOnce(reply([{ ...mc(1), question: "Old question about something else entirely?" }, mc(2), mc(3), mc(4)]));
+    const result = await generateQuizWithValidation("Source text", 3, { multipleChoice: true }, "http://ai", undefined, [], undefined, {}, focus);
+    expect(result.questions.map((q) => q.question)).not.toContain("Old question about something else entirely?");
+  });
+  it("keeps conceptKey from the model", async () => {
+    request.mockResolvedValueOnce(reply([{ ...mc(1), conceptKey: "chain rule" }, mc(2), mc(3)]));
+    const result = await generateQuizWithValidation("Source text", 3, { multipleChoice: true }, "http://ai", undefined, [], undefined, {}, focus);
+    expect(result.questions.find((q) => q.question === "Question 1?")).toMatchObject({ conceptKey: "chain rule" });
+  });
+});
+
+describe("quiz per-concept levels", () => {
+  const leveled = { quotas: [{ conceptKey: "a", label: "Alpha", items: 2, level: "review" as const }, { conceptKey: "b", label: "Beta", items: 1, level: "challenge" as const }], avoid: [] };
+  const run = () => generateQuizWithValidation("Source text", 3, { multipleChoice: true }, "http://ai", undefined, [], "exam", {}, leveled);
+  const plan = [...buildBloomPlan("review", 2), ...buildBloomPlan("challenge", 1)];
+  const q = (n: number, conceptKey: string | undefined, bloomLevel: string | undefined) => ({ ...mc(n), conceptKey, bloomLevel });
+  it("names the concept and key on each planned line", async () => {
+    request.mockResolvedValueOnce(reply([q(1, "a", plan[0]), q(2, "a", plan[1]), q(3, "b", plan[2])]));
+    await run();
+    expect(body(0).messages[1].content).toContain(`1. ${plan[0]} — concept "Alpha" (conceptKey: "a")`);
+  });
+  it("rejects a question with no conceptKey, then repairs", async () => {
+    request.mockResolvedValueOnce(reply([q(1, undefined, plan[0]), q(2, "a", plan[0]), q(3, "b", plan[2])]));
+    request.mockResolvedValueOnce(reply([q(5, "a", plan[1])]));
+    const result = await run();
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(result.questions.map((x) => x.question).sort()).toEqual(["Question 2?", "Question 3?", "Question 5?"]);
+  });
+  it("rejects a question for a concept that needs no more questions, then repairs", async () => {
+    request.mockResolvedValueOnce(reply([q(1, "a", plan[0]), q(2, "a", plan[1]), q(3, "a", plan[0])]));
+    request.mockResolvedValueOnce(reply([q(4, "b", plan[2])]));
+    const result = await run();
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(result.questions.map((x) => x.question).sort()).toEqual(["Question 1?", "Question 2?", "Question 4?"]);
+  });
+  it("stamps the planned Bloom level on a question whose own level fills no remaining slot", async () => {
+    // Both "a" questions claim plan[0]; the second is re-stamped with "a"'s other planned
+    // level rather than thrown away, so no repair round is needed.
+    expect(plan[0]).not.toBe(plan[1]);
+    request.mockResolvedValueOnce(reply([q(1, "a", plan[0]), q(2, "a", plan[0]), q(3, "b", plan[2])]));
+    const result = await run();
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(result.questions.filter((x) => x.conceptKey === "a").map((x) => x.bloomLevel)).toEqual([plan[0], plan[1]]);
+  });
+  it("stamps the planned Bloom level on a question that arrives without one", async () => {
+    request.mockResolvedValueOnce(reply([q(1, "a", undefined), q(2, "a", undefined), q(3, "b", plan[2])]));
+    const result = await run();
+    expect(result.questions.filter((x) => x.conceptKey === "a").map((x) => x.bloomLevel)).toEqual([plan[0], plan[1]]);
+  });
+  it("leaves unleveled focus on the single-difficulty prompt", async () => {
+    request.mockResolvedValueOnce(reply([mc(1), mc(2), mc(3)]));
+    await generateQuizWithValidation("Source text", 3, { multipleChoice: true }, "http://ai", undefined, [], "exam", {}, { quotas: [{ conceptKey: "a", label: "Alpha", items: 3 }], avoid: [] });
+    expect(body(0).messages[1].content).not.toContain("— concept");
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("quiz levels and question quality", () => {
   const prompt = (n: number) => body(n).messages[1].content as string;
   const tf = { type: "true_false", question: "Is it true?", options: ["True", "False"], correctAnswer: "True" };

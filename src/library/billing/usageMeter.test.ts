@@ -18,7 +18,7 @@ import type { UsageEvent } from "@/src/library/ai/aiFetch";
 import { createMeter } from "./usageMeter";
 import { InsufficientCreditError } from "./wallet";
 
-const event: UsageEvent = { uid: "s1", requestId: "gen-1", feature: "chat", model: "openrouter:m", inputTokens: 10, outputTokens: 5, costMicros: 945, costSource: "provider", fallback: false };
+const event: UsageEvent = { uid: "s1", requestId: "gen-1", feature: "chat", model: "openrouter:m", inputTokens: 10, outputTokens: 5, costMicros: 945, costSource: "provider", fallback: false, status: "ok", timings: { durationMs: 100, overheadMs: 0, waitMs: null, genMs: null, deliverMs: null } };
 let added: Record<string, unknown>[];
 const db = () => ({ collection: (name: string) => (expect(name).toBe("aiUsage"), { add: async (d: Record<string, unknown>) => added.push(d) }) }) as unknown as Firestore;
 
@@ -73,12 +73,27 @@ describe("enforce mode (paywall)", () => {
     expect(wallet.releaseCredit).toHaveBeenCalledWith("s1", "hold-1", "chat", expect.anything());
   });
 
+  it("writes an unbilled row when a request fails, and still releases the hold", async () => {
+    const session = await createMeter(db()).start({ uid: "s1", feature: "chat", holdMicros: 5000 });
+    await session.abandon({ ...event, status: "error", httpStatus: 503, errorKind: "provider_error", inputTokens: 0, outputTokens: 0, costMicros: 0, costSource: "unknown" });
+    expect(added[0]).toMatchObject({ status: "error", charged: false, chargeMicros: 0, costMicros: 0, httpStatus: 503, errorKind: "provider_error", durationMs: 100 });
+    expect(wallet.releaseCredit).toHaveBeenCalled();
+    expect(wallet.settleCredit).not.toHaveBeenCalled();
+  });
+
+  it("writes no row for a failure when billing is off", async () => {
+    process.env.BILLING_MODE = "off";
+    const session = await createMeter(db()).start({ uid: "s1", feature: "chat", holdMicros: 5000 });
+    await session.abandon({ ...event, status: "error" });
+    expect(added).toHaveLength(0);
+  });
+
   it("charges the hold for a stopped stream whose cost can't be looked up", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("nope", { status: 404 })));
     process.env.OPENROUTER_API_KEY = "k";
     const session = await createMeter(db()).start({ uid: "s1", feature: "chat", holdMicros: 5000 });
-    const done = session.finish({ ...event, incomplete: true, costMicros: 0 });
+    const done = session.finish({ ...event, status: "incomplete", costMicros: 0 });
     await vi.runAllTimersAsync();
     await done;
     expect(wallet.settleCredit).toHaveBeenCalledWith("s1", "hold-1", 5000, expect.anything(), expect.anything());
@@ -91,7 +106,7 @@ describe("enforce mode (paywall)", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ data: { total_cost: 0.000189, native_tokens_prompt: 20, native_tokens_completion: 7 } })));
     process.env.OPENROUTER_API_KEY = "k";
     const session = await createMeter(db()).start({ uid: "s1", feature: "chat", holdMicros: 5000 });
-    const done = session.finish({ ...event, incomplete: true, costMicros: 0 });
+    const done = session.finish({ ...event, status: "incomplete", costMicros: 0 });
     await vi.runAllTimersAsync();
     await done;
     expect(wallet.settleCredit).toHaveBeenCalledWith("s1", "hold-1", 200, expect.objectContaining({ outputTokens: 7 }), expect.anything());

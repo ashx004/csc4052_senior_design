@@ -1,11 +1,14 @@
+import { conceptKey } from "./conceptKey";
 import { selectPracticeQuestionIds } from "./learningSuggestionEngine";
 import {
   learningSuggestionId,
   learningSuggestionPath,
   studyTaskPath,
 } from "./firestorePaths";
+import type { ConceptQuota } from "@/src/library/generation/allocateConceptQuotas";
 import type {
   ActivityTarget,
+  ConceptWeakSpot,
   LearningSuggestionStatus,
   MissedQuestionsSuggestion,
   StudyTask,
@@ -18,8 +21,9 @@ export interface SuggestionCourseInfo {
 }
 
 export type SuggestionTaskDraft = Omit<StudyTask, "createdAt" | "updatedAt"> & {
-  activityTarget: Extract<ActivityTarget, { kind: "quiz" }>;
-  sourceSuggestionId: string;
+  activityTarget: Extract<ActivityTarget, { kind: "quiz" | "concept_practice" }>;
+  /** null for tasks that are not backed by a learning suggestion document. */
+  sourceSuggestionId: string | null;
 };
 
 export interface SuggestionTaskDocument {
@@ -41,6 +45,8 @@ export interface CommitSuggestionTaskInput {
   planDate: string;
   course: SuggestionCourseInfo;
   existingTaskId: string | null;
+  /** Pre-built task to write instead of the default missed-questions draft. */
+  draft?: SuggestionTaskDraft;
 }
 
 const ACTIVE_TASK_STATUSES: ReadonlySet<TaskStatus> = new Set([
@@ -84,6 +90,117 @@ export function buildTaskFromSuggestion(
     },
     sourceSuggestionId: suggestion.id,
   };
+}
+
+export interface BuildConceptPracticeTaskInput {
+  courseId: string;
+  course: SuggestionCourseInfo;
+  planDate: string;
+  quotas: ConceptQuota[];
+  sourceDocKeys: string[];
+  practiceType: Extract<ActivityTarget, { kind: "concept_practice" }>["practiceType"];
+}
+
+/** A queued practice task. The set is generated when the task starts, so no set exists yet. */
+export function buildConceptPracticeTask(
+  input: BuildConceptPracticeTaskInput,
+): SuggestionTaskDraft {
+  const labels = input.quotas.map((quota) => quota.label);
+  const questionCount = input.quotas.reduce((sum, quota) => sum + quota.items, 0);
+  return {
+    planDate: input.planDate,
+    courseId: input.courseId,
+    courseName: input.course.name,
+    courseCode: input.course.code,
+    title: `Practice: ${labels.join(", ")}`,
+    activityType: input.practiceType === "flashcards" ? "flashcards" : "quiz",
+    targetId: null,
+    topicLabel: labels.join(", "),
+    estimatedMinutes: questionCount * 2,
+    source: "recommended",
+    reason: "Practice the concepts you are still missing.",
+    priorityScore: null,
+    status: "recommended",
+    statusHistory: [],
+    scheduledDate: input.planDate,
+    rescheduleCount: 0,
+    skipCount: 0,
+    activeSessionId: null,
+    totalActiveMinutes: 0,
+    completedAt: null,
+    activityTarget: {
+      kind: "concept_practice",
+      conceptKeys: input.quotas.map((quota) => quota.conceptKey),
+      conceptLabels: labels,
+      sourceDocKeys: input.sourceDocKeys,
+      practiceType: input.practiceType,
+      questionCount,
+      // A quota that carries the level its concept earned passes it to the generated set.
+      // Keys are normalized so the generator's lookup by normalized key finds them.
+      conceptLevels: Object.fromEntries(
+        input.quotas.flatMap((quota) =>
+          quota.level ? [[conceptKey(quota.conceptKey), quota.level] as const] : [],
+        ),
+      ),
+      generatedSetId: null,
+      generationClaimedAtMs: null,
+    },
+    sourceSuggestionId: null,
+  };
+}
+
+/** One missed_questions quiz draft per quiz the weak spot was missed in. No multi-quiz target exists. */
+export function buildRetryWrongAnswersTasks(
+  weakSpot: ConceptWeakSpot,
+  course: SuggestionCourseInfo,
+  planDate: string,
+  maxQuestionsPerQuiz = 10,
+): SuggestionTaskDraft[] {
+  const byQuiz = new Map<string, Map<string, number>>();
+  for (const miss of weakSpot.misses) {
+    const questions = byQuiz.get(miss.quizId) ?? new Map<string, number>();
+    questions.set(
+      miss.questionId,
+      Math.max(questions.get(miss.questionId) ?? 0, miss.failureCount),
+    );
+    byQuiz.set(miss.quizId, questions);
+  }
+  return [...byQuiz].map(([quizId, questions]) => {
+    const questionIds = [...questions]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, maxQuestionsPerQuiz)
+      .map(([questionId]) => questionId);
+    return {
+      planDate,
+      courseId: weakSpot.courseId,
+      courseName: course.name,
+      courseCode: course.code,
+      title: `Retry wrong answers: ${weakSpot.label}`,
+      activityType: "quiz",
+      targetId: quizId,
+      topicLabel: weakSpot.label,
+      estimatedMinutes: questionIds.length * 2,
+      source: "recommended",
+      reason: "Retry the questions you got wrong.",
+      priorityScore: null,
+      status: "recommended",
+      statusHistory: [],
+      scheduledDate: planDate,
+      rescheduleCount: 0,
+      skipCount: 0,
+      activeSessionId: null,
+      totalActiveMinutes: 0,
+      completedAt: null,
+      activityTarget: {
+        kind: "quiz",
+        quizId,
+        sourceDocKey: weakSpot.sourceDocKeys[0] ?? null,
+        mode: "missed_questions",
+        questionIds,
+      },
+      sourceSuggestionId: learningSuggestionId(weakSpot.courseId, quizId),
+    } satisfies SuggestionTaskDraft;
+  });
 }
 
 export function findLinkedActiveTask<
@@ -294,7 +411,19 @@ export async function commitSuggestionTask(
   if (input.suggestion.status === "unavailable") return null;
 
   const snap = await writer.get(path);
-  if (!snap.exists) return null;
+  if (!snap.exists) {
+    // Suggestion documents are no longer written. A caller-supplied draft is
+    // still saved as a study task; no suggestion document is created.
+    if (!input.draft) return null;
+    if (input.existingTaskId) return input.existingTaskId;
+    const taskId = writer.createId();
+    writer.set(studyTaskPath(input.uid, taskId), {
+      ...input.draft,
+      createdAt: writer.serverTimestamp(),
+      updatedAt: writer.serverTimestamp(),
+    });
+    return taskId;
+  }
 
   const data = snap.data();
   if (data?.status === "unavailable") return null;
@@ -320,11 +449,13 @@ export async function commitSuggestionTask(
   }
 
   const taskId = writer.createId();
-  const draft = buildTaskFromSuggestion(
-    suggestionForTask(input.suggestion.id, data, input.suggestion),
-    input.course,
-    input.planDate,
-  );
+  const draft =
+    input.draft ??
+    buildTaskFromSuggestion(
+      suggestionForTask(input.suggestion.id, data, input.suggestion),
+      input.course,
+      input.planDate,
+    );
   writer.set(studyTaskPath(input.uid, taskId), {
     ...draft,
     createdAt: writer.serverTimestamp(),

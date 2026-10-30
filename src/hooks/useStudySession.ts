@@ -19,7 +19,7 @@ import {
   studySessionsCollection,
   studySessionPath,
 } from "@/src/library/studyPlan/firestorePaths";
-import { getActivityUrl } from "@/src/library/studyPlan/sessionTimer";
+import { sessionActivityUrl } from "@/src/library/studyPlan/sessionTimer";
 import {
   computeActiveMinutes,
   computeActiveSeconds,
@@ -157,11 +157,12 @@ export function useStudySession(uid: string | null) {
       activityType: ActivityType,
       targetId: string | null,
       timerMode: TimerMode = "countup",
-      targetSeconds: number | null = null
+      targetSeconds: number | null = null,
+      activityUrl?: string
     ) => {
       if (!uid) return null;
       touchLastSeen();
-      const url = getActivityUrl(activityType, courseId, targetId);
+      const url = sessionActivityUrl(activityUrl, activityType, courseId, targetId);
       const now = Timestamp.now();
       const ref = await addDoc(
         collection(db, studySessionsCollection(uid)),

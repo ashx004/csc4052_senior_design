@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { z } from "zod";
 import { normalizedQuestion, structuredGeneration } from "../structuredGeneration";
 import { repeatsEarlierQuestion } from "../quizGeneration";
+import { conceptFocusPrompt, mergeAvoid, type ConceptFocus } from "../generation/conceptFocus";
 import { buildCategorizeRound, buildMatchRound, buildSequenceRound } from "./dragDrop";
 import { normalizeAnswer, parseNumber } from "./grading";
 import {
@@ -45,6 +46,19 @@ export interface PracticeRequest {
   modelKey?: string;
   /** Earlier questions that must not be repeated ("New questions"). */
   avoid?: string[];
+  /** Aims the items at specific concepts; omitted means unfocused. */
+  focus?: ConceptFocus;
+}
+
+const CONCEPT_KEY = z.string().trim().max(200).optional().catch(undefined);
+const CONCEPT_KEY_JSON = { conceptKey: { type: "string" } } as const;
+
+function focusNote(req: PracticeRequest): string {
+  return req.focus ? conceptFocusPrompt(req.focus) : "";
+}
+
+function isFocused(req: PracticeRequest): boolean {
+  return (req.focus?.quotas.length ?? 0) > 0;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -94,11 +108,12 @@ const FillBlankResponse = z.object({
       text: z.string().trim().min(1).max(1000),
       blanks: z.array(z.object({ answer: z.string().trim().min(1).max(200), alternatives: z.array(z.string().trim().max(200)).max(6), hint: z.string().trim().max(200) })).max(6),
       explanation: z.string().trim().max(800),
+      conceptKey: CONCEPT_KEY,
     })
   ),
 });
 
-function fillBlankSchema(count: number) {
+function fillBlankSchema(count: number, focused: boolean) {
   return {
     type: "object",
     additionalProperties: false,
@@ -123,8 +138,9 @@ function fillBlankSchema(count: number) {
               },
             },
             explanation: { type: "string" },
+            ...(focused ? CONCEPT_KEY_JSON : {}),
           },
-          required: ["text", "blanks", "explanation"],
+          required: ["text", "blanks", "explanation", ...(focused ? ["conceptKey"] : [])],
         },
       },
     },
@@ -161,6 +177,7 @@ export function validateFillBlank(raw: z.infer<typeof FillBlankResponse>["questi
         ...(b.hint.trim() ? { hint: b.hint.trim() } : {}),
       })),
       explanation: q.explanation.trim(),
+      ...(q.conceptKey ? { conceptKey: q.conceptKey } : {}),
     });
   }
   return items;
@@ -179,7 +196,7 @@ For each question:
 - Each question needs enough context to have one clear answer.
 - "explanation" is one sentence on why the answer is right.
 - Cover different parts of the document; never repeat a concept.
-- ${STANDS_ALONE}
+- ${STANDS_ALONE}${focusNote(req)}
 
 ${UNTRUSTED}
 
@@ -199,11 +216,12 @@ const WordProblemResponse = z.object({
       unit: z.string().trim().max(40),
       keyPoints: z.array(z.string().trim().min(1).max(300)).max(8),
       solution: z.string().trim().min(1).max(2500),
+      conceptKey: CONCEPT_KEY,
     })
   ),
 });
 
-function wordProblemSchema(count: number) {
+function wordProblemSchema(count: number, focused: boolean) {
   return {
     type: "object",
     additionalProperties: false,
@@ -223,8 +241,9 @@ function wordProblemSchema(count: number) {
             unit: { type: "string" },
             keyPoints: { type: "array", items: { type: "string" } },
             solution: { type: "string" },
+            ...(focused ? CONCEPT_KEY_JSON : {}),
           },
-          required: ["problem", "answerType", "expectedAnswer", "unit", "keyPoints", "solution"],
+          required: ["problem", "answerType", "expectedAnswer", "unit", "keyPoints", "solution", ...(focused ? ["conceptKey"] : [])],
         },
       },
     },
@@ -259,6 +278,7 @@ export function validateWordProblems(raw: z.infer<typeof WordProblemResponse>["p
         tolerance: 0.01,
         keyPoints: [],
         solution: p.solution,
+        ...(p.conceptKey ? { conceptKey: p.conceptKey } : {}),
       });
     } else {
       if (p.keyPoints.length < 2 || p.expectedAnswer.length < 20) continue;
@@ -270,6 +290,7 @@ export function validateWordProblems(raw: z.infer<typeof WordProblemResponse>["p
         expectedAnswer: p.expectedAnswer,
         keyPoints: p.keyPoints.slice(0, 5),
         solution: p.solution,
+        ...(p.conceptKey ? { conceptKey: p.conceptKey } : {}),
       });
     }
   }
@@ -288,7 +309,7 @@ Choose the answer type per problem:
 - "text": when the document is conceptual. The student answers in 2 to 4 sentences. "expectedAnswer" is a model answer, and "keyPoints" lists 2 to 4 separate ideas a good answer must include.
 
 For "number" problems use an empty "keyPoints" list. In "solution", explain the reasoning clearly for a student who got it wrong.
-${STANDS_ALONE} In "solution" say "the course material" rather than "the document".
+${STANDS_ALONE} In "solution" say "the course material" rather than "the document".${focusNote(req)}
 
 ${UNTRUSTED}
 
@@ -308,11 +329,12 @@ const DragDropResponse = z.object({
       pairs: z.array(z.object({ left: z.string().max(200), right: z.string().max(300) })).max(12),
       categories: z.array(z.object({ name: z.string().max(100), items: z.array(z.string().max(200)).max(8) })).max(6),
       steps: z.array(z.string().max(200)).max(10),
+      conceptKey: CONCEPT_KEY,
     })
   ),
 });
 
-function dragDropSchema(count: number, modes: DragDropMode[]) {
+function dragDropSchema(count: number, modes: DragDropMode[], focused: boolean) {
   return {
     type: "object",
     additionalProperties: false,
@@ -332,8 +354,9 @@ function dragDropSchema(count: number, modes: DragDropMode[]) {
             pairs: { type: "array", items: { type: "object", additionalProperties: false, properties: { left: { type: "string" }, right: { type: "string" } }, required: ["left", "right"] } },
             categories: { type: "array", items: { type: "object", additionalProperties: false, properties: { name: { type: "string" }, items: { type: "array", items: { type: "string" } } }, required: ["name", "items"] } },
             steps: { type: "array", items: { type: "string" } },
+            ...(focused ? CONCEPT_KEY_JSON : {}),
           },
-          required: ["mode", "instructions", "explanation", "pairs", "categories", "steps"],
+          required: ["mode", "instructions", "explanation", "pairs", "categories", "steps", ...(focused ? ["conceptKey"] : [])],
         },
       },
     },
@@ -358,7 +381,7 @@ export function validateDragDrop(raw: z.infer<typeof DragDropResponse>["rounds"]
     } else {
       round = buildSequenceRound({ instructions: r.instructions, explanation: r.explanation, steps: r.steps }, id);
     }
-    if (round) items.push(round);
+    if (round) items.push(r.conceptKey ? { ...round, conceptKey: r.conceptKey } : round);
   }
   return items;
 }
@@ -381,7 +404,7 @@ Use these round types: ${modes.map((m) => `"${m}"`).join(", ")}${modes.length > 
 
 ${blocks.join("\n")}
 
-For every round leave the lists for the other round types empty, write "instructions" as one short sentence telling the student what to drag where (the items start in a tray at the top and are dragged down into boxes - never say "left" or "right"; say "drag each term onto its definition" or similar), and "explanation" as one or two sentences recapping the right answer.
+For every round leave the lists for the other round types empty, write "instructions" as one short sentence telling the student what to drag where (the items start in a tray at the top and are dragged down into boxes - never say "left" or "right"; say "drag each term onto its definition" or similar), and "explanation" as one or two sentences recapping the right answer.${focusNote(req)}
 
 ${UNTRUSTED}
 
@@ -411,7 +434,8 @@ export async function generatePractice(req: PracticeRequest): Promise<GeneratedP
   }
   const modes = (req.modes?.length ? req.modes : ALL_MODES).filter((m) => ALL_MODES.includes(m));
   const deadline = Date.now() + PRACTICE_DEADLINE_MS;
-  const avoid = req.avoid ?? [];
+  // focus.avoid joins the avoid list, so a caller who supplies texts only there gets no repeats.
+  const avoid = req.focus?.avoid.length ? mergeAvoid(req.avoid, req.focus.avoid) : (req.avoid ?? []);
   const seen = new Set(avoid.map(normalizedQuestion));
   const accepted: PracticeItem[] = [];
   let topicName = "";
@@ -431,10 +455,10 @@ export async function generatePractice(req: PracticeRequest): Promise<GeneratedP
 
     const { schema, prompt } =
       req.kind === "fill_blank"
-        ? { schema: fillBlankSchema(drafts), prompt: fillBlankPrompt(req, drafts) }
+        ? { schema: fillBlankSchema(drafts, isFocused(req)), prompt: fillBlankPrompt(req, drafts) }
         : req.kind === "word_problem"
-          ? { schema: wordProblemSchema(drafts), prompt: wordProblemPrompt(req, drafts) }
-          : { schema: dragDropSchema(drafts, modes), prompt: dragDropPrompt(req, drafts, modes) };
+          ? { schema: wordProblemSchema(drafts, isFocused(req)), prompt: wordProblemPrompt(req, drafts) }
+          : { schema: dragDropSchema(drafts, modes, isFocused(req)), prompt: dragDropPrompt(req, drafts, modes) };
 
     const raw = await structuredGeneration({
       baseUrl: req.baseUrl,

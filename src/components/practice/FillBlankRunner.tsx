@@ -32,7 +32,7 @@ export default function FillBlankRunner({ items, onFinish }: { items: FillBlankI
   function markCorrect() {
     if (!graded || graded.score >= 1) return;
     setGraded({ score: 1, perBlank: graded.perBlank.map(() => ({ correct: true, typo: false })) });
-    setResults((all) => all.map((r, i) => (i === all.length - 1 ? { ...r, score: 1 } : r)));
+    setResults((all) => all.map((r, i) => (i === all.length - 1 ? { ...r, score: 1, selfMarked: true } : r)));
     setOverridden(true);
   }
 

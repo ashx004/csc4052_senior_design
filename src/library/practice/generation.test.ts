@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { appearsInSource, numberAppearsIn, validateDragDrop, validateFillBlank, validateWordProblems } from "./generation";
+import { describe, expect, it, vi } from "vitest";
+import { appearsInSource, generatePractice, numberAppearsIn, validateDragDrop, validateFillBlank, validateWordProblems } from "./generation";
+import { structuredGeneration } from "../structuredGeneration";
+
+vi.mock("../structuredGeneration", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../structuredGeneration")>()),
+  structuredGeneration: vi.fn(),
+}));
 
 const SOURCE = `Mitochondria are the organelles that produce ATP through oxidative phosphorylation. Glycolysis happens in the cytoplasm
 and yields a net of 2 ATP per glucose. The electron transport chain pumps protons across the inner membrane. Ribosomes build proteins,
@@ -109,5 +115,38 @@ describe("validateDragDrop", () => {
     ] };
     const rounds = validateDragDrop([sequence, categories], SOURCE, ["sequence", "categorize"]);
     expect(rounds.map((r) => r.mode)).toEqual(["sequence", "categorize"]);
+  });
+});
+
+describe("generatePractice focus", () => {
+  const sentence = "Glycolysis happens in the ____ and yields a net of ____ ATP per glucose.";
+  const reply = (conceptKey?: string) => ({
+    topicName: "Cells",
+    questions: [{ text: sentence, blanks: [blank("cytoplasm"), blank("2")], explanation: "Outside the mitochondria.", ...(conceptKey ? { conceptKey } : {}) }],
+  });
+  const base = { kind: "fill_blank" as const, text: SOURCE, count: 1, difficulty: "exam" as const, baseUrl: "http://ai" };
+  const focus = { quotas: [{ conceptKey: "glycolysis", label: "Glycolysis", items: 1 }], avoid: ["What does the Golgi apparatus package for transport?"] };
+
+  it("puts focus.avoid in the prompt and keeps the returned conceptKey", async () => {
+    vi.mocked(structuredGeneration).mockResolvedValueOnce(reply("glycolysis"));
+    const result = await generatePractice({ ...base, focus });
+    const call = vi.mocked(structuredGeneration).mock.calls.at(-1)![0];
+    const prompt = call.messages[1].content as string;
+    expect(prompt).toContain("What does the Golgi apparatus package for transport?");
+    expect(prompt).toContain("conceptKey");
+    expect(result.items[0]).toMatchObject({ conceptKey: "glycolysis" });
+  });
+
+  it("drops a repeat of a question supplied only through focus.avoid", async () => {
+    vi.mocked(structuredGeneration).mockResolvedValue(reply());
+    const repeat = { ...focus, avoid: ["Glycolysis happens in the cytoplasm and yields a net of 2 ATP per glucose."] };
+    await expect(generatePractice({ ...base, focus: repeat })).rejects.toThrow();
+  });
+
+  it("leaves an unfocused prompt without a conceptKey instruction", async () => {
+    vi.mocked(structuredGeneration).mockResolvedValueOnce(reply());
+    await generatePractice(base);
+    const call = vi.mocked(structuredGeneration).mock.calls.at(-1)![0];
+    expect(call.messages[1].content as string).not.toContain("conceptKey");
   });
 });

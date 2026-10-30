@@ -1,6 +1,12 @@
 import { Timestamp } from "firebase/firestore";
 import { describe, expect, it } from "vitest";
 import {
+  conceptMasteryId,
+  conceptMasteryPath,
+  conceptSessionId,
+  conceptSessionPath,
+  conceptWeakSpotId,
+  conceptWeakSpotPath,
   documentMasteryId,
   documentMasteryPath,
   learningActivityEventId,
@@ -19,6 +25,7 @@ import {
   type StoredDocument,
 } from "./learningProgressRepository";
 import type {
+  ConceptWeakSpot,
   MissedQuestionsSuggestion,
   NewQuizAttempt,
   PersistQuizOutcomeInput,
@@ -144,9 +151,12 @@ class MemoryStore implements LearningProgressStore {
     const writes: WriteOp[] = [];
     const transaction: LearningProgressTransaction = {
       get: (path) => this.getDoc(path),
-      set: (path, data) => {
+      set: (path, data, options) => {
         writes.push({ op: "set", path, data: { ...data } });
-        this.docs.set(path, { ...data });
+        // Mirrors Firestore: a plain set replaces the document, { merge: true } keeps fields the
+        // written data omits. Concept mastery relies on that to preserve lastAskedLevel.
+        const existing = options?.merge ? (this.docs.get(path) ?? {}) : {};
+        this.docs.set(path, { ...existing, ...data });
       },
       update: (path, data) => {
         writes.push({ op: "update", path, data: { ...data } });
@@ -231,6 +241,21 @@ function outcome(overrides: Partial<PersistQuizOutcomeInput> = {}): PersistQuizO
     mastery: { value: 72, level: "developing", sourceAttemptIds: ["attempt-1"] },
     suggestion: suggestion(),
     taskId: "task-1",
+    ...overrides,
+  };
+}
+
+function weakSpotFixture(overrides: Partial<ConceptWeakSpot> = {}): ConceptWeakSpot {
+  return {
+    courseId: "course-1",
+    conceptKey: "chain rule",
+    label: "Chain Rule",
+    misses: [{ questionId: "q1", quizId: "quiz-1", failureCount: 1 }],
+    sourceDocKeys: ["doc-key"],
+    status: "open",
+    openedAtMs: 1,
+    retiredAtMs: null,
+    timesReopened: 0,
     ...overrides,
   };
 }
@@ -347,10 +372,175 @@ describe("learning progress repository", () => {
       processedAt: store.stamp,
     });
     expect(store.docs.has(pendingQuizAttemptPath(UID, input.attemptId))).toBe(false);
-    expect(await repo.getSuggestion(input.courseId, input.quizId)).toMatchObject({
-      ...input.suggestion,
-      id: suggestionId,
+  });
+
+  it("applies mastery from sourceDocKey without a suggestion document", async () => {
+    const store = new MemoryStore();
+    const repo = createLearningProgressRepository(UID, store);
+    seedAttempt(store);
+    const { suggestion: _legacy, ...rest } = outcome();
+
+    const status = await repo.applyQuizOutcome({ ...rest, sourceDocKey: "doc-key" });
+
+    expect(status).toBe("processed");
+    expect(store.docs.has(learningSuggestionPath(UID, learningSuggestionId("course-1", "quiz-1")))).toBe(
+      false,
+    );
+    expect(store.docs.has(documentMasteryPath(UID, documentMasteryId("course-1", "doc-key")))).toBe(true);
+    expect(store.docs.get(quizAttemptPath(UID, "course-1", "quiz-1", "attempt-1"))).toMatchObject({
+      processingStatus: "processed",
     });
+  });
+
+  it("writes concept weak spots in the same transaction that marks the attempt processed", async () => {
+    const store = new MemoryStore();
+    const repo = createLearningProgressRepository(UID, store);
+    seedAttempt(store);
+    const { suggestion: _legacy, ...rest } = outcome();
+    const spot = weakSpotFixture();
+
+    await repo.applyQuizOutcome({ ...rest, sourceDocKey: "doc-key", conceptWeakSpots: [spot] });
+
+    const spotPath = conceptWeakSpotPath(UID, conceptWeakSpotId("course-1", "chain rule"));
+    expect(store.transactionWriteSets[0].map((write) => `${write.op} ${write.path}`)).toContain(
+      `set ${spotPath}`,
+    );
+    expect(store.docs.get(spotPath)).toMatchObject({
+      courseId: "course-1",
+      conceptKey: "chain rule",
+      misses: [{ questionId: "q1", quizId: "quiz-1", failureCount: 1 }],
+    });
+  });
+
+  it("writes concept sessions and mastery in the same transaction that marks the attempt processed", async () => {
+    const store = new MemoryStore();
+    const repo = createLearningProgressRepository(UID, store);
+    seedAttempt(store);
+    const { suggestion: _legacy, ...rest } = outcome();
+    const sessionId = conceptSessionId("course-1", "attempt-1", "chain rule");
+
+    await repo.applyQuizOutcome({
+      ...rest,
+      conceptSessions: [
+        { id: sessionId, courseId: "course-1", conceptKey: "chain rule", percent: 80, completedAtMs: 5, kind: "quiz" },
+      ],
+      conceptMastery: [{ conceptKey: "chain rule", value: 80, level: "strong", sourceSessionIds: [sessionId] }],
+    });
+
+    const paths = store.transactionWriteSets[0].map((write) => `${write.op} ${write.path}`);
+    expect(paths).toContain(`set ${conceptSessionPath(UID, sessionId)}`);
+    expect(paths).toContain(`set ${conceptMasteryPath(UID, conceptMasteryId("course-1", "chain rule"))}`);
+    expect(store.docs.get(conceptSessionPath(UID, sessionId))).toMatchObject({
+      courseId: "course-1",
+      conceptKey: "chain rule",
+      percent: 80,
+    });
+  });
+
+  it("keeps a stored lastAskedLevel when the attempt records no level for that concept", async () => {
+    const store = new MemoryStore();
+    const repo = createLearningProgressRepository(UID, store);
+    seedAttempt(store);
+    const masteryPath = conceptMasteryPath(UID, conceptMasteryId("course-1", "chain rule"));
+    // An earlier leveled attempt already recorded the anchor the ladder clamps against.
+    store.docs.set(masteryPath, {
+      courseId: "course-1",
+      conceptKey: "chain rule",
+      value: 50,
+      level: "weak",
+      sourceSessionIds: [],
+      lastAskedLevel: "exam",
+    });
+
+    // This attempt came from a pre-levels set, so its row carries no lastAskedLevel at all.
+    await repo.applyQuizOutcome({
+      ...outcome(),
+      conceptMastery: [{ conceptKey: "chain rule", value: 90, level: "strong", sourceSessionIds: ["s1"] }],
+    });
+
+    const stored = store.docs.get(masteryPath);
+    expect(stored).toMatchObject({ value: 90, level: "strong" });
+    // Clearing this would drop the one-rung clamp and let the next level jump two rungs.
+    expect(stored).toMatchObject({ lastAskedLevel: "exam" });
+  });
+
+  it("does not write weak spots again when the attempt is already processed", async () => {
+    const store = new MemoryStore();
+    const repo = createLearningProgressRepository(UID, store);
+    seedAttempt(store);
+    const { suggestion: _legacy, ...rest } = outcome();
+    const spotPath = conceptWeakSpotPath(UID, conceptWeakSpotId("course-1", "chain rule"));
+
+    await repo.applyQuizOutcome({ ...rest, conceptWeakSpots: [weakSpotFixture()] });
+    const second = await repo.applyQuizOutcome({
+      ...rest,
+      conceptWeakSpots: [weakSpotFixture({ misses: [{ questionId: "q1", quizId: "quiz-1", failureCount: 2 }] })],
+    });
+
+    expect(second).toBe("already_processed");
+    expect(store.transactionWriteSets[1]).toEqual([]);
+    expect(
+      (store.docs.get(spotPath)?.misses as Array<{ failureCount: number }>)[0].failureCount,
+    ).toBe(1);
+  });
+
+  it("records named misses once on a processed attempt and marks it in the same transaction", async () => {
+    const store = new MemoryStore();
+    const repo = createLearningProgressRepository(UID, store);
+    seedAttempt(store, "attempt-1", "processed");
+    const attemptPath = quizAttemptPath(UID, "course-1", "quiz-1", "attempt-1");
+    const spotPath = conceptWeakSpotPath(UID, conceptWeakSpotId("course-1", "chain rule"));
+    const input = { courseId: "course-1", quizId: "quiz-1", attemptId: "attempt-1" };
+
+    const first = await repo.applyNamedMisses({ ...input, weakSpots: [weakSpotFixture()] });
+    const second = await repo.applyNamedMisses({
+      ...input,
+      weakSpots: [weakSpotFixture({ misses: [{ questionId: "q1", quizId: "quiz-1", failureCount: 2 }] })],
+    });
+
+    expect(first).toBe("recorded");
+    expect(store.transactionWriteSets[0].map((write) => `${write.op} ${write.path}`).sort()).toEqual(
+      [`set ${spotPath}`, `update ${attemptPath}`].sort(),
+    );
+    expect(store.docs.get(attemptPath)).toMatchObject({ namedMissesRecorded: true, processingStatus: "processed" });
+    expect(second).toBe("already_recorded");
+    expect(store.transactionWriteSets[1]).toEqual([]);
+    expect(
+      (store.docs.get(spotPath)?.misses as Array<{ failureCount: number }>)[0].failureCount,
+    ).toBe(1);
+  });
+
+  it("leaves named misses on a pending attempt for processing to record", async () => {
+    const store = new MemoryStore();
+    const repo = createLearningProgressRepository(UID, store);
+    seedAttempt(store);
+
+    const status = await repo.applyNamedMisses({
+      courseId: "course-1",
+      quizId: "quiz-1",
+      attemptId: "attempt-1",
+      weakSpots: [weakSpotFixture()],
+    });
+
+    expect(status).toBe("not_processed");
+    expect(store.transactionWriteSets[0]).toEqual([]);
+  });
+
+  it("reads concept tags from the quiz set questions", async () => {
+    const store = new MemoryStore();
+    const repo = createLearningProgressRepository(UID, store);
+
+    expect(await repo.getQuizQuestionConcepts("course-1", "missing")).toEqual({});
+
+    store.docs.set(quizSetPath(UID, "course-1", "tagged"), {
+      questions: [
+        { id: "q1", concept: "Chain Rule" },
+        { id: "q2" },
+        { id: "q3", concept: "  " },
+        { id: "q4", concept: 7 },
+      ],
+    });
+    expect(await repo.getQuizQuestionConcepts("course-1", "tagged")).toEqual({ q1: "Chain Rule" });
   });
 
   it("does not write again when the attempt is already processed", async () => {
@@ -416,6 +606,7 @@ describe("learning progress repository", () => {
     expect(await repo.getQuizContext("course-1", "counted")).toEqual({
       sourceDocKey: "notes-a",
       fullQuizQuestionCount: 8,
+      conceptLevels: {},
     });
 
     store.docs.set(quizSetPath(UID, "course-1", "from-questions"), {
@@ -426,12 +617,23 @@ describe("learning progress repository", () => {
     expect(await repo.getQuizContext("course-1", "from-questions")).toEqual({
       sourceDocKey: "notes-b",
       fullQuizQuestionCount: 2,
+      conceptLevels: {},
     });
 
     store.docs.set(quizSetPath(UID, "course-1", "empty"), { sourceDocKey: 4 });
     expect(await repo.getQuizContext("course-1", "empty")).toEqual({
       sourceDocKey: null,
       fullQuizQuestionCount: 0,
+      conceptLevels: {},
+    });
+
+    store.docs.set(quizSetPath(UID, "course-1", "leveled"), {
+      sourceDocKey: "notes-c",
+      questionCount: 3,
+      conceptLevels: { "chain rule": "exam", "bad one": "extreme", "not a level": 4 },
+    });
+    expect((await repo.getQuizContext("course-1", "leveled"))?.conceptLevels).toEqual({
+      "chain rule": "exam",
     });
   });
 
@@ -668,7 +870,6 @@ describe("learning progress repository", () => {
       { courseId: "course-1", quizId: "quiz-1", attemptId: "a" },
       { courseId: "course-1", quizId: "quiz-1", attemptId: "b" },
     ]);
-    expect(await repo.getSuggestion("course-1", "quiz-1")).toBeNull();
   });
 
   it("reads a stored attempt for reprocessing", async () => {

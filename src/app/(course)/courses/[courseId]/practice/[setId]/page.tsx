@@ -25,6 +25,8 @@ import DragDropRunner from '@/src/components/practice/DragDropRunner';
 import PracticeResults from '@/src/components/practice/PracticeResults';
 import { PRIMARY_BUTTON } from '@/src/components/practice/PracticeShell';
 import { totalScore } from '@/src/library/practice/grading';
+import { createConceptWeakSpotRepository } from '@/src/library/studyPlan/conceptWeakSpotRepository';
+import { finishFocusedSession, itemsFromPracticeResults } from '@/src/library/studyPlan/focusedSessionService';
 import { formatClock } from '@/src/library/practice/dragDrop';
 import {
   DIFFICULTY_LABELS,
@@ -201,14 +203,27 @@ export default function PracticeSetPage({ params }: { params: Promise<{ courseId
       const points = set.kind === 'drag_drop' ? results.reduce((sum, r) => sum + (r.points ?? 0), 0) : null;
       const attempt: PastAttempt = { id: 'new', percent, score, total, durationMs, points, results: results.map(storable), completedAt: null };
       setView({ name: 'results', attempt, fresh: true });
+      const attemptId = crypto.randomUUID();
       unsaved.current = {
-        attemptId: crypto.randomUUID(),
+        attemptId,
         percent,
         payload: { score, total, percent, durationMs, points, results: attempt.results },
       };
       void saveAttempt();
+      // Scores this run against the weak concepts it covers. It is separate from saving the
+      // attempt, and runs once per finished run, so retrying a failed save never counts it twice.
+      void finishFocusedSession(createConceptWeakSpotRepository(user.uid), {
+        sessionId: attemptId,
+        courseId,
+        kind: set.kind,
+        completedAtMs: Date.now(),
+        items: itemsFromPracticeResults(
+          set.items,
+          results.map((r) => ({ itemId: r.itemId, score: r.score, selfMarked: r.selfMarked === true })),
+        ),
+      }).catch((error) => console.error('Error updating weak concepts:', error));
     },
-    [user, set, startedAt, saveAttempt],
+    [user, set, startedAt, saveAttempt, courseId],
   );
 
   async function newQuestions() {

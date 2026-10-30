@@ -4,6 +4,7 @@ import type { StudyTask } from "@/src/library/studyPlan/types";
 import {
   ArrowRight,
   Check,
+  Loader2,
   Pause,
   Play,
   Plus,
@@ -23,6 +24,8 @@ interface ListViewProps {
   onComplete: (taskId: string) => void;
   onAddTask: () => void;
   highlightedTaskId?: string | null;
+  /** The task whose quiz is being generated, if any. */
+  startingTaskId?: string | null;
 }
 
 const statusOrder: Record<StudyTask["status"], number> = {
@@ -71,6 +74,7 @@ export default function ListView({
   onComplete,
   onAddTask,
   highlightedTaskId = null,
+  startingTaskId = null,
 }: ListViewProps) {
   const sorted = [...tasks].sort(
     (a, b) => (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5)
@@ -184,10 +188,17 @@ export default function ListView({
                       <button
                         type="button"
                         onClick={() => onStart(task.id)}
+                        disabled={task.id === startingTaskId}
+                        aria-busy={task.id === startingTaskId}
                         aria-label={`Start ${task.title}`}
-                        className="flex items-center gap-1 rounded-full bg-navy px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+                        className="flex items-center gap-1 rounded-full bg-navy px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
                       >
-                        <Play size={12} aria-hidden="true" /> Start
+                        {task.id === startingTaskId ? (
+                          <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+                        ) : (
+                          <Play size={12} aria-hidden="true" />
+                        )}{" "}
+                        {task.id === startingTaskId ? "Preparing quiz..." : "Start"}
                       </button>
                     )}
 
