@@ -16,7 +16,6 @@ import { db } from "@/src/library/firebase";
 import { getEffectiveModelKey } from "@/src/library/chatMode";
 import { generationFailureMessage } from "@/src/hooks/usePracticeGeneration";
 import { tagFocusedQuestions, type ConceptFocus } from "@/src/library/generation/conceptFocus";
-import { DEFAULT_QUIZ_DIFFICULTY } from "@/src/library/quizDifficulty";
 import {
   commitSuggestionTask,
   type SuggestionCourseInfo,
@@ -29,10 +28,13 @@ import {
 } from "@/src/library/studyPlan/firestorePaths";
 import {
   buildTargetedPracticeRequest,
+  dailyPlanQuizNameFromFocus,
+  highestQuotaLevel,
   TARGETED_PRACTICE_QUESTION_COUNT,
   TARGETED_PRACTICE_QUESTION_TYPES,
   targetedPracticeNameFromFocus,
 } from "@/src/library/studyPlan/targetedPractice";
+import { quizSetLevelFields } from "@/src/library/studyPlan/quizSetLevels";
 import type { ActivityTarget, ConceptWeakSpot } from "@/src/library/studyPlan/types";
 
 export type ConceptPracticeType = Extract<ActivityTarget, { kind: "concept_practice" }>["practiceType"];
@@ -74,20 +76,48 @@ async function postJson(url: string, body: unknown): Promise<Record<string, unkn
   return data;
 }
 
-/** Every question text in the course's quiz sets made from any of these documents. */
+/** Firestore timestamps, raw millis and missing values all have to sort; legacy sets sort oldest. */
+function createdAtMillis(data: Record<string, unknown>): number {
+  const value = data.createdAt ?? data.updatedAt;
+  if (typeof value === "number") return value;
+  if (value && typeof value === "object" && typeof (value as { toMillis?: unknown }).toMillis === "function") {
+    try {
+      return (value as { toMillis: () => number }).toMillis();
+    } catch {
+      return 0;
+    }
+  }
+  return 0;
+}
+
+/**
+ * Question texts from the course's quiz sets made from any of these documents, newest set
+ * first so a downstream cap keeps the most recent questions. `maxSets` limits it to that many
+ * newest sets; without it every matching set counts, which is what the quiz page's
+ * "new questions" flow wants.
+ */
 export async function askedQuestionTexts(
   uid: string,
   courseId: string,
   sourceDocKeys: readonly string[],
+  options: { maxSets?: number } = {},
 ): Promise<string[]> {
   if (sourceDocKeys.length === 0) return [];
   const keys = new Set(sourceDocKeys);
   const snap = await getDocs(collection(db, "users", uid, "enrollment", courseId, "quizSets"));
+  const matching = snap.docs
+    .map((quizSet) => quizSet.data())
+    .filter(
+      (data) =>
+        typeof data.sourceDocKey === "string" &&
+        keys.has(data.sourceDocKey) &&
+        Array.isArray(data.questions),
+    )
+    .sort((a, b) => createdAtMillis(b) - createdAtMillis(a));
+  const limited =
+    typeof options.maxSets === "number" ? matching.slice(0, Math.max(0, options.maxSets)) : matching;
   const texts: string[] = [];
-  for (const quizSet of snap.docs) {
-    const data = quizSet.data();
-    if (typeof data.sourceDocKey !== "string" || !keys.has(data.sourceDocKey)) continue;
-    if (!Array.isArray(data.questions)) continue;
+  for (const data of limited) {
     for (const question of data.questions as unknown[]) {
       const text = question && typeof question === "object" ? (question as Record<string, unknown>).question : null;
       if (typeof text === "string" && text.trim()) texts.push(text);
@@ -96,12 +126,21 @@ export async function askedQuestionTexts(
   return texts;
 }
 
-/** A focused quiz, saved as a new quiz set. Resolves with the set's id. */
+/**
+ * A focused quiz, saved as a new quiz set. Resolves with the set's id.
+ *
+ * `pinned` belongs to the caller: the quiz page's weak-spot modal pins its set so it shows in
+ * the course sidebar, while a set the daily plan generates every day must not pile up there.
+ * `generatedForPlan` marks the daily sets so the plan does not then recommend quizzes derived
+ * from its own output, and names them as daily practice rather than weak-spot practice.
+ */
 export async function generateConceptQuiz(input: {
   uid: string;
   courseId: string;
   sourceDocKey: string;
   focus: ConceptFocus;
+  pinned: boolean;
+  generatedForPlan?: boolean;
 }): Promise<string> {
   const data = await postJson(
     "/api/generate-quiz",
@@ -110,17 +149,21 @@ export async function generateConceptQuiz(input: {
       focus: input.focus,
       avoidQuestions: input.focus.avoid,
       modelKey: getEffectiveModelKey("quiz"),
+      difficulty: highestQuotaLevel(input.focus),
     }),
   );
   const questions = tagFocusedQuestions(Array.isArray(data.questions) ? data.questions : [], input.focus);
   const created = await addDoc(collection(db, "users", input.uid, "enrollment", input.courseId, "quizSets"), {
-    name: targetedPracticeNameFromFocus(input.focus),
+    name: input.generatedForPlan
+      ? dailyPlanQuizNameFromFocus(input.focus)
+      : targetedPracticeNameFromFocus(input.focus),
     sourceDocKey: input.sourceDocKey,
     questions,
     questionTypes: TARGETED_PRACTICE_QUESTION_TYPES,
-    difficulty: DEFAULT_QUIZ_DIFFICULTY,
+    ...quizSetLevelFields(input.focus),
     questionCount: questions.length,
-    pinned: true,
+    pinned: input.pinned,
+    ...(input.generatedForPlan ? { generatedForPlan: true } : {}),
     visibility: "private",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),

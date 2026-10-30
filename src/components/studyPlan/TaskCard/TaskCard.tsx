@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import type { StudyTask } from "@/src/library/studyPlan/types";
+import { resolveActivityTarget } from "@/src/library/studyPlan/activityTarget";
+import { taskLevelBadge } from "@/src/library/studyPlan/taskLevelBadge";
 import TaskActions from "./TaskActions";
 import TaskReason from "./TaskReason";
 import { SkipForward } from "lucide-react";
@@ -23,6 +25,7 @@ interface TaskCardProps {
   onDelete?: () => void;
   onPause?: () => void;
   onComplete?: () => void;
+  starting?: boolean;
 }
 
 const TIME_FORMAT: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit" };
@@ -49,8 +52,10 @@ export default function TaskCard({
   onDelete,
   onPause,
   onComplete,
+  starting,
 }: TaskCardProps) {
   const [reasonExpanded, setReasonExpanded] = useState(false);
+  const levelBadge = taskLevelBadge(resolveActivityTarget(task));
 
   return (
     <div
@@ -70,7 +75,14 @@ export default function TaskCard({
         </div>
 
         <div className="min-w-0 flex-1">
-          <h4 className="truncate text-sm font-semibold text-navy">{task.title}</h4>
+          <div className="flex min-w-0 items-center gap-2">
+            <h4 className="min-w-0 truncate text-sm font-semibold text-navy">{task.title}</h4>
+            {/* The same middot the metadata line below uses, so the level reads as part of the
+                title rather than a stray word: "Quiz: Recursion · Review". */}
+            {levelBadge && (
+              <span className="shrink-0 text-xs text-gray-secondary">{`· ${levelBadge}`}</span>
+            )}
+          </div>
           <p className="mt-0.5 truncate text-xs text-gray-secondary">
             {task.courseCode} · {task.courseName}
           </p>
@@ -95,6 +107,7 @@ export default function TaskCard({
           onDelete={onDelete}
           onPause={onPause}
           onComplete={onComplete}
+          starting={starting}
         />
       </div>
 

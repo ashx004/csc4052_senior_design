@@ -1,4 +1,5 @@
 import { conceptKey } from "@/src/library/studyPlan/conceptKey";
+import { QUIZ_DIFFICULTIES } from "@/src/library/quizDifficulty";
 import type { ConceptQuota } from "./allocateConceptQuotas";
 
 export interface ConceptFocus {
@@ -17,7 +18,10 @@ export interface ConceptFocus {
 export function conceptFocusPrompt(focus: ConceptFocus): string {
   if (focus.quotas.length === 0) return "";
   const lines = focus.quotas.map(
-    (q) => `- ${q.label} (conceptKey: "${q.conceptKey}"): exactly ${q.items} ${q.items === 1 ? "item" : "items"}`,
+    (q) =>
+      `- ${q.label} (conceptKey: "${q.conceptKey}"): exactly ${q.items} ${q.items === 1 ? "item" : "items"}${
+        q.level ? `, at the "${q.level}" level` : ""
+      }`,
   );
   return `\n\nFocus this set on the following concepts, with the number of items each needs:
 ${lines.join("\n")}
@@ -69,11 +73,14 @@ export function parseConceptFocus(value: unknown): ConceptFocus | undefined {
   if (Array.isArray(raw.quotas)) {
     for (const item of raw.quotas.slice(0, MAX_FOCUS_QUOTAS)) {
       if (!item || typeof item !== "object") continue;
-      const { conceptKey, label, items } = item as Record<string, unknown>;
+      const { conceptKey, label, items, level } = item as Record<string, unknown>;
       if (typeof conceptKey !== "string" || typeof label !== "string") continue;
       if (typeof items !== "number" || !Number.isInteger(items) || items < 1) continue;
       if (!conceptKey.trim() || !label.trim()) continue;
-      quotas.push({ conceptKey: conceptKey.slice(0, 200), label: label.slice(0, 200), items });
+      const quota: ConceptQuota = { conceptKey: conceptKey.slice(0, 200), label: label.slice(0, 200), items };
+      const difficulty = QUIZ_DIFFICULTIES.find((d) => d === level);
+      if (difficulty) quota.level = difficulty;
+      quotas.push(quota);
     }
   }
   if (quotas.length === 0) return undefined;

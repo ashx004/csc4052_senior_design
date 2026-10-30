@@ -19,6 +19,7 @@ export function applyFocusedSession(
   session: FocusedSessionResult,
 ): {
   weakSpots: ConceptWeakSpot[];
+  /** Every concept the session scored, weak spot or not. */
   masteryUpdates: { conceptKey: string; percent: number }[];
   retired: string[];
   reopened: string[];
@@ -34,10 +35,16 @@ export function applyFocusedSession(
   const spotsByKey = new Map(weakSpots.map((spot) => [spot.conceptKey, spot]));
 
   for (const score of scoreSessionByConcept(session.items)) {
+    // Mastery evidence covers every concept this session scored, not just the ones under
+    // weak-spot tracking. A weak spot only ever opens on a miss, so gating mastery on one
+    // would mean a concept the student always gets right never records mastery and never
+    // records the level it was asked at, leaving the level ladder stuck at its entry rung.
+    masteryUpdates.push({ conceptKey: score.conceptKey, percent: score.percent });
+
+    // Retirement and reopening stay gated on an existing weak spot: untracked concepts have
+    // nothing to retire.
     const spot = spotsByKey.get(score.conceptKey);
     if (!spot) continue;
-
-    masteryUpdates.push({ conceptKey: score.conceptKey, percent: score.percent });
 
     const outcome = retirementOutcome(score, spot.status);
     if (outcome === "retire") {

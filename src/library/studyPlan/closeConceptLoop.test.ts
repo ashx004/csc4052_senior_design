@@ -59,13 +59,14 @@ describe("applyFocusedSession", () => {
     expect(out.weakSpots[0].timesReopened).toBe(1);
   });
 
-  it("records mastery but does not retire on a flashcard session", () => {
+  it("does not retire on a flashcard session and records no mastery", () => {
     const out = applyFocusedSession([open("chain rule")], {
       ...session([item("chain rule", 1), item("chain rule", 1), item("chain rule", 1)]),
       kind: "flashcards",
     });
     expect(out.retired).toEqual([]);
     expect(out.weakSpots[0].status).toBe("open");
+    expect(out.masteryUpdates).toEqual([]);
   });
 
   it("does not retire when self-marking leaves too few machine-scored items", () => {
@@ -77,9 +78,21 @@ describe("applyFocusedSession", () => {
     expect(out.retired).toEqual([]);
   });
 
-  it("ignores items for a concept that has no weak spot", () => {
+  it("records mastery for a concept that has no weak spot without retiring anything", () => {
     const out = applyFocusedSession([], session([item("chain rule", 1)]));
+    expect(out.masteryUpdates).toEqual([{ conceptKey: "chain rule", percent: 100 }]);
     expect(out.weakSpots).toEqual([]);
     expect(out.retired).toEqual([]);
+    expect(out.reopened).toEqual([]);
+  });
+
+  it("records mastery for every scored concept when only one of them is a weak spot", () => {
+    const out = applyFocusedSession([open("chain rule")], session([
+      item("chain rule", 0), item("product rule", 1),
+    ]));
+    expect([...out.masteryUpdates].sort((a, b) => a.conceptKey.localeCompare(b.conceptKey))).toEqual([
+      { conceptKey: "chain rule", percent: 0 },
+      { conceptKey: "product rule", percent: 100 },
+    ]);
   });
 });

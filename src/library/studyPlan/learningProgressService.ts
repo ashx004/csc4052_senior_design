@@ -13,6 +13,7 @@ import type {
   MissedQuestionsSuggestion,
   PendingAttemptRef,
   QuizAttemptType,
+  QuizContext,
   QuizQuestionResult,
 } from "./types";
 
@@ -122,6 +123,7 @@ async function conceptWritesForAttempt(
   attemptId: string,
   sourceDocKey: string | null,
   facts: AttemptFacts,
+  conceptLevels: QuizContext["conceptLevels"] | undefined,
 ): Promise<WeakSpotWrites> {
   const concepts = await repo.getQuizQuestionConcepts(courseId, quizId);
   const questions = facts.questionResults.map((result) => ({
@@ -166,7 +168,16 @@ async function conceptWritesForAttempt(
   const weakSpots = reconciled
     .map((spot) => retirements.get(spot.conceptKey) ?? spot)
     .filter((spot) => !existing.some((before) => before === spot));
-  return { weakSpots, conceptSessions: plan.sessions, conceptMastery: plan.mastery };
+  // Only this completed-attempt path records the level, so generating a set never moves the
+  // ladder. Sets saved before conceptLevels existed have no map, which reads as no level.
+  const conceptMastery = plan.mastery.map((row) => {
+    const level = conceptLevels?.[conceptKey(row.conceptKey)];
+    // No level for this concept means the set predates levels, not that the student was asked at
+    // an unknown level. Omit the key so the stored anchor survives: clearing it would drop the
+    // ladder's one-rung clamp and let the next level jump two rungs.
+    return level ? { ...row, lastAskedLevel: level } : { ...row };
+  });
+  return { weakSpots, conceptSessions: plan.sessions, conceptMastery };
 }
 
 async function deriveAndApply(
@@ -182,7 +193,7 @@ async function deriveAndApply(
     sourceDocKey != null ? await repo.listFullAttemptEvidence(courseId, sourceDocKey) : [];
   // Persisted by applyQuizOutcome in the same transaction that marks the attempt processed,
   // so a failed apply writes nothing and a retry starts from the same stored counts.
-  const writes = await conceptWritesForAttempt(repo, courseId, quizId, attemptId, sourceDocKey, facts);
+  const writes = await conceptWritesForAttempt(repo, courseId, quizId, attemptId, sourceDocKey, facts, context?.conceptLevels);
   const mastery = sourceDocKey != null ? computeDocumentMastery(evidence) : null;
   await repo.applyQuizOutcome({
     courseId,

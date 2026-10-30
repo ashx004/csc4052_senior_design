@@ -160,6 +160,16 @@ describe("finishFocusedSession", () => {
     ]);
   });
 
+  it("writes a session row and mastery for a concept that has no weak spot", async () => {
+    const repo = fakeRepo([]);
+    await finishFocusedSession(repo, session([item("chain rule", 1), item("chain rule", 1)]));
+    expect(repo.savedSessions.map((s) => [s.conceptKey, s.percent])).toEqual([["chain rule", 100]]);
+    expect(repo.savedMastery[0]).toEqual([
+      expect.objectContaining({ conceptKey: "chain rule", value: 100 }),
+    ]);
+    expect(repo.saved).toEqual([]);
+  });
+
   it("writes no concept session rows for a flashcard session", async () => {
     const repo = fakeRepo([open("chain rule")]);
     await finishFocusedSession(repo, { ...session([item("chain rule", 1)]), kind: "flashcards" });

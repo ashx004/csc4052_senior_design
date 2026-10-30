@@ -117,7 +117,11 @@ export function chooseActivityType(
   topic: EligibleTopic,
   preference: ActivityPreference
 ): ActivityType {
-  if (topic.activityTarget?.kind === "concept_practice") return "quiz";
+  // Weak-spot concept topics are concept-shaped: there is no document to read and no flashcard
+  // set behind them, so practising them is always a quiz. `conceptLabel` is what marks that
+  // shape. Ordinary quiz-set topics also carry a concept_practice target now (for per-concept
+  // levels), and those must still honour the student's chosen activity.
+  if (topic.conceptLabel && topic.activityTarget?.kind === "concept_practice") return "quiz";
   if (topic.targetId === null) return "reading";
   if (preference !== "auto") return preference as ActivityType;
 

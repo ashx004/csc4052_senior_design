@@ -15,6 +15,7 @@ import {
   type DocumentData,
   type Firestore,
 } from "firebase/firestore";
+import { QUIZ_DIFFICULTIES, type QuizDifficulty } from "@/src/library/quizDifficulty";
 import type { ConceptSessionEvidence } from "./conceptMasteryEngine";
 import {
   conceptMasteryId,
@@ -41,6 +42,7 @@ import {
   conceptMasteryData,
   conceptSessionData,
   toStoredData as conceptWeakSpotData,
+  type ConceptMasteryInput,
   type FocusedSessionRepository,
 } from "./conceptWeakSpotRepository";
 import type {
@@ -64,7 +66,12 @@ export interface StoredDocument {
 
 export interface LearningProgressTransaction {
   get(path: string): Promise<StoredDocument>;
-  set(path: string, data: Record<string, unknown>): void;
+  /**
+   * `{ merge: true }` keeps fields the written data omits. Concept mastery needs it: a quiz
+   * taken from a set with no stored level must leave `lastAskedLevel` alone rather than
+   * replace the document without it (see conceptMasteryData).
+   */
+  set(path: string, data: Record<string, unknown>, options?: { merge: boolean }): void;
   update(path: string, data: Record<string, unknown>): void;
   delete(path: string): void;
 }
@@ -124,7 +131,7 @@ export type ApplyQuizOutcomeInput = Omit<PersistQuizOutcomeInput, "suggestion"> 
    * pending, so a retry recomputes from the same stored state instead of counting a miss twice.
    */
   conceptSessions?: (ConceptSessionEvidence & { courseId: string })[];
-  conceptMastery?: { conceptKey: string; value: number; level: string; sourceSessionIds: string[] }[];
+  conceptMastery?: ConceptMasteryInput[];
 };
 
 export interface ApplyNamedMissesInput {
@@ -167,6 +174,18 @@ function asDocumentData(data: Record<string, unknown>): DocumentData {
 
 function readSourceDocKey(data: Record<string, unknown>): string | null {
   return typeof data.sourceDocKey === "string" ? data.sourceDocKey : null;
+}
+
+function readConceptLevels(data: Record<string, unknown>): Record<string, QuizDifficulty> {
+  const raw = data.conceptLevels;
+  const levels: Record<string, QuizDifficulty> = {};
+  if (!raw || typeof raw !== "object") return levels;
+  for (const [key, level] of Object.entries(raw)) {
+    if ((QUIZ_DIFFICULTIES as readonly string[]).includes(level as string)) {
+      levels[key] = level as QuizDifficulty;
+    }
+  }
+  return levels;
 }
 
 function readFullQuizQuestionCount(data: Record<string, unknown>): number {
@@ -336,6 +355,7 @@ export function createLearningProgressRepository(
       return {
         sourceDocKey: readSourceDocKey(data),
         fullQuizQuestionCount: readFullQuizQuestionCount(data),
+        conceptLevels: readConceptLevels(data),
       };
     },
 
@@ -403,9 +423,12 @@ export function createLearningProgressRepository(
           transaction.set(conceptSessionPath(uid, row.id), conceptSessionData(row));
         }
         for (const value of input.conceptMastery ?? []) {
+          // Merged, not replaced: a row that carries no lastAskedLevel must preserve the stored
+          // one, so the ladder keeps its anchor and its one-rung step limit still applies.
           transaction.set(
             conceptMasteryPath(uid, conceptMasteryId(input.courseId, value.conceptKey)),
             conceptMasteryData(input.courseId, value),
+            { merge: true },
           );
         }
         if (input.suggestion) {
@@ -578,8 +601,9 @@ function createFirebaseStore(getDb: () => Promise<Firestore>): LearningProgressS
               data: () => (snap.exists() ? snap.data() : undefined),
             };
           },
-          set(path, data) {
-            transaction.set(doc(db, path), asDocumentData(data));
+          set(path, data, options) {
+            if (options) transaction.set(doc(db, path), asDocumentData(data), options);
+            else transaction.set(doc(db, path), asDocumentData(data));
           },
           update(path, data) {
             transaction.update(doc(db, path), asDocumentData(data));

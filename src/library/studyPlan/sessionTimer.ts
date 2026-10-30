@@ -35,6 +35,19 @@ export function getActivityUrl(
   }
 }
 
+/**
+ * The URL a study session remembers as its activity. An explicit URL wins: a leveled daily
+ * quiz opens a generated set, while the task's targetId still names the original set.
+ */
+export function sessionActivityUrl(
+  explicitUrl: string | undefined,
+  activityType: ActivityType,
+  courseId: string,
+  targetId: string | null
+): string {
+  return explicitUrl ?? getActivityUrl(activityType, courseId, targetId);
+}
+
 function appendTaskId(url: string, taskId?: string): string {
   if (!taskId) return url;
   return `${url}&taskId=${taskId}`;

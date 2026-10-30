@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { QuizDifficulty } from "@/src/library/quizDifficulty";
 import { computeDocumentMastery } from "./masteryEngine";
 import type { ConceptSessionEvidence } from "./conceptMasteryEngine";
 import type { FocusedSessionRepository } from "./conceptWeakSpotRepository";
@@ -17,6 +18,7 @@ import {
 } from "./learningProgressService";
 import type {
   ConceptWeakSpot,
+  QuizContext,
   NewLearningActivityEvent,
   NewQuizAttempt,
   PendingAttemptRef,
@@ -45,7 +47,7 @@ interface FakeRepository extends LearningProgressRepository {
   activityEvents: NewLearningActivityEvent[];
   pendingLimit: number | null;
   conceptSessions: ConceptSessionEvidence[];
-  conceptMasteryWrites: { conceptKey: string; value: number }[];
+  conceptMasteryWrites: { conceptKey: string; value: number; lastAskedLevel?: QuizDifficulty | null }[];
 }
 
 function fullQuizInput(): SubmitQuizResultInput {
@@ -64,6 +66,15 @@ function fullQuizInput(): SubmitQuizResultInput {
     suggestionId: null,
     answers,
     questions,
+  };
+}
+
+/** Same ten questions, every answer right, so no concept in it can open a weak spot. */
+function allCorrectQuizInput(): SubmitQuizResultInput {
+  const input = fullQuizInput();
+  return {
+    ...input,
+    answers: Object.fromEntries(input.questions.map((question) => [question.id, "A"])),
   };
 }
 
@@ -94,6 +105,7 @@ function fakeRepository(options: {
   applyResults?: Array<"processed" | "already_processed">;
   sourceDocKey?: string | null;
   fullQuizQuestionCount?: number;
+  conceptLevels?: Record<string, QuizDifficulty>;
   concepts?: Record<string, string>;
   existingSpots?: ConceptWeakSpot[];
   applyErrorTimes?: number;
@@ -117,7 +129,7 @@ function fakeRepository(options: {
   const applyResults = [...(options.applyResults ?? [])];
   const sourceDocKey = options.sourceDocKey === undefined ? SOURCE_DOC_KEY : options.sourceDocKey;
   const conceptSessions: ConceptSessionEvidence[] = [];
-  const conceptMasteryWrites: { conceptKey: string; value: number }[] = [];
+  const conceptMasteryWrites: { conceptKey: string; value: number; lastAskedLevel?: QuizDifficulty | null }[] = [];
   const processedAttemptIds = new Set<string>();
   const namedMissAttemptIds = new Set<string>();
   const conceptWeakSpots: FocusedSessionRepository = {
@@ -179,6 +191,7 @@ function fakeRepository(options: {
       return {
         sourceDocKey,
         fullQuizQuestionCount: options.fullQuizQuestionCount ?? 10,
+        conceptLevels: options.conceptLevels ?? {},
       };
     },
     async listFullAttemptEvidence(courseId, docKey) {
@@ -455,7 +468,7 @@ describe("submitQuizResult", () => {
     });
   });
 
-  it("scores the attempt against the concepts it just opened", async () => {
+  it("scores every concept the attempt tagged, opened weak spot or not", async () => {
     const repo = fakeRepository({
       concepts: { q8: "Chain Rule", q1: "Product Rule" },
     });
@@ -464,7 +477,76 @@ describe("submitQuizResult", () => {
 
     expect(repo.conceptSessions.map((row) => [row.conceptKey, row.percent, row.kind]).sort()).toEqual([
       ["chain rule", 0, "quiz"],
+      ["product rule", 100, "quiz"],
     ]);
+  });
+
+  it("records a session and mastery per scored concept when nothing was missed and no weak spot exists", async () => {
+    const repo = fakeRepository({
+      concepts: { q1: "Chain Rule", q2: "Product Rule" },
+      conceptLevels: { "chain rule": "review", "product rule": "exam" },
+    });
+
+    await submitQuizResult(repo, allCorrectQuizInput());
+
+    expect(repo.savedSpots).toEqual([]);
+    expect(repo.conceptSessions.map((row) => [row.conceptKey, row.percent]).sort()).toEqual([
+      ["chain rule", 100],
+      ["product rule", 100],
+    ]);
+    const byKey = new Map(repo.conceptMasteryWrites.map((row) => [row.conceptKey, row]));
+    expect(byKey.get("chain rule")).toMatchObject({ value: 100, lastAskedLevel: "review" });
+    expect(byKey.get("product rule")).toMatchObject({ value: 100, lastAskedLevel: "exam" });
+  });
+
+  it("records mastery for both concepts of a mixed attempt but opens a weak spot only for the missed one", async () => {
+    const repo = fakeRepository({
+      concepts: { q1: "Chain Rule", q8: "Product Rule" },
+      conceptLevels: { "chain rule": "challenge", "product rule": "review" },
+    });
+
+    await submitQuizResult(repo, fullQuizInput());
+
+    expect(repo.savedSpots.flat().map((spot) => spot.conceptKey)).toEqual(["product rule"]);
+    const byKey = new Map(repo.conceptMasteryWrites.map((row) => [row.conceptKey, row]));
+    expect(byKey.get("chain rule")).toMatchObject({ value: 100, lastAskedLevel: "challenge" });
+    expect(byKey.get("product rule")).toMatchObject({ value: 0, lastAskedLevel: "review" });
+  });
+
+  it("records the level the taken set asked each scored concept at", async () => {
+    const repo = fakeRepository({
+      concepts: { q1: "Chain Rule", q2: "Product Rule" },
+      existingSpots: [
+        weakSpot(),
+        weakSpot({ conceptKey: "product rule", label: "Product Rule" }),
+      ],
+      conceptLevels: { "chain rule": "exam" },
+    });
+
+    await submitQuizResult(repo, fullQuizInput());
+
+    const byKey = new Map(repo.conceptMasteryWrites.map((row) => [row.conceptKey, row]));
+    expect(byKey.get("chain rule")?.lastAskedLevel).toBe("exam");
+    // The set has no entry for this concept, so the key is left out entirely rather than written
+    // as null: a null would clear the stored anchor and drop the ladder's one-rung clamp.
+    expect(byKey.get("product rule")).not.toHaveProperty("lastAskedLevel");
+  });
+
+  it("leaves the stored anchor alone when the taken set carries no conceptLevels at all", async () => {
+    const repo = fakeRepository({ concepts: { q1: "Chain Rule" }, existingSpots: [weakSpot()] });
+    const original = repo.getQuizContext;
+    repo.getQuizContext = async (courseId, quizId) => {
+      const legacy = { ...(await original(courseId, quizId))! } as Partial<QuizContext>;
+      delete legacy.conceptLevels;
+      return legacy as QuizContext;
+    };
+
+    await submitQuizResult(repo, fullQuizInput());
+
+    expect(repo.conceptMasteryWrites).toHaveLength(1);
+    expect(repo.conceptMasteryWrites[0]).toMatchObject({ conceptKey: "chain rule", value: 100 });
+    // A pre-levels set must not erase what an earlier leveled attempt stored.
+    expect(repo.conceptMasteryWrites[0]).not.toHaveProperty("lastAskedLevel");
   });
 
   it("retires an open weak spot that this attempt's score clears", async () => {

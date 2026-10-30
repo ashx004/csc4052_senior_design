@@ -15,6 +15,8 @@ interface BoardViewProps {
   onComplete: (taskId: string) => void;
   onAddTask: () => void;
   highlightedTaskId?: string | null;
+  /** The task whose quiz is being generated, if any. */
+  startingTaskId?: string | null;
 }
 
 export default function BoardView({
@@ -28,6 +30,7 @@ export default function BoardView({
   onComplete,
   onAddTask,
   highlightedTaskId = null,
+  startingTaskId = null,
 }: BoardViewProps) {
   const toDo = tasks.filter((t) => t.status === "recommended");
   const inProgress = tasks.filter((t) => t.status === "in_progress");
@@ -61,6 +64,7 @@ export default function BoardView({
                   <TaskCard
                     task={task}
                     onStart={() => onStart(task.id)}
+                    starting={task.id === startingTaskId}
                     onContinue={() => onContinue(task.id)}
                     onSkip={() => onSkip(task.id)}
                     onReschedule={() => onReschedule(task.id)}
@@ -82,7 +86,8 @@ export default function BoardView({
                           ? onContinue(task.id)
                           : onStart(task.id)
                       }
-                      className="mt-2 w-full rounded-lg bg-navy px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+                      disabled={task.id === startingTaskId}
+                      className="mt-2 w-full rounded-lg bg-navy px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-70"
                     >
                       {task.status === "in_progress" ? "Continue" : "Start"}
                     </button>

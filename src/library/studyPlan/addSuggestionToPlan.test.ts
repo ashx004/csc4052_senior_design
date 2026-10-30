@@ -5,7 +5,7 @@ import {
   studyTaskPath,
   studyTasksCollection,
 } from "./firestorePaths";
-import type { ConceptWeakSpot, MissedQuestionsSuggestion, TaskStatus } from "./types";
+import type { ActivityTarget, ConceptWeakSpot, MissedQuestionsSuggestion, TaskStatus } from "./types";
 import {
   afterSuccessfulPlan,
   beginAddWithoutPlan,
@@ -423,6 +423,39 @@ describe("suggestion task dedupe", () => {
 });
 
 describe("buildConceptPracticeTask", () => {
+  it("records the level each quota carries, so a planned practice is asked at its earned level", () => {
+    const draft = buildConceptPracticeTask({
+      courseId: "course-1",
+      course: courseInfo(),
+      planDate: "2026-09-27",
+      quotas: [
+        { conceptKey: "joins", label: "Joins", items: 4, level: "review" },
+        { conceptKey: "  The Indexes  ", label: "Indexes", items: 3, level: "challenge" },
+      ],
+      sourceDocKeys: ["users/u/resources/db.pdf"],
+      practiceType: "quiz",
+    });
+
+    const target = draft.activityTarget as Extract<ActivityTarget, { kind: "concept_practice" }>;
+    // Keys are normalized, so the generator's lookup by normalized key finds them.
+    expect(target.conceptLevels).toEqual({ joins: "review", indexes: "challenge" });
+  });
+
+  it("leaves conceptLevels empty when no quota carries a level", () => {
+    const draft = buildConceptPracticeTask({
+      courseId: "course-1",
+      course: courseInfo(),
+      planDate: "2026-09-27",
+      quotas: [{ conceptKey: "joins", label: "Joins", items: 4 }],
+      sourceDocKeys: ["users/u/resources/db.pdf"],
+      practiceType: "quiz",
+    });
+
+    const target = draft.activityTarget as Extract<ActivityTarget, { kind: "concept_practice" }>;
+    expect(target.conceptLevels).toEqual({});
+  });
+
+
   it("builds an ungenerated concept_practice task titled with the labels", () => {
     const draft = buildConceptPracticeTask({
       courseId: "course-1",
@@ -443,6 +476,7 @@ describe("buildConceptPracticeTask", () => {
       sourceDocKeys: ["doc-1"],
       practiceType: "quiz",
       questionCount: 7,
+      conceptLevels: {},
       generatedSetId: null,
       generationClaimedAtMs: null,
     });
