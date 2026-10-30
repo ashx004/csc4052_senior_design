@@ -83,7 +83,7 @@ async function checkAi() {
   const boxes: [string, string | undefined, string | undefined][] = [
     ["Secondary", process.env.OLLAMA_SECONDARY_URL, process.env.OLLAMA_SECONDARY_FALLBACK_URL],
   ];
-  if (process.env.AI_BACKEND !== "cloud") {
+  if (process.env.AI_BACKEND !== "cloud" && process.env.AI_BACKEND !== "testers") {
     boxes.push(["Primary", process.env.OLLAMA_PRIMARY_URL, process.env.OLLAMA_PRIMARY_FALLBACK_URL]);
   }
   const headers = process.env.OLLAMA_AUTH_TOKEN ? { Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}` } : undefined;

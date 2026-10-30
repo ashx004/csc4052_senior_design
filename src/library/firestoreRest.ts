@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { jwtVerify, createRemoteJWKSet } from "jose";
+import { jwtVerify, createRemoteJWKSet, decodeJwt } from "jose";
 import { createTimeoutSignal } from "./withTimeout";
 
 // ── Firestore REST helpers (no firebase-admin / client SDK needed) ───────────
@@ -8,8 +8,13 @@ import { createTimeoutSignal } from "./withTimeout";
 // REST API directly, authenticating with the user's Firebase ID token
 // that arrives in the fb_token cookie.
 
-const PROJECT_ID = "studora-933f8";
-const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
+const PROJECT_ID = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? "studora-933f8";
+const isLocalE2e = process.env.E2E_LOCAL === "true";
+const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
+const firestoreOrigin = isLocalE2e && emulatorHost
+  ? `http://${emulatorHost}`
+  : "https://firestore.googleapis.com";
+const FIRESTORE_BASE = `${firestoreOrigin}/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
 const JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com")
 );
@@ -30,6 +35,14 @@ function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
 export async function getUidFromRequest(req: NextRequest): Promise<string | null> {
   const token = req.cookies.get("fb_token")?.value;
   if (!token) return null;
+  if (isLocalE2e) {
+    try {
+      const payload = decodeJwt(token);
+      return typeof payload.sub === "string" ? payload.sub : null;
+    } catch {
+      return null;
+    }
+  }
   try {
     const { payload } = await jwtVerify(token, JWKS, {
       issuer: `https://securetoken.google.com/${PROJECT_ID}`,

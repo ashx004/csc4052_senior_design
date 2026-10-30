@@ -8,7 +8,7 @@ loadEnvConfig(process.cwd());
 
 const workerUrl = process.env.OCR_WORKER_URL ?? "";
 const internalSecret = process.env.INTERNAL_API_SECRET ?? "";
-const pollMs = Number(process.env.OCR_WORKER_POLL_MS ?? 10_000);
+const pollMs = Number(process.env.OCR_WORKER_POLL_MS ?? 30_000);
 
 if (!workerUrl || !internalSecret) {
   throw new Error("OCR_WORKER_URL and INTERNAL_API_SECRET are required to run the OCR worker.");
