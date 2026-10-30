@@ -38,6 +38,11 @@ docs/
 design/
 .specs/
 
+# Playwright E2E runtime credentials and diagnostics
+e2e/.runtime/
+playwright-report/
+test-results/
+
 # chat eval run reports (scripts/chatEval.mjs)
 scripts/*.report-*.json
 
