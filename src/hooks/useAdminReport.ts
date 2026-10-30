@@ -57,7 +57,10 @@ export function useAdminReport<T>(url: string, refresh: number, poll = false) {
         });
         if (!response.ok)
           throw new Error(
-            body.error || "This report is temporarily unavailable.",
+            body.error ||
+              body.detail ||
+              body.title ||
+              "This report is temporarily unavailable.",
           );
         if (!controller.signal.aborted)
           setResult({ key, data: body, error: "" });

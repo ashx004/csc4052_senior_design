@@ -295,13 +295,15 @@ async function fetchAnalyticsReport(
         },
         { timeout: REQUEST_TIMEOUT_MS },
       ),
-      api.properties.runReport(
-        {
-          property: `properties/${propertyId}`,
-          requestBody: buildPagePerformanceRequest(startDate, endDate),
-        },
-        { timeout: REQUEST_TIMEOUT_MS },
-      ),
+      api.properties
+        .runReport(
+          {
+            property: `properties/${propertyId}`,
+            requestBody: buildPagePerformanceRequest(startDate, endDate),
+          },
+          { timeout: REQUEST_TIMEOUT_MS },
+        )
+        .catch(() => ({ data: { rows: [] } as GoogleReport })),
     ]);
     const report = parseReports(
       response.data.reports,
