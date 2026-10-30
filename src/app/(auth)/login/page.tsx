@@ -320,6 +320,14 @@ function LoginForm() {
 
           <button
             type="button"
+            onClick={() => router.push("/signup")}
+            className="text-sm font-medium text-primary hover:text-primary-hover"
+          >
+            Create an account
+          </button>
+
+          <button
+            type="button"
             onClick={() => {
               setShowPasswordReset((visible) => !visible);
               setResetMessage("");

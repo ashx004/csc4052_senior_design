@@ -229,6 +229,14 @@ export default function Signup() {
           </button>
           </form>
 
+          <button
+            type="button"
+            onClick={() => router.push("/login")}
+            className="text-sm font-medium text-primary hover:text-primary-hover"
+          >
+            Already have an account? Log in
+          </button>
+
           <div className="flex items-center gap-2 text-xs text-text-muted">
             <div className="h-px flex-1 bg-border-light" />
             or

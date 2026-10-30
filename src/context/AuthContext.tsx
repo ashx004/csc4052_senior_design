@@ -43,6 +43,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // cookie to decide whether a page request is authenticated.
     let latestAuthUpdate = 0;
     const unsubscribe = onIdTokenChanged(auth, async (currentUser) => {
+      // Firebase can deliver its initial signed-out callback after an
+      // interactive sign-in has begun. Do not let that stale notification
+      // erase the just-created session cookie and redirect the user to login.
+      if (!currentUser && auth.currentUser) return;
       const authUpdate = ++latestAuthUpdate;
       setAnalyticsUser(currentUser?.uid ?? null);
       // Cookie is written BEFORE user/loading state updates, not after —

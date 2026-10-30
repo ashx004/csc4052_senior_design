@@ -14,6 +14,7 @@ vi.mock("./analyticsReportingConfig", () => ({
 }));
 const reportingMocks = vi.hoisted(() => ({
   batchRunReports: vi.fn(),
+  runReport: vi.fn(),
   runRealtimeReport: vi.fn(),
   saveUserCounts: vi.fn(),
 }));
@@ -25,6 +26,7 @@ vi.mock("googleapis/build/src/apis/analyticsdata/v1beta", () => ({
     Analyticsdata: class {
       properties = {
         batchRunReports: reportingMocks.batchRunReports,
+        runReport: reportingMocks.runReport,
         runRealtimeReport: reportingMocks.runRealtimeReport,
       };
     },
@@ -56,6 +58,7 @@ beforeEach(() => {
       ],
     },
   });
+  reportingMocks.runReport.mockResolvedValue({ data: { rows: [] } });
 });
 
 afterEach(() => vi.unstubAllEnvs());
@@ -64,6 +67,7 @@ it("returns empty real reports and caches identical queries", async () => {
   const report = await getAnalyticsReport("2026-01-01", "2026-01-05");
   expect(report.events).toEqual([]);
   expect(report.pages).toEqual([]);
+  expect(report.pagePerformance).toEqual([]);
   expect(await getAnalyticsReport("2026-01-01", "2026-01-05")).toBe(report);
   expect(reportingMocks.batchRunReports).toHaveBeenCalledTimes(1);
 });
@@ -156,6 +160,57 @@ it("rejects invalid counts instead of displaying corrupted totals", async () => 
   await expect(
     getAnalyticsReport("2026-01-01", "2026-01-05"),
   ).rejects.toMatchObject({ status: 502 });
+});
+
+it("returns a page-level count and average load time", async () => {
+  reportingMocks.runReport.mockResolvedValueOnce({
+    data: {
+      rows: [
+        {
+          dimensionValues: [{ value: "/courses/[courseId]" }],
+          metricValues: [{ value: "4" }, { value: "472.5" }],
+        },
+      ],
+    },
+  });
+  const { getAnalyticsReport } = await import("./analyticsReports");
+  const report = await getAnalyticsReport("2026-01-01", "2026-01-05");
+  expect(report.pagePerformance).toEqual([
+    {
+      label: "/courses/[courseId]",
+      sampleCount: 4,
+      averageLoadTimeMs: 472.5,
+    },
+  ]);
+  expect(reportingMocks.runReport.mock.calls[0][0].requestBody).toMatchObject({
+    metrics: [
+      { name: "eventCount" },
+      { name: "averageCustomEvent:load_time_ms" },
+    ],
+  });
+});
+
+it("still returns core analytics when the optional page_load custom metric is not registered in GA4", async () => {
+  reportingMocks.batchRunReports.mockResolvedValueOnce({
+    data: {
+      reports: [
+        { rows: [{ dimensionValues: [{ value: "/dashboard" }], metricValues: [{ value: "12" }] }] },
+        { rows: [{ dimensionValues: [{ value: "page_view" }], metricValues: [{ value: "12" }] }] },
+        { rows: [] },
+        { rows: [{ metricValues: [{ value: "5" }] }] },
+        { rows: [] },
+      ],
+    },
+  });
+  reportingMocks.runReport.mockRejectedValueOnce({
+    response: { status: 400 },
+    message: "Field averageCustomEvent:load_time_ms is not a valid metric.",
+  });
+  const { getAnalyticsReport } = await import("./analyticsReports");
+  const report = await getAnalyticsReport("2026-01-01", "2026-01-05");
+  expect(report.activeUsers).toBe(5);
+  expect(report.pages).toEqual([{ label: "/dashboard", count: 12 }]);
+  expect(report.pagePerformance).toEqual([]);
 });
 
 it("rejects reversed, future, and oversized date ranges before Google is called", async () => {

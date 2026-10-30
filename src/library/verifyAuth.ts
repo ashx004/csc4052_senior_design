@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { jwtVerify, createRemoteJWKSet } from "jose";
+import { jwtVerify, createRemoteJWKSet, decodeJwt } from "jose";
 import { SESSION_COOKIE, getRequestAuthToken } from "./requestAuthToken";
 
 // API routes are NOT covered by middleware.ts's edge auth check (its matcher
@@ -9,7 +9,8 @@ import { SESSION_COOKIE, getRequestAuthToken } from "./requestAuthToken";
 // Bearer header checked against Google's public keys, no Admin SDK/service
 // account needed), but returns a clean pass/fail instead of a redirect, and
 // the caller returns a 401 JSON response on failure.
-const PROJECT_ID = "studora-933f8";
+const PROJECT_ID = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? "studora-933f8";
+const isLocalE2e = process.env.E2E_LOCAL === "true";
 const JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com")
 );
@@ -20,6 +21,15 @@ export async function verifyRequestAuth(request: NextRequest): Promise<{ uid: st
     authorization: request.headers.get("authorization"),
   });
   if (!token) return null;
+
+  if (isLocalE2e) {
+    try {
+      const payload = decodeJwt(token);
+      return typeof payload.sub === "string" ? { uid: payload.sub } : null;
+    } catch {
+      return null;
+    }
+  }
 
   try {
     const { payload } = await jwtVerify(token, JWKS, {
