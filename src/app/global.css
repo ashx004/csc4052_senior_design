@@ -209,6 +209,32 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Theme changes swap palette tokens on <html>. Mark the page shell and any
+   persistent themed chrome with this class so their surfaces, outlines, and
+   dividers transition together instead of exposing a hard color boundary. */
+.theme-color-transition,
+.theme-color-transition :is(
+  [class~="bg-bg-main"],
+  [class~="bg-bg-container"],
+  [class~="bg-bg-warm"],
+  [class~="border-border-light"],
+  [class~="divide-border-light"]
+) {
+  transition-property: background-color, border-color, color;
+  transition-duration: 700ms;
+  /* Match Tailwind's transition-colors timing so shared bg-bg-main
+     surfaces stay visually identical to the page canvas mid-transition. */
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Tailwind's divide utility puts the visible border on each later child,
+   rather than on the divide container. */
+.theme-color-transition [class~="divide-border-light"] > * {
+  transition-property: border-color;
+  transition-duration: 700ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 /* --- Heading Hierarchies --- */
 h1, h2, h3, h4, h5, h6 {
   color: var(--color-text-main);
