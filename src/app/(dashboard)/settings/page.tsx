@@ -630,7 +630,7 @@ export default function Settings() {
 
 
     return (
-        <section className="flex min-h-screen flex-col bg-bg-main text-text-main transition-colors duration-700">
+        <section className="theme-color-transition flex min-h-screen flex-col bg-bg-main text-text-main transition-colors duration-700">
             <PageTutorial id="settings" steps={settingsSteps} />
             <header className="relative flex h-[73px] shrink-0 items-center justify-between border-b border-border-light bg-bg-container px-6
                             transition-colors duration-300">
