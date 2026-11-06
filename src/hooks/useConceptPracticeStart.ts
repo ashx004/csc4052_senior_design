@@ -20,13 +20,14 @@ import {
 import type { StudyTask } from "@/src/library/studyPlan/types";
 
 export const BEING_PREPARED_MESSAGE =
-  "This quiz is already being prepared. Give it a moment, then try Start again.";
-const NO_SOURCE_MESSAGE = "This practice has no source document to build a quiz from.";
+  "This practice is already being prepared. Give it a moment, then try Start again.";
+const NO_SOURCE_MESSAGE = "This practice has no source document to build it from.";
 
 /**
- * Makes sure a daily concept-practice quiz exists before its task opens. Resolves with the
- * quiz set's id, or null when there is nothing to open: the task is not a concept-practice
- * quiz, or generation is under way elsewhere or failed (then `error` says why). The caller
+ * Makes sure a daily concept-practice set (quiz or flashcards) exists before its task opens.
+ * Resolves with the set's id, or null when there is nothing to open: the task is not a
+ * quiz or flashcard concept-practice task, or generation is under way elsewhere or failed
+ * (then `error` says why). The caller
  * must not navigate on null.
  */
 export function useConceptPracticeStart(uid: string | null) {
@@ -47,7 +48,7 @@ export function useConceptPracticeStart(uid: string | null) {
         setError(BEING_PREPARED_MESSAGE);
         return null;
       }
-      // One source document per daily quiz: splitting quotas across several breaks the
+      // One source document per daily set: splitting quotas across several breaks the
       // per-concept counts and several model calls would outlast the claim.
       const sourceDocKey = target.sourceDocKeys[0];
       if (!sourceDocKey) {
