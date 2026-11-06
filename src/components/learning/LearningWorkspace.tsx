@@ -526,6 +526,9 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
       }
 
       const masteryByCourse = new Map<string, Map<string, StoredConceptMastery>>();
+      // Resources that an existing set already stands for, per course, so the document topics
+      // below do not offer the same document a second time.
+      const representedByCourse = new Map<string, Set<string>>();
       for (const cls of classes) {
         const resourceSnap = await getDocs(
           collection(db, "users", user.uid, "enrollment", cls.id, "resources")
@@ -563,6 +566,7 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
         }
         // Kept for the weak-spot loop below, so that read happens once per course, not twice.
         masteryByCourse.set(cls.id, storedConceptMastery);
+        representedByCourse.set(cls.id, new Set());
 
         const quizSnap = await getDocs(
           collection(db, "users", user.uid, "enrollment", cls.id, "quizSets")
@@ -575,6 +579,7 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
           if (isGeneratedForPlan(data)) continue;
           const topicLabel = data.topicName ?? data.name ?? qs.id;
           const matched = findResourceForSourceDocKey(data.sourceDocKey, courseResources);
+          if (matched) representedByCourse.get(cls.id)?.add(matched.id);
           const activityTarget = matched ? documentTargetForResource(matched) : undefined;
           const repeats = repeatMissCountFor(suggestions, cls.id, qs.id);
           const mastery = masteryForSet(
@@ -638,6 +643,7 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
           if (isGeneratedForPlan(data)) continue;
           const topicLabel = data.topicName ?? data.name ?? fc.id;
           const matched = findResourceForSourceDocKey(data.sourceDocKey, courseResources);
+          if (matched) representedByCourse.get(cls.id)?.add(matched.id);
           const activityTarget = matched ? documentTargetForResource(matched) : undefined;
           const mastery = masteryForSet(
             bySourceDocument,
@@ -663,10 +669,11 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
       }
 
       for (const cls of classes) {
-        if (topics.some((topic) => topic.courseId === cls.id)) continue;
         const resources = resourcesByCourse.get(cls.id) ?? [];
+        const representedResourceIds = representedByCourse.get(cls.id) ?? new Set<string>();
         if (resources.length > 0) {
           for (const resource of resources) {
+            if (representedResourceIds.has(resource.id)) continue;
             topics.push({
               courseId: cls.id,
               courseName: cls.className,
@@ -687,6 +694,9 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
           }
           continue;
         }
+        // A course with sets but no documents already has something to offer.
+        const hasSetTopic = topics.some((topic) => topic.courseId === cls.id);
+        if (hasSetTopic) continue;
         topics.push({
           courseId: cls.id,
           courseName: cls.className,
