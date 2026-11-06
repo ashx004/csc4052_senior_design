@@ -1,6 +1,14 @@
 import type { NextConfig } from "next";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+// The app version shown on the settings page, read from package.json at build time.
+const appVersion = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")).version as string;
 
 const nextConfig: NextConfig = {
+  env: {
+    NEXT_PUBLIC_APP_VERSION: appVersion,
+  },
   // Keep deployment startup independent from the separately runnable lint.
   // Legacy lint violations are fixed incrementally, outside deployment.
   eslint: {

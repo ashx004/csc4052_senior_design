@@ -1560,6 +1560,11 @@ export default function Settings() {
                 Sign Out
             </button>
 
+            {/* Which build is running, so a deploy can be confirmed from the browser. */}
+            <p data-testid="app-version" className="mt-6 text-center text-xs text-text-muted">
+                Catalyst v{process.env.NEXT_PUBLIC_APP_VERSION ?? "unknown"}
+                {process.env.NEXT_PUBLIC_BUILD_ID ? ` · build ${process.env.NEXT_PUBLIC_BUILD_ID.slice(0, 7)}` : ""}
+            </p>
 
         </section>
   );
