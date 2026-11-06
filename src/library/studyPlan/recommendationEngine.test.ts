@@ -681,7 +681,7 @@ describe("reading document targets", () => {
     });
   });
 
-  it("does not attach a flashcard target when a matched quiz is generated as flashcards", () => {
+  it("generates a flashcards target instead of reusing the matched quiz id", () => {
     const tasks = generateTasks(
       { ...config("flashcards"), availableMinutes: 30 },
       [
@@ -699,8 +699,11 @@ describe("reading document targets", () => {
       new Map()
     );
     expect(tasks[0].activityType).toBe("flashcards");
-    expect(tasks[0].targetId).toBe("quiz-1");
-    expect(tasks[0].activityTarget).toBeUndefined();
+    expect(tasks[0].targetId).toBeNull();
+    expect(tasks[0].activityTarget).toMatchObject({
+      kind: "concept_practice",
+      practiceType: "flashcards",
+    });
   });
 });
 
@@ -802,5 +805,93 @@ describe("document target matching", () => {
       )?.id
     ).toBe("resource-2");
     expect(findResourceForSourceDocKey("   ", resources)).toBeUndefined();
+  });
+});
+
+describe("generateTasks with an explicit preference", () => {
+  it("gives a document-only topic a concept_practice quiz target", () => {
+    const tasks = generateTasks(config("quiz"), [documentCandidate("doc1")], new Map());
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].activityType).toBe("quiz");
+    expect(tasks[0].targetId).toBeNull();
+    expect(tasks[0].activityTarget).toMatchObject({
+      kind: "concept_practice",
+      practiceType: "quiz",
+      generatedSetId: null,
+    });
+  });
+
+  it("gives a flashcards preference a concept_practice flashcards target", () => {
+    const tasks = generateTasks(config("flashcards"), [documentCandidate("doc1")], new Map());
+    expect(tasks[0].targetId).toBeNull();
+    expect(tasks[0].activityTarget).toMatchObject({
+      kind: "concept_practice",
+      practiceType: "flashcards",
+    });
+  });
+
+  it("does not reuse a quiz set id for a flashcards task", () => {
+    const quizSetTopic: EligibleTopic = {
+      ...baseTopic,
+      activityTarget: { kind: "quiz", quizId: "quiz1", sourceDocKey: "users/u/resources/doc.pdf", mode: "full" },
+    };
+    const tasks = generateTasks(config("flashcards"), [quizSetTopic], new Map());
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].activityType).toBe("flashcards");
+    expect(tasks[0].targetId).toBeNull();
+    expect(tasks[0].activityTarget).toMatchObject({
+      kind: "concept_practice",
+      practiceType: "flashcards",
+    });
+  });
+
+  it("keeps using an existing set when the preference matches the topic", () => {
+    const quizSetTopic: EligibleTopic = {
+      ...baseTopic,
+      activityTarget: { kind: "document", resourceId: "doc1", sourceDocKey: "users/u/resources/doc.pdf" },
+    };
+    const tasks = generateTasks(config("quiz"), [quizSetTopic], new Map());
+    expect(tasks[0].targetId).toBe("quiz1");
+    expect(tasks[0].activityTarget).toMatchObject({ kind: "quiz", quizId: "quiz1" });
+  });
+
+  it("produces no task, and spends no minutes, for a topic with no source document", () => {
+    const orphan: EligibleTopic = { ...documentCandidate("doc1"), activityTarget: undefined };
+    expect(generateTasks(config("quiz"), [orphan], new Map())).toEqual([]);
+    const tasks = generateTasks(
+      config("quiz"),
+      [orphan, { ...documentCandidate("doc2"), topicLabel: "Other notes" }],
+      new Map()
+    );
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].topicLabel).toBe("Other notes");
+  });
+
+  it("keeps a weak-spot topic's own concept_practice target", () => {
+    const own = {
+      kind: "concept_practice" as const,
+      conceptKeys: ["k"],
+      conceptLabels: ["Joins"],
+      conceptLevels: {},
+      sourceDocKeys: ["users/u/resources/doc.pdf"],
+      practiceType: "quiz" as const,
+      questionCount: 5,
+      generatedSetId: null,
+      generationClaimedAtMs: null,
+    };
+    const weak: EligibleTopic = {
+      ...baseTopic,
+      targetId: null,
+      conceptLabel: "Joins",
+      activityTarget: own,
+    };
+    const tasks = generateTasks(config("auto"), [weak], new Map());
+    expect(tasks[0].targetId).toBeNull();
+    expect(tasks[0].activityTarget).toEqual(own);
+  });
+
+  it("leaves auto behaviour unchanged", () => {
+    const tasks = generateTasks(config("auto"), [documentCandidate("doc1")], new Map());
+    expect(tasks[0].activityType).toBe("reading");
   });
 });

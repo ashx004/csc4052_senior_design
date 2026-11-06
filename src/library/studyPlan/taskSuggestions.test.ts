@@ -18,11 +18,17 @@ const topic: EligibleTopic = {
 const existingTask = {
   courseId: "csc430",
   topicLabel: "SQL Joins",
+  activityType: "quiz",
 } as StudyTask;
 
 describe("filterTopicsAlreadyInPlan", () => {
   it("does not suggest a topic already represented in today's plan", () => {
     expect(filterTopicsAlreadyInPlan([topic], [existingTask])).toEqual([]);
+  });
+
+  it("keeps a topic already in the plan as a different activity", () => {
+    const existing = { ...existingTask, activityType: "reading" } as StudyTask;
+    expect(filterTopicsAlreadyInPlan([topic], [existing])).toEqual([topic]);
   });
 
   it("keeps topics that are not already in today's plan", () => {

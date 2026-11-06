@@ -8,6 +8,7 @@ import type {
   ScoredTopic,
   SetupConfig,
 } from "./types";
+import { buildGeneratedPracticeTarget } from "./generatedPracticeTarget";
 
 export const ESTIMATED_MINUTES: Record<ActivityType, number> = {
   quiz: 20,
@@ -196,24 +197,35 @@ function activityTargetForTask(
   targetId: string | null
 ): ActivityTarget | undefined {
   const source = topic.activityTarget;
-  if (!source) return undefined;
   if (activityType === "reading") {
-    return source.kind === "document" ? source : undefined;
+    return source?.kind === "document" ? source : undefined;
   }
+  // A weak-spot concept topic already carries its own generation target; keep it as is.
+  if (source?.kind === "concept_practice" && topic.activityType === activityType) {
+    return source;
+  }
+  if (activityType === "quiz" || activityType === "flashcards") {
+    // No set of the requested kind exists for this topic, so ask for one to be generated.
+    // Returning undefined here makes the caller drop the task, never write a mismatched one.
+    if (topic.activityType !== activityType || !targetId) {
+      return buildGeneratedPracticeTarget(topic, activityType) ?? undefined;
+    }
+  }
+  if (!source) return undefined;
   if (topic.activityType !== activityType) return undefined;
   if (source.kind !== "document") return source;
-  if (topic.activityType === "quiz" && activityType === "quiz" && targetId) {
+  if (activityType === "quiz") {
     return {
       kind: "quiz",
-      quizId: targetId,
+      quizId: targetId as string,
       sourceDocKey: source.sourceDocKey,
       mode: "full",
     };
   }
-  if (topic.activityType === "flashcards" && activityType === "flashcards" && targetId) {
+  if (activityType === "flashcards") {
     return {
       kind: "flashcard_set",
-      setId: targetId,
+      setId: targetId as string,
       sourceDocKey: source.sourceDocKey,
     };
   }
@@ -367,6 +379,12 @@ export function generateTasks(
         ? topic.activityTarget.resourceId
         : targetId;
     const activityTarget = activityTargetForTask(topic, activityType, targetId);
+    const wantsGeneratedSet =
+      (activityType === "quiz" || activityType === "flashcards") &&
+      (topic.activityType !== activityType || !targetId);
+    if (wantsGeneratedSet && !activityTarget) return false;
+    const finalTargetId =
+      activityTarget?.kind === "concept_practice" ? null : resolvedTargetId;
 
     tasks.push({
       title: buildTitle(activityType, topic.topicLabel),
@@ -375,7 +393,7 @@ export function generateTasks(
       courseCode: topic.courseCode,
       topicLabel: topic.topicLabel,
       activityType,
-      targetId: resolvedTargetId,
+      targetId: finalTargetId,
       estimatedMinutes: estMinutes,
       reason: buildReason(topic, activityType),
       priorityScore: topic.totalScore,

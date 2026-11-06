@@ -2,14 +2,14 @@ import type { EligibleTopic, StudyTask } from "./types";
 
 export function filterTopicsAlreadyInPlan(
   topics: EligibleTopic[],
-  tasks: Pick<StudyTask, "courseId" | "topicLabel">[]
+  tasks: Pick<StudyTask, "courseId" | "topicLabel" | "activityType">[]
 ): EligibleTopic[] {
   const existingTopics = new Set(
-    tasks.map((task) => `${task.courseId}:${task.topicLabel}`)
+    tasks.map((task) => `${task.courseId}:${task.topicLabel}:${task.activityType}`)
   );
 
   return topics.filter(
-    (topic) => !existingTopics.has(`${topic.courseId}:${topic.topicLabel}`)
+    (topic) => !existingTopics.has(`${topic.courseId}:${topic.topicLabel}:${topic.activityType}`)
   );
 }
 
