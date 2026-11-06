@@ -348,7 +348,8 @@ export async function generateQuizWithValidation(
   const plannedConceptKeys = slotPlan
     ? [...new Set(slotPlan.map((slot) => slot.conceptKey).filter(Boolean))]
     : [];
-  const solePlannedConceptKey = plannedConceptKeys.length === 1 ? plannedConceptKeys[0] : null;
+  const solePlannedConceptKey =
+    plannedConceptKeys.length === 1 ? plannedConceptKeys[0] ?? null : null;
   let topicName = "";
   for (let attempt = 0; attempt < MAX_OLLAMA_ATTEMPTS; attempt++) {
     const needed = target - accepted.length;
@@ -393,12 +394,11 @@ export async function generateQuizWithValidation(
       if (slotPlan) {
         // A question must belong to a concept that still needs questions. A missing conceptKey
         // cannot be placed at all, and a concept with no slot left is not wanted.
-        if (!q.conceptKey) {
-          if (!solePlannedConceptKey) continue;
-          q = { ...q, conceptKey: solePlannedConceptKey };
-        }
+        const conceptKey = q.conceptKey ?? solePlannedConceptKey;
+        if (!conceptKey) continue;
+        q = { ...q, conceptKey };
         const taken = takenSlots(accepted);
-        const planned = plannedLevelFor(slotPlan, taken, q.conceptKey);
+        const planned = plannedLevelFor(slotPlan, taken, conceptKey);
         if (!planned) continue;
         // bloomLevel is optional, so it is stamped from the plan when it is missing. It is also
         // stamped when it is present but fills no remaining slot: the question is still about a
@@ -406,10 +406,10 @@ export async function generateQuizWithValidation(
         // while a model that left it blank got its question accepted.
         const bloomLevel =
           q.bloomLevel &&
-          matchesRemainingDemand(slotPlan, taken, { conceptKey: q.conceptKey, bloomLevel: q.bloomLevel })
+          matchesRemainingDemand(slotPlan, taken, { conceptKey, bloomLevel: q.bloomLevel })
             ? q.bloomLevel
             : planned;
-        q = { ...q, bloomLevel };
+        q = { ...q, conceptKey, bloomLevel };
       }
       const key = normalizedQuestion(q.question);
       const definition = normalizedQuestion(q.correctAnswer);
