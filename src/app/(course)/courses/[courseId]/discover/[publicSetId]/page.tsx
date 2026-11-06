@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
 import { useChatContext } from '@/src/hooks/useChatContext';
+import { useBackDestination } from '@/src/hooks/useBackDestination';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
 import { buildPageTextSuggestions, type PageTextPageContext } from '@/src/library/Contextual_AI/contextualAi';
 import {
@@ -49,6 +50,7 @@ export default function DiscoverSetPreviewPage() {
 
   const courseId = params.courseId as string;
   const publicSetId = params.publicSetId as string;
+  const { goBack } = useBackDestination(`/courses/${courseId}/discover`);
 
   const [set, setSet] = useState<PublicStudySetWithId | null>(null);
   const [loading, setLoading] = useState(true);
@@ -277,7 +279,7 @@ export default function DiscoverSetPreviewPage() {
       <div className="flex h-[60px] items-center justify-between border-b border-border-light px-6 md:px-14">
         <div className="ml-4 flex min-w-0 translate-y-1 items-center gap-3">
           <button
-            onClick={() => router.push(`/courses/${courseId}/discover`)}
+            onClick={goBack}
             className="shrink-0 rounded-md p-1.5 transition-colors hover:bg-[#F5F0EB]"
             aria-label="Back to Discover"
           >

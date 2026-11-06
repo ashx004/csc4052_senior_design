@@ -127,6 +127,22 @@ describe("quiz per-concept levels", () => {
     await run();
     expect(body(0).messages[1].content).toContain(`1. ${plan[0]} — concept "Alpha" (conceptKey: "a")`);
   });
+  it("uses the sole planned concept when the provider omits its internal conceptKey", async () => {
+    const single = { quotas: [{ conceptKey: "a", label: "Alpha", items: 3, level: "review" as const }], avoid: [] };
+    const singlePlan = buildBloomPlan("review", 3);
+    request.mockResolvedValueOnce(reply([
+      q(1, undefined, singlePlan[0]),
+      q(2, undefined, singlePlan[1]),
+      q(3, undefined, singlePlan[2]),
+    ]));
+
+    const result = await generateQuizWithValidation(
+      "Source text", 3, { multipleChoice: true }, "http://ai", undefined, [], "exam", {}, single,
+    );
+
+    expect(result.questions.map((question) => question.conceptKey)).toEqual(["a", "a", "a"]);
+    expect(request).toHaveBeenCalledTimes(1);
+  });
   it("rejects a question with no conceptKey, then repairs", async () => {
     request.mockResolvedValueOnce(reply([q(1, undefined, plan[0]), q(2, "a", plan[0]), q(3, "b", plan[2])]));
     request.mockResolvedValueOnce(reply([q(5, "a", plan[1])]));
@@ -313,6 +329,22 @@ describe("bounded inference and transport", () => {
     request.mockResolvedValueOnce(new Response("unavailable", { status }));
     await expect(quiz()).rejects.toThrow(`HTTP ${status}`); expect(request).toHaveBeenCalledTimes(1);
   });
+  // "returned HTTP 502" alone named neither the provider nor the reason, so a missing
+  // model, a bad key and an out-of-credit account all reached the logs identically.
+  it("carries what the service said, so the failure names itself", async () => {
+    request.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: { message: "No endpoints found for qwen3.6:35b-a3b" } }), { status: 404 }),
+    );
+    await expect(quiz()).rejects.toThrow(
+      "AI generation service returned HTTP 404. No endpoints found for qwen3.6:35b-a3b",
+    );
+  });
+
+  it("does not repeat an empty body in the message", async () => {
+    request.mockResolvedValueOnce(new Response("", { status: 503 }));
+    await expect(quiz()).rejects.toThrow(/HTTP 503\.$/);
+  });
+
   it("does not retry timeouts", async () => {
     request.mockRejectedValueOnce(new DOMException("timed out", "TimeoutError"));
     await expect(flash()).rejects.toThrow("timed out"); expect(request).toHaveBeenCalledTimes(1);

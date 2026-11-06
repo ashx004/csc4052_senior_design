@@ -18,6 +18,7 @@ import { ArrowLeft, Clock, Loader2, Play, Trophy } from 'lucide-react';
 import { db } from '@/src/library/firebase';
 import { useAuth } from '@/src/context/AuthContext';
 import { usePracticeGeneration, type PracticeSource } from '@/src/hooks/usePracticeGeneration';
+import { useBackDestination } from '@/src/hooks/useBackDestination';
 import { getCourseResources } from '@/src/components/resourceManagement/fileUploadService';
 import FillBlankRunner from '@/src/components/practice/FillBlankRunner';
 import WordProblemRunner from '@/src/components/practice/WordProblemRunner';
@@ -90,6 +91,7 @@ export default function PracticeSetPage({ params }: { params: Promise<{ courseId
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const generation = usePracticeGeneration(courseId);
+  const { goBack } = useBackDestination(`/courses/${courseId}/practice`);
 
   const [set, setSet] = useState<LoadedSet | null>(null);
   const [attempts, setAttempts] = useState<PastAttempt[]>([]);
@@ -263,7 +265,7 @@ export default function PracticeSetPage({ params }: { params: Promise<{ courseId
   return (
     <div className="min-h-screen bg-bg-main">
       <header className="flex items-center gap-3 border-b border-border-light px-6 py-4 sm:px-14">
-        <button onClick={() => router.push(`/courses/${courseId}/practice`)} className="rounded-md p-1.5 transition-colors hover:bg-bg-warm" aria-label="Back to Practice">
+        <button onClick={goBack} className="rounded-md p-1.5 transition-colors hover:bg-bg-warm" aria-label="Back to Practice">
           <ArrowLeft size={20} className="text-text-main" />
         </button>
         <div className="min-w-0">

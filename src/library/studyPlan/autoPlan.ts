@@ -1,4 +1,9 @@
-import { isWeakTopic, needsDocumentSelection } from "./recommendationEngine";
+import {
+  findResourceForSourceDocKey,
+  isBlankSourceDocKey,
+  isWeakTopic,
+  needsDocumentSelection,
+} from "./recommendationEngine";
 import type { EligibleTopic, GeneratedTask, SetupConfig, StudyTask } from "./types";
 
 export const DEFAULT_AUTO_PLAN_CONFIG: SetupConfig = {
@@ -59,7 +64,12 @@ interface DocumentResource {
   sourceDocKey: string;
 }
 
-/** Reading tasks without a document get their course's first resource; ones with no resource are dropped. */
+/**
+ * Reading tasks without a document get their course's first resource; ones with no resource
+ * are dropped. A task that already carries a document target is checked against the same live
+ * resource list, so a target whose resource has been deleted is never written — the plan is
+ * the only place that task could appear, and it would open to "This document isn't available".
+ */
 export function attachFirstDocument(
   tasks: readonly GeneratedTask[],
   resourcesByCourse: ReadonlyMap<string, readonly DocumentResource[]>,
@@ -67,6 +77,16 @@ export function attachFirstDocument(
   const out: GeneratedTask[] = [];
   for (const task of tasks) {
     if (!needsDocumentSelection(task)) {
+      const target = task.activityTarget;
+      // Only evidence can drop a task: a course absent from the map proves nothing about its
+      // documents, and a blank sourceDocKey (an OCR resource whose url is not backfilled yet)
+      // cannot be looked up at all, so neither case may refuse to create the task.
+      if (target?.kind === "document" && !isBlankSourceDocKey(target.sourceDocKey)) {
+        const courseResources = resourcesByCourse.get(task.courseId);
+        if (courseResources && !findResourceForSourceDocKey(target.sourceDocKey, courseResources)) {
+          continue;
+        }
+      }
       out.push(task);
       continue;
     }

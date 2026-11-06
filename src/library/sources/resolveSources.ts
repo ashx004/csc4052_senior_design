@@ -24,6 +24,14 @@ export type ResolveDeps = {
   readText(url: string, fileType: string): Promise<string>;
   /** Firestore lookup of a resource's vector index state. */
   indexStatusOf(resourceId: string): Promise<IndexStatus | undefined>;
+  /**
+   * Firestore lookup of the resource that a download url belongs to. The legacy
+   * { docUrl, docName } request shape (the study plan's practice generators, the
+   * quiz page's "new questions") carries no resourceId, and without one retrieval
+   * is unreachable and the whole file is downloaded and parsed on every call.
+   * Optional: a caller that cannot resolve ids keeps today's raw-text behaviour.
+   */
+  resourceIdForUrl?(url: string): Promise<string | null>;
   /** Embedding for the pseudo-query — wraps embedTexts. */
   embed(texts: string[]): Promise<number[][]>;
   /** Qdrant search — wraps searchChunks. The options argument is how chunk
@@ -127,19 +135,23 @@ async function resolveDocument(
   budget: number
 ): Promise<ResolvedSource | { reason: string }> {
   const sourceKey = storageKeyOf(source.url);
+  let resourceId: string | null = source.resourceId ?? null;
 
   // Retrieval reaches content raw truncation cannot: embed-document indexes
   // up to 100k chars per document while a single prompt only ever carried
   // the first 50k.
-  if (source.resourceId) {
-    try {
-      const status = await deps.indexStatusOf(source.resourceId);
+  try {
+    if (!resourceId && deps.resourceIdForUrl) {
+      resourceId = await deps.resourceIdForUrl(source.url);
+    }
+    if (resourceId) {
+      const status = await deps.indexStatusOf(resourceId);
       if (status === "complete") {
-        const retrieved = await retrieve(deps, source.resourceId, title, budget);
+        const retrieved = await retrieve(deps, resourceId, title, budget);
         if (retrieved && retrieved.text.trim()) {
           return {
             title,
-            resourceId: source.resourceId,
+            resourceId,
             sourceKey,
             text: retrieved.text,
             pages: retrieved.pages,
@@ -147,9 +159,9 @@ async function resolveDocument(
           };
         }
       }
-    } catch (error) {
-      console.warn(`Retrieval failed for ${title}, falling back to raw text:`, error);
     }
+  } catch (error) {
+    console.warn(`Retrieval failed for ${title}, falling back to raw text:`, error);
   }
 
   // A freshly uploaded lecture is not indexed yet, so this path is normal,
@@ -169,7 +181,7 @@ async function resolveDocument(
 
   return {
     title,
-    resourceId: source.resourceId ?? null,
+    resourceId,
     sourceKey,
     text,
     pages: [],

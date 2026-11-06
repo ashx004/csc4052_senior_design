@@ -11,6 +11,7 @@ import courseBlocksSteps from "@/src/library/tutorials/steps/course-blocks";
 import BlocksGame from "@/src/components/discover/blocks/BlocksGame";
 import BlocksGameOver from "@/src/components/discover/blocks/BlocksGameOver";
 import { useChatContext } from "@/src/hooks/useChatContext";
+import { useBackDestination } from "@/src/hooks/useBackDestination";
 import ContextualAiPanel, { CatalystLauncher } from "@/src/components/aiAssistant/ContextualAiPanel";
 import { buildPageTextSuggestions, type PageTextPageContext } from "@/src/library/Contextual_AI/contextualAi";
 
@@ -21,6 +22,7 @@ export default function BlocksPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const courseId = params.courseId as string;
+  const { goBack } = useBackDestination(`/courses/${courseId}/discover`);
 
   const [view, setView] = useState<View>("intro");
   const [result, setResult] = useState<{
@@ -67,7 +69,8 @@ export default function BlocksPage() {
     if (view === "playing") {
       if (!window.confirm("Leave the game? Your progress won't be saved.")) return;
     }
-    router.push(`/courses/${courseId}/discover`);
+    // The confirm guard stays: goBack only replaces where we land.
+    goBack();
   };
 
   const blocksPageText =

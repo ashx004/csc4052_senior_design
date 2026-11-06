@@ -1,23 +1,24 @@
 'use client';
 
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import QuizListRow from '@/src/components/learning/QuizListRow';
 import StudyLaunch from '@/src/components/learning/StudyLaunch';
 import { useStudySets } from '@/src/hooks/useStudySets';
 import { studySetRoutes } from '@/src/library/studySets/routes';
+import { useBackDestination } from '@/src/hooks/useBackDestination';
 
 export default function QuizLibraryPage() {
   const params = useParams();
-  const router = useRouter();
   const courseId = params.courseId as string;
   const routes = studySetRoutes(courseId);
+  const { goBack } = useBackDestination(routes.hub);
   const { quizzes, loading, error } = useStudySets(courseId);
 
   return (
     <div className="min-h-screen bg-bg-main">
       <div className="flex min-h-[68px] items-center border-b border-border-light px-5 sm:px-8 lg:px-14">
-        <button type="button" aria-label="Go back" onClick={() => router.push(routes.hub)} className="rounded-md p-1.5 hover:bg-bg-warm">
+        <button type="button" aria-label="Go back" onClick={goBack} className="rounded-md p-1.5 hover:bg-bg-warm">
           <ArrowLeft size={20} className="text-text-main" />
         </button>
         <h1 className="ml-3 text-xl font-bold text-text-main">Quizzes</h1>

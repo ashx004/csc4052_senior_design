@@ -8,6 +8,7 @@ import type {
   ScoredTopic,
   SetupConfig,
 } from "./types";
+import { buildGeneratedPracticeTarget } from "./generatedPracticeTarget";
 
 export const ESTIMATED_MINUTES: Record<ActivityType, number> = {
   quiz: 20,
@@ -122,8 +123,11 @@ export function chooseActivityType(
   // shape. Ordinary quiz-set topics also carry a concept_practice target now (for per-concept
   // levels), and those must still honour the student's chosen activity.
   if (topic.conceptLabel && topic.activityTarget?.kind === "concept_practice") return "quiz";
-  if (topic.targetId === null) return "reading";
+  // An explicit preference wins over the no-target fallback. A topic with no existing set
+  // (targetId null) can still be practised: the student asked for that activity and the
+  // task's generation target builds the set on demand. Only `auto` falls back to reading.
   if (preference !== "auto") return preference as ActivityType;
+  if (topic.targetId === null) return "reading";
 
   if (topic.quizMastery === null && topic.flashcardEngagement === null) {
     return "reading";
@@ -193,24 +197,39 @@ function activityTargetForTask(
   targetId: string | null
 ): ActivityTarget | undefined {
   const source = topic.activityTarget;
-  if (!source) return undefined;
   if (activityType === "reading") {
-    return source.kind === "document" ? source : undefined;
+    return source?.kind === "document" ? source : undefined;
   }
+  // A weak-spot concept topic already carries its own generation target; keep it as is.
+  if (
+    source?.kind === "concept_practice" &&
+    topic.activityType === activityType &&
+    source.practiceType === activityType
+  ) {
+    return source;
+  }
+  if (activityType === "quiz" || activityType === "flashcards") {
+    // No set of the requested kind exists for this topic, so ask for one to be generated.
+    // Returning undefined here makes the caller drop the task, never write a mismatched one.
+    if (topic.activityType !== activityType || !targetId) {
+      return buildGeneratedPracticeTarget(topic, activityType) ?? undefined;
+    }
+  }
+  if (!source) return undefined;
   if (topic.activityType !== activityType) return undefined;
   if (source.kind !== "document") return source;
-  if (topic.activityType === "quiz" && activityType === "quiz" && targetId) {
+  if (activityType === "quiz") {
     return {
       kind: "quiz",
-      quizId: targetId,
+      quizId: targetId as string,
       sourceDocKey: source.sourceDocKey,
       mode: "full",
     };
   }
-  if (topic.activityType === "flashcards" && activityType === "flashcards" && targetId) {
+  if (activityType === "flashcards") {
     return {
       kind: "flashcard_set",
-      setId: targetId,
+      setId: targetId as string,
       sourceDocKey: source.sourceDocKey,
     };
   }
@@ -218,9 +237,12 @@ function activityTargetForTask(
 }
 
 function buildTitle(activityType: ActivityType, topicLabel: string): string {
+  // Each prefix names the format Start actually opens. "Review" used to stand for
+  // flashcards, and students read it as a reading task and were surprised by a
+  // flashcard set; the title must never disagree with the activity.
   const prefix: Record<ActivityType, string> = {
     quiz: "Quiz",
-    flashcards: "Review",
+    flashcards: "Flashcards",
     reading: "Read",
     ai_explanation: "Explore",
   };
@@ -291,6 +313,17 @@ function comparableKeys(value: string): string[] {
   const fromRaw = downloadKey(trimmed);
   if (fromRaw) keys.add(fromRaw);
   return [...keys];
+}
+
+/**
+ * True when a key carries no information at all (absent, empty or whitespace). A resource
+ * created before its OCR finished has `url: ""` and no source/storage key, so
+ * `documentTargetForResource` yields `sourceDocKey: ""` for a document that really exists.
+ * `findResourceForSourceDocKey` cannot match such a key, so callers must treat it as
+ * "unknown" rather than as proof the document is gone.
+ */
+export function isBlankSourceDocKey(value: unknown): boolean {
+  return nonEmptyString(value) === null;
 }
 
 export function findResourceForSourceDocKey<T extends RecommendationResource>(
@@ -364,6 +397,17 @@ export function generateTasks(
         ? topic.activityTarget.resourceId
         : targetId;
     const activityTarget = activityTargetForTask(topic, activityType, targetId);
+    const wantsGeneratedSet =
+      (activityType === "quiz" || activityType === "flashcards") &&
+      (topic.activityType !== activityType || !targetId);
+    if (wantsGeneratedSet && !activityTarget) return false;
+    // A concept_practice task's set does not exist yet, so targetId must be null until one is
+    // generated. Deliberate consequence: a daily leveled quiz used to store the quizSetId it
+    // was derived from, and now stores null, so the stored task no longer links back to that
+    // set. Every consumer was traced and none needs it; if that link is ever wanted again it
+    // belongs in the activityTarget, not in targetId.
+    const finalTargetId =
+      activityTarget?.kind === "concept_practice" ? null : resolvedTargetId;
 
     tasks.push({
       title: buildTitle(activityType, topic.topicLabel),
@@ -372,7 +416,7 @@ export function generateTasks(
       courseCode: topic.courseCode,
       topicLabel: topic.topicLabel,
       activityType,
-      targetId: resolvedTargetId,
+      targetId: finalTargetId,
       estimatedMinutes: estMinutes,
       reason: buildReason(topic, activityType),
       priorityScore: topic.totalScore,

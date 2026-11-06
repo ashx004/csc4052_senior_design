@@ -11,6 +11,7 @@ import {
   ArrowRight,
   Loader2,
 } from "lucide-react";
+import { preparingLabel } from "@/src/library/studyPlan/taskActivityLabel";
 
 interface TaskActionsProps {
   task: StudyTask & { id: string };
@@ -50,7 +51,7 @@ export default function TaskActions({
           className="flex items-center gap-1 rounded-lg bg-navy px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-70"
         >
           {starting ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
-          {starting ? "Preparing quiz..." : "Start"}
+          {starting ? preparingLabel(task.activityType) : "Start"}
         </button>
       )}
 

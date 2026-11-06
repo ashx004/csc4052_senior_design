@@ -21,6 +21,7 @@ import {
 import { db } from '@/src/library/firebase';
 import {ArrowLeft,ChevronLeft,ChevronRight,RefreshCw,Shuffle,Loader2,AlertCircle,} from 'lucide-react';
 import FlashCard from '@/src/components/learning/FlashCard';
+import { useBackDestination } from '@/src/hooks/useBackDestination';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
 import { buildFlashcardSuggestions, type FlashcardPageContext } from '@/src/library/Contextual_AI/contextualAi';
 import { useChatContext } from '@/src/hooks/useChatContext';
@@ -150,6 +151,7 @@ export default function FlashcardViewer({ courseId, setId: routeSetId = '' }: { 
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const { courseCode } = useCourseInfo(courseId);
+  const { goBack } = useBackDestination(`/courses/${courseId}/learning`);
   const { finishFlashcardReview } = useLearningProgress();
   const quizFromResource = useGenerateQuizFromResource(courseId);
   const docId = searchParams.get('docId') || '';
@@ -578,7 +580,7 @@ export default function FlashcardViewer({ courseId, setId: routeSetId = '' }: { 
       <div className="flex h-[60px] items-center justify-between border-b border-border-light px-6 md:px-14">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => router.push(`/courses/${courseId}/learning`)}
+            onClick={goBack}
             className="p-1.5 rounded-md hover:bg-[#F5F0EB] transition-colors"
           >
             <ArrowLeft size={20} className="text-text-main" />

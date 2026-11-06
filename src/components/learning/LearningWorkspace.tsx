@@ -24,9 +24,11 @@ import {
   documentTargetForResource,
   findResourceForSourceDocKey,
   generateTasks,
+  isBlankSourceDocKey,
   needsDocumentSelection,
 } from "@/src/library/studyPlan/recommendationEngine";
 import { getVisibleStudyTasks } from "@/src/library/studyPlan/taskVisibility";
+import { documentTopicsForCourse } from "@/src/library/studyPlan/documentTopics";
 import { conceptTopicsFromWeakSpots } from "@/src/library/studyPlan/conceptTopics";
 import { createConceptWeakSpotRepository, readConceptMastery } from "@/src/library/studyPlan/conceptWeakSpotRepository";
 import { getEmptyRecommendationReason } from "@/src/library/studyPlan/recommendationDiagnostics";
@@ -51,6 +53,9 @@ import {
 } from "@/src/library/studyPlan/taskSuggestions";
 import { resolveTaskActivityUrl } from "@/src/library/studyPlan/sessionTimer";
 import { resolveActivityTarget } from "@/src/library/studyPlan/activityTarget";
+import { clearMissingGeneratedSet } from "@/src/library/studyPlan/conceptPracticeTask";
+import { partitionPlanTasks } from "@/src/library/studyPlan/staleTaskPruning";
+import { loadCourseContents } from "@/src/library/studyPlan/courseContents";
 import { useConceptPracticeStart } from "@/src/hooks/useConceptPracticeStart";
 import {
   afterSuccessfulPlan,
@@ -366,6 +371,11 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
   const [planStarter, setPlanStarter] = useState<PlanStarterChoice | null>(null);
   const autoPlanAttemptedRef = useRef(false);
   const scheduledTaskIdsRef = useRef(new Set<string>());
+  // `${uid}:${today}` of the last pruning pass that actually had evidence to work with, and a
+  // flag for a pass still in flight (the guard is only burned after the read, so without it two
+  // dependency changes in quick succession could issue the round trips twice).
+  const prunedPlanDateRef = useRef<string | null>(null);
+  const pruningPlanRef = useRef(false);
 
   const handleNotificationsToggle = useCallback(() => {
     const opening = !notificationsOpen;
@@ -523,6 +533,9 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
       }
 
       const masteryByCourse = new Map<string, Map<string, StoredConceptMastery>>();
+      // Resources that an existing set already stands for, per course, so the document topics
+      // below do not offer the same document a second time.
+      const representedByCourse = new Map<string, Set<string>>();
       for (const cls of classes) {
         const resourceSnap = await getDocs(
           collection(db, "users", user.uid, "enrollment", cls.id, "resources")
@@ -560,6 +573,7 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
         }
         // Kept for the weak-spot loop below, so that read happens once per course, not twice.
         masteryByCourse.set(cls.id, storedConceptMastery);
+        representedByCourse.set(cls.id, new Set());
 
         const quizSnap = await getDocs(
           collection(db, "users", user.uid, "enrollment", cls.id, "quizSets")
@@ -572,6 +586,7 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
           if (isGeneratedForPlan(data)) continue;
           const topicLabel = data.topicName ?? data.name ?? qs.id;
           const matched = findResourceForSourceDocKey(data.sourceDocKey, courseResources);
+          if (matched) representedByCourse.get(cls.id)?.add(matched.id);
           const activityTarget = matched ? documentTargetForResource(matched) : undefined;
           const repeats = repeatMissCountFor(suggestions, cls.id, qs.id);
           const mastery = masteryForSet(
@@ -631,8 +646,11 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
         );
         for (const fc of fcSnap.docs) {
           const data = fc.data();
+          // Same reason as the quiz sets above: a plan-generated set is not material to recommend.
+          if (isGeneratedForPlan(data)) continue;
           const topicLabel = data.topicName ?? data.name ?? fc.id;
           const matched = findResourceForSourceDocKey(data.sourceDocKey, courseResources);
+          if (matched) representedByCourse.get(cls.id)?.add(matched.id);
           const activityTarget = matched ? documentTargetForResource(matched) : undefined;
           const mastery = masteryForSet(
             bySourceDocument,
@@ -658,42 +676,15 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
       }
 
       for (const cls of classes) {
-        if (topics.some((topic) => topic.courseId === cls.id)) continue;
-        const resources = resourcesByCourse.get(cls.id) ?? [];
-        if (resources.length > 0) {
-          for (const resource of resources) {
-            topics.push({
-              courseId: cls.id,
-              courseName: cls.className,
-              courseCode: cls.classCode,
-              topicLabel: resource.name,
-              targetId: null,
-              activityType: "reading",
-              activityTarget: {
-                kind: "document",
-                resourceId: resource.id,
-                sourceDocKey: resource.sourceDocKey,
-              },
-              quizMastery: null,
-              flashcardEngagement: null,
-              lastStudiedAt: studiedAtFor(lastStudied, cls.id, resource.sourceDocKey),
-              skipCount: 0,
-            });
-          }
-          continue;
-        }
-        topics.push({
-          courseId: cls.id,
-          courseName: cls.className,
-          courseCode: cls.classCode,
-          topicLabel: "Course exploration",
-          targetId: null,
-          activityType: "reading",
-          quizMastery: null,
-          flashcardEngagement: null,
-          lastStudiedAt: null,
-          skipCount: 0,
-        });
+        topics.push(
+          ...documentTopicsForCourse({
+            course: cls,
+            resources: resourcesByCourse.get(cls.id) ?? [],
+            representedResourceIds: representedByCourse.get(cls.id) ?? new Set<string>(),
+            hasSetTopic: topics.some((topic) => topic.courseId === cls.id),
+            lastStudiedAtFor: (sourceDocKey) => studiedAtFor(lastStudied, cls.id, sourceDocKey),
+          }),
+        );
       }
 
       const conceptRepository = createConceptWeakSpotRepository(user.uid);
@@ -740,9 +731,32 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
       const ready: GeneratedTask[] = [];
       for (const task of generated) {
         if (!needsDocumentSelection(task)) {
+          // generateTasks is pure and has no resource list, so a reading topic can still carry
+          // a document target whose resource has since been deleted. Such a task would open to
+          // "This document isn't available", so it is never written in the first place. Tasks
+          // that go through the picker below are safe: it only offers live resources.
+          if (task.activityTarget?.kind === "document") {
+            // Only evidence may drop a task. A course absent from the map proves nothing about
+            // its documents, and a blank sourceDocKey (an OCR resource whose url has not been
+            // backfilled) cannot be looked up at all, so neither case rules a resource out.
+            const courseResources = resourcesByCourse.get(task.courseId);
+            const liveResource =
+              !courseResources ||
+              isBlankSourceDocKey(task.activityTarget.sourceDocKey) ||
+              Boolean(
+                findResourceForSourceDocKey(task.activityTarget.sourceDocKey, courseResources),
+              );
+            if (!liveResource) continue;
+          }
           ready.push(task);
           continue;
         }
+        // Note the opposite default to the branch above, where an absent course means "keep
+        // the task". It is acceptable here because these tasks *need* a document the student
+        // can pick: with no list to offer there is nothing to show them, so empty and absent
+        // genuinely have the same outcome. The distinction matters wherever a missing list
+        // could be read as evidence a target was deleted — which is where the pruning bug
+        // came from — and nothing is inferred about any target here.
         const resources = resourcesByCourse.get(task.courseId) ?? [];
         if (resources.length === 0) continue;
         const selected = await requestDocumentSelection(task.courseId, resources);
@@ -1028,13 +1042,25 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
       // the message reaches the student as a toast and the task stays startable.
       let task = found;
       const foundTarget = resolveActivityTarget(found);
-      if (foundTarget?.kind === "concept_practice" && foundTarget.practiceType === "quiz") {
+      if (
+        foundTarget?.kind === "concept_practice" &&
+        (foundTarget.practiceType === "quiz" || foundTarget.practiceType === "flashcards")
+      ) {
         const setId = await ensureGeneratedSet(found);
         if (!setId) return;
         task = { ...found, activityTarget: { ...foundTarget, generatedSetId: setId } };
       }
 
-      const url = resolveTaskActivityUrl(task, taskId);
+      // Two URLs, deliberately. `storedUrl` is what the session persists, and it carries no
+      // `from`: the focus card replays that stored value (FocusCard -> router.push) from
+      // whatever page the student is on later, so a baked-in `from` would freeze "back =
+      // study plan" into the session and send them somewhere they were not — the very bug
+      // this change set exists to fix. `openUrl` adds `from` for this navigation only,
+      // because right now the student really is coming from the study plan.
+      const storedUrl = resolveTaskActivityUrl(task, taskId);
+      const openUrl = resolveTaskActivityUrl(task, taskId, {
+        from: LEARNING_ROUTES["study-plan"],
+      });
 
       if (session && session.taskId == null) {
         await updateTaskStatus(taskId, "in_progress");
@@ -1042,9 +1068,9 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
           courseId: task.courseId,
           activityType: task.activityType,
           targetId: task.targetId,
-          activityUrl: url,
+          activityUrl: storedUrl,
         });
-        router.push(url);
+        router.push(openUrl);
         return;
       }
 
@@ -1064,10 +1090,10 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
         task.targetId,
         "countup",
         task.estimatedMinutes * 60,
-        url
+        storedUrl
       );
 
-      router.push(url);
+      router.push(openUrl);
     },
     [user, tasks, session, pauseSession, updateTaskStatus, startSession, attachTaskToSession, ensureGeneratedSet, router]
   );
@@ -1078,7 +1104,7 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
     (taskId: string) => {
       const task = tasks.find((t) => t.id === taskId);
       if (!task) return;
-      router.push(resolveTaskActivityUrl(task, taskId));
+      router.push(resolveTaskActivityUrl(task, taskId, { from: LEARNING_ROUTES["study-plan"] }));
     },
     [tasks, router]
   );
@@ -1331,6 +1357,100 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
       updates.forEach((u) => scheduledTaskIdsRef.current.delete(u.taskId));
     });
   }, [user, tasksLoading, plan, tasks]);
+
+  /**
+   * Takes today's plan down to the work the student can actually do: a task whose target has
+   * been deleted is removed outright, and a concept-practice task whose generated set is gone
+   * forgets that set so Start can build a new one. Nothing is shown about either — a student
+   * is never told about work that no longer exists.
+   */
+  useEffect(() => {
+    if (surface !== "study-plan") return;
+    if (!user || classesLoading || planLoading || tasksLoading) return;
+    if (!plan || !hasUsablePlan(plan)) return;
+    // Only ever today's plan, and only once per load of it. Past plans are history. The key
+    // carries the uid as well, so a second account on the same mount is never skipped.
+    const pruneKey = `${user.uid}:${today}`;
+    if (prunedPlanDateRef.current === pruneKey) return;
+    if (pruningPlanRef.current) return;
+
+    const planTasks = (plan.taskIds ?? [])
+      .map((id) => tasks.find((task) => task.id === id))
+      .filter((task): task is (typeof tasks)[number] => Boolean(task));
+    if (planTasks.length === 0) return;
+
+    pruningPlanRef.current = true;
+    void (async () => {
+      const uid = user.uid;
+      // loadCourseContents owns the safety rule: a course whose read failed or never reached
+      // the server is recorded as null, which classifies as "unknown" and prunes nothing.
+      const contentsByCourse = await loadCourseContents(uid, classes.map((cls) => cls.id));
+
+      // What counts as a completed pass: one that got evidence from at least one course. Such
+      // a pass classifies every task it can and leaves the unreadable courses as "unknown",
+      // which is the designed safe outcome and not worth retrying. A pass where every read
+      // failed (offline, or a persistent permission-denied) has done nothing at all, so the
+      // guard stays unburned and the next dependency change retries. The guard is burned only
+      // here, after the await — burning it before would make one failed load silence pruning
+      // for the rest of the mount even after connectivity returned. It is not re-checked per
+      // render, so this cannot become a retry loop over the effect's 3-per-course round trips.
+      const readSomething =
+        classes.length === 0 ||
+        Array.from(contentsByCourse.values()).some((contents) => contents !== null);
+      if (readSomething) prunedPlanDateRef.current = pruneKey;
+
+      const { staleIds, regenerateIds } = partitionPlanTasks(planTasks, contentsByCourse);
+
+      if (staleIds.length > 0) {
+        const outcomes = await Promise.allSettled(
+          staleIds.map((id) => deleteDoc(doc(db, studyTasksCollection(uid), id)))
+        );
+        // Only ids whose document really went away leave the plan, so a failed delete cannot
+        // leave the plan listing a task it no longer counts.
+        const removed = staleIds.filter((_, i) => outcomes[i].status === "fulfilled");
+        for (const outcome of outcomes) {
+          if (outcome.status === "rejected") {
+            console.error("Couldn't remove a study task whose target is gone:", outcome.reason);
+          }
+        }
+        if (removed.length > 0) {
+          const stale = new Set(removed);
+          try {
+            await updatePlanState({
+              taskIds: (plan.taskIds ?? []).filter((id) => !stale.has(id)),
+              totalTasks: Math.max(0, (plan.totalTasks ?? plan.taskIds?.length ?? 0) - removed.length),
+            });
+          } catch (err) {
+            console.error("Couldn't update the plan after removing stale tasks:", err);
+          }
+        }
+      }
+
+      for (const task of planTasks) {
+        if (!regenerateIds.includes(task.id)) continue;
+        const target = resolveActivityTarget(task);
+        if (target?.kind !== "concept_practice" || !target.generatedSetId) continue;
+        try {
+          await clearMissingGeneratedSet(uid, task.id, target.generatedSetId);
+        } catch (err) {
+          console.error("Couldn't clear a missing practice set:", err);
+        }
+      }
+    })().finally(() => {
+      pruningPlanRef.current = false;
+    });
+  }, [
+    surface,
+    user,
+    classes,
+    classesLoading,
+    planLoading,
+    tasksLoading,
+    plan,
+    tasks,
+    today,
+    updatePlanState,
+  ]);
 
   const activeTasks = useMemo(
     () =>

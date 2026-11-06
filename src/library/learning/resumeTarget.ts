@@ -1,4 +1,5 @@
 import { resolveTaskActivityUrl } from "@/src/library/studyPlan/sessionTimer";
+import { LEARNING_ROUTES } from "@/src/library/learning/routes";
 import type { ActivityTarget, ActivityType } from "@/src/library/studyPlan/types";
 
 export type LearningResumeTarget = {
@@ -33,7 +34,8 @@ export function selectLearningResumeTarget(input: {
   const { nextTask, recentClass } = input;
 
   if (nextTask) {
-    const href = resolveTaskActivityUrl(nextTask, nextTask.id);
+    // The resume card lives on the learning home, so back from the activity returns there.
+    const href = resolveTaskActivityUrl(nextTask, nextTask.id, { from: LEARNING_ROUTES.home });
     if (href) {
       return {
         title: nextTask.title,

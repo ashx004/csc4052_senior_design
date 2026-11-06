@@ -61,3 +61,160 @@ describe("LearningWorkspace section scoping", () => {
     },
   );
 });
+
+describe("stale study-plan task pruning", () => {
+  it("never writes a generated task whose document target is already gone", () => {
+    // generateTasks is pure and has no resource list, so attachSelectedDocuments is the
+    // first place a document target can be checked against the course's live resources.
+    expect(source).toMatch(
+      /task\.activityTarget\?\.kind === "document"[\s\S]{0,800}if \(!liveResource\) continue;/,
+    );
+    // A blank sourceDocKey cannot be looked up, so it must not count as "gone" — otherwise an
+    // OCR document whose url is not backfilled yet never gets a study task at all. The same
+    // rule is pinned behaviourally for the auto-plan path in autoPlan.test.ts and for the
+    // pruner in staleTaskPruning.test.ts.
+    expect(source).toContain("isBlankSourceDocKey(task.activityTarget.sourceDocKey)");
+  });
+
+  it("runs stale-task pruning on the study-plan surface", () => {
+    expect(source).toContain("partitionPlanTasks");
+  });
+
+  it("reads each course's contents through the library helper, not inline", () => {
+    // The catch-stores-null rule used to live inline here, where no test could observe what a
+    // failed read actually stored. It now lives in loadCourseContents, whose own tests in
+    // src/library/studyPlan/courseContents.test.ts prove the behaviour (a throw, an
+    // unreachable server and a partial failure all store null). All this file still has to
+    // pin is that the component delegates rather than keeping a second copy of the read.
+    expect(source).toContain("loadCourseContents(uid, classes.map((cls) => cls.id))");
+    expect(source).not.toMatch(/getDocs\w*\(\s*collection\(db, "users", uid, "enrollment"/);
+  });
+
+  it("only prunes the current plan's tasks, guarded so it runs once per plan load", () => {
+    expect(source).toContain("prunedPlanDateRef");
+    expect(source).toMatch(/partitionPlanTasks\(\s*planTasks/);
+  });
+
+  it("reduces totalTasks by the number pruned and leaves the other counters alone", () => {
+    const update = source.match(/await updatePlanState\(\{[\s\S]{0,400}?\}\);/g) ?? [];
+    const pruneUpdate = update.find((call) => call.includes("removed.length"));
+    expect(pruneUpdate).toBeDefined();
+    expect(pruneUpdate).toContain("totalTasks");
+    expect(pruneUpdate).not.toContain("completedCount");
+    expect(pruneUpdate).not.toContain("skippedCount");
+  });
+
+  it("clears a missing generated set instead of deleting the task", () => {
+    expect(source).toContain("clearMissingGeneratedSet(uid, task.id, target.generatedSetId)");
+  });
+
+  describe("the once-per-day guard", () => {
+    // Deliberately a source assertion, like the rest of this file: the component takes auth,
+    // Firestore and study-plan context and cannot be rendered in a unit test. The slice starts
+    // at the guard's own read, so an assignment moved anywhere above that read drops out of the
+    // slice entirely and `assignAt` goes to -1, failing just as a reordering inside it would.
+    const guarded = source.slice(
+      source.indexOf("if (prunedPlanDateRef.current ==="),
+      source.indexOf("const activeTasks = useMemo"),
+    );
+
+    it("keys the guard on the user as well as the date", () => {
+      expect(guarded).toBeTruthy();
+      expect(source).toMatch(/const pruneKey = `\$\{user\.uid\}:\$\{today\}`;/);
+      // Neither the read nor the write may compare or assign the bare date any more.
+      expect(guarded).not.toMatch(/prunedPlanDateRef\.current\s*={1,3}\s*today\b/);
+      expect(guarded).toContain("prunedPlanDateRef.current === pruneKey");
+    });
+
+    it("burns the guard only after the server read, so an all-failed pass retries", () => {
+      // `=[^=]` matches the assignment and not the `===` comparison the slice opens with.
+      const awaitAt = guarded.indexOf("await loadCourseContents");
+      const assignAt = guarded.search(/prunedPlanDateRef\.current\s*=[^=]/);
+      expect(awaitAt).toBeGreaterThan(-1);
+      expect(assignAt).toBeGreaterThan(-1);
+      expect(assignAt).toBeGreaterThan(awaitAt);
+    });
+
+    it("counts a pass as done only when some course read actually succeeded", () => {
+      // A pass where every read returned null has classified nothing, so it must not count.
+      expect(guarded).toMatch(
+        /contentsByCourse\.values\(\)\s*\)[\s\S]{0,120}?!== null[\s\S]{0,200}?prunedPlanDateRef\.current = pruneKey;/,
+      );
+    });
+
+    it("will not issue the round trips twice for one plan load", () => {
+      // The guard is burned after the await, so an in-flight flag is what keeps the three
+      // reads per course from being issued again by a dependency change mid-pass.
+      expect(guarded).toContain("if (pruningPlanRef.current) return;");
+      expect(guarded).toMatch(/pruningPlanRef\.current = true;[\s\S]{0,200}?void \(async \(\) => \{/);
+      expect(guarded).toMatch(/\}\)\(\)\.finally\(\(\) => \{\s*pruningPlanRef\.current = false;/);
+    });
+  });
+});
+
+describe("document topics", () => {
+  it("builds document topics for every course, with no per-course gate", () => {
+    // The first statement in the loop body must be the helper call: a guard placed above it
+    // (whatever its spelling) would skip courses that already have sets. What the helper then
+    // returns is pinned behaviourally in documentTopics.test.ts.
+    expect(source).toMatch(
+      /for \(const (\w+) of classes\) \{\s*topics\.push\(\s*\.\.\.documentTopicsForCourse\(/,
+    );
+  });
+
+  it("de-duplicates a document already behind a set, by matching the source key variants", () => {
+    expect(source.match(/representedByCourse\.get\(cls\.id\)\?\.add\(matched\.id\)/g) ?? []).toHaveLength(2);
+    expect(source).toMatch(/representedResourceIds: representedByCourse\.get\(cls\.id\)/);
+  });
+});
+
+describe("the URL a session persists", () => {
+  // Deliberately a source assertion: this file already pins LearningWorkspace this way
+  // because the component takes auth, Firestore and study-plan context and cannot be
+  // rendered in a unit test. The property is read out of the source rather than asserted
+  // as a literal, so renaming the locals is fine but changing the wiring is not. What
+  // `resolveTaskActivityUrl` does with a `from` is pinned behaviourally in
+  // src/library/studyPlan/sessionTimer.test.ts.
+  const startTask = source.slice(
+    source.indexOf("const handleStartTask"),
+    source.indexOf("const handleOpenTaskActivity"),
+  );
+
+  // The name bound to a resolveTaskActivityUrl call that passes NO options...
+  const storedName = startTask.match(
+    /const (\w+) = resolveTaskActivityUrl\(task, taskId\);/,
+  )?.[1];
+  // ...and the name bound to one that passes a `from`.
+  const openName = startTask.match(
+    /const (\w+) = resolveTaskActivityUrl\(task, taskId, \{[\s\S]{0,120}?from:/,
+  )?.[1];
+
+  it("builds a from-less URL and a from-bearing URL, and they are not the same value", () => {
+    expect(startTask).toBeTruthy();
+    expect(storedName).toBeDefined();
+    expect(openName).toBeDefined();
+    // The regression is reusing one URL for both jobs, so the two must be distinct.
+    expect(storedName).not.toBe(openName);
+  });
+
+  it("persists the from-less URL, never the from-bearing one", () => {
+    // The focus card replays the stored value with router.push from whatever page the
+    // student is on later (see FocusCard), so a `from` frozen in here would send "back"
+    // to the study plan from a page they did not come from.
+    expect(startTask).toContain(`activityUrl: ${storedName}`);
+    expect(startTask).not.toContain(`activityUrl: ${openName}`);
+    // startSession takes the URL as its last positional argument.
+    expect(startTask).toMatch(
+      new RegExp(`startSession\\([\\s\\S]{0,400}?\\n\\s*${storedName}\\n\\s*\\);`),
+    );
+    expect(startTask).not.toMatch(
+      new RegExp(`startSession\\([\\s\\S]{0,400}?\\n\\s*${openName}\\n\\s*\\);`),
+    );
+  });
+
+  it("navigates with the from-bearing URL on every exit path", () => {
+    const pushes = startTask.match(/router\.push\((\w+)\)/g) ?? [];
+    expect(pushes.length).toBeGreaterThan(0);
+    for (const push of pushes) expect(push).toBe(`router.push(${openName})`);
+  });
+});

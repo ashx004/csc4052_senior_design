@@ -112,7 +112,8 @@ export function buildConceptPracticeTask(
     courseId: input.courseId,
     courseName: input.course.name,
     courseCode: input.course.code,
-    title: `Practice: ${labels.join(", ")}`,
+    // The title names the format the task opens, so a flashcard task never reads as a quiz.
+    title: `${input.practiceType === "flashcards" ? "Flashcards" : "Practice"}: ${labels.join(", ")}`,
     activityType: input.practiceType === "flashcards" ? "flashcards" : "quiz",
     targetId: null,
     topicLabel: labels.join(", "),

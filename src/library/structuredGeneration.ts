@@ -63,7 +63,7 @@ export async function structuredGeneration(options: {
     response = null;
   }
   if (!response) response = await request("json");
-  if (!response.ok) throw new Error(`AI generation service returned HTTP ${response.status}.`);
+  if (!response.ok) throw new Error(await serviceErrorMessage(response));
   // The timeout remains active through body consumption, not only headers.
   const data = await response.json();
   if (data?.done_reason === "length") return null;
@@ -72,6 +72,36 @@ export async function structuredGeneration(options: {
   } catch {
     return null;
   }
+}
+
+/**
+ * What the AI service said, not just that it said no. The status alone could not tell a
+ * missing model from a rejected key from an exhausted balance, so every one of them
+ * reached the logs as the same "returned HTTP 502" and the student as the same
+ * "unexpected response". The body is read defensively and truncated: it is a provider
+ * error payload, never student content.
+ */
+async function serviceErrorMessage(response: Response): Promise<string> {
+  const base = `AI generation service returned HTTP ${response.status}.`;
+  const body = await response.text().catch(() => "");
+  const detail = providerErrorText(body);
+  return detail ? `${base} ${detail}` : base;
+}
+
+/** The human-readable part of a provider error body (OpenAI/OpenRouter and Ollama shapes). */
+function providerErrorText(body: string): string {
+  const trimmed = body.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = JSON.parse(trimmed);
+    const error = parsed?.error;
+    const message =
+      typeof error === "string" ? error : typeof error?.message === "string" ? error.message : parsed?.message;
+    if (typeof message === "string" && message.trim()) return message.trim().slice(0, 300);
+  } catch {
+    // Not JSON (an HTML error page from a proxy, say) — the raw start still says more than nothing.
+  }
+  return trimmed.slice(0, 300);
 }
 
 /** What Ollama says when the runner process died under a request. */

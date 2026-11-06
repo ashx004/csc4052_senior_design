@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { addDoc } from "firebase/firestore";
 import type { ConceptFocus } from "@/src/library/generation/conceptFocus";
+import { buildGeneratedPracticeTarget } from "./generatedPracticeTarget";
+import type { EligibleTopic } from "./types";
 import { conceptLabelFromQuizName, dailyPlanQuizNameFromFocus, generateTargetedPracticeQuiz, targetedPracticeName, buildTargetedPracticeRequest, highestQuotaLevel, TARGETED_PRACTICE_QUESTION_COUNT, TARGETED_PRACTICE_QUESTION_TYPES } from "./targetedPractice";
 
 vi.mock("firebase/firestore", () => ({ addDoc: vi.fn(async () => ({ id: "new-quiz" })), collection: vi.fn(), serverTimestamp: vi.fn() }));
@@ -69,6 +71,19 @@ describe("buildTargetedPracticeRequest", () => {
     expect(req.modelKey).toBe("gpt-4");
     expect(req.avoidQuestions).toEqual(["q1", "q2"]);
     expect(req.difficulty).toBe("exam");
+  });
+
+  // Without a courseId the route cannot find the document's resource, so it falls
+  // back to downloading and re-parsing the whole file on every generation.
+  it("carries the courseId so the route can reach the indexed document", () => {
+    const req = buildTargetedPracticeRequest({
+      sourceDocKey: "folder/123-derivatives.pdf",
+      courseId: "course-1",
+      focus: { quotas: [], avoid: [] },
+      avoidQuestions: [],
+      modelKey: "gpt-4",
+    });
+    expect(req.courseId).toBe("course-1");
   });
 
   it("removes leading digits with dash from docName", () => {
@@ -200,6 +215,31 @@ describe("buildTargetedPracticeRequest difficulty", () => {
   it("reports exam for a focus with no levels", () => {
     expect(highestQuotaLevel({ quotas: [{ conceptKey: "a", label: "A", items: 1 }], avoid: [] })).toBe("exam");
   });
+});
+
+describe("generated practice target drift guard", () => {
+  // generatedPracticeTarget.ts re-declares the quiz question count locally, because importing
+  // weakConceptPractice.ts (where practiceCounts lives) pulls firebase into a pure library
+  // module. practiceCounts("quiz") returns TARGETED_PRACTICE_QUESTION_COUNT, so pinning the
+  // built target against that same exported constant is what stops the two silently drifting.
+  // This test lives here rather than in generatedPracticeTarget.test.ts because this file
+  // already mocks firebase, which targetedPractice.ts needs at import time.
+  const base: EligibleTopic = {
+    courseId: "bio201", courseName: "Biology", courseCode: "BIO201",
+    topicLabel: "03-cell-respiration.pdf", targetId: null, activityType: "reading",
+    quizMastery: null, flashcardEngagement: null, lastStudiedAt: null, skipCount: 0,
+    activityTarget: { kind: "document", resourceId: "res-1", sourceDocKey: "uploads/03-cell-respiration.pdf" },
+  };
+
+  it("keeps the quiz question count in step with the shared constant", () => {
+    expect(buildGeneratedPracticeTarget(base, "quiz")?.questionCount).toBe(
+      TARGETED_PRACTICE_QUESTION_COUNT,
+    );
+  });
+
+  // No equivalent guard for flashcards: practiceCounts("flashcards") returns a bare literal
+  // with no exported counterpart, so there is nothing to pin against. Giving the flashcards
+  // arm an exported count (or having it read target.questionCount) is a tracked follow-up.
 });
 
 describe("dailyPlanQuizNameFromFocus", () => {

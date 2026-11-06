@@ -253,6 +253,21 @@ describe("resolveTaskActivityUrl", () => {
       "/courses/csc430/quizzes/quiz1?mode=take&taskId=task-1"
     );
   });
+
+  it("appends a from parameter when given one", () => {
+    const url = resolveTaskActivityUrl(
+      { activityType: "quiz", courseId: "bio201", targetId: "quiz-1" },
+      "task-1",
+      { from: "/learning/study-plan" },
+    );
+    expect(url).toContain("taskId=task-1");
+    expect(url).toContain(`from=${encodeURIComponent("/learning/study-plan")}`);
+  });
+
+  it("omits from when not given one", () => {
+    expect(resolveTaskActivityUrl({ activityType: "quiz", courseId: "bio201", targetId: "quiz-1" }, "task-1"))
+      .not.toContain("from=");
+  });
 });
 
 describe("sessionActivityUrl", () => {

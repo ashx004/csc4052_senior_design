@@ -10,6 +10,7 @@ import { useAuth } from '@/src/context/AuthContext';
 import { useCourseInfo } from '@/src/hooks/useCourseInfo';
 import { usePracticeGeneration } from '@/src/hooks/usePracticeGeneration';
 import { getCourseResources, INDEXABLE_FILE_TYPES } from '@/src/components/resourceManagement/fileUploadService';
+import { useBackDestination } from '@/src/hooks/useBackDestination';
 import ConfirmDeleteModal from '@/src/components/learning/ConfirmDeleteModal';
 import PracticeSetup, { type SetupResource } from '@/src/components/practice/PracticeSetup';
 import { deletePracticeSet } from '@/src/library/practice/deleteSet';
@@ -39,6 +40,7 @@ export default function PracticeHubPage({ params }: { params: Promise<{ courseId
   const { user, loading: authLoading } = useAuth();
   const { displayName, loading: courseLoading } = useCourseInfo(courseId);
   const generation = usePracticeGeneration(courseId);
+  const { goBack } = useBackDestination(`/courses/${courseId}/learning`);
 
   const [resources, setResources] = useState<SetupResource[] | null>(null);
   const [sets, setSets] = useState<SetSummary[]>([]);
@@ -120,7 +122,7 @@ export default function PracticeHubPage({ params }: { params: Promise<{ courseId
   return (
     <div className="min-h-screen bg-bg-main">
       <header className="flex items-center gap-3 border-b border-border-light px-6 py-4 sm:px-14">
-        <button onClick={() => router.back()} className="rounded-md p-1.5 transition-colors hover:bg-bg-warm" aria-label="Back">
+        <button onClick={goBack} className="rounded-md p-1.5 transition-colors hover:bg-bg-warm" aria-label="Back">
           <ArrowLeft size={20} className="text-text-main" />
         </button>
         <div>

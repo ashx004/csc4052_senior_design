@@ -213,3 +213,51 @@ describe("resolveSources", () => {
     expect(result.sources.length + result.skipped.length).toBe(2);
   });
 });
+
+// The study plan's own generators send the legacy { docUrl, docName } shape, which
+// carries no resourceId. Without one, resolveDocument could never take the retrieval
+// path, so every plan task re-downloaded and re-parsed the whole file — the slow read
+// that the document list's generators never do. Looking the id up from the key puts
+// both callers on the same path.
+describe("resolveSources without a resourceId on the source", () => {
+  const legacy = { title: "Lecture 1", url: own("l1.pdf"), fileType: "pdf" };
+
+  it("looks the resource up by its url and retrieves the indexed text", async () => {
+    const resourceIdForUrl = vi.fn(async () => "resource-1");
+    const d = deps({ resourceIdForUrl });
+
+    const result = await resolveSources(d, [legacy]);
+
+    expect(resourceIdForUrl).toHaveBeenCalledWith(legacy.url);
+    expect(d.indexStatusOf).toHaveBeenCalledWith("resource-1");
+    expect(result.sources[0].viaRetrieval).toBe(true);
+    expect(result.sources[0].resourceId).toBe("resource-1");
+    expect(d.readText).not.toHaveBeenCalled();
+  });
+
+  it("reads the raw file when no resource matches the url", async () => {
+    const d = deps({ resourceIdForUrl: vi.fn(async () => null) });
+    const result = await resolveSources(d, [legacy]);
+    expect(result.sources[0].viaRetrieval).toBe(false);
+    expect(d.readText).toHaveBeenCalled();
+  });
+
+  // A lookup failure must never fail a generation; it only costs the retrieval path.
+  it("falls back to raw text when the lookup throws", async () => {
+    const d = deps({
+      resourceIdForUrl: vi.fn(async () => {
+        throw new Error("Firestore unavailable");
+      }),
+    });
+    const result = await resolveSources(d, [legacy]);
+    expect(result.sources[0].viaRetrieval).toBe(false);
+    expect(result.sources[0].text).toBe("raw extracted text");
+  });
+
+  it("still reads raw text when no lookup is wired in", async () => {
+    const d = deps();
+    const result = await resolveSources(d, [legacy]);
+    expect(result.sources[0].viaRetrieval).toBe(false);
+    expect(d.readText).toHaveBeenCalled();
+  });
+});

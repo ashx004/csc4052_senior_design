@@ -94,6 +94,18 @@ export function withTaskId(url: string, taskId: string): string {
   return `${url}${separator}taskId=${encodeURIComponent(taskId)}`;
 }
 
+/** Appends the caller's return path, so the activity's back control can honour it. */
+function withFrom(url: string, from?: string): string {
+  if (!from) return url;
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}from=${encodeURIComponent(from)}`;
+}
+
+/**
+ * `from` is deliberately a caller-supplied option rather than a hardcoded route: this
+ * same URL is built for the study-plan surface, for the home page's resume card, and is
+ * persisted as a session's `activityUrl`. Only the caller knows where "back" should go.
+ */
 export function resolveTaskActivityUrl(
   task: {
     activityType: ActivityType;
@@ -102,18 +114,20 @@ export function resolveTaskActivityUrl(
     activityTarget?: ActivityTarget;
   },
   taskId: string,
+  options?: { from?: string },
 ): string {
+  const from = options?.from;
   const target = task.activityTarget;
   // A concrete target wins: documents only drive the URL for reading; quiz /
   // flashcard_set targets always do.
   if (target && (target.kind !== "document" || task.activityType === "reading")) {
-    return getActivityUrlFromTarget(task.courseId, target, taskId);
+    return withFrom(getActivityUrlFromTarget(task.courseId, target, taskId), from);
   }
   const fallbackUrl = getActivityUrl(task.activityType, task.courseId, task.targetId);
   if (task.activityType === "quiz" || task.activityType === "flashcards") {
-    return withTaskId(fallbackUrl, taskId);
+    return withFrom(withTaskId(fallbackUrl, taskId), from);
   }
-  return fallbackUrl;
+  return withFrom(fallbackUrl, from);
 }
 
 export function formatElapsedTime(seconds: number): string {
