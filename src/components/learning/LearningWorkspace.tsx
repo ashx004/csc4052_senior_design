@@ -631,6 +631,8 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
         );
         for (const fc of fcSnap.docs) {
           const data = fc.data();
+          // Same reason as the quiz sets above: a plan-generated set is not material to recommend.
+          if (isGeneratedForPlan(data)) continue;
           const topicLabel = data.topicName ?? data.name ?? fc.id;
           const matched = findResourceForSourceDocKey(data.sourceDocKey, courseResources);
           const activityTarget = matched ? documentTargetForResource(matched) : undefined;
@@ -1028,7 +1030,10 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
       // the message reaches the student as a toast and the task stays startable.
       let task = found;
       const foundTarget = resolveActivityTarget(found);
-      if (foundTarget?.kind === "concept_practice" && foundTarget.practiceType === "quiz") {
+      if (
+        foundTarget?.kind === "concept_practice" &&
+        (foundTarget.practiceType === "quiz" || foundTarget.practiceType === "flashcards")
+      ) {
         const setId = await ensureGeneratedSet(found);
         if (!setId) return;
         task = { ...found, activityTarget: { ...foundTarget, generatedSetId: setId } };

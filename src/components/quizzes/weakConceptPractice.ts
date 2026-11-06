@@ -171,13 +171,20 @@ export async function generateConceptQuiz(input: {
   return created.id;
 }
 
-/** A focused flashcard set, saved as a new set. Resolves with the set's id. */
+/**
+ * A focused flashcard set, saved as a new set. Resolves with the set's id.
+ *
+ * `generatedForPlan` marks a set the daily plan builds for a task: it is named as daily
+ * practice, not pinned to the course sidebar, and flagged so the plan does not recommend
+ * flashcards derived from its own output. Without it the set is a pinned weak-spot set.
+ */
 export async function generateConceptFlashcards(input: {
   uid: string;
   courseId: string;
   sourceDocKey: string;
   focus: ConceptFocus;
   count: number;
+  generatedForPlan?: boolean;
 }): Promise<string> {
   const data = await postJson("/api/generate-flashcards", {
     docUrl: documentUrl(input.sourceDocKey),
@@ -189,12 +196,15 @@ export async function generateConceptFlashcards(input: {
   });
   const cards = Array.isArray(data.questions) ? data.questions : [];
   const created = await addDoc(collection(db, "users", input.uid, "enrollment", input.courseId, "flashcardSets"), {
-    name: targetedPracticeNameFromFocus(input.focus),
+    name: input.generatedForPlan
+      ? dailyPlanQuizNameFromFocus(input.focus)
+      : targetedPracticeNameFromFocus(input.focus),
     sourceDocKey: input.sourceDocKey,
     sourceKeys: [input.sourceDocKey],
     cards,
     visibility: "private",
-    pinned: true,
+    pinned: !input.generatedForPlan,
+    ...(input.generatedForPlan ? { generatedForPlan: true } : {}),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });

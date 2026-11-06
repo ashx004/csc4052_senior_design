@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { askedQuestionTexts, generateConceptQuiz } from "@/src/components/quizzes/weakConceptPractice";
+import {
+  askedQuestionTexts,
+  generateConceptFlashcards,
+  generateConceptQuiz,
+  practiceCounts,
+} from "@/src/components/quizzes/weakConceptPractice";
 import { DAILY_QUIZ_AVOID_SET_LIMIT } from "@/src/library/studyPlan/dailyQuizTarget";
 import { generationFailureMessage } from "@/src/hooks/usePracticeGeneration";
 import { resolveActivityTarget } from "@/src/library/studyPlan/activityTarget";
@@ -32,7 +37,8 @@ export function useConceptPracticeStart(uid: string | null) {
   const ensureGeneratedSet = useCallback(
     async (task: StudyTask & { id: string }): Promise<string | null> => {
       const target = resolveActivityTarget(task);
-      if (!uid || !target || target.kind !== "concept_practice" || target.practiceType !== "quiz") return null;
+      if (!uid || !target || target.kind !== "concept_practice") return null;
+      if (target.practiceType !== "quiz" && target.practiceType !== "flashcards") return null;
 
       setError(null);
       const decision = startDecision(target, Date.now());
@@ -57,19 +63,32 @@ export function useConceptPracticeStart(uid: string | null) {
           setError(BEING_PREPARED_MESSAGE);
           return null;
         }
-        const avoid = await askedQuestionTexts(uid, task.courseId, [sourceDocKey], {
-          maxSets: DAILY_QUIZ_AVOID_SET_LIMIT,
-        });
-        const setId = await generateConceptQuiz({
-          uid,
-          courseId: task.courseId,
-          sourceDocKey,
-          focus: conceptFocusFromTarget(target, avoid),
-          // A daily set is regenerated every day, so pinning it would flood the course
-          // sidebar; the marker keeps the plan from recommending its own output back.
-          pinned: false,
-          generatedForPlan: true,
-        });
+        // A daily set is regenerated every day, so it is never pinned to the course sidebar;
+        // the generatedForPlan marker keeps the plan from recommending its own output back.
+        const setId =
+          target.practiceType === "flashcards"
+            ? await generateConceptFlashcards({
+                uid,
+                courseId: task.courseId,
+                sourceDocKey,
+                // askedQuestionTexts reads quiz sets, so there is nothing to avoid here.
+                focus: conceptFocusFromTarget(target, []),
+                count: practiceCounts("flashcards").requested,
+                generatedForPlan: true,
+              })
+            : await generateConceptQuiz({
+                uid,
+                courseId: task.courseId,
+                sourceDocKey,
+                focus: conceptFocusFromTarget(
+                  target,
+                  await askedQuestionTexts(uid, task.courseId, [sourceDocKey], {
+                    maxSets: DAILY_QUIZ_AVOID_SET_LIMIT,
+                  }),
+                ),
+                pinned: false,
+                generatedForPlan: true,
+              });
         await saveGeneratedSetId(uid, task.id, setId);
         return setId;
       } catch (failure) {
