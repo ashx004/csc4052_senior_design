@@ -20,6 +20,11 @@ export default function BackToLearningLink() {
     <Link
       href={href}
       onClick={(event) => {
+        // A modified click asks the browser to open `href` somewhere else (new tab, new
+        // window). Those fire `click`, not `auxclick`, so intercepting them unconditionally
+        // would cancel the open and navigate this tab instead. Let the `Link` handle them.
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0)
+          return;
         event.preventDefault();
         goBack();
       }}

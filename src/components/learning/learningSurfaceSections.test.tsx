@@ -107,6 +107,49 @@ describe("stale study-plan task pruning", () => {
   it("clears a missing generated set instead of deleting the task", () => {
     expect(source).toContain("clearMissingGeneratedSet(uid, task.id, target.generatedSetId)");
   });
+
+  describe("the once-per-day guard", () => {
+    // Deliberately a source assertion, like the rest of this file: the component takes auth,
+    // Firestore and study-plan context and cannot be rendered in a unit test. The slice starts
+    // at the guard's own read, so an assignment moved anywhere above that read drops out of the
+    // slice entirely and `assignAt` goes to -1, failing just as a reordering inside it would.
+    const guarded = source.slice(
+      source.indexOf("if (prunedPlanDateRef.current ==="),
+      source.indexOf("const activeTasks = useMemo"),
+    );
+
+    it("keys the guard on the user as well as the date", () => {
+      expect(guarded).toBeTruthy();
+      expect(source).toMatch(/const pruneKey = `\$\{user\.uid\}:\$\{today\}`;/);
+      // Neither the read nor the write may compare or assign the bare date any more.
+      expect(guarded).not.toMatch(/prunedPlanDateRef\.current\s*={1,3}\s*today\b/);
+      expect(guarded).toContain("prunedPlanDateRef.current === pruneKey");
+    });
+
+    it("burns the guard only after the server read, so an all-failed pass retries", () => {
+      // `=[^=]` matches the assignment and not the `===` comparison the slice opens with.
+      const awaitAt = guarded.indexOf("await loadCourseContents");
+      const assignAt = guarded.search(/prunedPlanDateRef\.current\s*=[^=]/);
+      expect(awaitAt).toBeGreaterThan(-1);
+      expect(assignAt).toBeGreaterThan(-1);
+      expect(assignAt).toBeGreaterThan(awaitAt);
+    });
+
+    it("counts a pass as done only when some course read actually succeeded", () => {
+      // A pass where every read returned null has classified nothing, so it must not count.
+      expect(guarded).toMatch(
+        /contentsByCourse\.values\(\)\s*\)[\s\S]{0,120}?!== null[\s\S]{0,200}?prunedPlanDateRef\.current = pruneKey;/,
+      );
+    });
+
+    it("will not issue the round trips twice for one plan load", () => {
+      // The guard is burned after the await, so an in-flight flag is what keeps the three
+      // reads per course from being issued again by a dependency change mid-pass.
+      expect(guarded).toContain("if (pruningPlanRef.current) return;");
+      expect(guarded).toMatch(/pruningPlanRef\.current = true;[\s\S]{0,200}?void \(async \(\) => \{/);
+      expect(guarded).toMatch(/\}\)\(\)\.finally\(\(\) => \{\s*pruningPlanRef\.current = false;/);
+    });
+  });
 });
 
 describe("document topics", () => {

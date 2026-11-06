@@ -10,6 +10,11 @@ describe("safeReturnPath", () => {
     expect(safeReturnPath("/learning/study-plan?taskId=t1")).toBe("/learning/study-plan?taskId=t1");
   });
 
+  it("accepts an encoded space in a query string", () => {
+    // `searchParams.get` decodes, so "from=/learning?q=a%20b" arrives already decoded.
+    expect(safeReturnPath("/learning?q=a b")).toBe("/learning?q=a b");
+  });
+
   it("rejects a protocol-relative path", () => {
     expect(safeReturnPath("//evil.com")).toBeNull();
   });

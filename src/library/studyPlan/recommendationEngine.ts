@@ -398,6 +398,11 @@ export function generateTasks(
       (activityType === "quiz" || activityType === "flashcards") &&
       (topic.activityType !== activityType || !targetId);
     if (wantsGeneratedSet && !activityTarget) return false;
+    // A concept_practice task's set does not exist yet, so targetId must be null until one is
+    // generated. Deliberate consequence: a daily leveled quiz used to store the quizSetId it
+    // was derived from, and now stores null, so the stored task no longer links back to that
+    // set. Every consumer was traced and none needs it; if that link is ever wanted again it
+    // belongs in the activityTarget, not in targetId.
     const finalTargetId =
       activityTarget?.kind === "concept_practice" ? null : resolvedTargetId;
 

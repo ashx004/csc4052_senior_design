@@ -13,8 +13,12 @@ export function safeReturnPath(value: string | null | undefined): string | null 
   if (!path.startsWith("/")) return null;
   if (path.startsWith("//") || path.startsWith("/\\")) return null;
   if (path.includes("://") || path.includes("\\")) return null;
-  // Browsers strip tab/CR/LF inside URLs, so "/\t/evil.com" would become "//evil.com".
-  if (/[\u0000-\u001f\u007f\s]/.test(path)) return null;
+  // Browsers strip tab/CR/LF inside URLs, so "/\t/evil.com" would become "//evil.com". Only
+  // control characters and DEL are rejected: that is what the smuggling argument rests on, and
+  // every one of tab, LF and CR is inside \u0000-\u001f. A plain space carries no such weight,
+  // and `searchParams.get` decodes, so rejecting it threw out "/learning?q=a%20b" — a query
+  // string the spec explicitly allows `from` to carry.
+  if (/[\u0000-\u001f\u007f]/.test(path)) return null;
   return path;
 }
 

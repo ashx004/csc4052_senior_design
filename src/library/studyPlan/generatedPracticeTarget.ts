@@ -6,6 +6,10 @@ type ConceptPracticeTarget = Extract<ActivityTarget, { kind: "concept_practice" 
 
 // Must stay in step with practiceCounts() in src/components/quizzes/weakConceptPractice.ts.
 // Re-declared here because importing that module pulls firebase into this pure library module.
+// The quiz count is test-pinned: targetedPractice.test.ts asserts the built target's
+// questionCount equals TARGETED_PRACTICE_QUESTION_COUNT, which is what practiceCounts("quiz")
+// returns, so the two cannot drift. The flashcards count is NOT pinned — practiceCounts
+// returns a bare literal for it with no exported counterpart to compare against.
 const QUESTION_COUNTS: Record<"quiz" | "flashcards", number> = {
   quiz: 10,
   flashcards: 10,

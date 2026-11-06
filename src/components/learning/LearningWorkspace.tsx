@@ -371,7 +371,11 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
   const [planStarter, setPlanStarter] = useState<PlanStarterChoice | null>(null);
   const autoPlanAttemptedRef = useRef(false);
   const scheduledTaskIdsRef = useRef(new Set<string>());
+  // `${uid}:${today}` of the last pruning pass that actually had evidence to work with, and a
+  // flag for a pass still in flight (the guard is only burned after the read, so without it two
+  // dependency changes in quick succession could issue the round trips twice).
   const prunedPlanDateRef = useRef<string | null>(null);
+  const pruningPlanRef = useRef(false);
 
   const handleNotificationsToggle = useCallback(() => {
     const opening = !notificationsOpen;
@@ -747,6 +751,12 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
           ready.push(task);
           continue;
         }
+        // Note the opposite default to the branch above, where an absent course means "keep
+        // the task". It is acceptable here because these tasks *need* a document the student
+        // can pick: with no list to offer there is nothing to show them, so empty and absent
+        // genuinely have the same outcome. The distinction matters wherever a missing list
+        // could be read as evidence a target was deleted — which is where the pruning bug
+        // came from — and nothing is inferred about any target here.
         const resources = resourcesByCourse.get(task.courseId) ?? [];
         if (resources.length === 0) continue;
         const selected = await requestDocumentSelection(task.courseId, resources);
@@ -1358,20 +1368,36 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
     if (surface !== "study-plan") return;
     if (!user || classesLoading || planLoading || tasksLoading) return;
     if (!plan || !hasUsablePlan(plan)) return;
-    // Only ever today's plan, and only once per load of it. Past plans are history.
-    if (prunedPlanDateRef.current === today) return;
-    prunedPlanDateRef.current = today;
+    // Only ever today's plan, and only once per load of it. Past plans are history. The key
+    // carries the uid as well, so a second account on the same mount is never skipped.
+    const pruneKey = `${user.uid}:${today}`;
+    if (prunedPlanDateRef.current === pruneKey) return;
+    if (pruningPlanRef.current) return;
 
     const planTasks = (plan.taskIds ?? [])
       .map((id) => tasks.find((task) => task.id === id))
       .filter((task): task is (typeof tasks)[number] => Boolean(task));
     if (planTasks.length === 0) return;
 
+    pruningPlanRef.current = true;
     void (async () => {
       const uid = user.uid;
       // loadCourseContents owns the safety rule: a course whose read failed or never reached
       // the server is recorded as null, which classifies as "unknown" and prunes nothing.
       const contentsByCourse = await loadCourseContents(uid, classes.map((cls) => cls.id));
+
+      // What counts as a completed pass: one that got evidence from at least one course. Such
+      // a pass classifies every task it can and leaves the unreadable courses as "unknown",
+      // which is the designed safe outcome and not worth retrying. A pass where every read
+      // failed (offline, or a persistent permission-denied) has done nothing at all, so the
+      // guard stays unburned and the next dependency change retries. The guard is burned only
+      // here, after the await — burning it before would make one failed load silence pruning
+      // for the rest of the mount even after connectivity returned. It is not re-checked per
+      // render, so this cannot become a retry loop over the effect's 3-per-course round trips.
+      const readSomething =
+        classes.length === 0 ||
+        Array.from(contentsByCourse.values()).some((contents) => contents !== null);
+      if (readSomething) prunedPlanDateRef.current = pruneKey;
 
       const { staleIds, regenerateIds } = partitionPlanTasks(planTasks, contentsByCourse);
 
@@ -1410,7 +1436,9 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
           console.error("Couldn't clear a missing practice set:", err);
         }
       }
-    })();
+    })().finally(() => {
+      pruningPlanRef.current = false;
+    });
   }, [
     surface,
     user,

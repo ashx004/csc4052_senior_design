@@ -47,7 +47,37 @@ describe("BackToLearningLink", () => {
   it("navigates through the hook rather than letting the link do it", () => {
     search.value = new URLSearchParams("from=%2Fcourses%2Fbio201%2Flearning");
     render(<BackToLearningLink />);
-    fireEvent.click(screen.getByRole("link", { name: /learning/i }));
+    const notPrevented = fireEvent.click(screen.getByRole("link", { name: /learning/i }));
     expect(push).toHaveBeenCalledWith("/courses/bio201/learning");
+    // fireEvent returns false once the handler called preventDefault.
+    expect(notPrevented).toBe(false);
+  });
+
+  it.each([
+    ["cmd", { metaKey: true }],
+    ["ctrl", { ctrlKey: true }],
+    ["shift", { shiftKey: true }],
+    ["alt", { altKey: true }],
+    ["middle-button", { button: 1 }],
+  ])("leaves a %s click to the browser so it can open a new tab", (_label, init) => {
+    search.value = new URLSearchParams("from=%2Fcourses%2Fbio201%2Flearning");
+    render(<BackToLearningLink />);
+    // Read `defaultPrevented` from a document-level listener, which runs after React's root
+    // handler, and swallow the default there so jsdom does not try to navigate. A true here
+    // means the browser's own new-tab/new-window handling for `href` would still have run.
+    let prevented: boolean | null = null;
+    const observe = (event: Event) => {
+      prevented = event.defaultPrevented;
+      event.preventDefault();
+    };
+    document.addEventListener("click", observe);
+    try {
+      fireEvent.click(screen.getByRole("link", { name: /learning/i }), init);
+    } finally {
+      document.removeEventListener("click", observe);
+    }
+    expect(prevented).toBe(false);
+    expect(push).not.toHaveBeenCalled();
+    expect(back).not.toHaveBeenCalled();
   });
 });

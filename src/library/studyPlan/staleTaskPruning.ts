@@ -80,6 +80,11 @@ export function classifyTask(task: TaskLivenessInput, contents: CourseContents):
       // contributes a blank key, so a task can name no searchable document while its documents
       // exist. With nothing left to ask about, the verdict is unknown, not stale. A real key
       // that matches nothing is still evidence, so one blank sibling does not stop pruning.
+      // Ordering note: a target with no generatedSetId AND nothing but blank keys lands here
+      // and returns "unknown" rather than "regenerate". That combination is unreachable today
+      // — a set can only be generated once sourceDocKeys[0] is a usable key, since
+      // useConceptPracticeStart returns early with NO_SOURCE_MESSAGE otherwise — so the two
+      // verdicts never compete in practice. Revisit this ordering if that early return moves.
       const usableKeys = target.sourceDocKeys.filter((key) => !namesNothing(key));
       if (usableKeys.length === 0) return "unknown";
 

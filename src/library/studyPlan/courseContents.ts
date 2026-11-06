@@ -41,10 +41,12 @@ export async function loadCourseContents(
           quizSetIds: new Set(quizSnap.docs.map((d) => d.id)),
           flashcardSetIds: new Set(flashcardSnap.docs.map((d) => d.id)),
         });
-      } catch {
+      } catch (err) {
         // A failed read proves nothing about what this course holds. An empty CourseContents
         // would read as "this course has nothing left" and delete every task in it, so the
-        // only safe record of a failure is null.
+        // only safe record of a failure is null. It is logged because the failure is otherwise
+        // invisible: a persistent permission-denied would silently stop pruning for good.
+        console.error("Couldn't read a course's contents for study-task pruning:", classId, err);
         contentsByCourse.set(classId, null);
       }
     })
