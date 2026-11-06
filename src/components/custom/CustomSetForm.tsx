@@ -310,7 +310,7 @@ export default function CustomSetForm({ initialType }: { initialType: CustomType
         ) : (
           <>
             <Loader2 size={16} className="animate-spin" />
-            {busy === "uploading" ? "Uploading files..." : "Generating - this can take a minute"}
+            {busy === "uploading" ? "Uploading files..." : "Reading your files and writing the set (up to a minute or two)"}
           </>
         )}
       </button>

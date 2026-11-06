@@ -1,4 +1,30 @@
+import sharp from "sharp";
 import { resolveOllamaBaseUrl, secondaryContextOption } from "./ollamaClient";
+
+// Phone photos are 4000x3000 and the model misread a full-size page badly: it
+// returned a different page's content, looping. The same photo at 1600px read
+// correctly. Downscale (and apply the EXIF rotation) before sending.
+const OCR_MAX_EDGE = 1600;
+
+async function prepareForOcr(bytes: Buffer): Promise<Buffer> {
+  try {
+    return await sharp(bytes)
+      .rotate()
+      .resize({ width: OCR_MAX_EDGE, height: OCR_MAX_EDGE, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 88 })
+      .toBuffer();
+  } catch {
+    // Not an image sharp can read: send the bytes unchanged, as before.
+    return bytes;
+  }
+}
+
+// A reply that repeats the same few lines is a model loop, not a transcription.
+function looksLikeLoop(text: string): boolean {
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 20) return false;
+  return new Set(lines).size / lines.length < 0.5;
+}
 import { createTimeoutSignal } from "./withTimeout";
 import { aiFetch } from "@/src/library/ai/aiFetch";
 
@@ -48,7 +74,23 @@ Output ONLY the transcription. No preface, no commentary, no code fences around 
 // no exception to that and 60s proved too tight for a cold boot.
 const OCR_TIMEOUT_MS = 120_000;
 
+/**
+ * Transcribes one page. The cloud OCR model sometimes returns nothing, or a
+ * looping reply, on a page it read fine a moment earlier (it spent its whole
+ * output budget reasoning). One more try covers that; a second failure is
+ * reported, not stored as the transcript.
+ */
 export async function ocrImage(imageBytes: Buffer, signal?: AbortSignal): Promise<string> {
+  try {
+    return await ocrImageOnce(imageBytes, signal);
+  } catch (error) {
+    const retryable = error instanceof Error && /no text|repeating reply/.test(error.message);
+    if (!retryable || signal?.aborted) throw error;
+    return ocrImageOnce(imageBytes, signal);
+  }
+}
+
+async function ocrImageOnce(imageBytes: Buffer, signal?: AbortSignal): Promise<string> {
   if (!process.env.OLLAMA_SECONDARY_URL || !process.env.OLLAMA_AUTH_TOKEN) {
     throw new Error("OCR service is not configured.");
   }
@@ -68,6 +110,7 @@ export async function ocrImage(imageBytes: Buffer, signal?: AbortSignal): Promis
 
   const { signal: timeoutSignal, cancel } = createTimeoutSignal(OCR_TIMEOUT_MS, "OCR transcription");
   const combinedSignal = signal ? AbortSignal.any([timeoutSignal, signal]) : timeoutSignal;
+  const image = await prepareForOcr(imageBytes);
 
   try {
     const response = await aiFetch(`${baseUrl}/api/chat`, {
@@ -87,7 +130,7 @@ export async function ocrImage(imageBytes: Buffer, signal?: AbortSignal): Promis
           {
             role: "user",
             content: "Transcribe the text in this image.",
-            images: [imageBytes.toString("base64")],
+            images: [image.toString("base64")],
           },
         ],
       }),
@@ -102,6 +145,9 @@ export async function ocrImage(imageBytes: Buffer, signal?: AbortSignal): Promis
     const text = (data?.message?.content ?? "").trim();
     if (!text) {
       throw new Error("OCR returned no text.");
+    }
+    if (looksLikeLoop(text)) {
+      throw new Error("OCR returned a repeating reply, so the page was not read. Try a clearer or smaller photo.");
     }
     return text;
   } catch (error) {

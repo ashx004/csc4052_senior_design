@@ -2,6 +2,23 @@ import "server-only";
 import { FieldValue, type Firestore, type Transaction } from "firebase-admin/firestore";
 import { adminDb } from "@/src/library/firebaseAdmin";
 
+// Firestore aborts a transaction when two requests write the same wallet at once
+// (two chat answers, or a chat and a background job, for one student). Running the
+// transaction again is safe: each attempt re-reads the wallet first. Without this,
+// a burst of parallel requests failed with "Transaction lock timeout".
+export async function runWalletTx<T>(db: Firestore, work: (tx: Transaction) => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await db.runTransaction(work);
+    } catch (error) {
+      const code = (error as { code?: unknown } | null)?.code;
+      const aborted = code === 10 || code === "ABORTED";
+      if (!aborted || attempt >= 5) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 60 * attempt * attempt + Math.random() * 120));
+    }
+  }
+}
+
 // AI credit wallet. Layout (see firestore.rules, which deny every client write):
 //   wallets/{uid}                 { balanceMicros, heldMicros, updatedAt }
 //   wallets/{uid}/holds/{holdId}  money reserved for a request still running
@@ -85,7 +102,7 @@ export async function listPurchases(uid: string, db: Firestore = adminDb): Promi
 /** Holds `amountMicros` for a request about to run. Throws InsufficientCreditError when the balance can't cover it. */
 export async function reserveCredit(uid: string, amountMicros: number, feature: string, db: Firestore = adminDb): Promise<string> {
   const holdRef = walletRef(db, uid).collection("holds").doc();
-  await db.runTransaction(async (tx) => {
+  await runWalletTx(db, async (tx) => {
     const next = planReserve(await readWallet(tx, db, uid), amountMicros);
     tx.set(walletRef(db, uid), { ...next, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     tx.set(holdRef, { amountMicros, feature, createdAt: FieldValue.serverTimestamp() });
@@ -96,7 +113,7 @@ export async function reserveCredit(uid: string, amountMicros: number, feature: 
 /** Charges the actual cost of a finished request and releases its hold. Settling the same hold twice is a no-op. */
 export async function settleCredit(uid: string, holdId: string, actualMicros: number, details: ChargeDetails, db: Firestore = adminDb): Promise<void> {
   const holdRef = walletRef(db, uid).collection("holds").doc(holdId);
-  await db.runTransaction(async (tx) => {
+  await runWalletTx(db, async (tx) => {
     const hold = await tx.get(holdRef);
     if (!hold.exists) return;
     const next = planSettle(await readWallet(tx, db, uid), Number(hold.data()?.amountMicros ?? 0), actualMicros);
@@ -124,7 +141,7 @@ export async function creditPurchase(
 ): Promise<boolean> {
   if (!Number.isInteger(creditMicros) || creditMicros < 0) throw new Error("Credit must be a non-negative integer.");
   const eventRef = db.collection("stripeEvents").doc(stripe.eventId);
-  return db.runTransaction(async (tx) => {
+  return runWalletTx(db, async (tx) => {
     if ((await tx.get(eventRef)).exists) return false;
     const wallet = await readWallet(tx, db, uid);
     const balanceMicros = wallet.balanceMicros + creditMicros;
@@ -165,7 +182,7 @@ export async function reverseCredit(
   if (purchases.empty) return false;
   const purchaseRef = purchases.docs[0].ref;
   const eventRef = db.collection("stripeEvents").doc(eventId);
-  return db.runTransaction(async (tx) => {
+  return runWalletTx(db, async (tx) => {
     if ((await tx.get(eventRef)).exists) return false;
     // Firestore transactions read everything first, then write.
     const purchase = (await tx.get(purchaseRef)).data() ?? {};
@@ -223,7 +240,7 @@ export async function chargeDirect(uid: string, amountMicros: number, details: C
  */
 export async function refundFailedWork(uid: string, amountMicros: number, feature: string, db: Firestore = adminDb): Promise<void> {
   if (!Number.isInteger(amountMicros) || amountMicros <= 0) return;
-  await db.runTransaction(async (tx) => {
+  await runWalletTx(db, async (tx) => {
     const wallet = await readWallet(tx, db, uid);
     const balanceMicros = wallet.balanceMicros + amountMicros;
     tx.set(walletRef(db, uid), { balanceMicros, updatedAt: FieldValue.serverTimestamp() }, { merge: true });

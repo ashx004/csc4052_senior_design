@@ -160,7 +160,10 @@ export default function AdvisingProgress({ uid, refreshKey = 0 }: { uid: string;
     // Skip a part already said inside another ("Computer Science" within "BS in Computer Science").
     .filter((part, i, all) => part && !all.some((other, j) => j !== i && other && (other.toLowerCase().includes(part.toLowerCase()) && (other.length > part.length || j < i))))
     .join("  -  ");
-  const requirementsLeft = summary.requirements.length - summary.counts.done;
+  // "Review" rows are rules Catalyst can't check against the transcript, so they
+  // are not counted as left or as missing. Only checkable requirements are.
+  const checkable = summary.requirements.length - summary.counts.review;
+  const requirementsLeft = checkable - summary.counts.done;
   const visible = summary.requirements.filter((r) => filter === "all" || r.state === filter);
   const groups = (["program", "concentration"] as const).map((group) => ({ group, rows: visible.filter((r) => r.group === group) })).filter((g) => g.rows.length > 0);
 
@@ -168,7 +171,8 @@ export default function AdvisingProgress({ uid, refreshKey = 0 }: { uid: string;
     <section className="mt-8" aria-label="Degree progress" data-tutorial="advising-new-progress">
       <div className="rounded-2xl border border-border-light bg-bg-container p-6 shadow-sm">
         <div className="flex flex-col gap-6 sm:flex-row sm:items-center">
-          <ProgressRing percent={summary.percentRequirementsDone} label="done" />
+          {/* Headline is the share of degree credits earned; the requirement count is shown beside it. */}
+          <ProgressRing percent={summary.percentEarned ?? summary.percentRequirementsDone} label={summary.percentEarned !== null ? "of credits" : "done"} />
           <div className="min-w-0 flex-1">
             <h2 className="text-xl font-semibold text-text-main">{transcript.studentName ? `${transcript.studentName}'s progress` : "Your degree progress"}</h2>
             {subtitle && <p className="mt-0.5 text-sm text-text-muted">{subtitle}</p>}
@@ -176,7 +180,7 @@ export default function AdvisingProgress({ uid, refreshKey = 0 }: { uid: string;
               <Stat label="Credits earned" value={String(summary.creditsEarned)} hint={summary.creditsRequired ? `of ${summary.creditsRequired}` : undefined} />
               <Stat label="In progress" value={String(summary.creditsInProgress)} hint="credits this term" />
               {summary.requirements.length > 0 && (
-                <Stat label="Requirements left" value={String(requirementsLeft)} hint={`of ${summary.requirements.length}`} />
+                <Stat label="Requirements left" value={String(requirementsLeft)} hint={`of ${checkable} checkable${summary.counts.review ? `, ${summary.counts.review} to plan` : ""}`} />
               )}
               <Stat label="GPA" value={summary.gpa === null ? "-" : summary.gpa.toFixed(2)} hint={summary.gpa === null ? "no letter grades" : "from your transcript"} />
             </div>

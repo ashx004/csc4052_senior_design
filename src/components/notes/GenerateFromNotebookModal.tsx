@@ -180,7 +180,7 @@ export default function GenerateFromNotebookModal({
         >
           {busy ? (
             <>
-              <Loader2 size={15} className="animate-spin" /> Generating - this can take a minute
+              <Loader2 size={15} className="animate-spin" /> Reading the selected notes and writing the set (under a minute)
             </>
           ) : (
             `Make ${label}`

@@ -17,7 +17,10 @@ import { refundOnFailure } from "@/src/library/billing/refundOnFailure";
 
 // Identifies what a PDF said, so re-running on the same files can reuse the
 // last result instead of asking the AI to read them all over again.
-const textHash = (text: string) => createHash("sha256").update(text).digest("hex");
+// Bump this when the extraction changes, so results saved by older code are read again
+// instead of reused. Without it, a student's earlier scan kept its old (wrong) concentrations.
+const EXTRACTION_VERSION = "2026-11-06-section-failures-fail";
+const textHash = (text: string) => createHash("sha256").update(`${EXTRACTION_VERSION}\n${text}`).digest("hex");
 
 const EXTRACT_RATE_LIMIT_WINDOW_MS = 60_000;
 const EXTRACT_RATE_LIMIT_MAX = 5; // one real upload plus a couple of retries, generously

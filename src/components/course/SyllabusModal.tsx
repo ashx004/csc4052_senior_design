@@ -190,6 +190,9 @@ export default function SyllabusModal({
       setValues({ ...nextValues, officeHours: extracted.officeHours, textbooks: extracted.textbooks, grading: extracted.grading });
       setUse(nextUse);
       setDates(reviewSyllabusDates(extracted.dates, term));
+      if (extracted.unconfirmedDates) {
+        setError(`${extracted.unconfirmedDates} date${extracted.unconfirmedDates === 1 ? " was" : "s were"} not clear enough to confirm from the file. Check the list and add ${extracted.unconfirmedDates === 1 ? "it" : "them"} by hand if needed.`);
+      }
       setStep("review");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't read that file.");

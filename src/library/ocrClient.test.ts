@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ocrImage } from "./ocrClient";
 
+// The real resize runs native code on a thread pool, outside fake timers. These
+// tests check the request flow, so the resize passes the bytes through unchanged.
+vi.mock("sharp", () => ({
+  default: (input: Buffer) => {
+    const chain = { rotate: () => chain, resize: () => chain, jpeg: () => chain, toBuffer: async () => input };
+    return chain;
+  },
+}));
+
 const IMAGE_BYTES = Buffer.from("fake-image-bytes");
 
 function stubFetch(overrides: { ok?: boolean; status?: number; json?: unknown; text?: string }) {

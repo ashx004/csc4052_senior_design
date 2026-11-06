@@ -4,7 +4,6 @@ import { adminDb } from "./firebaseAdmin";
 import { resolveInternalUrl } from "./pdfExtract";
 import { extractDocumentText, SUPPORTED_DOCUMENT_TYPES } from "./documentExtract";
 import { resolveOllamaBaseUrl, resolveModelFromKey, mainModelContextOption } from "./ollamaClient";
-import { thinkField } from "./thinkMode";
 import { stripThinkLeak } from "./stripThinkLeak";
 import { getDocumentText } from "./documentTextCache";
 import { aiFetch } from "@/src/library/ai/aiFetch";
@@ -52,7 +51,8 @@ async function callOllamaForSummary(prompt: string): Promise<string> {
           { role: "user", content: prompt },
         ],
         stream: false,
-        ...thinkField("course-summary"),
+        // A 2-4 sentence summary needs no reasoning; leaving it on added most of the wait.
+        think: false,
         options: { temperature: 0.3, ...mainModelContextOption() },
       }),
       signal: controller.signal,

@@ -213,12 +213,46 @@ function escapeRegExp(s: string) {
  */
 const HELD_WORDS = 4;
 
+/**
+ * The model sometimes writes its own planning ("The student wants a quiz. I
+ * searched the notes…") as the first sentences of the reply. The student should
+ * only see the answer, so those opening sentences are dropped, and only from the
+ * very start of a reply: a planning-like sentence later on is left alone.
+ */
+const PLANNING_OPENING = /^\s*(The (student|user)\b|Since the (student|user)\b|I (searched|tried|attempted|will|should|need to|need|'ll|am going to|checked|looked|called|used|am looking|am checking|am searching)\b|Let me\b|Okay,? (so|let|I)\b|Alright,? (so|let|I)\b)/i;
+
+export function stripPlanningOpening(text: string): string {
+  let rest = text;
+  while (PLANNING_OPENING.test(rest)) {
+    const end = rest.search(/[.!?](\s|$)|\n/);
+    if (end < 0) return "";
+    rest = rest.slice(end + 1).replace(/^\s+/, "");
+  }
+  return rest;
+}
+
 export class StreamingGuard {
   private buffer = "";
-  constructor(private guard: OutputGuard, private emit: (text: string) => void) {}
+  // True until the opening of the reply has been judged by stripPlanningOpening
+  // (only for the answer stream; the reasoning stream keeps its planning text).
+  private opening: boolean;
+  constructor(
+    private guard: OutputGuard,
+    private emit: (text: string) => void,
+    options: { planningOpening?: boolean } = {}
+  ) {
+    this.opening = options.planningOpening === true;
+  }
 
   push(chunk: string) {
     this.buffer += chunk;
+    if (this.opening) {
+      // Wait for enough of the opening to judge it, then judge it once.
+      if (this.buffer.length < 240 && !/\n\n/.test(this.buffer)) return;
+      this.buffer = stripPlanningOpening(this.buffer);
+      this.opening = false;
+      if (!this.buffer) return;
+    }
     // The unfinished tail plus HELD_WORDS whole words stay held, so a
     // "(course ID: `abc`)" wrapper or "man kimin@x.edu" is always cleaned whole.
     const spaces: number[] = [];
@@ -259,6 +293,10 @@ export class StreamingGuard {
   }
 
   flush() {
+    if (this.opening) {
+      this.buffer = stripPlanningOpening(this.buffer);
+      this.opening = false;
+    }
     if (this.buffer) this.send(this.guard.clean(this.buffer));
     this.buffer = "";
   }

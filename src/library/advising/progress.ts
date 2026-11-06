@@ -127,11 +127,16 @@ export function groupByTerm(courses: TranscriptCourse[]): TermGroup[] {
     .sort((a, b) => termSortKey(a.label) - termSortKey(b.label) || a.label.localeCompare(b.label));
 }
 
+// "Cyber Security" on a transcript is "CYBER SECURITY CONCENTRATION" on the sheet.
+const concentrationKey = (text: string) =>
+  text.toLowerCase().replace(/\b(concentration|minor)\b/g, " ").replace(/[^a-z ]/g, " ").replace(/\s+/g, " ").trim();
+
 function findConcentration(curriculum: CurriculumData, name: string | null | undefined) {
-  const wanted = (name ?? "").trim().toLowerCase();
+  const wanted = concentrationKey(name ?? "");
   if (!wanted) return null;
-  return curriculum.concentrations?.find((c) => c.concentrationName.trim().toLowerCase() === wanted)
-    ?? curriculum.concentrations?.find((c) => wanted.includes(c.concentrationName.trim().toLowerCase()) || c.concentrationName.trim().toLowerCase().includes(wanted))
+  const options = (curriculum.concentrations ?? []).map((c) => ({ c, key: concentrationKey(c.concentrationName) })).filter((o) => o.key);
+  return options.find((o) => o.key === wanted)?.c
+    ?? options.find((o) => wanted.includes(o.key) || o.key.includes(wanted))?.c
     ?? null;
 }
 
@@ -218,10 +223,11 @@ function evaluate(
     const done = options.filter((code) => earned.has(code));
     const ongoing = options.filter((code) => inProgress.has(code) && !earned.has(code));
     const matched = [...done, ...ongoing].map(label);
-    if (done.length >= need) return { ...base, state: "done", detail: `${done.length} of ${need} done: ${done.map(label).join(", ")}`, matched };
+    if (done.length >= need) return { ...base, state: "done", detail: `Completed ${done.map(label).join(", ")}`, matched };
     if (done.length + ongoing.length >= need) return { ...base, state: "in-progress", detail: `${done.length} done, ${ongoing.length} in progress, of ${need} needed`, matched };
     const left = need - done.length - ongoing.length;
-    return { ...base, state: "remaining", detail: `Choose ${left} more from ${options.length} options${matched.length ? ` (have ${matched.join(", ")})` : ""}`, matched };
+    const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+    return { ...base, state: "remaining", detail: `Choose ${plural(left, "more course")} from ${plural(options.length, "option")}${matched.length ? ` (have ${matched.join(", ")})` : ""}`, matched };
   }
 
   const standingResult = requirement.requirementType === "credit-requirement" || requirement.requirementType === "other" || requirement.requirementType === "open-elective"
@@ -240,23 +246,49 @@ export function friendlyWarnings(warnings: string[] | undefined): string[] {
   const out: string[] = [];
   for (const raw of warnings ?? []) {
     const unreadable = UNREADABLE_TRANSFER.exec(raw);
+    const mismatch = /^TRANSCRIPT_CREDIT_MISMATCH:\s*(.+?) extracted as ([\d.]+) credit hours but the transcript prints ([\d.]+) attempted hours/.exec(raw);
     const text = unreadable
       ? `${unreadable[1]} transfer ${Number(unreadable[1]) === 1 ? "row" : "rows"} (${unreadable[2]} credits) couldn't be read from your transcript. Add them with "Add a completed course" so they count.`
-      : raw.trim();
+      : mismatch
+        ? `${mismatch[1]} shows ${mismatch[2]} credit hours in what Catalyst read, but the transcript lists ${mismatch[3]} attempted. A course may be missing from the scan, so check your course list.`
+        // Internal markers (ALL_CAPS_WITH_UNDERSCORES:) never reach a student.
+        : raw.replace(/^[A-Z][A-Z0-9_]+:\s*/, "").trim();
     if (text && !out.includes(text)) out.push(text);
   }
   return out;
+}
+
+/** Every course code the curriculum sheet names, program and concentrations alike. */
+function curriculumCodes(curriculum: CurriculumData): Set<string> {
+  const codes = new Set<string>();
+  const visit = (requirements: CurriculumRequirement[] | undefined) => {
+    for (const r of requirements ?? []) {
+      if (r.courseCode) codes.add(normalizeCourseCode(r.courseCode));
+      for (const option of r.courseOptions ?? []) codes.add(normalizeCourseCode(option.courseCode));
+    }
+  };
+  visit(curriculum.requirements);
+  for (const concentration of curriculum.concentrations ?? []) visit(concentration.requirements);
+  return codes;
 }
 
 export function summarizeProgress(transcript: TranscriptData, curriculum: CurriculumData): ProgressSummary {
   const courses = transcript.courses ?? [];
   const earned = new Map<string, TranscriptCourse>();
   const inProgress = new Map<string, TranscriptCourse>();
+  const sheetCodes = curriculumCodes(curriculum);
+  const aliasNotes: string[] = [];
   for (const course of courses) {
     const code = normalizeCourseCode(course.courseCode);
     if (!code) continue;
-    if (earnedCredit(course)) earned.set(code, course);
-    else if (isInProgress(course)) inProgress.set(code, course);
+    // Transcripts can print 4-digit numbers (CSC 4523) for courses the sheet
+    // lists by 3 digits (CSC 452). Use the sheet's number when it is the only match.
+    const four = /^([A-Z]{2,5})\s*(\d{3})\d$/.exec(course.courseCode.trim().toUpperCase());
+    const sheetCode = four ? normalizeCourseCode(`${four[1]} ${four[2]}`) : null;
+    const key = sheetCode && sheetCodes.has(sheetCode) && !sheetCodes.has(code) ? sheetCode : code;
+    if (key !== code) aliasNotes.push(`${course.courseCode.trim()} → ${key}`);
+    if (earnedCredit(course)) earned.set(key, course);
+    else if (isInProgress(course)) inProgress.set(key, course);
   }
 
   const creditsEarned = courses.filter(earnedCredit).reduce((sum, c) => sum + (c.creditHours ?? 0), 0);
@@ -278,7 +310,12 @@ export function summarizeProgress(transcript: TranscriptData, curriculum: Curric
   for (const requirement of requirements) counts[requirement.state] += 1;
 
   const creditsRequired = curriculum.totalDegreeCredits && curriculum.totalDegreeCredits > 0 ? curriculum.totalDegreeCredits : null;
-  const attention = [...friendlyWarnings(transcript.warnings), ...friendlyWarnings(curriculum.warnings)];
+  const numberNote = aliasNotes.length
+    ? [`Your transcript prints ${aliasNotes.length} course number${aliasNotes.length === 1 ? "" : "s"} with an extra digit (for example ${aliasNotes.slice(0, 3).join(", ")}). Catalyst matched ${aliasNotes.length === 1 ? "it" : "them"} to the numbers on your curriculum sheet. Check the Courses tab if one looks wrong.`]
+    : [];
+  // Curriculum warnings are the model's own free text ("the input format implies…"),
+  // so they are not shown. The transcript's checks are structured and reworded.
+  const attention = [...friendlyWarnings(transcript.warnings), ...numberNote];
   if (transcript.concentration && !concentration && (curriculum.concentrations?.length ?? 0) > 0) {
     attention.push(`Your transcript lists the concentration "${transcript.concentration}", but it doesn't match one on the curriculum sheet, so its requirements aren't shown.`);
   }
@@ -287,7 +324,8 @@ export function summarizeProgress(transcript: TranscriptData, curriculum: Curric
     creditsEarned,
     creditsInProgress,
     creditsRequired,
-    percentRequirementsDone: requirements.length > 0 ? Math.round((counts.done / requirements.length) * 100) : null,
+    // Only requirements Catalyst can check count toward the share; "review" rows are left out of both sides.
+    percentRequirementsDone: requirements.length - counts.review > 0 ? Math.round((counts.done / (requirements.length - counts.review)) * 100) : null,
     percentEarned: creditsRequired ? Math.min(100, Math.round((creditsEarned / creditsRequired) * 100)) : null,
     gpa: gpa === null ? null : Math.round(gpa * 100) / 100,
     requirements,
