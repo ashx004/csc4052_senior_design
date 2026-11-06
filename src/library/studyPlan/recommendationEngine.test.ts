@@ -227,13 +227,29 @@ describe("chooseActivityType", () => {
     expect(chooseActivityType(weakSpotTopic, "reading")).toBe("quiz");
   });
 
-  it("returns reading for a course-level fallback topic even when quiz is preferred", () => {
+  it("returns the chosen activity for a topic with no existing set", () => {
+    const topic: EligibleTopic = { ...baseTopic, targetId: null, activityType: "reading" };
+    expect(chooseActivityType(topic, "quiz")).toBe("quiz");
+    expect(chooseActivityType(topic, "flashcards")).toBe("flashcards");
+    expect(chooseActivityType(topic, "ai_explanation")).toBe("ai_explanation");
+  });
+
+  it("returns the chosen activity for a document-only topic", () => {
+    const topic = documentCandidate("doc1");
+    expect(chooseActivityType(topic, "quiz")).toBe("quiz");
+    expect(chooseActivityType(topic, "flashcards")).toBe("flashcards");
+    expect(chooseActivityType(topic, "ai_explanation")).toBe("ai_explanation");
+  });
+
+  it("returns the chosen activity when the topic's own set is a different kind", () => {
+    expect(chooseActivityType({ ...baseTopic }, "flashcards")).toBe("flashcards");
+  });
+
+  it("still returns reading for a no-set topic under auto", () => {
     expect(
-      chooseActivityType(
-        { ...baseTopic, targetId: null, activityType: "reading" },
-        "quiz"
-      )
+      chooseActivityType({ ...baseTopic, targetId: null, activityType: "reading" }, "auto")
     ).toBe("reading");
+    expect(chooseActivityType(documentCandidate("doc1"), "auto")).toBe("reading");
   });
 });
 

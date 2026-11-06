@@ -122,8 +122,11 @@ export function chooseActivityType(
   // shape. Ordinary quiz-set topics also carry a concept_practice target now (for per-concept
   // levels), and those must still honour the student's chosen activity.
   if (topic.conceptLabel && topic.activityTarget?.kind === "concept_practice") return "quiz";
-  if (topic.targetId === null) return "reading";
+  // An explicit preference wins over the no-target fallback. A topic with no existing set
+  // (targetId null) can still be practised: the student asked for that activity and the
+  // task's generation target builds the set on demand. Only `auto` falls back to reading.
   if (preference !== "auto") return preference as ActivityType;
+  if (topic.targetId === null) return "reading";
 
   if (topic.quizMastery === null && topic.flashcardEngagement === null) {
     return "reading";
