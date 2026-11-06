@@ -1,8 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const doc = vi.fn();
+const collection = vi.fn();
 
-vi.mock("@/src/library/firebaseAdmin", () => ({ adminDb: { doc: (path: string) => doc(path) } }));
+vi.mock("@/src/library/firebaseAdmin", () => ({
+  adminDb: {
+    doc: (path: string) => doc(path),
+    collection: (path: string) => collection(path),
+  },
+}));
+
+function withResources(docs: Array<{ id: string }>) {
+  collection.mockReturnValue({
+    where: () => ({ limit: () => ({ get: async () => ({ docs }) }) }),
+  });
+}
 vi.mock("@/src/library/ollamaEmbeddings", () => ({ embedTexts: vi.fn() }));
 vi.mock("@/src/library/vectorStore", () => ({ searchChunks: vi.fn() }));
 vi.mock("@/src/library/documentTextCache", () => ({ getDocumentText: vi.fn() }));
@@ -69,5 +81,44 @@ describe("courseIdFromBody", () => {
 
   it.each([{}, null, { courseId: "" }, { courseId: 7 }])("reports nothing for %s", (body) => {
     expect(courseIdFromBody(body)).toBeUndefined();
+  });
+});
+
+describe("resolveDepsFor().resourceIdForUrl", () => {
+  beforeEach(() => {
+    doc.mockReset();
+    collection.mockReset();
+  });
+
+  it("finds the resource whose url matches, so a legacy request can use retrieval", async () => {
+    withResources([{ id: "r1" }]);
+    const deps = resolveDepsFor(request, "u1", "c1");
+
+    expect(await deps.resourceIdForUrl!("/api/download?key=users%2Fu1%2Fa.pdf")).toBe("r1");
+    expect(collection).toHaveBeenCalledWith("users/u1/enrollment/c1/resources");
+  });
+
+  it("reports nothing without a courseId", async () => {
+    const deps = resolveDepsFor(request, "u1", undefined);
+    expect(await deps.resourceIdForUrl!("/api/download?key=users%2Fu1%2Fa.pdf")).toBeNull();
+    expect(collection).not.toHaveBeenCalled();
+  });
+
+  it("reports nothing when no resource matches", async () => {
+    withResources([]);
+    const deps = resolveDepsFor(request, "u1", "c1");
+    expect(await deps.resourceIdForUrl!("/api/download?key=users%2Fu1%2Fa.pdf")).toBeNull();
+  });
+
+  it("swallows a Firestore failure so the raw-text path still runs", async () => {
+    collection.mockReturnValue({
+      where: () => ({ limit: () => ({ get: async () => { throw new Error("Firestore unavailable"); } }) }),
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const deps = resolveDepsFor(request, "u1", "c1");
+
+    expect(await deps.resourceIdForUrl!("/api/download?key=users%2Fu1%2Fa.pdf")).toBeNull();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

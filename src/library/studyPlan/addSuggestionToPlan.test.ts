@@ -495,6 +495,9 @@ describe("buildConceptPracticeTask", () => {
       practiceType: "flashcards",
     });
     expect(draft.activityType).toBe("flashcards");
+    // A flashcards task must say so: "Practice:" alone reads as a quiz, the same
+    // title/activity mismatch "Review:" caused on the recommended tasks.
+    expect(draft.title).toBe("Flashcards: Joins");
   });
 });
 

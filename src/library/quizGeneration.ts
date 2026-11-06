@@ -122,6 +122,9 @@ ${usedLevels.map((level) => `- ${level}: ${BLOOM_LEVEL_MEANINGS[level]}`).join("
 
 Set each question's bloomLevel to the level it actually targets. A matching question is always "remember".`;
 
+  const focusedShapeField = slots?.some((slot) => slot.conceptKey)
+    ? '\n      "conceptKey": string,'
+    : "";
   const shapeBlock = `Return one JSON object in exactly this shape, with no other keys:
 {
   "topicName": string,
@@ -132,7 +135,7 @@ Set each question's bloomLevel to the level it actually targets. A matching ques
       "options": string[],
       "correctAnswer": string,
       "bloomLevel": ${BLOOM_LEVELS.map((l) => `"${l}"`).join(" | ")},
-      "concept": string,
+      "concept": string,${focusedShapeField}
       "explanation": string,
       "sourceQuote": string
     }
@@ -337,6 +340,15 @@ export async function generateQuizWithValidation(
   const definitions = new Set<string>();
   // Null unless some concept has its own level; null keeps the single-difficulty path as it was.
   const slotPlan = buildConceptSlotPlan(focus, difficulty, target);
+  // A one-concept daily task has an unambiguous destination for every question.
+  // Providers sometimes follow the visible JSON example but omit the internal
+  // conceptKey field, so retain those otherwise-valid answers instead of making
+  // the plan task fail. Multiple concepts remain strict: guessing would corrupt
+  // their per-concept quota and mastery data.
+  const plannedConceptKeys = slotPlan
+    ? [...new Set(slotPlan.map((slot) => slot.conceptKey).filter(Boolean))]
+    : [];
+  const solePlannedConceptKey = plannedConceptKeys.length === 1 ? plannedConceptKeys[0] : null;
   let topicName = "";
   for (let attempt = 0; attempt < MAX_OLLAMA_ATTEMPTS; attempt++) {
     const needed = target - accepted.length;
@@ -381,7 +393,10 @@ export async function generateQuizWithValidation(
       if (slotPlan) {
         // A question must belong to a concept that still needs questions. A missing conceptKey
         // cannot be placed at all, and a concept with no slot left is not wanted.
-        if (!q.conceptKey) continue;
+        if (!q.conceptKey) {
+          if (!solePlannedConceptKey) continue;
+          q = { ...q, conceptKey: solePlannedConceptKey };
+        }
         const taken = takenSlots(accepted);
         const planned = plannedLevelFor(slotPlan, taken, q.conceptKey);
         if (!planned) continue;

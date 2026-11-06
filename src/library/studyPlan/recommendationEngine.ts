@@ -237,9 +237,12 @@ function activityTargetForTask(
 }
 
 function buildTitle(activityType: ActivityType, topicLabel: string): string {
+  // Each prefix names the format Start actually opens. "Review" used to stand for
+  // flashcards, and students read it as a reading task and were surprised by a
+  // flashcard set; the title must never disagree with the activity.
   const prefix: Record<ActivityType, string> = {
     quiz: "Quiz",
-    flashcards: "Review",
+    flashcards: "Flashcards",
     reading: "Read",
     ai_explanation: "Explore",
   };

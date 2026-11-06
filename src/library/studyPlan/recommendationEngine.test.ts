@@ -923,3 +923,26 @@ describe("generateTasks with an explicit preference", () => {
     expect(tasks[0].activityType).toBe("reading");
   });
 });
+
+describe("task titles name the activity the task actually opens", () => {
+  const config: SetupConfig = {
+    availableMinutes: 60,
+    goal: "general",
+    courseId: null,
+    activityPreference: "flashcards",
+  };
+
+  // "Review" read as a reading task, so a student saw "Review: X" and then got a
+  // flashcard set. The title has to say the format Start will build.
+  it("titles a flashcard task Flashcards, not Review", () => {
+    const tasks = generateTasks(
+      config,
+      [{ ...baseTopic, topicLabel: "SQL Joins", activityType: "flashcards", targetId: "f1" }],
+      new Map(),
+    );
+
+    const flashcards = tasks.find((task) => task.activityType === "flashcards");
+    expect(flashcards?.title).toBe("Flashcards: SQL Joins");
+    expect(tasks.every((task) => !task.title.startsWith("Review:"))).toBe(true);
+  });
+});

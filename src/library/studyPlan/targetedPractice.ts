@@ -3,6 +3,7 @@ import { getEffectiveModelKey } from '@/src/library/chatMode';
 import type { ConceptFocus } from '@/src/library/generation/conceptFocus';
 import { conceptKey } from '@/src/library/studyPlan/conceptKey';
 import { DEFAULT_QUIZ_DIFFICULTY, QUIZ_DIFFICULTIES, type QuizDifficulty } from '@/src/library/quizDifficulty';
+import { documentDisplayName, documentDownloadUrl } from './documentSource';
 
 export const TARGETED_PRACTICE_QUESTION_COUNT = 10;
 export const TARGETED_PRACTICE_QUESTION_TYPES = {
@@ -63,6 +64,8 @@ export function highestQuotaLevel(focus: ConceptFocus): QuizDifficulty {
  */
 export function buildTargetedPracticeRequest(input: {
   sourceDocKey: string;
+  /** Lets the route find the document's indexed resource instead of re-reading the file. */
+  courseId?: string;
   focus: ConceptFocus;
   avoidQuestions: readonly string[];
   modelKey: string;
@@ -71,6 +74,7 @@ export function buildTargetedPracticeRequest(input: {
 }): {
   docUrl: string;
   docName: string;
+  courseId?: string;
   questionCount: number;
   questionTypes: typeof TARGETED_PRACTICE_QUESTION_TYPES;
   modelKey: string;
@@ -78,10 +82,13 @@ export function buildTargetedPracticeRequest(input: {
   difficulty: QuizDifficulty;
   focus: ConceptFocus;
 } {
-  const docName = input.sourceDocKey.split('/').pop()?.replace(/^\d+[-_]/, '') || 'document';
+  // sourceDocKey may already be a /api/download url (see documentSource.ts), so both
+  // forms go through the same helpers instead of being wrapped a second time.
+  const docName = documentDisplayName(input.sourceDocKey);
   return {
-    docUrl: `/api/download?key=${encodeURIComponent(input.sourceDocKey)}`,
+    docUrl: documentDownloadUrl(input.sourceDocKey),
     docName,
+    ...(input.courseId ? { courseId: input.courseId } : {}),
     questionCount: TARGETED_PRACTICE_QUESTION_COUNT,
     questionTypes: TARGETED_PRACTICE_QUESTION_TYPES,
     modelKey: input.modelKey,
@@ -116,6 +123,7 @@ export async function generateTargetedPracticeQuiz(input: {
   };
   const requestBody = buildTargetedPracticeRequest({
     sourceDocKey: input.sourceDocKey,
+    courseId: input.courseId,
     focus,
     avoidQuestions: focus.avoid,
     modelKey,

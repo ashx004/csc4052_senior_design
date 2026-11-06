@@ -40,6 +40,28 @@ export function resolveDepsFor(request: NextRequest, uid: string, courseId: stri
         return undefined;
       }
     },
+    /**
+     * The legacy { docUrl, docName } request shape carries no resourceId, so without
+     * this lookup those callers — the study plan's practice generators above all —
+     * could never reach retrieval and re-downloaded and re-parsed the whole file on
+     * every Start. Resources are written with exactly this url (fileUploadService),
+     * so an equality match is enough. Any failure returns null, which resolveSources
+     * reads as "not indexed": a lookup must never fail a generation.
+     */
+    resourceIdForUrl: async (url: string) => {
+      if (!courseId || !url) return null;
+      try {
+        const snap = await adminDb
+          .collection(`users/${uid}/enrollment/${courseId}/resources`)
+          .where("url", "==", url)
+          .limit(1)
+          .get();
+        return snap.docs[0]?.id ?? null;
+      } catch (error) {
+        console.warn(`Could not look up the resource for ${url}:`, error);
+        return null;
+      }
+    },
     embed: (texts: string[]) => embedTexts(texts),
     search: searchChunks,
   };

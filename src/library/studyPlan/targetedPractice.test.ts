@@ -73,6 +73,19 @@ describe("buildTargetedPracticeRequest", () => {
     expect(req.difficulty).toBe("exam");
   });
 
+  // Without a courseId the route cannot find the document's resource, so it falls
+  // back to downloading and re-parsing the whole file on every generation.
+  it("carries the courseId so the route can reach the indexed document", () => {
+    const req = buildTargetedPracticeRequest({
+      sourceDocKey: "folder/123-derivatives.pdf",
+      courseId: "course-1",
+      focus: { quotas: [], avoid: [] },
+      avoidQuestions: [],
+      modelKey: "gpt-4",
+    });
+    expect(req.courseId).toBe("course-1");
+  });
+
   it("removes leading digits with dash from docName", () => {
     const req = buildTargetedPracticeRequest({
       sourceDocKey: "documents/456-algebra-basics.pdf",

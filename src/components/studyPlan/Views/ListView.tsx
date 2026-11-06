@@ -12,6 +12,7 @@ import {
   CalendarClock,
   Trash2,
 } from "lucide-react";
+import { preparingLabel } from "@/src/library/studyPlan/taskActivityLabel";
 
 interface ListViewProps {
   tasks: (StudyTask & { id: string })[];
@@ -106,7 +107,7 @@ export default function ListView({
               <li
                 key={task.id}
                 id={`study-task-${task.id}`}
-                className={`group flex flex-wrap items-center gap-x-3 gap-y-2 py-4 ${
+                className={`group grid grid-cols-[auto_minmax(0,1fr)_4rem_auto] items-center gap-x-3 gap-y-2 py-4 ${
                   highlighted ? "rounded-xl px-2 ring-2 ring-navy" : ""
                 }`}
               >
@@ -150,7 +151,7 @@ export default function ListView({
                     Done
                   </span>
                 ) : (
-                  <span className="flex-shrink-0 text-xs font-medium tabular-nums text-brown-label">
+                  <span className="justify-self-end text-xs font-medium tabular-nums text-brown-label">
                     {task.status === "skipped"
                       ? "Skipped"
                       : `${task.estimatedMinutes} min`}
@@ -198,7 +199,7 @@ export default function ListView({
                         ) : (
                           <Play size={12} aria-hidden="true" />
                         )}{" "}
-                        {task.id === startingTaskId ? "Preparing quiz..." : "Start"}
+                        {task.id === startingTaskId ? preparingLabel(task.activityType) : "Start"}
                       </button>
                     )}
 

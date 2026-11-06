@@ -22,6 +22,7 @@ import {
   type SuggestionTaskDraft,
 } from "@/src/library/studyPlan/addSuggestionToPlan";
 import { isUsableConceptLabel } from "@/src/library/studyPlan/conceptKey";
+import { documentDisplayName, documentDownloadUrl } from "@/src/library/studyPlan/documentSource";
 import {
   studyPlanPath,
   studyTasksCollection,
@@ -58,11 +59,11 @@ export function practiceCounts(type: ConceptPracticeType): { requested: number; 
 }
 
 export function documentUrl(sourceDocKey: string): string {
-  return `/api/download?key=${encodeURIComponent(sourceDocKey)}`;
+  return documentDownloadUrl(sourceDocKey);
 }
 
 export function documentName(sourceDocKey: string): string {
-  return sourceDocKey.split("/").pop()?.replace(/^\d+[-_]/, "") || "document";
+  return documentDisplayName(sourceDocKey);
 }
 
 async function postJson(url: string, body: unknown): Promise<Record<string, unknown>> {
@@ -146,6 +147,7 @@ export async function generateConceptQuiz(input: {
     "/api/generate-quiz",
     buildTargetedPracticeRequest({
       sourceDocKey: input.sourceDocKey,
+      courseId: input.courseId,
       focus: input.focus,
       avoidQuestions: input.focus.avoid,
       modelKey: getEffectiveModelKey("quiz"),
