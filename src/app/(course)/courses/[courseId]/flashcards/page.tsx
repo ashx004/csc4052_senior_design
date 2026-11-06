@@ -9,6 +9,7 @@ import StudyLaunch from '@/src/components/learning/StudyLaunch';
 import { useStudySets } from '@/src/hooks/useStudySets';
 import { resolveLegacyFlashcardQuery, studySetRoutes } from '@/src/library/studySets/routes';
 import deckStyles from '@/src/components/learning/FlashcardDeckCard.module.css';
+import { useBackDestination } from '@/src/hooks/useBackDestination';
 
 export default function FlashcardLibraryPage() {
   const params = useParams();
@@ -19,6 +20,7 @@ export default function FlashcardLibraryPage() {
   const legacy = resolveLegacyFlashcardQuery(courseId, searchParams);
   const docId = searchParams.get('docId');
   const { flashcards, loading, error } = useStudySets(courseId);
+  const { goBack } = useBackDestination(routes.hub);
 
   useEffect(() => {
     if (legacy) router.replace(legacy);
@@ -37,7 +39,7 @@ export default function FlashcardLibraryPage() {
   return (
     <div className="min-h-screen bg-bg-main">
       <div className="flex min-h-[68px] items-center border-b border-border-light px-5 sm:px-8 lg:px-14">
-        <button type="button" aria-label="Go back" onClick={() => router.push(routes.hub)} className="rounded-md p-1.5 hover:bg-bg-warm">
+        <button type="button" aria-label="Go back" onClick={goBack} className="rounded-md p-1.5 hover:bg-bg-warm">
           <ArrowLeft size={20} className="text-text-main" />
         </button>
         <h1 className="ml-3 text-xl font-bold text-text-main">Flashcards</h1>

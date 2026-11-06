@@ -1041,7 +1041,10 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
         task = { ...found, activityTarget: { ...foundTarget, generatedSetId: setId } };
       }
 
-      const url = resolveTaskActivityUrl(task, taskId);
+      // Plan tasks always open from the study-plan surface, so that is where back returns.
+      const url = resolveTaskActivityUrl(task, taskId, {
+        from: LEARNING_ROUTES["study-plan"],
+      });
 
       if (session && session.taskId == null) {
         await updateTaskStatus(taskId, "in_progress");
@@ -1085,7 +1088,7 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
     (taskId: string) => {
       const task = tasks.find((t) => t.id === taskId);
       if (!task) return;
-      router.push(resolveTaskActivityUrl(task, taskId));
+      router.push(resolveTaskActivityUrl(task, taskId, { from: LEARNING_ROUTES["study-plan"] }));
     },
     [tasks, router]
   );

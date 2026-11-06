@@ -1,6 +1,7 @@
 'use client';
 
 import { createAnalyticsAttemptId } from '@/src/library/analyticsContract';
+import { useBackDestination } from '@/src/hooks/useBackDestination';
 import { track } from '@/src/library/analytics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
@@ -381,6 +382,7 @@ export default function QuizTakingPage() {
 
   const courseId = params.courseId as string;
   const quizId = params.quizId as string;
+  const { goBack } = useBackDestination(`/courses/${courseId}/learning`);
   const { submitQuiz, recordNamedMisses } = useLearningProgress();
 
   const { displayName: courseDisplayName, courseCode, className } = useCourseInfo(courseId);
@@ -1331,7 +1333,7 @@ export default function QuizTakingPage() {
       <div className="relative flex h-[60px] items-center border-b border-border-light px-6 md:px-14">
         <div className="relative z-10 flex min-w-0 items-center gap-3">
           <button
-            onClick={() => router.push(`/courses/${courseId}/learning`)}
+            onClick={goBack}
             className="shrink-0 rounded-md p-1.5 transition-colors hover:bg-bg-warm"
           >
             <ArrowLeft size={20} className="text-text-main" />

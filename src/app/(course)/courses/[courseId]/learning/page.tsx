@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/src/context/AuthContext';
 import { useChatContext } from '@/src/hooks/useChatContext';
+import { useBackDestination } from '@/src/hooks/useBackDestination';
+import { LEARNING_ROUTES } from '@/src/library/learning/routes';
 import ContextualAiPanel, { CatalystLauncher } from '@/src/components/aiAssistant/ContextualAiPanel';
 import { buildPageTextSuggestions, type PageTextPageContext } from '@/src/library/Contextual_AI/contextualAi';
 import { getCourseResources } from '@/src/components/resourceManagement/fileUploadService';
@@ -36,7 +38,6 @@ type DeleteTarget = { id: string; kind: 'flashcard' | 'quiz' };
 
 export default function CourseLearningPage() {
   const params = useParams();
-  const router = useRouter();
   const { user, loading: authLoading } = useAuth();
 
   const courseId = params.courseId as string;
@@ -45,6 +46,7 @@ export default function CourseLearningPage() {
     courseCode,
     loading: courseInfoLoading,
   } = useCourseInfo(courseId);
+  const { goBack } = useBackDestination(LEARNING_ROUTES.home);
 
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
@@ -189,7 +191,7 @@ export default function CourseLearningPage() {
       <div className="flex min-h-[68px] items-center justify-between border-b border-border-light px-5 sm:px-8 lg:px-14">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => router.back()}
+            onClick={goBack}
             aria-label="Go back"
             className="p-1.5 rounded-md hover:bg-bg-warm transition-colors"
           >
