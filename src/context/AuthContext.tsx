@@ -47,6 +47,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // interactive sign-in has begun. Do not let that stale notification
       // erase the just-created session cookie and redirect the user to login.
       if (!currentUser && auth.currentUser) return;
+      // A "no user" event can arrive before Firebase has restored the saved
+      // session from browser storage. Wait for the restore to finish before
+      // treating the visitor as signed out, or a page visit clears a live session.
+      if (!currentUser) {
+        await auth.authStateReady();
+        if (auth.currentUser) return;
+      }
       const authUpdate = ++latestAuthUpdate;
       setAnalyticsUser(currentUser?.uid ?? null);
       // Cookie is written BEFORE user/loading state updates, not after —

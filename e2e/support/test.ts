@@ -35,6 +35,13 @@ async function signInLocally(page: Page, role: "student" | "administrator") {
     { name: "fb_token", value: customToken, url: page.url() },
     { name: "fb_remember", value: "1", url: page.url() },
   ]);
+  // The login page's own auth listener runs for a moment after sign-in and may
+  // still clear the cookies just added. Let it settle, then add them once more.
+  await page.waitForTimeout(2_000);
+  const cookies = await page.context().cookies();
+  if (!cookies.some((c) => c.name === "fb_token")) {
+    await page.context().addCookies([{ name: "fb_token", value: customToken, url: page.url() }]);
+  }
 }
 
 const allowedFailures = new WeakMap<Page, RegExp[]>();
@@ -51,6 +58,13 @@ export const test = base.extend<Diagnostics, WorkerFixtures>({
     const context = await browser.newContext({ baseURL: process.env.E2E_BASE_URL ?? "http://127.0.0.1:3100" });
     const page = await context.newPage();
     await signInLocally(page, role);
+    // Firebase saves the session to browser storage a moment after sign-in. Closing
+    // the page first can lose it, and every later page then looks signed out.
+    await page.waitForFunction(
+      async () => (await indexedDB.databases()).some((db) => db.name?.startsWith("firebaseLocalStorage")),
+      undefined,
+      { timeout: 15_000 },
+    );
     await page.close();
     await use(context);
     await context.close();
@@ -62,6 +76,11 @@ export const test = base.extend<Diagnostics, WorkerFixtures>({
     const ownsContext = !localAuthenticatedContext;
     const context = localAuthenticatedContext ?? await browser.newContext({ baseURL: process.env.E2E_BASE_URL ?? "http://127.0.0.1:3100" });
     const page = await context.newPage();
+    // Sign in on every page. The worker's sign-in is not kept in browser storage
+    // (the stored user comes back empty), so later pages would look signed out.
+    if (localAuthenticatedContext && (testInfo.project.name === "student" || testInfo.project.name === "administrator")) {
+      await signInLocally(page, testInfo.project.name);
+    }
     const problems: string[] = [];
     const allowed: RegExp[] = [];
     allowedFailures.set(page, allowed);
