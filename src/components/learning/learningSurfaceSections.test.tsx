@@ -102,14 +102,16 @@ describe("stale study-plan task pruning", () => {
 
 describe("document topics", () => {
   it("builds document topics for every course, with no per-course gate", () => {
-    // Any "skip this course because it already has a topic" guard brings back the bug where a
-    // course with one old set contributes none of its newer documents.
-    expect(source).not.toMatch(/topics\.some\(\(topic\) => topic\.courseId === cls\.id\)\) continue;/);
-    expect(source).not.toMatch(/topics\.some\([^)]*courseId === cls\.id[^)]*\)\)?\s*(continue|\{\s*continue)/);
+    // The first statement in the loop body must be the helper call: a guard placed above it
+    // (whatever its spelling) would skip courses that already have sets. What the helper then
+    // returns is pinned behaviourally in documentTopics.test.ts.
+    expect(source).toMatch(
+      /for \(const (\w+) of classes\) \{\s*topics\.push\(\s*\.\.\.documentTopicsForCourse\(/,
+    );
   });
 
   it("de-duplicates a document already behind a set, by matching the source key variants", () => {
     expect(source.match(/representedByCourse\.get\(cls\.id\)\?\.add\(matched\.id\)/g) ?? []).toHaveLength(2);
-    expect(source).toContain("if (representedResourceIds.has(resource.id)) continue;");
+    expect(source).toMatch(/representedResourceIds: representedByCourse\.get\(cls\.id\)/);
   });
 });

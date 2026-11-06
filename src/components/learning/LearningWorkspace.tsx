@@ -27,6 +27,7 @@ import {
   needsDocumentSelection,
 } from "@/src/library/studyPlan/recommendationEngine";
 import { getVisibleStudyTasks } from "@/src/library/studyPlan/taskVisibility";
+import { documentTopicsForCourse } from "@/src/library/studyPlan/documentTopics";
 import { conceptTopicsFromWeakSpots } from "@/src/library/studyPlan/conceptTopics";
 import { createConceptWeakSpotRepository, readConceptMastery } from "@/src/library/studyPlan/conceptWeakSpotRepository";
 import { getEmptyRecommendationReason } from "@/src/library/studyPlan/recommendationDiagnostics";
@@ -669,46 +670,15 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
       }
 
       for (const cls of classes) {
-        const resources = resourcesByCourse.get(cls.id) ?? [];
-        const representedResourceIds = representedByCourse.get(cls.id) ?? new Set<string>();
-        if (resources.length > 0) {
-          for (const resource of resources) {
-            if (representedResourceIds.has(resource.id)) continue;
-            topics.push({
-              courseId: cls.id,
-              courseName: cls.className,
-              courseCode: cls.classCode,
-              topicLabel: resource.name,
-              targetId: null,
-              activityType: "reading",
-              activityTarget: {
-                kind: "document",
-                resourceId: resource.id,
-                sourceDocKey: resource.sourceDocKey,
-              },
-              quizMastery: null,
-              flashcardEngagement: null,
-              lastStudiedAt: studiedAtFor(lastStudied, cls.id, resource.sourceDocKey),
-              skipCount: 0,
-            });
-          }
-          continue;
-        }
-        // A course with sets but no documents already has something to offer.
-        const hasSetTopic = topics.some((topic) => topic.courseId === cls.id);
-        if (hasSetTopic) continue;
-        topics.push({
-          courseId: cls.id,
-          courseName: cls.className,
-          courseCode: cls.classCode,
-          topicLabel: "Course exploration",
-          targetId: null,
-          activityType: "reading",
-          quizMastery: null,
-          flashcardEngagement: null,
-          lastStudiedAt: null,
-          skipCount: 0,
-        });
+        topics.push(
+          ...documentTopicsForCourse({
+            course: cls,
+            resources: resourcesByCourse.get(cls.id) ?? [],
+            representedResourceIds: representedByCourse.get(cls.id) ?? new Set<string>(),
+            hasSetTopic: topics.some((topic) => topic.courseId === cls.id),
+            lastStudiedAtFor: (sourceDocKey) => studiedAtFor(lastStudied, cls.id, sourceDocKey),
+          }),
+        );
       }
 
       const conceptRepository = createConceptWeakSpotRepository(user.uid);
