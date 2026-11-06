@@ -122,9 +122,45 @@ describe("attachFirstDocument", () => {
     const quiz = { ...base, activityType: "quiz" as const };
     const targeted = {
       ...base,
-      targetId: "z",
-      activityTarget: { kind: "document" as const, resourceId: "z", sourceDocKey: "kz" },
+      targetId: "r2",
+      activityTarget: { kind: "document" as const, resourceId: "r2", sourceDocKey: "k2" },
     };
     expect(attachFirstDocument([quiz, targeted], resources)).toEqual([quiz, targeted]);
+  });
+
+  it("drops an already-targeted reading task whose document has been deleted", () => {
+    // generateTasks is pure and has no resource list, so this is the only place the auto-plan
+    // path can see that the resource is gone. Writing the task would create work that opens
+    // to "This document isn't available" until the pruner deletes it again.
+    const targeted = {
+      ...base,
+      targetId: "gone",
+      activityTarget: { kind: "document" as const, resourceId: "gone", sourceDocKey: "k-gone" },
+    };
+    expect(attachFirstDocument([targeted], resources)).toEqual([]);
+  });
+
+  it("keeps an already-targeted task whose sourceDocKey is blank", () => {
+    // An OCR resource is created with url: "" and no source/storage key, so its document
+    // target has a blank key although the document exists. A blank key cannot be looked up,
+    // so refusing here would mean such a document never gets a study task at all.
+    for (const sourceDocKey of ["", "  "]) {
+      const targeted = {
+        ...base,
+        targetId: "r1",
+        activityTarget: { kind: "document" as const, resourceId: "r1", sourceDocKey },
+      };
+      expect(attachFirstDocument([targeted], resources)).toEqual([targeted]);
+    }
+  });
+
+  it("keeps an already-targeted task whose course is absent from the map", () => {
+    const targeted = {
+      ...base,
+      courseId: "B",
+      targetId: "r9",
+      activityTarget: { kind: "document" as const, resourceId: "r9", sourceDocKey: "k9" },
+    };
+    expect(attachFirstDocument([targeted], resources)).toEqual([targeted]);
   });
 });

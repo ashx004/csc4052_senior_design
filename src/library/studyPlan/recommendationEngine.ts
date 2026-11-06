@@ -312,6 +312,17 @@ function comparableKeys(value: string): string[] {
   return [...keys];
 }
 
+/**
+ * True when a key carries no information at all (absent, empty or whitespace). A resource
+ * created before its OCR finished has `url: ""` and no source/storage key, so
+ * `documentTargetForResource` yields `sourceDocKey: ""` for a document that really exists.
+ * `findResourceForSourceDocKey` cannot match such a key, so callers must treat it as
+ * "unknown" rather than as proof the document is gone.
+ */
+export function isBlankSourceDocKey(value: unknown): boolean {
+  return nonEmptyString(value) === null;
+}
+
 export function findResourceForSourceDocKey<T extends RecommendationResource>(
   sourceDocKey: unknown,
   resources: readonly T[]

@@ -67,18 +67,27 @@ describe("stale study-plan task pruning", () => {
     // generateTasks is pure and has no resource list, so attachSelectedDocuments is the
     // first place a document target can be checked against the course's live resources.
     expect(source).toMatch(
-      /task\.activityTarget\?\.kind === "document"[\s\S]{0,600}if \(!liveResource\) continue;/,
+      /task\.activityTarget\?\.kind === "document"[\s\S]{0,800}if \(!liveResource\) continue;/,
     );
+    // A blank sourceDocKey cannot be looked up, so it must not count as "gone" — otherwise an
+    // OCR document whose url is not backfilled yet never gets a study task at all. The same
+    // rule is pinned behaviourally for the auto-plan path in autoPlan.test.ts and for the
+    // pruner in staleTaskPruning.test.ts.
+    expect(source).toContain("isBlankSourceDocKey(task.activityTarget.sourceDocKey)");
   });
 
   it("runs stale-task pruning on the study-plan surface", () => {
     expect(source).toContain("partitionPlanTasks");
   });
 
-  it("stores null for a course whose contents could not be read", () => {
-    // A failed read proves nothing. Storing an empty CourseContents instead would read as
-    // "this course has nothing left" and delete every task in it, so the catch must store null.
-    expect(source).toMatch(/catch\s*\{[\s\S]{0,400}contentsByCourse\.set\(cls\.id, null\)/);
+  it("reads each course's contents through the library helper, not inline", () => {
+    // The catch-stores-null rule used to live inline here, where no test could observe what a
+    // failed read actually stored. It now lives in loadCourseContents, whose own tests in
+    // src/library/studyPlan/courseContents.test.ts prove the behaviour (a throw, an
+    // unreachable server and a partial failure all store null). All this file still has to
+    // pin is that the component delegates rather than keeping a second copy of the read.
+    expect(source).toContain("loadCourseContents(uid, classes.map((cls) => cls.id))");
+    expect(source).not.toMatch(/getDocs\w*\(\s*collection\(db, "users", uid, "enrollment"/);
   });
 
   it("only prunes the current plan's tasks, guarded so it runs once per plan load", () => {

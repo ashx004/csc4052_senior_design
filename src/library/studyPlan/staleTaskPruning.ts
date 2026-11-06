@@ -1,5 +1,9 @@
 import { resolveActivityTarget } from "./activityTarget";
-import { findResourceForSourceDocKey, type RecommendationResource } from "./recommendationEngine";
+import {
+  findResourceForSourceDocKey,
+  isBlankSourceDocKey,
+  type RecommendationResource,
+} from "./recommendationEngine";
 import type { StudyTask } from "./types";
 
 export type TaskLiveness = "openable" | "stale" | "regenerate" | "unknown";
@@ -28,6 +32,8 @@ export function classifyTask(task: TaskLivenessInput, contents: CourseContents):
   const target = resolveActivityTarget(task);
   if (!target) {
     if (task.activityType === "reading" && task.targetId) {
+      // A blank id names nothing, so no resource can match it and absence proves nothing.
+      if (isBlankSourceDocKey(task.targetId)) return "unknown";
       return contents.resources.some((r) => r.id === task.targetId) ? "openable" : "stale";
     }
     return "openable";
@@ -35,6 +41,10 @@ export function classifyTask(task: TaskLivenessInput, contents: CourseContents):
 
   switch (target.kind) {
     case "document":
+      // A resource whose OCR has not finished is stored with no source key, no storage key
+      // and `url: ""`, so its document target carries a blank sourceDocKey. No lookup can
+      // match a blank key, so "not found" here is not evidence the document went away.
+      if (isBlankSourceDocKey(target.sourceDocKey)) return "unknown";
       return findResourceForSourceDocKey(target.sourceDocKey, contents.resources)
         ? "openable"
         : "stale";

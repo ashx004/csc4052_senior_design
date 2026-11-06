@@ -24,8 +24,22 @@ describe("classifyTask", () => {
       activityTarget: { kind: "document", resourceId: "res-1", sourceDocKey: "/api/download?key=uploads%2Fa.pdf" } }, contents)).toBe("openable");
   });
 
+  it("is unknown for a document target whose sourceDocKey is blank", () => {
+    // An OCR resource is written with url: "" and no source/storage key, so its document
+    // target carries a blank key while the document itself exists. No lookup can match a
+    // blank key, so "not found" is not evidence of deletion and the task must survive.
+    for (const sourceDocKey of ["", "   "]) {
+      expect(classifyTask({ ...recommended, activityType: "reading", targetId: "res-1",
+        activityTarget: { kind: "document", resourceId: "res-1", sourceDocKey } }, contents)).toBe("unknown");
+    }
+  });
+
   it("is stale for a reading task whose bare targetId is gone", () => {
     expect(classifyTask({ ...recommended, activityType: "reading", targetId: "res-9" }, contents)).toBe("stale");
+  });
+
+  it("is unknown for a reading task whose bare targetId is blank", () => {
+    expect(classifyTask({ ...recommended, activityType: "reading", targetId: "   " }, contents)).toBe("unknown");
   });
 
   it("is stale for a quiz target whose set is gone", () => {

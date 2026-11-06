@@ -24,6 +24,7 @@ import {
   documentTargetForResource,
   findResourceForSourceDocKey,
   generateTasks,
+  isBlankSourceDocKey,
   needsDocumentSelection,
 } from "@/src/library/studyPlan/recommendationEngine";
 import { getVisibleStudyTasks } from "@/src/library/studyPlan/taskVisibility";
@@ -53,7 +54,8 @@ import {
 import { resolveTaskActivityUrl } from "@/src/library/studyPlan/sessionTimer";
 import { resolveActivityTarget } from "@/src/library/studyPlan/activityTarget";
 import { clearMissingGeneratedSet } from "@/src/library/studyPlan/conceptPracticeTask";
-import { partitionPlanTasks, type CourseContents } from "@/src/library/studyPlan/staleTaskPruning";
+import { partitionPlanTasks } from "@/src/library/studyPlan/staleTaskPruning";
+import { loadCourseContents } from "@/src/library/studyPlan/courseContents";
 import { useConceptPracticeStart } from "@/src/hooks/useConceptPracticeStart";
 import {
   afterSuccessfulPlan,
@@ -730,11 +732,13 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
           // "This document isn't available", so it is never written in the first place. Tasks
           // that go through the picker below are safe: it only offers live resources.
           if (task.activityTarget?.kind === "document") {
-            // A course absent from the map proves nothing about its documents, so only a list
-            // we actually hold can rule one out.
+            // Only evidence may drop a task. A course absent from the map proves nothing about
+            // its documents, and a blank sourceDocKey (an OCR resource whose url has not been
+            // backfilled) cannot be looked up at all, so neither case rules a resource out.
             const courseResources = resourcesByCourse.get(task.courseId);
             const liveResource =
               !courseResources ||
+              isBlankSourceDocKey(task.activityTarget.sourceDocKey) ||
               Boolean(
                 findResourceForSourceDocKey(task.activityTarget.sourceDocKey, courseResources),
               );
@@ -1356,28 +1360,9 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
 
     void (async () => {
       const uid = user.uid;
-      const contentsByCourse = new Map<string, CourseContents>();
-      await Promise.all(
-        classes.map(async (cls) => {
-          try {
-            const [resourceSnap, quizSnap, flashcardSnap] = await Promise.all([
-              getDocs(collection(db, "users", uid, "enrollment", cls.id, "resources")),
-              getDocs(collection(db, "users", uid, "enrollment", cls.id, "quizSets")),
-              getDocs(collection(db, "users", uid, "enrollment", cls.id, "flashcardSets")),
-            ]);
-            contentsByCourse.set(cls.id, {
-              resources: resourceSnap.docs.map((d) => ({ ...d.data(), id: d.id })),
-              quizSetIds: new Set(quizSnap.docs.map((d) => d.id)),
-              flashcardSetIds: new Set(flashcardSnap.docs.map((d) => d.id)),
-            });
-          } catch {
-            // A failed read proves nothing about what this course holds. An empty
-            // CourseContents would read as "nothing left here" and delete every task in the
-            // course, so the only safe record of a failure is null.
-            contentsByCourse.set(cls.id, null);
-          }
-        })
-      );
+      // loadCourseContents owns the safety rule: a course whose read failed or never reached
+      // the server is recorded as null, which classifies as "unknown" and prunes nothing.
+      const contentsByCourse = await loadCourseContents(uid, classes.map((cls) => cls.id));
 
       const { staleIds, regenerateIds } = partitionPlanTasks(planTasks, contentsByCourse);
 
