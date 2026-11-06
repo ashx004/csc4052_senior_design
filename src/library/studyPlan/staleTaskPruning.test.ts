@@ -62,9 +62,36 @@ describe("classifyTask", () => {
     expect(classifyTask({ ...recommended, activityType: "quiz", targetId: null, activityTarget: conceptTarget() }, contents)).toBe("openable");
   });
 
-  it("is stale for a concept_practice task with no source documents", () => {
+  it("is unknown for a concept_practice task with no source documents", () => {
+    // conceptWeakSpotEngine opens a weak spot with sourceDocKeys: [], so a practice task can
+    // name no document at all. There is then nothing to look up, and a lookup that was never
+    // possible is not evidence that the student's documents are gone.
     expect(classifyTask({ ...recommended, activityType: "quiz", targetId: null,
-      activityTarget: conceptTarget({ sourceDocKeys: [] }) }, contents)).toBe("stale");
+      activityTarget: conceptTarget({ sourceDocKeys: [] }) }, contents)).toBe("unknown");
+  });
+
+  it("is unknown for a concept_practice task whose source keys are all blank", () => {
+    // Same OCR hazard as a document target: a resource whose url is not backfilled yet
+    // contributes a blank key, so every key here can be blank while the documents exist.
+    expect(classifyTask({ ...recommended, activityType: "quiz", targetId: null,
+      activityTarget: conceptTarget({ sourceDocKeys: ["", "   "] }) }, contents)).toBe("unknown");
+  });
+
+  it("still prunes a concept_practice task whose one real key is gone, blanks and all", () => {
+    // Blank keys are discarded, not treated as a reason to keep the task: a real key that
+    // matches nothing is still evidence, so pruning is not switched off by one blank sibling.
+    expect(classifyTask({ ...recommended, activityType: "quiz", targetId: null,
+      activityTarget: conceptTarget({ sourceDocKeys: ["", "uploads/gone.pdf"] }) }, contents)).toBe("stale");
+  });
+
+  it("is unknown for a quiz target whose quizId is blank", () => {
+    expect(classifyTask({ ...recommended, activityType: "quiz", targetId: null,
+      activityTarget: { kind: "quiz", quizId: "   ", sourceDocKey: null, mode: "full" } }, contents)).toBe("unknown");
+  });
+
+  it("is unknown for a flashcard_set target whose setId is blank", () => {
+    expect(classifyTask({ ...recommended, activityType: "flashcards", targetId: null,
+      activityTarget: { kind: "flashcard_set", setId: "", sourceDocKey: null } }, contents)).toBe("unknown");
   });
 
   it("is stale for a concept_practice task whose documents are all gone", () => {

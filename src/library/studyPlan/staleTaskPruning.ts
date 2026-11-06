@@ -15,6 +15,14 @@ export type CourseContents = {
   flashcardSetIds: ReadonlySet<string>;
 } | null;
 
+/**
+ * A blank identifier (absent, empty or whitespace) names nothing, so no lookup can match it
+ * and a lookup that was never possible is not evidence the target was deleted. Every "stale"
+ * verdict below is gated on this: it is the one rule that keeps the classifier from reading
+ * "I could not ask the question" as "the answer is no".
+ */
+const namesNothing = isBlankSourceDocKey;
+
 export type TaskLivenessInput = Pick<
   StudyTask,
   "activityType" | "targetId" | "activityTarget" | "status"
@@ -32,8 +40,7 @@ export function classifyTask(task: TaskLivenessInput, contents: CourseContents):
   const target = resolveActivityTarget(task);
   if (!target) {
     if (task.activityType === "reading" && task.targetId) {
-      // A blank id names nothing, so no resource can match it and absence proves nothing.
-      if (isBlankSourceDocKey(task.targetId)) return "unknown";
+      if (namesNothing(task.targetId)) return "unknown";
       return contents.resources.some((r) => r.id === task.targetId) ? "openable" : "stale";
     }
     return "openable";
@@ -44,13 +51,17 @@ export function classifyTask(task: TaskLivenessInput, contents: CourseContents):
       // A resource whose OCR has not finished is stored with no source key, no storage key
       // and `url: ""`, so its document target carries a blank sourceDocKey. No lookup can
       // match a blank key, so "not found" here is not evidence the document went away.
-      if (isBlankSourceDocKey(target.sourceDocKey)) return "unknown";
+      if (namesNothing(target.sourceDocKey)) return "unknown";
       return findResourceForSourceDocKey(target.sourceDocKey, contents.resources)
         ? "openable"
         : "stale";
     case "quiz":
+      // No producer writes a blank quizId today — it is always a Firestore document id — but
+      // the membership test cannot tell "blank" from "deleted", so it is gated like the rest.
+      if (namesNothing(target.quizId)) return "unknown";
       return contents.quizSetIds.has(target.quizId) ? "openable" : "stale";
     case "flashcard_set":
+      if (namesNothing(target.setId)) return "unknown";
       return contents.flashcardSetIds.has(target.setId) ? "openable" : "stale";
     case "concept_practice": {
       const setId = target.generatedSetId;
@@ -64,7 +75,15 @@ export function classifyTask(task: TaskLivenessInput, contents: CourseContents):
             : null;
       if (setId && (!knownSets || knownSets.has(setId))) return "openable";
 
-      const hasLiveDocument = target.sourceDocKeys.some((key) =>
+      // Blank keys are discarded rather than searched for: conceptWeakSpotEngine opens a weak
+      // spot with sourceDocKeys: [], and an OCR resource whose url is not backfilled yet
+      // contributes a blank key, so a task can name no searchable document while its documents
+      // exist. With nothing left to ask about, the verdict is unknown, not stale. A real key
+      // that matches nothing is still evidence, so one blank sibling does not stop pruning.
+      const usableKeys = target.sourceDocKeys.filter((key) => !namesNothing(key));
+      if (usableKeys.length === 0) return "unknown";
+
+      const hasLiveDocument = usableKeys.some((key) =>
         findResourceForSourceDocKey(key, contents.resources)
       );
       if (!hasLiveDocument) return "stale";
