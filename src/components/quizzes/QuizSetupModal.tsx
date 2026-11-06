@@ -6,6 +6,7 @@ import VisibilitySelector from "@/src/components/discover/VisibilitySelector";
 import type { StudySetVisibility } from "@/src/library/discover/types";
 import { DEFAULT_QUIZ_DIFFICULTY, QUIZ_DIFFICULTY_OPTIONS, type QuizDifficulty } from "@/src/library/quizDifficulty";
 import { submitOnEnter } from "@/src/library/submitOnEnter";
+import { GenerationNotice, GENERATION_TEXT } from "@/src/components/ai/GenerationNotice";
 
 interface QuestionTypes {
   multipleChoice: boolean;
@@ -213,6 +214,7 @@ export default function QuizSetupModal({
             )}
           </button>
         </div>
+        {loading && <GenerationNotice text={GENERATION_TEXT.quiz} />}
       </div>
     </div>
   );

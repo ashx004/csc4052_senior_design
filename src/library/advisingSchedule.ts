@@ -391,7 +391,7 @@ export function evaluateRequirement(
         requirement,
         status: "needs-review" as const,
         reason:
-          "Specific-course requirement does not contain a course code.",
+          "Catalyst couldn't match this one to specific course numbers on your curriculum sheet, so plan it with your advisor.",
       };
     }
 
@@ -600,7 +600,7 @@ export function evaluateRequirement(
       status: "needs-review" as const,
 
       reason:
-        "This requirement cannot yet be evaluated safely from exact course-code matching.",
+        "Catalyst can't match this one to specific courses on your curriculum sheet yet, so plan it with your advisor.",
     };
   }
 
@@ -1062,7 +1062,7 @@ function evaluateBroadProgramRequirements(
         "needs-review" as const,
 
       reason:
-        "The curriculum requires an elective, but it does not explicitly list the exact courses that may satisfy it.",
+        "Your curriculum sheet doesn't list which courses count toward this elective, so plan it with your advisor.",
     };
   }
 

@@ -2284,7 +2284,7 @@ export async function POST(request: NextRequest) {
       const guardedStream = new StreamingGuard(outputGuard, (clean) => {
         send({ type: "delta", text: clean });
         recordDeltaForPersistence(clean);
-      });
+      }, { planningOpening: true });
       // The model's reasoning, forwarded live (and summarized by a small model
       // when one is configured) so the student can see what it is working on.
       // It goes through the output guard like the reply does: reasoning quotes
@@ -2987,7 +2987,8 @@ export async function POST(request: NextRequest) {
         if (context?.userId) {
           const idToken = getIdToken(request);
           if (idToken) {
-            maybeUpdateStudentProfile(context.userId, studentProfile, messages.slice(-8), idToken).catch((error) =>
+            const courseLabels = (context.classes ?? []).map((c) => [c.classCode, c.className].filter(Boolean).join(" ")).filter(Boolean).slice(0, 12);
+            maybeUpdateStudentProfile(context.userId, studentProfile, messages.slice(-8), idToken, courseLabels).catch((error) =>
               console.error("Unhandled student profile update error:", error)
             );
           }

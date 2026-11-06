@@ -490,7 +490,7 @@ export default function Profile() {
               </div>
             ) : catalystProfile?.summary ? (
               <>
-                <div className="rounded-lg border border-border-light bg-bg-main p-4 text-sm leading-relaxed text-text-main">
+                <div className="whitespace-pre-line rounded-lg border border-border-light bg-bg-main p-4 text-sm leading-relaxed text-text-main">
                   {catalystProfile.summary}
                 </div>
                 {catalystProfile.updatedAt && (

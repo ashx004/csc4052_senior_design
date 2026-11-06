@@ -34,6 +34,7 @@ import PageTutorial from '@/src/components/tutorial/PageTutorial';
 import courseFlashcardsSteps from '@/src/library/tutorials/steps/course-flashcards';
 import { useLearningProgress } from '@/src/hooks/useLearningProgress';
 import { useGenerateQuizFromResource } from '@/src/hooks/useGenerateQuizFromResource';
+import { GenerationNotice, GENERATION_TEXT } from '@/src/components/ai/GenerationNotice';
 import { findResourceForSourceDocKey } from '@/src/library/studyPlan/recommendationEngine';
 import {
   resolveQuizNextStep,
@@ -567,8 +568,7 @@ export default function FlashcardViewer({ courseId, setId: routeSetId = '' }: { 
     return (
       <div className="min-h-screen bg-[#FAFAF8] flex flex-col items-center justify-center gap-4">
         <Loader2 size={36} className="animate-spin text-[#8B6914]" />
-        <p className="text-text-muted text-sm">Reading your document and generating flashcards...</p>
-        <p className="text-text-muted text-xs">This may take a few seconds</p>
+        <GenerationNotice text={GENERATION_TEXT.flashcards} />
       </div>
     );
   }

@@ -14,6 +14,7 @@ import { resolveInternalUrl } from "@/src/library/pdfExtract";
 import { extractDocumentText, IMAGE_FILE_TYPES, SUPPORTED_DOCUMENT_TYPES } from "@/src/library/documentExtract";
 import { chunkText } from "@/src/library/chunking";
 import { addChunkContext } from "@/src/library/contextualChunking";
+import { isCloudBackend, modelForFeature } from "@/src/library/ai/cloudModels";
 import { embedTexts } from "@/src/library/ollamaEmbeddings";
 import { resolveModelFromKey } from "@/src/library/ollamaClient";
 import { deleteChunksForResource, upsertChunks, chunkPointId } from "@/src/library/vectorStore";
@@ -28,7 +29,9 @@ import { JOB_STATUS, isActiveJobStatus, toPublicJob } from "@/src/library/jobSta
 import { refundOnFailure } from "@/src/library/billing/refundOnFailure";
 
 const EMBED_RATE_LIMIT_WINDOW_MS = 60_000;
-const EMBED_RATE_LIMIT_MAX = 10; // per user per window — uploads aren't normally rapid-fire
+// Per user per window. A student selecting a folder of notes queues one job per file at once,
+// so 10 refused the 11th and 12th files of a batch. 30 covers a normal bulk upload.
+const EMBED_RATE_LIMIT_MAX = 30;
 const JOB_COLLECTION = "documentProcessingJobs";
 
 // Give up on a single document past this long rather than let one slow file
@@ -181,7 +184,8 @@ async function persistImageTranscript(opts: {
     ocrSourceVersion: sourceVersion,
     ocrTranscriptUrl: transcriptUrl,
     ocrTextLength: transcript.length,
-    ocrModel: resolveModelFromKey("ocr"),
+    // The model that actually read the page: the cloud model in cloud mode.
+    ocrModel: isCloudBackend() ? modelForFeature("ocr") : resolveModelFromKey("ocr"),
     ocrCompletedAt: new Date(),
     ocrFailedAt: null,
     ocrError: null,
@@ -212,7 +216,7 @@ async function persistOcrDocumentTranscript(opts: {
     ocrStatus: JOB_STATUS.completed,
     ocrTranscriptUrl: transcriptUrl,
     ocrTextLength: transcript.length,
-    ocrModel: resolveModelFromKey("ocr"),
+    ocrModel: isCloudBackend() ? modelForFeature("ocr") : resolveModelFromKey("ocr"),
     pageManifestVersion,
     pageCount,
     manualTranscript: false,

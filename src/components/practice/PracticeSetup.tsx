@@ -178,7 +178,7 @@ export default function PracticeSetup({
         >
           {loading ? (
             <>
-              <Loader2 size={15} className="animate-spin" /> Making your practice...
+              <Loader2 size={15} className="animate-spin" /> Writing your practice items (15 to 30 seconds)...
             </>
           ) : (
             "Generate"

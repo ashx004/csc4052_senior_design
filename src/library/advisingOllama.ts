@@ -176,7 +176,11 @@ async function callAdvisingOllamaOnce(
   const feature = options.feature ?? "advising-unspecified";
 
   const inputTokens = estimateTokens(messages);
-  const roomForReply = ADVISING_NUM_CTX - inputTokens;
+  // The local box's window (ADVISING_NUM_CTX) is far smaller than a cloud model's.
+  // A whole curriculum's JSON, plus any reasoning, ran past the old reply budget
+  // and the scan failed with "Ollama stopped early". Cloud calls get more room.
+  const contextBudget = isCloudBackend() ? Math.max(ADVISING_NUM_CTX, 32768) : ADVISING_NUM_CTX;
+  const roomForReply = contextBudget - inputTokens;
   if (roomForReply < MIN_REPLY_TOKENS) {
     throw new ContextTooLargeError(
       `This document is too large for the AI's context window (~${inputTokens} tokens of input, ${ADVISING_NUM_CTX} available). Try raising ADVISING_NUM_CTX or uploading a shorter document.`
@@ -1388,6 +1392,38 @@ async function extractProgramInfoFromTextWithOllama(
     async function extractConcentrationsWithOllama(
       curriculumText: string
     ): Promise<string> {
+      // One call for a whole sheet with several concentrations kept returning
+      // only the first (the model stops after one). Each concentration has its
+      // own printed heading, so read each section on its own, in parallel.
+      const headings = [...curriculumText.matchAll(/^[ \t]*([A-Z][A-Z0-9 &,/\-]*CONCENTRATION)[ \t]*$/gm)];
+      if (headings.length >= 2) {
+        const sections = headings.map((heading, i) =>
+          curriculumText.slice(heading.index ?? 0, headings[i + 1]?.index ?? curriculumText.length)
+        );
+        console.log(`CONCENTRATION EXTRACTION: ${sections.length} sections, read in parallel`);
+        const parsed = await Promise.all(
+          sections.map((section) =>
+            // A section that fails must fail the scan. Returning an empty section
+            // here saved a curriculum with concentrations missing, marked complete.
+            extractConcentrationsFromTextWithOllama(section)
+              .then((reply) => JSON.parse(reply) as { concentrations?: unknown[]; warnings?: unknown[] })
+          )
+        );
+        const byName = new Map<string, Record<string, unknown>>();
+        const warnings: unknown[] = [];
+        for (const reply of parsed) {
+          if (Array.isArray(reply.warnings)) warnings.push(...reply.warnings);
+          for (const concentration of Array.isArray(reply.concentrations) ? reply.concentrations : []) {
+            const item = concentration as Record<string, unknown>;
+            const key = String(item.concentrationName ?? "").trim().toLowerCase();
+            if (!key) continue;
+            const existing = byName.get(key);
+            if (!existing) byName.set(key, { ...item, requirements: [...((item.requirements as unknown[]) ?? [])] });
+            else (existing.requirements as unknown[]).push(...((item.requirements as unknown[]) ?? []));
+          }
+        }
+        return JSON.stringify({ concentrations: [...byName.values()], warnings });
+      }
       try {
         return await extractConcentrationsFromTextWithOllama(curriculumText);
       } catch (error) {

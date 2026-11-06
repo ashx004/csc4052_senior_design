@@ -52,6 +52,9 @@ export function readPrintedTermHours(rawText: string): Map<string, PrintedHours>
 export function findTermCreditMismatches(rawText: string, courses: CheckCourse[]): string[] {
   const printed = readPrintedTermHours(rawText);
   const extracted = new Map<string, number>();
+  // A withdrawn course prints 0.00 on its row, yet its hours still count as attempted
+  // on the term total. So a term with a withdrawal can't be checked row by row.
+  const withdrawnTerms = new Set<string>();
 
   for (const course of courses) {
     if (course.status === "transfer" || !course.term) continue;
@@ -59,10 +62,12 @@ export function findTermCreditMismatches(rawText: string, courses: CheckCourse[]
     if (!match) continue;
     const key = termKey(match[1], match[2]);
     extracted.set(key, (extracted.get(key) ?? 0) + (course.creditHours ?? 0));
+    if (course.status === "withdrawn") withdrawnTerms.add(key);
   }
 
   const warnings: string[] = [];
   for (const [term, hours] of printed) {
+    if (withdrawnTerms.has(term)) continue;
     const extractedHours = extracted.get(term) ?? 0;
 
     // Which printed figure a row's credit column adds up to depends on the

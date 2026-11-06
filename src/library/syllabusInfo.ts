@@ -24,6 +24,8 @@ export interface SyllabusInfo {
   textbooks: string;
   grading: string;
   dates: SyllabusDate[];
+  /** Dates the model wrote that the document never prints; they were left out. */
+  unconfirmedDates?: number;
 }
 
 /** Fields that live directly on the enrollment document. */

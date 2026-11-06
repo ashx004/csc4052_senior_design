@@ -793,10 +793,13 @@ async function processGeneration(
             );
 
             const needsReviewWarnings = needsReviewRequirements.map((result) =>
-              `Requirement "${result.requirement.requirementName}" could not be automatically scheduled: ${result.reason}`
+              `"${result.requirement.requirementName}" is left for you to plan. ${result.reason}`
             );
 
-            schedule.warnings = [...schedule.warnings,...prerequisiteWarnings,...needsReviewWarnings,];
+            // The model sometimes writes "No remaining requirements found" even when the sheet
+            // has requirements left, so drop that claim and keep the rest.
+            const appWarnings = schedule.warnings.filter((w) => !/remaining requirements|completed all requirements|no further requirements/i.test(w));
+            schedule.warnings = [...appWarnings, ...prerequisiteWarnings, ...needsReviewWarnings];
 
 
         /*

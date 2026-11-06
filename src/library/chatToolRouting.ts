@@ -13,7 +13,7 @@ export type ToolGroup = "documents" | "study" | "calendar" | "notes" | "courses"
 export const ALL_TOOL_GROUPS: ToolGroup[] = ["documents", "study", "calendar", "notes", "courses", "progress", "web"];
 
 const SIGNALS: Record<ToolGroup, RegExp> = {
-  documents: /\b(document|file|pdf|slides?|lecture|reading|chapter|syllabus|handout|uploaded|materials?|summari[sz]e|explain .* (from|in) my|according to|where (did|do) (we|i)|covered|search my)\b/i,
+  documents: /\b(document|file|pdf|slides?|lecture|reading|chapter|syllabus|handout|uploaded|materials?|summari[sz]e|explain .* (from|in) my|according to|where (did|do) (we|i)|covered|search my|my (class )?(notes?|files?|slides?|lectures?|readings?)|(does|did|do|what) (my|the) .{0,60}\b(say|says|mention|cover|covers|give|gives|example)\b)\b/i,
   study: /\b(flash ?cards?|quiz(zes)?|practice (test|exam|problems?)|study (set|guide|sheet)|cheat ?sheet|worksheet|review sheet|pdf|make me|generate|create)\b/i,
   calendar: /\b(calendar|schedul\w*|event|remind(er)?|appointment|meeting|due|deadline|tomorrow|today|tonight|this week|next week|weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}(:\d{2})?\s?(am|pm)|reschedule|cancel|free time|busy|study session|exam date|when is)\b/i,
   notes: /\b(notes?|notebooks?|jot|write (this|that|it) down|save (this|that|it)|typed note|write up)\b/i,

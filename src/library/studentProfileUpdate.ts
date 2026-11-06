@@ -5,10 +5,15 @@ import { firestoreUpdate } from "./firestoreRest";
 import { resolveOllamaBaseUrl, secondaryContextOption } from "./ollamaClient";
 import { stripThinkLeak } from "./stripThinkLeak";
 import { aiFetch } from "@/src/library/ai/aiFetch";
+import { isCloudBackend } from "@/src/library/ai/cloudModels";
 import type { StudentProfile } from "./studentProfile";
 
+// A new account gets its first profile after a few messages, so the profile
+// page has something real to show during a first session. After that, every 8.
+const FIRST_UPDATE_AFTER_MESSAGES = 3;
 const UPDATE_EVERY_N_MESSAGES = 8;
 const PROFILE_UPDATE_TIMEOUT_MS = 60000;
+const MAX_PROFILE_CHARS = 1200;
 
 // Fire-and-forget: the caller must NOT await this on the request path — a
 // student should never wait extra time for their profile to update. Every
@@ -23,11 +28,13 @@ export async function maybeUpdateStudentProfile(
   userId: string,
   currentProfile: StudentProfile,
   recentExchange: { role: string; content: string }[],
-  idToken: string
+  idToken: string,
+  courseLabels: string[] = []
 ): Promise<void> {
   const newCount = currentProfile.messageCount + 1;
+  const threshold = currentProfile.summary ? UPDATE_EVERY_N_MESSAGES : FIRST_UPDATE_AFTER_MESSAGES;
 
-  if (newCount < UPDATE_EVERY_N_MESSAGES) {
+  if (newCount < threshold) {
     await firestoreUpdate(idToken, "users", userId, { learnerProfileMessageCount: newCount });
     return;
   }
@@ -45,7 +52,11 @@ export async function maybeUpdateStudentProfile(
 
   try {
     const exchangeText = recentExchange.map((m) => `${m.role}: ${m.content}`).join("\n\n");
-    const baseUrl = await resolveOllamaBaseUrl(process.env.OLLAMA_SECONDARY_URL, process.env.OLLAMA_SECONDARY_FALLBACK_URL);
+    // Cloud mode: aiFetch ignores the base URL, so probing the secondary box
+    // (unreachable from production) would only add timeouts before every update.
+    const baseUrl = isCloudBackend()
+      ? process.env.OLLAMA_SECONDARY_URL!
+      : await resolveOllamaBaseUrl(process.env.OLLAMA_SECONDARY_URL, process.env.OLLAMA_SECONDARY_FALLBACK_URL);
 
     const response = await aiFetch(`${baseUrl}/api/chat`, {
       method: "POST",
@@ -66,11 +77,17 @@ export async function maybeUpdateStudentProfile(
           {
             role: "system",
             content:
-              "You maintain a brief, evolving profile of a student to help a study assistant personalize its teaching. Given the student's existing profile (if any) and a recent excerpt of their conversation, produce an UPDATED profile: 2-4 sentences covering their apparent academic/career goals and what teaching style seems to work well for them (e.g. prefers examples, visual explanations, step-by-step breakdowns, concise answers, hands-on practice). Preserve existing facts unless the new excerpt actually contradicts them — don't drop something true just because this excerpt didn't repeat it. Only include things reasonably inferable from the conversation, never invent details. Stay strictly academic/learning-focused — never record personal life details unrelated to their studies. If nothing new or relevant was learned this time, return the existing profile unchanged. Reply with ONLY the updated profile text, nothing else — no preamble, no labels.",
+              "You keep a short, specific profile of a university student so a study assistant can teach them better. Write an UPDATED profile as at most 5 short bullet points, each concrete and drawn from the conversation:\n" +
+              "- Courses and work they mention (course names, assignments, exams, deadlines, projects).\n" +
+              "- Topics they say they struggle with, by name (for example \"AGI vs ASI\", \"the alignment problem\"). Add every new one the student states.\n" +
+              "- Topics they say they understand well.\n" +
+              "- Academic goals they state (a grade, passing an exam, a career path), and any exam or deadline they name.\n" +
+              "- How they say they learn best, in their own words (for example \"I learn best with short examples\"). A request such as \"quiz me\" or \"explain this\" is a request, not a learning preference: leave it out.\n" +
+              "Rules: keep every fact from the existing profile unless the excerpt contradicts it; add the new ones. Use only what the student said; never invent. Leave out anything not about their studies. If the excerpt adds nothing useful, return the existing profile unchanged. If there is no useful information at all, reply with exactly NONE. Reply with only the bullets (or NONE), no preamble.",
           },
           {
             role: "user",
-            content: `Existing profile:\n${currentProfile.summary || "(none yet)"}\n\nRecent conversation excerpt:\n${exchangeText}`,
+            content: `Courses on the student's account: ${courseLabels.length ? courseLabels.join("; ") : "(none listed)"}\n\nExisting profile:\n${currentProfile.summary || "(none yet)"}\n\nRecent conversation excerpt:\n${exchangeText}`,
           },
         ],
       }),
@@ -79,9 +96,9 @@ export async function maybeUpdateStudentProfile(
     if (!response.ok) throw new Error(`Profile update request failed (${response.status})`);
 
     const data = await response.json();
-    const newSummary = stripThinkLeak(data?.message?.content || "").trim();
+    const newSummary = stripThinkLeak(data?.message?.content || "").trim().slice(0, MAX_PROFILE_CHARS);
 
-    if (newSummary) {
+    if (newSummary && newSummary !== "NONE") {
       await firestoreUpdate(idToken, "users", userId, {
         learnerProfileSummary: newSummary,
         learnerProfileMessageCount: 0,
