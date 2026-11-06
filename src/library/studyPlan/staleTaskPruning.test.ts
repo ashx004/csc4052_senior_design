@@ -104,3 +104,40 @@ describe("partitionPlanTasks", () => {
     expect(result).toEqual({ staleIds: [], regenerateIds: [] });
   });
 });
+
+describe("protecting work a student can still do", () => {
+  const live = {
+    resources: [{ id: "res-1", sourceDocKey: "uploads/a.pdf" }],
+    quizSetIds: new Set(["quiz-1"]),
+    flashcardSetIds: new Set(["fc-1"]),
+  };
+  const concept = (over = {}) => ({
+    kind: "concept_practice" as const, conceptKeys: ["k"], conceptLabels: ["K"], conceptLevels: {},
+    sourceDocKeys: ["uploads/a.pdf"], practiceType: "quiz" as const, questionCount: 10,
+    generatedSetId: null as string | null, generationClaimedAtMs: null, ...over,
+  });
+
+  it("keeps a task whose generated set still exists even when every source document is gone", () => {
+    // The set check must run before the document check, or a usable generated set is deleted with its task.
+    expect(classifyTask({ status: "recommended", activityType: "quiz", targetId: null,
+      activityTarget: concept({ generatedSetId: "quiz-1", sourceDocKeys: ["uploads/gone.pdf"] }) }, live)).toBe("openable");
+  });
+
+  it("never asks to regenerate a set of a practice type the snapshot cannot verify", () => {
+    // fill_blank sets are in neither id set; absence proves nothing, so the task is left alone.
+    expect(classifyTask({ status: "recommended", activityType: "quiz", targetId: null,
+      activityTarget: concept({ practiceType: "fill_blank", generatedSetId: "practice-9" }) }, live)).toBe("openable");
+  });
+
+  it("never prunes a rescheduled task, even when its document is gone", () => {
+    expect(classifyTask({ status: "rescheduled", activityType: "reading", targetId: "res-9" }, live)).toBe("openable");
+  });
+
+  it("reports a regenerate verdict in regenerateIds and not in staleIds", () => {
+    const result = partitionPlanTasks([
+      { id: "t1", courseId: "bio201", status: "recommended", activityType: "quiz", targetId: null,
+        activityTarget: concept({ generatedSetId: "quiz-9" }) },
+    ], new Map([["bio201", live]]));
+    expect(result).toEqual({ staleIds: [], regenerateIds: ["t1"] });
+  });
+});
