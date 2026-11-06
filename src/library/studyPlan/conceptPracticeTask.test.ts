@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   GENERATION_CLAIM_TTL_MS,
   claimTaskGeneration,
+  clearMissingGeneratedSet,
   conceptFocusFromTarget,
   releaseTaskGeneration,
   saveGeneratedSetId,
@@ -171,5 +172,33 @@ describe("task generation claim", () => {
     await releaseTaskGeneration("u1", "t1", 5000);
     expect(updates).toHaveLength(0);
     expect(store.doc.activityTarget.generationClaimedAtMs).toBe(9000);
+  });
+});
+
+describe("clearMissingGeneratedSet", () => {
+  beforeEach(() => {
+    store.doc = null;
+    updates.length = 0;
+  });
+
+  it("forgets a set that is no longer in the course, so Start generates a new one", async () => {
+    store.doc = { activityTarget: target({ generatedSetId: "gone" }) };
+    await clearMissingGeneratedSet("u1", "t1", "gone");
+    expect(updates).toEqual([
+      { "activityTarget.generatedSetId": null, "activityTarget.generationClaimedAtMs": null },
+    ]);
+  });
+
+  it("leaves a set another tab recorded in the meantime alone", async () => {
+    store.doc = { activityTarget: target({ generatedSetId: "fresh" }) };
+    await clearMissingGeneratedSet("u1", "t1", "gone");
+    expect(updates).toHaveLength(0);
+    expect(store.doc.activityTarget.generatedSetId).toBe("fresh");
+  });
+
+  it("writes nothing for a task that is not concept practice", async () => {
+    store.doc = { activityTarget: { kind: "quiz", quizId: "q", sourceDocKey: null, mode: "full" } };
+    await clearMissingGeneratedSet("u1", "t1", "gone");
+    expect(updates).toHaveLength(0);
   });
 });

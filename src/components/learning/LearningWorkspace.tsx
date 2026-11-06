@@ -51,6 +51,8 @@ import {
 } from "@/src/library/studyPlan/taskSuggestions";
 import { resolveTaskActivityUrl } from "@/src/library/studyPlan/sessionTimer";
 import { resolveActivityTarget } from "@/src/library/studyPlan/activityTarget";
+import { clearMissingGeneratedSet } from "@/src/library/studyPlan/conceptPracticeTask";
+import { partitionPlanTasks, type CourseContents } from "@/src/library/studyPlan/staleTaskPruning";
 import { useConceptPracticeStart } from "@/src/hooks/useConceptPracticeStart";
 import {
   afterSuccessfulPlan,
@@ -366,6 +368,7 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
   const [planStarter, setPlanStarter] = useState<PlanStarterChoice | null>(null);
   const autoPlanAttemptedRef = useRef(false);
   const scheduledTaskIdsRef = useRef(new Set<string>());
+  const prunedPlanDateRef = useRef<string | null>(null);
 
   const handleNotificationsToggle = useCallback(() => {
     const opening = !notificationsOpen;
@@ -742,6 +745,21 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
       const ready: GeneratedTask[] = [];
       for (const task of generated) {
         if (!needsDocumentSelection(task)) {
+          // generateTasks is pure and has no resource list, so a reading topic can still carry
+          // a document target whose resource has since been deleted. Such a task would open to
+          // "This document isn't available", so it is never written in the first place. Tasks
+          // that go through the picker below are safe: it only offers live resources.
+          if (task.activityTarget?.kind === "document") {
+            // A course absent from the map proves nothing about its documents, so only a list
+            // we actually hold can rule one out.
+            const courseResources = resourcesByCourse.get(task.courseId);
+            const liveResource =
+              !courseResources ||
+              Boolean(
+                findResourceForSourceDocKey(task.activityTarget.sourceDocKey, courseResources),
+              );
+            if (!liveResource) continue;
+          }
           ready.push(task);
           continue;
         }
@@ -1336,6 +1354,101 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
       updates.forEach((u) => scheduledTaskIdsRef.current.delete(u.taskId));
     });
   }, [user, tasksLoading, plan, tasks]);
+
+  /**
+   * Takes today's plan down to the work the student can actually do: a task whose target has
+   * been deleted is removed outright, and a concept-practice task whose generated set is gone
+   * forgets that set so Start can build a new one. Nothing is shown about either — a student
+   * is never told about work that no longer exists.
+   */
+  useEffect(() => {
+    if (surface !== "study-plan") return;
+    if (!user || classesLoading || planLoading || tasksLoading) return;
+    if (!plan || !hasUsablePlan(plan)) return;
+    // Only ever today's plan, and only once per load of it. Past plans are history.
+    if (prunedPlanDateRef.current === today) return;
+    prunedPlanDateRef.current = today;
+
+    const planTasks = (plan.taskIds ?? [])
+      .map((id) => tasks.find((task) => task.id === id))
+      .filter((task): task is (typeof tasks)[number] => Boolean(task));
+    if (planTasks.length === 0) return;
+
+    void (async () => {
+      const uid = user.uid;
+      const contentsByCourse = new Map<string, CourseContents>();
+      await Promise.all(
+        classes.map(async (cls) => {
+          try {
+            const [resourceSnap, quizSnap, flashcardSnap] = await Promise.all([
+              getDocs(collection(db, "users", uid, "enrollment", cls.id, "resources")),
+              getDocs(collection(db, "users", uid, "enrollment", cls.id, "quizSets")),
+              getDocs(collection(db, "users", uid, "enrollment", cls.id, "flashcardSets")),
+            ]);
+            contentsByCourse.set(cls.id, {
+              resources: resourceSnap.docs.map((d) => ({ ...d.data(), id: d.id })),
+              quizSetIds: new Set(quizSnap.docs.map((d) => d.id)),
+              flashcardSetIds: new Set(flashcardSnap.docs.map((d) => d.id)),
+            });
+          } catch {
+            // A failed read proves nothing about what this course holds. An empty
+            // CourseContents would read as "nothing left here" and delete every task in the
+            // course, so the only safe record of a failure is null.
+            contentsByCourse.set(cls.id, null);
+          }
+        })
+      );
+
+      const { staleIds, regenerateIds } = partitionPlanTasks(planTasks, contentsByCourse);
+
+      if (staleIds.length > 0) {
+        const outcomes = await Promise.allSettled(
+          staleIds.map((id) => deleteDoc(doc(db, studyTasksCollection(uid), id)))
+        );
+        // Only ids whose document really went away leave the plan, so a failed delete cannot
+        // leave the plan listing a task it no longer counts.
+        const removed = staleIds.filter((_, i) => outcomes[i].status === "fulfilled");
+        for (const outcome of outcomes) {
+          if (outcome.status === "rejected") {
+            console.error("Couldn't remove a study task whose target is gone:", outcome.reason);
+          }
+        }
+        if (removed.length > 0) {
+          const stale = new Set(removed);
+          try {
+            await updatePlanState({
+              taskIds: (plan.taskIds ?? []).filter((id) => !stale.has(id)),
+              totalTasks: Math.max(0, (plan.totalTasks ?? plan.taskIds?.length ?? 0) - removed.length),
+            });
+          } catch (err) {
+            console.error("Couldn't update the plan after removing stale tasks:", err);
+          }
+        }
+      }
+
+      for (const task of planTasks) {
+        if (!regenerateIds.includes(task.id)) continue;
+        const target = resolveActivityTarget(task);
+        if (target?.kind !== "concept_practice" || !target.generatedSetId) continue;
+        try {
+          await clearMissingGeneratedSet(uid, task.id, target.generatedSetId);
+        } catch (err) {
+          console.error("Couldn't clear a missing practice set:", err);
+        }
+      }
+    })();
+  }, [
+    surface,
+    user,
+    classes,
+    classesLoading,
+    planLoading,
+    tasksLoading,
+    plan,
+    tasks,
+    today,
+    updatePlanState,
+  ]);
 
   const activeTasks = useMemo(
     () =>

@@ -98,3 +98,28 @@ export async function releaseTaskGeneration(uid: string, taskId: string, claimAt
     transaction.update(ref, { "activityTarget.generationClaimedAtMs": null });
   });
 }
+
+/**
+ * Forgets a generated set that is no longer in the course, so the next Start builds a new one.
+ * The id is re-read inside the transaction and the write happens only while it is still the
+ * one found missing, so a set another tab recorded in the meantime is left alone. Clearing the
+ * claim cannot discard a live one: `claimTaskGeneration` only claims a task with no
+ * `generatedSetId`, so no claim can exist while the missing id is still recorded.
+ */
+export async function clearMissingGeneratedSet(
+  uid: string,
+  taskId: string,
+  missingSetId: string,
+): Promise<void> {
+  const ref = taskRef(uid, taskId);
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(ref);
+    const target = snap.exists() ? (snap.data()?.activityTarget as ActivityTarget | undefined) : undefined;
+    if (!target || target.kind !== "concept_practice") return;
+    if (target.generatedSetId !== missingSetId) return;
+    transaction.update(ref, {
+      "activityTarget.generatedSetId": null,
+      "activityTarget.generationClaimedAtMs": null,
+    });
+  });
+}

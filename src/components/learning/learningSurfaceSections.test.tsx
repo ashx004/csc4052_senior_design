@@ -61,3 +61,41 @@ describe("LearningWorkspace section scoping", () => {
     },
   );
 });
+
+describe("stale study-plan task pruning", () => {
+  it("never writes a generated task whose document target is already gone", () => {
+    // generateTasks is pure and has no resource list, so attachSelectedDocuments is the
+    // first place a document target can be checked against the course's live resources.
+    expect(source).toMatch(
+      /task\.activityTarget\?\.kind === "document"[\s\S]{0,600}if \(!liveResource\) continue;/,
+    );
+  });
+
+  it("runs stale-task pruning on the study-plan surface", () => {
+    expect(source).toContain("partitionPlanTasks");
+  });
+
+  it("stores null for a course whose contents could not be read", () => {
+    // A failed read proves nothing. Storing an empty CourseContents instead would read as
+    // "this course has nothing left" and delete every task in it, so the catch must store null.
+    expect(source).toMatch(/catch\s*\{[\s\S]{0,400}contentsByCourse\.set\(cls\.id, null\)/);
+  });
+
+  it("only prunes the current plan's tasks, guarded so it runs once per plan load", () => {
+    expect(source).toContain("prunedPlanDateRef");
+    expect(source).toMatch(/partitionPlanTasks\(\s*planTasks/);
+  });
+
+  it("reduces totalTasks by the number pruned and leaves the other counters alone", () => {
+    const update = source.match(/await updatePlanState\(\{[\s\S]{0,400}?\}\);/g) ?? [];
+    const pruneUpdate = update.find((call) => call.includes("removed.length"));
+    expect(pruneUpdate).toBeDefined();
+    expect(pruneUpdate).toContain("totalTasks");
+    expect(pruneUpdate).not.toContain("completedCount");
+    expect(pruneUpdate).not.toContain("skippedCount");
+  });
+
+  it("clears a missing generated set instead of deleting the task", () => {
+    expect(source).toContain("clearMissingGeneratedSet(uid, task.id, target.generatedSetId)");
+  });
+});
