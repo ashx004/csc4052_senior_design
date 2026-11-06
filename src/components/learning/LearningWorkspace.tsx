@@ -1041,8 +1041,14 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
         task = { ...found, activityTarget: { ...foundTarget, generatedSetId: setId } };
       }
 
-      // Plan tasks always open from the study-plan surface, so that is where back returns.
-      const url = resolveTaskActivityUrl(task, taskId, {
+      // Two URLs, deliberately. `storedUrl` is what the session persists, and it carries no
+      // `from`: the focus card replays that stored value (FocusCard -> router.push) from
+      // whatever page the student is on later, so a baked-in `from` would freeze "back =
+      // study plan" into the session and send them somewhere they were not — the very bug
+      // this change set exists to fix. `openUrl` adds `from` for this navigation only,
+      // because right now the student really is coming from the study plan.
+      const storedUrl = resolveTaskActivityUrl(task, taskId);
+      const openUrl = resolveTaskActivityUrl(task, taskId, {
         from: LEARNING_ROUTES["study-plan"],
       });
 
@@ -1052,9 +1058,9 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
           courseId: task.courseId,
           activityType: task.activityType,
           targetId: task.targetId,
-          activityUrl: url,
+          activityUrl: storedUrl,
         });
-        router.push(url);
+        router.push(openUrl);
         return;
       }
 
@@ -1074,10 +1080,10 @@ export default function LearningWorkspace({ surface }: { surface: LearningSurfac
         task.targetId,
         "countup",
         task.estimatedMinutes * 60,
-        url
+        storedUrl
       );
 
-      router.push(url);
+      router.push(openUrl);
     },
     [user, tasks, session, pauseSession, updateTaskStatus, startSession, attachTaskToSession, ensureGeneratedSet, router]
   );

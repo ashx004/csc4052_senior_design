@@ -124,3 +124,54 @@ describe("document topics", () => {
     expect(source).toMatch(/representedResourceIds: representedByCourse\.get\(cls\.id\)/);
   });
 });
+
+describe("the URL a session persists", () => {
+  // Deliberately a source assertion: this file already pins LearningWorkspace this way
+  // because the component takes auth, Firestore and study-plan context and cannot be
+  // rendered in a unit test. The property is read out of the source rather than asserted
+  // as a literal, so renaming the locals is fine but changing the wiring is not. What
+  // `resolveTaskActivityUrl` does with a `from` is pinned behaviourally in
+  // src/library/studyPlan/sessionTimer.test.ts.
+  const startTask = source.slice(
+    source.indexOf("const handleStartTask"),
+    source.indexOf("const handleOpenTaskActivity"),
+  );
+
+  // The name bound to a resolveTaskActivityUrl call that passes NO options...
+  const storedName = startTask.match(
+    /const (\w+) = resolveTaskActivityUrl\(task, taskId\);/,
+  )?.[1];
+  // ...and the name bound to one that passes a `from`.
+  const openName = startTask.match(
+    /const (\w+) = resolveTaskActivityUrl\(task, taskId, \{[\s\S]{0,120}?from:/,
+  )?.[1];
+
+  it("builds a from-less URL and a from-bearing URL, and they are not the same value", () => {
+    expect(startTask).toBeTruthy();
+    expect(storedName).toBeDefined();
+    expect(openName).toBeDefined();
+    // The regression is reusing one URL for both jobs, so the two must be distinct.
+    expect(storedName).not.toBe(openName);
+  });
+
+  it("persists the from-less URL, never the from-bearing one", () => {
+    // The focus card replays the stored value with router.push from whatever page the
+    // student is on later (see FocusCard), so a `from` frozen in here would send "back"
+    // to the study plan from a page they did not come from.
+    expect(startTask).toContain(`activityUrl: ${storedName}`);
+    expect(startTask).not.toContain(`activityUrl: ${openName}`);
+    // startSession takes the URL as its last positional argument.
+    expect(startTask).toMatch(
+      new RegExp(`startSession\\([\\s\\S]{0,400}?\\n\\s*${storedName}\\n\\s*\\);`),
+    );
+    expect(startTask).not.toMatch(
+      new RegExp(`startSession\\([\\s\\S]{0,400}?\\n\\s*${openName}\\n\\s*\\);`),
+    );
+  });
+
+  it("navigates with the from-bearing URL on every exit path", () => {
+    const pushes = startTask.match(/router\.push\((\w+)\)/g) ?? [];
+    expect(pushes.length).toBeGreaterThan(0);
+    for (const push of pushes) expect(push).toBe(`router.push(${openName})`);
+  });
+});
