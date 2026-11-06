@@ -201,7 +201,11 @@ function activityTargetForTask(
     return source?.kind === "document" ? source : undefined;
   }
   // A weak-spot concept topic already carries its own generation target; keep it as is.
-  if (source?.kind === "concept_practice" && topic.activityType === activityType) {
+  if (
+    source?.kind === "concept_practice" &&
+    topic.activityType === activityType &&
+    source.practiceType === activityType
+  ) {
     return source;
   }
   if (activityType === "quiz" || activityType === "flashcards") {

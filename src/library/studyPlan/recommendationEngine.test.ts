@@ -890,6 +890,34 @@ describe("generateTasks with an explicit preference", () => {
     expect(tasks[0].activityTarget).toEqual(own);
   });
 
+  it("rebuilds a concept target whose practiceType disagrees with the chosen activity", () => {
+    const quizShaped = {
+      kind: "concept_practice" as const,
+      conceptKeys: ["k"],
+      conceptLabels: ["Joins"],
+      conceptLevels: {},
+      sourceDocKeys: ["users/u/resources/doc.pdf"],
+      practiceType: "quiz" as const,
+      questionCount: 5,
+      generatedSetId: null,
+      generationClaimedAtMs: null,
+    };
+    const topic: EligibleTopic = {
+      ...baseTopic,
+      targetId: null,
+      activityType: "flashcards",
+      activityTarget: quizShaped,
+    };
+    const tasks = generateTasks(config("flashcards"), [topic], new Map());
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].activityType).toBe("flashcards");
+    expect(tasks[0].targetId).toBeNull();
+    expect(tasks[0].activityTarget).toMatchObject({
+      kind: "concept_practice",
+      practiceType: "flashcards",
+    });
+  });
+
   it("leaves auto behaviour unchanged", () => {
     const tasks = generateTasks(config("auto"), [documentCandidate("doc1")], new Map());
     expect(tasks[0].activityType).toBe("reading");
