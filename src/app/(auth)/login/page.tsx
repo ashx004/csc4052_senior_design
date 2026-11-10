@@ -218,7 +218,7 @@ function LoginForm() {
               placeholder="12345678"
               value={twoFactorCode}
               onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D/g, ""))}
-              className="rounded border border-border-light bg-bg-container px-3 py-2 text-center font-mono text-lg tracking-[0.35em] text-text-main outline-none focus:border-primary"
+              className="rounded border border-border-light bg-bg-container px-3 py-2 text-center text-lg tracking-[0.35em] text-text-main outline-none focus:border-primary"
               aria-label="Eight-digit sign-in code"
             />
             <label className="flex cursor-pointer items-start gap-2 text-sm text-text-main">
@@ -277,10 +277,6 @@ function LoginForm() {
           {greeting}
         </h1>
 
-        <p className="text-text-main font-mono font-thin text-xs">
-          More than just notes !
-        </p>
-
         <div className="flex flex-col gap-4 w-full mt-8">
           {actionMessage && (
             <p role="status" className="rounded bg-alert-success-bg px-3 py-2 text-sm text-alert-success">
@@ -297,14 +293,14 @@ function LoginForm() {
           <input
             type="email"
             placeholder="email"
-            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded font-mono text-sm"
+            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded text-sm"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
 
           <PasswordInput
             placeholder="password"
-            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded font-mono text-sm"
+            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded text-sm"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
