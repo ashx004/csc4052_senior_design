@@ -164,10 +164,6 @@ export default function Signup() {
           {greeting}
         </h1>
 
-        <p className="text-text-main font-mono font-thin text-xs">
-          More than just notes !
-        </p>
-
         <div className="flex flex-col gap-4 w-full mt-8">
 
           {/* A real form so Enter in any field creates the account. */}
@@ -175,7 +171,7 @@ export default function Signup() {
           <input
             type="name"
             placeholder="name"
-            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded font-mono text-sm"
+            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded text-sm"
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
@@ -183,14 +179,14 @@ export default function Signup() {
           <input
             type="email"
             placeholder="email"
-            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded font-mono text-sm"
+            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded text-sm"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
 
           <PasswordInput
             placeholder="password"
-            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded font-mono text-sm"
+            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded text-sm"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
@@ -198,7 +194,7 @@ export default function Signup() {
           <input
             type="text"
             placeholder="college / university (optional)"
-            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded font-mono text-sm"
+            className="border border-border-light bg-bg-container text-text-main px-3 py-2 rounded text-sm"
             value={college}
             onChange={(e) => setCollege(e.target.value)}
           />
